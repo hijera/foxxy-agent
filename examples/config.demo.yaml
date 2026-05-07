@@ -1,4 +1,3 @@
-# Test config for Coddy examples
 providers:
   - name: rpa
     type: openai
@@ -12,8 +11,8 @@ models:
 
 agent:
   model: "rpa/gpt-oss:120b"
-  max_turns: 30
-  max_tokens_per_turn: 200000
+  max_turns: 35
+  max_tokens_per_turn: 128000
 
 sessions:
   dir: ""
@@ -35,10 +34,17 @@ httpserver:
   host: "127.0.0.1"
   port: 19876
 
+scheduler:
+  enabled: true
+  dir: ""
+  poll_interval: "10s"
+  max_queue: 10
+  timeout: "6m"
+
 logger:
-  level: "warn"
-  outputs: ["stderr"]
-  file: ""
+  level: "info"
+  outputs: ["file"]
+  file: "__E2E_LOG_PATH__"
   format: "text"
   rotation:
     max_size_mb: 0

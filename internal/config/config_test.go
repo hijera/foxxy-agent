@@ -325,3 +325,51 @@ func TestLoadExplicitMissingFileReturnsError(t *testing.T) {
 		t.Fatal("expected error for nonexistent explicit config path")
 	}
 }
+
+func TestSchedulerEffectiveEnabledAndDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+	content := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "openai/gpt-4o"
+`
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SchedulerEffectiveEnabled() {
+		t.Fatal("expected scheduler off by default")
+	}
+	cfg.Scheduler.Enabled = true
+	if !cfg.SchedulerEffectiveEnabled() {
+		t.Fatal("scheduler.enabled should be observable")
+	}
+	if err := cfg.Scheduler.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scheduler.PollInterval != "1m" {
+		t.Fatalf("poll default %q", cfg.Scheduler.PollInterval)
+	}
+	if cfg.Scheduler.MaxQueue != 10 {
+		t.Fatalf("max_queue %d", cfg.Scheduler.MaxQueue)
+	}
+	wantDir := filepath.Join(home, "scheduler")
+	if cfg.Scheduler.Dir != wantDir {
+		t.Fatalf("dir %q want %q", cfg.Scheduler.Dir, wantDir)
+	}
+}

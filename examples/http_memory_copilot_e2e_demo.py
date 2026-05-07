@@ -88,7 +88,7 @@ def main() -> int:
         print("chat 2 failed", file=sys.stderr)
         return 1
 
-    deadline = time.time() + 10
+    deadline = time.time() + 120
     found = False
     while time.time() < deadline and not found:
         for root in (global_mem, project_mem):

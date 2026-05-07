@@ -28,11 +28,19 @@ export WORK_DIR
 export BASE_URL="http://127.0.0.1:$PORT/v1"
 export MODEL="${MODEL:-rpa/gpt-oss:120b}"
 
-"$BIN" http --disable-session --home "$HOME_DIR" --cwd "$WORK_DIR" -H 127.0.0.1 -P "$PORT" &
+"$BIN" http --config "$CODDY_CONFIG" --disable-session --home "$HOME_DIR" --cwd "$WORK_DIR" -H 127.0.0.1 -P "$PORT" &
 HTTP_PID=$!
-sleep 0.4
 if ! kill -0 "$HTTP_PID" 2>/dev/null; then
   echo "http server failed to start" >&2
+  exit 1
+fi
+ready=0
+for _ in $(seq 1 120); do
+  if curl -sf -o /dev/null "http://127.0.0.1:${PORT}/v1/models"; then ready=1; break; fi
+  sleep 0.25
+done
+if [[ "$ready" != 1 ]]; then
+  echo "http server did not become ready on port ${PORT}" >&2
   exit 1
 fi
 

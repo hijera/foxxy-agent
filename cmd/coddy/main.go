@@ -10,11 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -89,8 +90,8 @@ func printUsage(w *os.File) {
 	fmt.Fprintf(w, `Usage:
   %[1]s -h | --help
   %[1]s -v | --version
-  %[1]s acp [flags]
-  %[1]s http [flags]  (OpenAI-compatible HTTP; build with: go build -tags=http)
+  %[1]s acp [flags] (Agent Client Protocol)
+  %[1]s http [flags] (OpenAI-compatible HTTP)
   %[1]s sessions list [flags]
   %[1]s skills list
   %[1]s skills install <path-or-github-or-url>
@@ -111,6 +112,7 @@ func runACP(args []string) error {
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 	disableSession := fs.Bool("disable-session", false, "do not write sessions to disk (in-memory only; use for cron and one-shot runs; session/load and session/list unavailable)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
+	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -139,6 +141,12 @@ func runACP(args []string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if *schedulerEnabled {
+		cfg.Scheduler.Enabled = true
+	}
+	if err := cfg.Scheduler.Validate(cfg); err != nil {
+		return fmt.Errorf("scheduler: %w", err)
+	}
 
 	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{
 		Level:  strings.TrimSpace(*logLevel),
@@ -153,6 +161,8 @@ func runACP(args []string) error {
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting ACP server", "version", version.Get())
+
+	scheduler.Start(context.Background(), cfg, log, paths.CWD)
 
 	var store *session.FileStore
 	if *disableSession {
@@ -191,7 +201,7 @@ func ensureCoddyHomeLayout(home string) error {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
-	for _, name := range []string{"sessions", "skills"} {
+	for _, name := range []string{"sessions", "skills", "scheduler"} {
 		p := filepath.Join(home, name)
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", p, err)

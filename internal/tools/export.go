@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -14,8 +15,13 @@ type (
 	Registry = tooling.Registry
 )
 
-// NewRegistry returns a registry with all built-in tools registered.
+// NewRegistry returns a registry with all built-in tools registered (scheduler tools omitted).
 func NewRegistry() *Registry {
+	return NewRegistryFor(nil)
+}
+
+// NewRegistryFor returns built-in tools plus optional scheduler tools when cfg enables scheduler.
+func NewRegistryFor(cfg *config.Config) *Registry {
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandTool())
@@ -27,6 +33,7 @@ func NewRegistry() *Registry {
 	r.Register(todo.ItemRemoveTool())
 	r.Register(todo.ItemUpdateTool())
 	r.Register(todo.ItemMoveTool())
+	registerSchedulerTools(r, cfg)
 	return r
 }
 

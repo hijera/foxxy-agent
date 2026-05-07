@@ -1,6 +1,7 @@
 # Binaries
 build/
 coddy-agent
+/coddy
 rpa-agent
 *.exe
 *.exe~
@@ -21,6 +22,7 @@ config.yaml
 
 # Logs
 *.log
+__E2E_LOG_PATH__
 
 # OS
 .DS_Store

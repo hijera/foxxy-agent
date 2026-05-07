@@ -5,6 +5,7 @@
 #   Long-term memory lives in external/memory and is always linked into coddy. Turn it on or off at
 #   runtime with memory.enabled in config.yaml (no separate memory binary).
 #   OpenAI-compatible HTTP (external/httpserver) is included only with TAGS=http.
+#   Cron scheduler (external/scheduler, lib/, tools/) is included only with TAGS=scheduler.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,
@@ -49,6 +50,8 @@ install: build
 test:
 	go test ./...
 	go test -tags=http ./...
+	go test -tags=scheduler ./...
+	go test -tags=http,scheduler ./...
 
 # Clean build artifacts.
 clean:

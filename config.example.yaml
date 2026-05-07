@@ -110,6 +110,18 @@ tools:
 #   host: "127.0.0.1"
 #   port: 8080
 
+# Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
+# Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
+# (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,
+# basename.lock during a run.
+# Enable with scheduler.enabled and/or coddy acp|http -scheduler-enabled.
+# scheduler:
+#   enabled: false
+#   dir: ""              # empty = ${CODDY_HOME}/scheduler
+#   poll_interval: "1m"
+#   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
+#   timeout: "30m"       # per scheduled agent run
+
 # Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enabled.
 # Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
 # same {{.Memory}} section as session notes; main agent never sees memory_* tools.

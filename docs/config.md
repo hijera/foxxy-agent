@@ -4,7 +4,7 @@
 
 Resolved locations use environment variables and flags (see README). In short:
 
-- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, and `skills/`.
+- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 
@@ -143,6 +143,14 @@ tools:
 #   host: "127.0.0.1"
 #   port: 8080
 
+# Cron scheduler (only with go build -tags=scheduler). UTC crontab; jobs under scheduler.dir.
+# scheduler:
+#   enabled: false
+#   dir: ""
+#   poll_interval: "1m"
+#   max_queue: 10
+#   timeout: "30m"
+
 # Logging (Go: config.Logger, internal/config/logger.go)
 logger:
   level: "info"           # debug | info | warn | error
@@ -164,6 +172,14 @@ If the older two-field style had **`file`** set under **`logger`** but no **`out
 ## HTTP gateway (optional build)
 
 The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
+
+## Scheduler (optional build)
+
+The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
+
+Jobs are **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent` or `plan`). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
+
+Five **`coddy_scheduler_*`** tools manage jobs when the scheduler is effectively enabled.
 
 ## Environment Variable References
 

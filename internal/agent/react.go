@@ -55,7 +55,7 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		state:    state,
 		server:   server,
 		log:      log,
-		registry: tools.NewRegistry(),
+		registry: tools.NewRegistryFor(cfg),
 	}
 }
 

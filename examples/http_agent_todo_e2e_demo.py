@@ -67,11 +67,11 @@ The file must include the final checklist and one sentence recap.
         print("missing X-Coddy-Session-ID header", file=sys.stderr)
         return 1
 
-    deadline = time.time() + 10
+    deadline = time.time() + 240
     while time.time() < deadline:
         if out_path.is_file() and out_path.stat().st_size > 20:
             break
-        time.sleep(0.2)
+        time.sleep(0.35)
 
     if not out_path.is_file():
         print("todo report was not created", file=sys.stderr)

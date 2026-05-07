@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -48,6 +49,7 @@ func Run(args []string, deps CommandDeps) error {
 	port := fs.String("P", "12345", "listen port for HTTP")
 	fs.StringVar(host, "host", "0.0.0.0", "bind address for HTTP (alias of -H)")
 	fs.StringVar(port, "port", "12345", "listen port (alias of -P)")
+	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -77,6 +79,12 @@ func Run(args []string, deps CommandDeps) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if *schedulerEnabled {
+		cfg.Scheduler.Enabled = true
+	}
+	if err := cfg.Scheduler.Validate(cfg); err != nil {
+		return fmt.Errorf("scheduler: %w", err)
+	}
 
 	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{
 		Level:  strings.TrimSpace(*logLevel),
@@ -91,6 +99,8 @@ func Run(args []string, deps CommandDeps) error {
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting HTTP server", "version", version.Get())
+
+	scheduler.Start(context.Background(), cfg, log, paths.CWD)
 
 	var store *session.FileStore
 	if *disableSession {
