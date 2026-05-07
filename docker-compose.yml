@@ -1,0 +1,27 @@
+services:
+  coddy:
+    build:
+      context: .
+    ports:
+      - "12345:12345"
+    working_dir: /workspace
+    environment:
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CWD: /workspace
+      CODDY_CONFIG: /home/user/.coddy.yaml
+      OPENAI_API_KEY: ${OPENAI_API_KEY-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY-}
+    volumes:
+      - ${CODDY_CONFIG-./config.yaml}:/home/user/.coddy.yaml:ro
+      - ${CODDY_CWD-./workspace}:/workspace
+      - ${CODDY_HOME-./coddy_home}:/home/user/.coddy
+    healthcheck:
+      test: ["CMD", "/bin/coddy", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100k"
