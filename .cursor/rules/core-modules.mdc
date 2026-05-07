@@ -1,0 +1,20 @@
+---
+description: Main internal packages at a glance
+globs: internal/**/*.go
+alwaysApply: false
+---
+
+# Core modules (sketch)
+
+- **`internal/acp`** - ACP RPC server, session lifecycle from editors.
+- **`internal/agent`** - tool loop and LLM turns.
+- **`internal/session`** - session manager and mode (`agent` / `plan`).
+- **`internal/config`** - YAML and flags.
+- **`internal/tools`** - filesystem, shell, todo, MCP merge, etc.
+- **`internal/skills`** - skill loading aligned with Cursor-style skills.
+
+Prefer extending these over growing **`cmd/`** or duplicating logic in **`external/`**.
+
+## References
+
+@architecture.mdc

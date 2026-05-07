@@ -1,0 +1,32 @@
+---
+description: Layers and dependency direction for Coddy Agent
+globs: **/*.go
+alwaysApply: true
+---
+
+# Architecture
+
+**Coddy** is a Go CLI and ACP harness. Keep dependencies flowing **inward**: higher layers orchestrate lower ones; shared types stay shallow.
+
+## Rough layers (low to high)
+
+1. **`internal/version`**, **`internal/logger`**, small shared helpers - minimal inward imports.
+2. **`internal/config`** - configuration structs and loading.
+3. **`internal/session`**, **`internal/llm`**, **`internal/prompts`** - runtime state and model access.
+4. **`internal/tools`**, **`internal/permission`**, **`internal/skills`** - capabilities and policies.
+5. **`internal/agent`** - ReAct-style loop assembling the above.
+6. **`internal/acp`** - ACP protocol server on top of the agent and session manager.
+7. **`cmd/coddy`** - CLI entrypoints and wiring.
+
+## Optional build tags
+
+- **`external/memory`** - long-term memory (linked by default per README).
+- **`external/httpserver`** - OpenAI-shaped HTTP API; **`//go:build http`**. Keep handler registration and **`openapi.go`** in sync.
+- **`external/scheduler`**, **`lib/`**, **`tools/`** (schedtools) - cron and related tools; scheduler tag.
+
+Do not introduce import cycles. If a new package would cycle, split interfaces or move shared types down-layer.
+
+## References
+
+@README.md
+@core-modules.mdc

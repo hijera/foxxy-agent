@@ -1,0 +1,46 @@
+---
+description: BDD-style workflow, HTTP OpenAPI sync before lint, final checks
+globs: **/*.go, docs/**/*.md, README.md
+alwaysApply: true
+---
+
+# Workflow (features, bugs, finish)
+
+## New behavior (TDD / BDD)
+
+When adding or changing behavior (including words like feature, add, implement, фича, добавить):
+
+1. Add or extend a **failing** test that asserts the observable outcome (red).
+2. Run the narrowest test scope that proves the failure is real.
+3. Implement the smallest change that makes the test pass (green).
+4. Run **`make test`** (full suite: default, `http`, `scheduler`, combined tags). Everything must pass.
+5. **HTTP OpenAPI narrative** - If you changed the optional OpenAI-compatible HTTP API (routes, methods, headers, request or response bodies, status codes, or anything reflected in the served spec), update **`external/httpserver/openapi.go`** (`openAPISpec`) so it matches **`external/httpserver/server.go`** handlers and tests. Align **`docs/http-api.md`** (and **`README.md`** HTTP bullets) when user-facing descriptions change.
+6. Run **`make lint`** (`golangci-lint`). Fix reported issues.
+
+Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched.
+
+## Bug fixes
+
+1. Add a regression test that fails on the broken code.
+2. Fix the code; confirm the new test passes.
+3. Run **`make test`**.
+4. If the bug or fix touches the HTTP API surface, complete step 5 (OpenAPI and docs) from the feature flow.
+5. Run **`make lint`**.
+
+## Before calling work done
+
+- **`make test`** green.
+- OpenAPI and HTTP docs updated when the HTTP API changed.
+- **`make lint`** clean.
+
+## References
+
+@testing.mdc
+@code-style.mdc
+@architecture.mdc
+@api-layer.mdc
+@implementation-order.mdc
+@Makefile
+@docs/http-api.md
+@external/httpserver/server.go
+@external/httpserver/openapi.go
