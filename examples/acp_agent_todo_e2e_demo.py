@@ -6,7 +6,7 @@ Prompt only states high-level rules (bounded cwd, backlog, tooling, synthesized 
 Verifies:
 
 - backlog shows todo list progressed to zero pending and min completed steps
-- at least create_todo_list plus a reconcile operation (update_todo_item or done_todo_item)
+- bootstrap checklist (`coddy_todo_plan_replace` or repeated `coddy_todo_item_add`) plus reconcile (typically `coddy_todo_item_update`)
 - filesystem side effect from a write-class tool invocation
 - non-trivial synthesized text persisted under cwd (combined size heuristic)
 
@@ -148,6 +148,9 @@ WRITE_CLASS_TOOLS = frozenset(
     }
 )
 
+# Satisfactory ways to populate the checklist first (models differ).
+INITIAL_PLAN_TOOL_CALLS = frozenset({"coddy_todo_plan_replace", "coddy_todo_item_add"})
+
 
 def sum_utf8_regular_files(work: Path) -> int:
     if not work.is_dir():
@@ -275,7 +278,7 @@ Fully autonomously (no clarification questions):
 2. Capture that checklist in Coddy session todos via the builtin todo tools (whatever names arrive in-context).
 3. Execute the plan sequentially: synthesize BOTH narrative-style Markdown notes AND structured JSON authored by YOU, saved with filesystem tools (`write_file`, `mkdir`, optionally `touch`, etc.). Aim for substantive content describing your invented artifact (goals of the miniature project, timestamps, bogus metrics, whimsical names).
 4. Incorporate at least one DIFFERENT class of tooling step from pure todo bookkeeping (listing a directory YOU created inside cwd, benign `run_command`, `read_file`, or `mv` between staged temp files—all paths stay rooted in this cwd).
-5. After EACH substantive accomplishment, reconcile the persisted checklist (`update_todo_item`, `done_todo_item`, or equivalent) until every checklist row is `[x]`.
+5. After EACH substantive accomplishment, reconcile the persisted checklist (`coddy_todo_item_update` or equivalent coddy todo tools) until every checklist row is `[x]`.
 6. Close with one terse recap quoting relative paths."""
 
     exit_code = 0
@@ -366,13 +369,18 @@ Fully autonomously (no clarification questions):
                 elif p.is_dir():
                     print(" ", rel, "/", file=sys.stderr)
 
-        if "create_todo_list" not in seen_tools:
-            print("FAIL: never observed create_todo_list tool_call", file=sys.stderr)
+        if not (seen_tools & INITIAL_PLAN_TOOL_CALLS):
+            print(
+                "FAIL: never observed checklist bootstrap (expected one of "
+                + ", ".join(sorted(INITIAL_PLAN_TOOL_CALLS))
+                + ")",
+                file=sys.stderr,
+            )
             exit_code = max(exit_code, 21)
 
-        if not (seen_tools & {"update_todo_item", "done_todo_item"}):
+        if not (seen_tools & {"coddy_todo_item_update"}):
             print(
-                "FAIL: expected update_todo_item or done_todo_item to reconcile checklist",
+                "FAIL: expected coddy_todo_item_update to reconcile checklist rows",
                 file=sys.stderr,
             )
             exit_code = max(exit_code, 22)

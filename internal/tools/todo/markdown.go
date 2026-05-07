@@ -6,8 +6,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
-// ParseTodoMarkdown parses a markdown checklist string into PlanEntry values.
-func ParseTodoMarkdown(markdown string) []acp.PlanEntry {
+// ParsePlanMarkdown parses a markdown checklist string into PlanEntry values.
+func ParsePlanMarkdown(markdown string) []acp.PlanEntry {
 	var entries []acp.PlanEntry
 	normalized := strings.ReplaceAll(markdown, `\n`, "\n")
 	for _, line := range strings.Split(normalized, "\n") {
@@ -57,8 +57,8 @@ func parseCheckboxLine(line string) (checked bool, text string, ok bool) {
 	return false, "", false
 }
 
-// FormatTodoMarkdown renders plan entries as a markdown checklist.
-func FormatTodoMarkdown(entries []acp.PlanEntry) string {
+// FormatPlanMarkdown renders plan entries as a markdown checklist.
+func FormatPlanMarkdown(entries []acp.PlanEntry) string {
 	if len(entries) == 0 {
 		return ""
 	}

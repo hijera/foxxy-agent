@@ -136,7 +136,7 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	var plan []acp.PlanEntry
 	activePath := ActiveTodoPath(dir)
 	if b, readErr := os.ReadFile(activePath); readErr == nil && strings.TrimSpace(string(b)) != "" {
-		plan = todo.ParseTodoMarkdown(string(b))
+		plan = todo.ParsePlanMarkdown(string(b))
 	}
 
 	var permCmds, permWrites []string
@@ -289,7 +289,7 @@ func SyncActiveTodoFile(sessionDir string, plan []acp.PlanEntry) error {
 		return err
 	}
 	path := filepath.Join(tdir, activeTodoFile)
-	text := todo.FormatTodoMarkdown(plan)
+	text := todo.FormatPlanMarkdown(plan)
 	var data []byte
 	if text != "" {
 		data = []byte(text + "\n")
@@ -299,6 +299,48 @@ func SyncActiveTodoFile(sessionDir string, plan []acp.PlanEntry) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// WritePlanArchivedMarkdown saves markdown to todos/archive/plan_<unix_seconds>.md.
+// If another file already uses the same basename (same-second collision), tries plan_<sec>_1.md, etc.
+func WritePlanArchivedMarkdown(sessionDir, markdown string) (writtenPath string, err error) {
+	if strings.TrimSpace(sessionDir) == "" {
+		return "", fmt.Errorf("session directory is empty")
+	}
+	raw := strings.TrimSpace(markdown)
+	archDir := filepath.Join(sessionDir, todosDirName, todosArchiveName)
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		return "", err
+	}
+	sec := time.Now().Unix()
+	for i := range 4096 {
+		var name string
+		if i == 0 {
+			name = fmt.Sprintf("plan_%d.md", sec)
+		} else {
+			name = fmt.Sprintf("plan_%d_%d.md", sec, i)
+		}
+		dest := filepath.Join(archDir, name)
+		if _, statErr := os.Stat(dest); statErr == nil {
+			continue
+		}
+		var data []byte
+		if raw != "" {
+			data = []byte(raw)
+			if data[len(data)-1] != '\n' {
+				data = append(data, '\n')
+			}
+		}
+		tmp := dest + ".tmp"
+		if err := os.WriteFile(tmp, data, 0o644); err != nil {
+			return "", err
+		}
+		if err := os.Rename(tmp, dest); err != nil {
+			return "", err
+		}
+		return dest, nil
+	}
+	return "", fmt.Errorf("could not allocate unique archive file under sec=%d", sec)
 }
 
 // ArchiveActiveTodo moves todos/active.md to todos/archive/todo-<nanos>.md if it has content.

@@ -34,6 +34,10 @@ type Env struct {
 	// Optional; wired by the runner when persistence is enabled.
 	ArchiveActiveMarkdown func() error
 
+	// WriteArchivedPlanMarkdown persists finalized markdown to todos/archive/plan_<unix>.md when SessionDir is set.
+	// Optional; returns the written filesystem path when successful.
+	WriteArchivedPlanMarkdown func(markdown string) (pathWritten string, err error)
+
 	// Sender allows tools to send session updates (e.g. PlanUpdate).
 	// May be nil - tools must nil-check before use.
 	Sender acp.UpdateSender

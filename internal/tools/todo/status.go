@@ -1,7 +1,7 @@
 package todo
 
-// ValidTodoStatuses lists allowed values for PlanEntry.Status in update tool.
-var ValidTodoStatuses = map[string]bool{
+// ValidPlanStepStatuses lists allowed values for PlanEntry.Status when updating items.
+var ValidPlanStepStatuses = map[string]bool{
 	"pending":     true,
 	"in_progress": true,
 	"completed":   true,

@@ -20,13 +20,13 @@ func NewRegistry() *Registry {
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandTool())
 	r.Register(AskUserApprovalTool())
-	r.Register(todo.CreateListTool())
-	r.Register(todo.UpdateItemTool())
-	r.Register(todo.GetListTool())
-	r.Register(todo.DeleteItemTool())
-	r.Register(todo.DoneTodoItemTool())
-	r.Register(todo.UndoneTodoItemTool())
-	r.Register(todo.CleanTodoListTool())
+	r.Register(todo.PlanReadTool())
+	r.Register(todo.PlanReplaceTool())
+	r.Register(todo.PlanArchiveTool())
+	r.Register(todo.ItemAddTool())
+	r.Register(todo.ItemRemoveTool())
+	r.Register(todo.ItemUpdateTool())
+	r.Register(todo.ItemMoveTool())
 	return r
 }
 

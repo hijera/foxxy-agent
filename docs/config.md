@@ -72,7 +72,7 @@ prompts:
   #   {{.CWD}}      - session working directory
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills and rules (omit section when empty via {{if .Skills}})
-  #   {{.TodoList}} - current session todo checklist as markdown lines (empty until create_todo_list / updates)
+  #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
   #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enabled is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #

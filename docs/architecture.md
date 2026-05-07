@@ -120,15 +120,15 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **`write_file`** and **`write_text_file`**), **`ls.go`** (**`list_dir`**), **`find.go`** (**`search_files`**),
   **`patch.go`** (**`apply_diff`**), **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
 - **`internal/tools/shell`** - **`run_command`**
-- **`internal/tools/todo`** - todo/plan list (**`create_todo_list`**, **`get_todo_list`**,
-  **`update_todo_item`**, **`delete_todo_item`**, **`done_todo_item`**, **`undone_todo_item`**,
-  **`clean_todo_list`**)
+- **`internal/tools/todo`** - todo/plan list (**`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
+  **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**,
+  **`coddy_todo_item_update`**, **`coddy_todo_item_move`**)
 
 Agents see:
 
-- **`read_file`**, **`list_dir`**, **`search_files`**, **`create_todo_list`**, **`get_todo_list`**,
-  **`update_todo_item`**, **`delete_todo_item`**, **`done_todo_item`**, **`undone_todo_item`**,
-  **`clean_todo_list`**, and **`write_text_file`** when in **`plan`**
+- **`read_file`**, **`list_dir`**, **`search_files`**, **`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
+  **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**, **`coddy_todo_item_update`**,
+  **`coddy_todo_item_move`**, and **`write_text_file`** when in **`plan`**
   mode (**`write_text_file`** allows only `.txt` / `.md` / `.mdx` and is omitted from **`agent`**).
 - **`write_file`** and the rest (including **`mkdir`**, **`rm`**, **`mv`**, etc.) plus
   **`run_command`** when in **`agent`** mode.

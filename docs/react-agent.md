@@ -53,7 +53,7 @@ Working directory: {{.CWD}}
 {{.UTCNow}}
 ```
 
-The **`TodoList`** body is markdown from **`internal/tools/todo.FormatTodoMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**.
+The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**.
 
 Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
 
@@ -125,14 +125,14 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`create_todo_list`**, **`update_todo_item`**, **`done_todo_item`**, **`get_todo_list`**, etc., as surfaced in **`Tools`**.
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**.
 
 Representative builtins (excluding MCP-namespaced tools):
 
 - `read_file`, `write_file`, `list_dir`, `search_files`
 - `run_command`, `apply_diff`
 - Filesystem mutations: **`mkdir`**, **`rm`**, **`rmdir`**, **`touch`**, **`mv`** (subset may require permission paths)
-- Session checklist: **`create_todo_list`**, **`update_todo_item`**, **`delete_todo_item`**, **`done_todo_item`**, **`undone_todo_item`**, **`get_todo_list`**, **`clean_todo_list`**
+- Session checklist: **`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**, **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**, **`coddy_todo_item_update`**, **`coddy_todo_item_move`**
 - All MCP server tools (names **`serverName__toolName`**)
 
 Plan mode forbids **`write_file`** entirely; **`write_text_file`** is **`PlanOnly`** and hidden from **`agent`**.
@@ -233,7 +233,7 @@ When ready to ship implementation work, prompts instruct switching the client to
 
 ## Plan Update Format
 
-Clients receive `session/update` notifications whose **`sessionUpdate`** field equals **`plan`**, carrying structured **`entries`**. Todolist tooling also persists the active checklist under **`todos/active.md`** in the bundle when session persistence is on (mirrors **`FormatTodoMarkdown`** / **`ParseTodoMarkdown`**).
+Clients receive `session/update` notifications whose **`sessionUpdate`** field equals **`plan`**, carrying structured **`entries`**. Todolist tooling also persists the active checklist under **`todos/active.md`** in the bundle when session persistence is on (mirrors **`FormatPlanMarkdown`** / **`ParsePlanMarkdown`**).
 
 Example payload:
 

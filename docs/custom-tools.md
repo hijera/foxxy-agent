@@ -407,52 +407,34 @@ Before submitting a new tool, verify:
 
 ## Built-in Plan / Todo Tools
 
-Two tools are built into the agent to support task tracking. Plan entries and optional token
-statistics are surfaced to editors through `session/update` notifications (`PlanUpdate` and related
-updates). Both tools are available in **both** `agent` and `plan` modes.
+Seven **`coddy_`** tools (`internal/tools/todo`) drive the checklist. Plan mutations emit
+`session/update` with **`plan`** payloads. They remain available in **both** **`agent`** and **`plan`** modes.
 
-### `create_todo_list`
+| Tool name | Purpose |
+|-----------|---------|
+| **`coddy_todo_plan_read`** | Return the markdown checklist rendering of the active plan (`{}`). |
+| **`coddy_todo_plan_replace`** | Swap the entire plan (`markdown`). Rejected while any row is unfinished unless you **`coddy_todo_plan_archive`** first. Completed lists archive **`todos/active.md`** before swapping. |
+| **`coddy_todo_plan_archive`** | Mark every unfinished row **`completed`**, write **`todos/archive/plan_<unix_seconds>.md`** when **`SessionDir`**, clear in-memory plan, emit empty **`plan`**. |
+| **`coddy_todo_item_add`** | Append or insert (`content`, optional `status`, optional `after_index`; `-1` prepends). |
+| **`coddy_todo_item_remove`** | Drop a row (`index`). |
+| **`coddy_todo_item_update`** | Mutate (`index` plus **`content`** and/or **`status`**). Status enum is `pending`, `in_progress`, `completed`, `failed`, `cancelled`. |
+| **`coddy_todo_item_move`** | Re-order (`from_index`, `to_index`; indices apply after deletion semantics). |
 
-Creates or replaces the current todo list from a markdown checklist.
-
-```
-Arguments:
-  items  (string, required)  Markdown checklist, one item per line.
-                             Supported: "- [ ] task", "- [x] done", "* [ ] task"
-```
-
-Example agent call:
+Example wholesale replace:
 
 ```json
 {
-  "items": "- [ ] Read existing code\n- [ ] Write tests\n- [ ] Implement feature\n- [ ] Update docs"
+  "markdown": "- [ ] Read existing code\n- [ ] Write tests\n- [ ] Implement feature\n- [ ] Update docs"
 }
 ```
 
-The tool:
-1. Parses the checklist into plan entries (checked items get status `completed`)
-2. Stores the plan in session state (persists across turns)
-3. Sends a `PlanUpdate` via `acp.UpdateSender` so the client can refresh its plan UI
-4. Returns a confirmation string to the LLM
-
-### `update_todo_item`
-
-Updates the status of a single plan entry by zero-based index.
-
-```
-Arguments:
-  index   (integer, required)  Zero-based position in the list
-  status  (string, required)   One of: pending, in_progress, completed, failed, cancelled
-```
-
-Example agent call:
+Example status bump:
 
 ```json
 { "index": 0, "status": "in_progress" }
 ```
 
-ACP-capable editors map these plan states to their own checklist UI once they receive updates.
-Rough equivalent of Markdown checkbox markers in the markdown source:
+ACP-capable editors map plan states to their UI. Markdown markers map roughly to:
 
 | Symbol | Status |
 |--------|--------|

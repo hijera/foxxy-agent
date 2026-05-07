@@ -7,18 +7,15 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
-	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -91,7 +88,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
 
-	// Restore existing plan via session/update if one was set by create_todo_list in a previous turn.
+	// Restore existing plan via session/update if one was set by coddy todo tools in a previous turn.
 	if existing := a.state.GetPlan(); len(existing) > 0 {
 		if err := a.sendPlan(a.state.GetID(), existing); err != nil {
 			a.log.Warn("failed to restore plan", "error", err)
@@ -122,6 +119,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			}
 			return session.ArchiveActiveTodo(sd)
 		},
+		WriteArchivedPlanMarkdown: func(md string) (string, error) {
+			if sd == "" {
+				return "", nil
+			}
+			return session.WritePlanArchivedMarkdown(sd, md)
+		},
 		Sender:  a.server,
 		GetPlan: a.state.GetPlan,
 		SetPlan: a.state.SetPlan,
@@ -136,7 +139,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
-		// state after tools like create_todo_list / update_todo_items in the same user turn.
+		// state after coddy_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
 			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs)
 		}
@@ -370,32 +373,6 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
-}
-
-// buildSystemPrompt constructs the system prompt for the current mode and skills.
-func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
-	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
-	todoMD := strings.TrimSpace(todo.FormatTodoMarkdown(a.state.GetPlan()))
-	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), strings.TrimSpace(a.state.GetMemoryCopilotBlock()))
-	return prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
-		CWD:      a.state.GetCWD(),
-		Skills:   skills.BuildSystemPromptSection(activeSkills),
-		Tools:    tools.FormatDefinitionsForPrompt(toolDefs),
-		Memory:   mem,
-		TodoList: todoMD,
-		UTCNow:   time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-func formatMergedMemory(sessionNotes, recall string) string {
-	var parts []string
-	if recall != "" {
-		parts = append(parts, recall)
-	}
-	if sessionNotes != "" {
-		parts = append(parts, "Session notes:\n"+sessionNotes)
-	}
-	return strings.Join(parts, "\n\n")
 }
 
 // buildMessages constructs the message slice to send to the LLM.
