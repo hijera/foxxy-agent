@@ -46,7 +46,7 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
 	params := p.buildParams(messages, tools)
 	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var fullContent string
 	var toolCalls []ToolCall

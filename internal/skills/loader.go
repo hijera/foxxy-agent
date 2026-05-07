@@ -231,10 +231,7 @@ func parseFrontmatter(data []byte) (string, *frontmatter) {
 // Handles **/ prefix patterns by matching against the basename or full path.
 func matchesAny(pattern string, files []string) bool {
 	// Strip **/ prefix for simpler matching.
-	simplePattern := pattern
-	if strings.HasPrefix(simplePattern, "**/") {
-		simplePattern = simplePattern[3:]
-	}
+	simplePattern := strings.TrimPrefix(pattern, "**/")
 
 	for _, f := range files {
 		// Match against full path.

@@ -40,7 +40,7 @@ func ParseFile(path string, f Filter) ([]Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("logger: open %s: %w", path, err)
 	}
-	defer fh.Close()
+	defer func() { _ = fh.Close() }()
 
 	return ParseReader(fh, f)
 }

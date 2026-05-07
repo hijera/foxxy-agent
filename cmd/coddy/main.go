@@ -87,7 +87,7 @@ func main() {
 }
 
 func printUsage(w *os.File) {
-	fmt.Fprintf(w, `Usage:
+	_, _ = fmt.Fprintf(w, `Usage:
   %[1]s -h | --help
   %[1]s -v | --version
   %[1]s acp [flags] (Agent Client Protocol)
@@ -114,7 +114,7 @@ func runACP(args []string) error {
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage of acp:\n")
+		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -276,7 +276,7 @@ func runSessions(args []string) error {
 
 func runSkills(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s skills list|install|uninstall ...", os.Args[0])
+		return fmt.Errorf("usage: %s skills list, install, or uninstall", os.Args[0])
 	}
 	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {

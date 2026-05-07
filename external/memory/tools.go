@@ -69,7 +69,7 @@ func execTool(store *Store, mem *config.MemoryConfig, name, inputJSON string) (s
 		}
 		var b strings.Builder
 		for i, h := range hits {
-			b.WriteString(fmt.Sprintf("### Hit %d (%s score=%d path=%s)\n%s\n\n", i+1, h.Scope, h.Score, h.Path, h.Snippet))
+			_, _ = fmt.Fprintf(&b, "### Hit %d (%s score=%d path=%s)\n%s\n\n", i+1, h.Scope, h.Score, h.Path, h.Snippet)
 		}
 		return b.String(), nil
 	case "coddy_memory_read":

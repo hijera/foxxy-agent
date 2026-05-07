@@ -19,10 +19,9 @@ type Request struct {
 	Params  interface{} `json:"params,omitempty"`
 }
 
-// RequestID can be either a number or a string.
-type RequestID struct {
-	value interface{}
-}
+// RequestID identifies a JSON-RPC request on the wire as a number or string.
+// The server decodes ids from raw JSON in Server.processLine.
+type RequestID struct{}
 
 // Response is a JSON-RPC response.
 type Response struct {

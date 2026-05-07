@@ -93,7 +93,7 @@ func renderSkillsTable(w io.Writer, loaded []*Skill) {
 	style.Options.SeparateRows = true
 	tw.SetStyle(style)
 	tw.Render()
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 }
 
 func skillTableWidths() (nameCol, descCol int) {
@@ -296,7 +296,7 @@ func installFromURL(rawURL, installDir string) error {
 	if err != nil {
 		return fmt.Errorf("download %s: %w", rawURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: HTTP %d", rawURL, resp.StatusCode)

@@ -48,7 +48,7 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	params := p.buildParams(system, msgs, tools)
 
 	stream := p.client.Messages.NewStreaming(ctx, params)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var fullContent string
 	var toolCalls []ToolCall

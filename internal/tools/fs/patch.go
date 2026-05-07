@@ -85,8 +85,8 @@ func applyUnifiedDiff(original, diff string) (string, error) {
 	for _, dl := range diffLines {
 		if strings.HasPrefix(dl, "@@") {
 			var origStart, newStart int
-			fmt.Sscanf(dl, "@@ -%d", &origStart)
-			fmt.Sscanf(dl, "@@ -%*d,%*d +%d", &newStart)
+			_, _ = fmt.Sscanf(dl, "@@ -%d", &origStart)            //nolint:errcheck // hunk header shape varies
+			_, _ = fmt.Sscanf(dl, "@@ -%*d,%*d +%d", &newStart) //nolint:errcheck // hunk header shape varies
 			hunkStart = origStart - 1
 			origOffset = 0
 			inHunk = true

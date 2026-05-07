@@ -93,13 +93,12 @@ func truncateForReplay(s string) string {
 }
 
 func replayToolKind(name string) string {
-	switch {
-	case name == "read_file" || name == "list_dir":
+	switch name {
+	case "read_file", "list_dir":
 		return "read"
-	case name == "write_file" || name == "write_text_file" || name == "apply_diff" ||
-		name == "mkdir" || name == "rmdir" || name == "touch" || name == "rm" || name == "mv":
+	case "write_file", "write_text_file", "apply_diff", "mkdir", "rmdir", "touch", "rm", "mv":
 		return "write"
-	case name == "run_command":
+	case "run_command":
 		return "run_command"
 	default:
 		return "other"
