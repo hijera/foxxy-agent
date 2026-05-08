@@ -28,7 +28,7 @@ export WORK_DIR
 export BASE_URL="http://127.0.0.1:$PORT/v1"
 export MODEL="${MODEL:-rpa/gpt-oss:120b}"
 
-"$BIN" http --config "$CODDY_CONFIG" --disable-session --home "$HOME_DIR" --cwd "$WORK_DIR" -H 127.0.0.1 -P "$PORT" &
+"$BIN" http --config "$CODDY_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" -H 127.0.0.1 -P "$PORT" &
 HTTP_PID=$!
 if ! kill -0 "$HTTP_PID" 2>/dev/null; then
   echo "http server failed to start" >&2

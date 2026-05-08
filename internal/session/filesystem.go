@@ -36,6 +36,16 @@ func (f *FileStore) SessionPath(sessionID string) string {
 	return filepath.Join(f.Root, sessionID)
 }
 
+// HasPersistedSnapshot reports whether session.json exists for the id under Root.
+func (f *FileStore) HasPersistedSnapshot(sessionID string) bool {
+	if f == nil || f.Root == "" {
+		return false
+	}
+	meta := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
+	fi, err := os.Stat(meta)
+	return err == nil && !fi.IsDir()
+}
+
 // ActiveTodoPath is the markdown file for the current todo list.
 func ActiveTodoPath(sessionDir string) string {
 	return filepath.Join(sessionDir, todosDirName, activeTodoFile)
@@ -85,6 +95,7 @@ type sessionMetaFileData struct {
 	SelectedModelID string `json:"selectedModelId,omitempty"`
 	AgentMemory     string `json:"agentMemory,omitempty"`
 	Title           string `json:"title,omitempty"`
+	TitlePinned     string `json:"titlePinned,omitempty"`
 	UpdatedAt       string `json:"updatedAt,omitempty"`
 }
 
@@ -220,7 +231,7 @@ func (f *FileStore) Save(state *State) error {
 		return fmt.Errorf("session has no SessionDir")
 	}
 	msgs := state.GetMessages()
-	title := deriveSessionTitle(state)
+	title := persistedConversationTitle(state)
 	meta := sessionMetaFileData{
 		Version:         sessionFileLayout,
 		ID:              state.ID,
@@ -229,6 +240,7 @@ func (f *FileStore) Save(state *State) error {
 		SelectedModelID: state.GetSelectedModelID(),
 		AgentMemory:     state.GetAgentMemory(),
 		Title:           title,
+		TitlePinned:     strings.TrimSpace(state.GetTitlePinned()),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := writeJSONAtomic(filepath.Join(dir, sessionMetaFile), meta); err != nil {
@@ -259,6 +271,14 @@ func deriveSessionTitle(s *State) string {
 		}
 	}
 	return ""
+}
+
+// persistedConversationTitle selects the snapshot title saved to session.json.
+func persistedConversationTitle(s *State) string {
+	if p := strings.TrimSpace(s.GetTitlePinned()); p != "" {
+		return p
+	}
+	return deriveSessionTitle(s)
 }
 
 func truncateRunes(s string, max int) string {

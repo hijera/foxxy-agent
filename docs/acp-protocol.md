@@ -248,15 +248,15 @@ Lists persisted sessions found under the configured sessions root (see README). 
 
 ### Disk layout (Coddy)
 
-When persistence is enabled (`coddy acp` defaults to `$HOME/coddy-agent/sessions`), each bundle is `<root>/<sessionId>/` with:
+When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
 
-- `session.json` - id, cwd, mode, model override, agent memory, derived title, timestamps
+- `session.json` - id, cwd, mode, model override, agent memory, derived or pinned title (`titlePinned`), timestamps
 - `messages.json` - LLM message history (roles user, assistant, tool)
 - `assets/` - reserved for future session-scoped files
 - `todos/active.md` - current todo checklist synced from plan tools
 - `todos/archive/todo-<nanos>.md` - archived list when a completed list is replaced
 
-CLI flag **`coddy acp --disable-session`** disables this layout entirely (`loadSession` and `session/list` are not advertised).
+The server always advertises **`loadSession`** when a store is configured (`coddy acp` and **`coddy http`** open a **`FileStore`** at startup).
 
 ### `session/prompt`
 

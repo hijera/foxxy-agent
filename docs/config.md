@@ -10,7 +10,7 @@ Resolved locations use environment variables and flags (see README). In short:
 
 If no **`--config`** is given, the loader reads **`$CODDY_HOME/config.yaml`** when that file exists. Otherwise it falls back in order to **`~/.coddy/config.yaml`**, **`~/.config/coddy-agent/config.yaml`**, then **`./config.yaml`**. If none exist, built-in defaults apply (no error).
 
-The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, **`--session-id`**, and **`--disable-session`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
+The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
 
 ## Full Configuration Schema
 

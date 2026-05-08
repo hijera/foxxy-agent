@@ -86,7 +86,6 @@ def main() -> int:
             work,
             "--log-level",
             "warn",
-            "--disable-session",
         ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

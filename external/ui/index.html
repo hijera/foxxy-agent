@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Coddy</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail" aria-label="Nav">
+      <button type="button" class="rail-btn" id="btn-new" title="New chat">+</button>
+    </aside>
+    <aside class="sessions" aria-label="Sessions">
+      <div class="sessions-head">Chats</div>
+      <div id="session-list" class="session-list"></div>
+      <div class="sessions-foot">
+        <button type="button" class="link" id="btn-load-more">Load more</button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="chat-header">
+        <div class="chat-title" id="chat-title">Chat</div>
+        <div class="header-links">
+          <a class="repo-link" href="https://github.com/coddy-project/coddy-agent" target="_blank" rel="noopener">GitHub</a>
+          <a class="repo-link" href="/docs/">API docs</a>
+        </div>
+      </header>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="token-bar" class="token-bar" hidden></div>
+      <footer class="composer-wrap">
+        <label class="sr-only" for="composer">Message</label>
+        <textarea id="composer" rows="2" placeholder="Message Coddy" autocomplete="off"></textarea>
+        <div class="composer-actions">
+          <button type="button" class="pill">Auto</button>
+          <button type="button" class="send" id="btn-send">Send</button>
+        </div>
+      </footer>
+    </main>
+    <aside class="rail-right" aria-label="Plan and memory">
+      <div class="panel-block">
+        <div class="panel-head">Todo</div>
+        <div id="todo-list" class="todo-list"></div>
+        <button type="button" class="link panel-action" id="btn-save-plan">Save todos</button>
+      </div>
+      <div class="panel-block panel-memory">
+        <div class="panel-head">Memory</div>
+        <div class="mem-toolbar">
+          <button type="button" class="link" id="mem-root-global">global</button>
+          <button type="button" class="link" id="mem-root-workspace">workspace</button>
+        </div>
+        <div id="mem-tree" class="mem-tree"></div>
+        <textarea id="mem-editor" class="mem-editor" placeholder="Select a file"></textarea>
+        <div class="mem-actions">
+          <button type="button" class="small-btn" id="btn-mem-save">Save file</button>
+          <button type="button" class="small-btn danger" id="btn-mem-delete">Delete file</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

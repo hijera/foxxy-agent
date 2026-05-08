@@ -53,6 +53,9 @@ type State struct {
 	// AgentMemory is optional session notes included in the system prompt template (.Memory).
 	AgentMemory string
 
+	// TitlePinned, when set, is written to session.json and overrides derived titles from the first user message.
+	TitlePinned string
+
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
 
@@ -204,6 +207,28 @@ func (s *State) SetAgentMemory(text string) {
 	s.AgentMemory = text
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// GetTitlePinned returns the user-pinned session title shown in snapshots, if any.
+func (s *State) GetTitlePinned() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.TitlePinned
+}
+
+// SetTitlePinned sets the pinned title and persists session metadata when a store is attached.
+func (s *State) SetTitlePinned(text string) {
+	s.mu.Lock()
+	s.TitlePinned = strings.TrimSpace(text)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetTitlePinnedWithoutPersist restores pinned title from disk without writing.
+func (s *State) SetTitlePinnedWithoutPersist(text string) {
+	s.mu.Lock()
+	s.TitlePinned = strings.TrimSpace(text)
+	s.mu.Unlock()
 }
 
 // GetMemoryCopilotBlock returns ephemeral recall text for the current user turn.

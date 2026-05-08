@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 	"gopkg.in/yaml.v3"
@@ -96,8 +95,8 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/v1/responses": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Create response (MVP)",
-					"description": "Simplified Responses-style call with **`model`** and **`input`** text. **`model`** is **`agent`**, **`plan`**, or a configured **`models[].model**` selector.",
+					"summary":     "Create response",
+					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is **`agent`**, **`plan`**, or a configured **`models[].model**` selector.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -118,11 +117,18 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed response payload",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"$ref": "#/components/schemas/ResponsesCreateResponse",
+									},
+								},
+								"text/event-stream": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type":        "string",
+										"format":      "binary",
+										"description": "SSE including optional `event:` lines",
 									},
 								},
 							},
@@ -157,6 +163,29 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":  "List persisted chat sessions",
+					"parameters": coddyPagingParams(),
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Paged session identifiers"},
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/messages": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read conversation transcript",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "OpenAI-shaped messages payload"},
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},
@@ -263,6 +292,10 @@ func openAPISpec() map[string]interface{} {
 							"description": "`agent`, `plan`, or a `models[].model` selector.",
 						},
 						"input": map[string]string{"type": "string"},
+						"stream": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Emit **text/event-stream** when true.",
+						},
 					},
 					"required": []string{"model", "input"},
 				},
@@ -311,6 +344,19 @@ func errorResponseRef() map[string]interface{} {
 	}
 }
 
+func coddyPagingParams() []interface{} {
+	return []interface{}{
+		map[string]interface{}{
+			"name": "limit", "in": "query", "schema": map[string]string{"type": "string"},
+			"description": "Maximum rows (default 50, capped at 100).",
+		},
+		map[string]interface{}{
+			"name": "cursor", "in": "query", "schema": map[string]string{"type": "string"},
+			"description": "Numeric offset for the next results page.",
+		},
+	}
+}
+
 func encodeOpenAPIYAML() ([]byte, error) {
 	doc := openAPISpec()
 	data, err := yaml.Marshal(doc)
@@ -353,44 +399,4 @@ func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `inline; filename="openapi.json"`)
 	_, _ = w.Write(buf.Bytes())
-}
-
-func swaggerUIHTML() string {
-	return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Coddy HTTP API - Swagger UI</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.10/swagger-ui.css" crossorigin />
-  <style>body{margin:0}#swagger-ui{max-width:100%}</style>
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5.11.10/swagger-ui-bundle.js" crossorigin></script>
-  <script src="https://unpkg.com/swagger-ui-dist@5.11.10/swagger-ui-standalone-preset.js" crossorigin></script>
-  <script>
-    window.ui = SwaggerUIBundle({
-      url: '/openapi.yaml',
-      dom_id: '#swagger-ui',
-      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-      layout: 'StandaloneLayout'
-    });
-  </script>
-</body>
-</html>
-`
-}
-
-func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.NotFound(w, r)
-		return
-	}
-	path := strings.TrimSpace(r.URL.Path)
-	if path != "/docs" && path != "/docs/" {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(swaggerUIHTML()))
 }

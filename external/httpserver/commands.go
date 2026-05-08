@@ -43,7 +43,6 @@ func Run(args []string, deps CommandDeps) error {
 	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
 	httpCWD := fs.String("cwd", "", "default session cwd when the client omits cwd (CODDY_CWD, default process cwd)")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
-	disableSession := fs.Bool("disable-session", false, "do not write sessions to disk (in-memory only)")
 	persistedSession := fs.String("session-id", "", "optional session id for new sessions (folder name)")
 	host := fs.String("H", "0.0.0.0", "bind address for HTTP")
 	port := fs.String("P", "12345", "listen port for HTTP")
@@ -102,18 +101,11 @@ func Run(args []string, deps CommandDeps) error {
 
 	scheduler.Start(context.Background(), cfg, log, paths.CWD)
 
-	var store *session.FileStore
-	if *disableSession {
-		log.Info("session persistence disabled", "reason", "disable-session flag")
-	} else {
-		store, err = deps.OpenStore(*sessionsRoot, cfg)
-		if err != nil {
-			return err
-		}
-		if store != nil {
-			log.Info("session persistence enabled", "root", store.Root)
-		}
+	store, err := deps.OpenStore(*sessionsRoot, cfg)
+	if err != nil {
+		return err
 	}
+	log.Info("session persistence enabled", "root", store.Root)
 
 	var srv *acp.Server
 	ref := deps.NewServerRef(&srv, cfg)

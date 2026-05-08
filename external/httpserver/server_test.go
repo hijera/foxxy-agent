@@ -9,11 +9,15 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 	"gopkg.in/yaml.v3"
@@ -91,7 +95,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/sessions/{id}/messages"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -151,7 +155,7 @@ func TestGETOpenAPIServed(t *testing.T) {
 		}
 	}
 
-	res, err := http.Get(ts.URL + "/docs")
+	res, err := http.Get(ts.URL + "/docs/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,8 +167,227 @@ func TestGETOpenAPIServed(t *testing.T) {
 		t.Fatalf("docs status %d", res.StatusCode)
 	}
 	html := string(htmlb)
+	if strings.Contains(html, "unpkg.com") {
+		t.Fatal("docs page should not use CDN for Swagger UI")
+	}
 	if !strings.Contains(html, "swagger-ui-bundle.js") || !strings.Contains(html, "/openapi.yaml") {
 		t.Fatalf("docs page missing Swagger UI refs snippet %s", shorten(html, 200))
+	}
+}
+
+func TestRedirectDocsToTrailingSlash(t *testing.T) {
+	cfg := &config.Config{
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	res, err := client.Get(ts.URL + "/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusFound && res.StatusCode != http.StatusMovedPermanently {
+		t.Fatalf("expected redirect, got %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/docs/" {
+		t.Fatalf("Location %q", loc)
+	}
+}
+
+func TestGETUIStatic(t *testing.T) {
+	cfg := &config.Config{
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	res, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, b)
+	}
+	if !strings.Contains(string(b), "<title>Coddy</title>") {
+		t.Fatal("missing UI title")
+	}
+}
+
+func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server) {
+	t.Helper()
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var sb strings.Builder
+		for _, b := range prompt {
+			if b.Type == "text" {
+				sb.WriteString(b.Text)
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "stub"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home, CWD: "/tmp"},
+		Models: []config.ModelEntry{
+			{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2},
+		},
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+	}
+	store := &session.FileStore{Root: sessRoot}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	return mgr, srv
+}
+
+func TestCoddySessionsList(t *testing.T) {
+	mgr, srv := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resHTTP, err := http.Get(ts.URL + "/coddy/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		Sessions []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range parsed.Sessions {
+		if row.ID == sid {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("session %s not in listing %s", sid, string(b))
+	}
+}
+
+func TestResponsesMultiTurnHistory(t *testing.T) {
+	_, srv := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sid := "sess_test_http_history_01"
+	payload := strings.NewReader(`{"model":"openai/gpt-4o","input":"one","stream":false}`)
+	req1, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload)
+	req1.Header.Set("X-Coddy-Session-ID", sid)
+	res1, err := http.DefaultClient.Do(req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ioReadAllClose(res1.Body)
+
+	payload2 := strings.NewReader(`{"model":"openai/gpt-4o","input":"two","stream":false}`)
+	req2, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload2)
+	req2.Header.Set("X-Coddy-Session-ID", sid)
+	res2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ioReadAllClose(res2.Body)
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res2.StatusCode)
+	}
+
+	ms, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := ioReadAllClose(ms.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ms.StatusCode != http.StatusOK {
+		t.Fatalf("messages %d %s", ms.StatusCode, mb)
+	}
+	var body struct {
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(mb, &body); err != nil {
+		t.Fatal(err)
+	}
+	userCount := 0
+	for _, m := range body.Messages {
+		if m.Role == "user" {
+			userCount++
+		}
+	}
+	if userCount != 2 {
+		t.Fatalf("want 2 user messages, got %d", userCount)
+	}
+}
+
+func TestMemoryTreeRejectsTraversal(t *testing.T) {
+	mgr, srv := testHTTPServerPersist(t)
+	ctx := context.Background()
+	nr, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := nr.SessionID
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	u := ts.URL + "/coddy/sessions/" + sid + "/memory/tree?root=global&path=" + url.QueryEscape("../etc/passwd")
+	r, err := http.Get(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d: %s", r.StatusCode, b)
 	}
 }
 

@@ -198,6 +198,9 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
 - [Configuration](docs/config.md) - full config file reference
+- [HTTP API](docs/http-api.md) - REST gateway and embedded web UI (`TAGS=http`)
+- [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
+- [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Skills & Rules](docs/skills.md) - cursor rules and skills guide
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 
@@ -209,9 +212,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Persistent sessions
 
-By default, `coddy acp` stores each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`** or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
-
-Use **`coddy acp --disable-session`** to avoid writing any bundle (in-memory only, e.g. cron or one-shot). The agent does not advertise **`session/load`** or **`session/list`** in that mode.
+By default, `coddy acp` and `coddy http` store each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`**, **`coddy http --sessions-dir`**, or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
 
 - **`coddy sessions list`** prints stored sessions (`--sessions-dir` and `--cwd` filters supported).
 - **`coddy acp --session-id <id>`** makes the **next** `session/new` either reopen snapshots for that folder (if present) or create a fresh bundle whose directory name matches that id.

@@ -110,7 +110,6 @@ func runACP(args []string) error {
 	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
 	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
-	disableSession := fs.Bool("disable-session", false, "do not write sessions to disk (in-memory only; use for cron and one-shot runs; session/load and session/list unavailable)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	fs.Usage = func() {
@@ -164,18 +163,11 @@ func runACP(args []string) error {
 
 	scheduler.Start(context.Background(), cfg, log, paths.CWD)
 
-	var store *session.FileStore
-	if *disableSession {
-		log.Info("session persistence disabled", "reason", "disable-session flag")
-	} else {
-		store, err = openSessionStore(*sessionsRoot, cfg)
-		if err != nil {
-			return err
-		}
-		if store != nil {
-			log.Info("session persistence enabled", "root", store.Root)
-		}
+	store, err := openSessionStore(*sessionsRoot, cfg)
+	if err != nil {
+		return err
 	}
+	log.Info("session persistence enabled", "root", store.Root)
 
 	var srv *acp.Server
 	ref := &serverRef{p: &srv, cfg: cfg}

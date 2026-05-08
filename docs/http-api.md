@@ -1,66 +1,74 @@
 # OpenAI-compatible HTTP API
 
-The `coddy http` subcommand is available only when the binary is built with **`go build -tags=http`** (or `make build TAGS=http`). It exposes a subset of the [OpenAI REST shape](https://github.com/openai/openai-openapi/blob/manual_spec/openapi.yaml) backed by the same session manager and ReAct agent as **`coddy acp`**.
+The `coddy http` subcommand ships only when the binary is built with **`go build -tags=http`** (`make build TAGS=http`). It exposes OpenAI-shaped routes plus **`/coddy/*`** helpers and a static SPA from **`GET /`**, backed by the same session manager and ReAct agent as **`coddy acp`**.
 
 ## OpenAPI and Swagger UI
 
-When the HTTP server runs (build with **`http`** tag), the API description is generated on each request from the same source as the handlers, so it stays aligned with the live routes.
+Specs are regenerated on each request so they stay aligned with handlers.
 
-- **`GET /openapi.yaml`** - OpenAPI 3.0 document (YAML). **`info.version`** matches the embedded build version (`make build` / **`-ldflags -X ...version.Version=...`**). Served as **`text/yaml`** with **`Content-Disposition: inline`** so the browser shows it in the tab instead of downloading. Use **`GET /openapi.json`** for JSON (same **inline** behavior).
-- **`GET /docs`** - Swagger UI from the **unpkg** CDN loads **`/openapi.yaml`** from your server.
+- **`GET /openapi.yaml`** - OpenAPI 3.0 (YAML); **`GET /openapi.json`** mirrors it in JSON (both **`Content-Disposition: inline`**).
+- **`GET /docs/`** - Swagger UI (static assets bundled in the binary, no CDN). **`GET /docs`** redirects to **`/docs/`**.
 
-No authentication is enforced on these URLs (same as **`/v1/*`** ignore dummy API keys). Run offline or behind strict networks only if pulling scripts from CDN is blocked, in which case serve the Swagger UI bundle yourself.
+No authentication is enforced. Run behind appropriate network controls.
 
-## Endpoints
+## Embedded web UI
+
+- **`GET /`** serves **`index.html`**, **`styles.css`**, and **`app.js`** from **`external/ui/`** (`go:embed`).
+- Recommended session URL pattern: **`#/s/<sessionId>`** (client-only history). For **`POST /v1/responses`** and **`POST /v1/chat/completions`**, send **`X-Coddy-Session-ID`** with a **`sess_<hex>`** id that satisfies server-side validation (`internal/session/validate.go`).
+- **`GET /coddy/sessions`**, **`PATCH /coddy/sessions/{id}`**, and other **`/coddy/sessions/{id}/...`** routes identify the session **only** by the **`{id}`** path segment (no duplicate header in OpenAPI; clients may still send **`X-Coddy-Session-ID`**, it is not used to pick the resource for those URLs).
+- The bundled UI calls **`POST /v1/responses`** with **`stream: true`**. SSE **default** chunks follow **`chat.completion.chunk`** deltas. Named **`event:`** lines (**`tool_call`**, **`tool_call_update`**, **`plan`**, **`token_usage`**) expose tool progress and incremental token totals between LLM rounds.
+
+## Endpoint summary
 
 | Method | Path | Notes |
-|--------|------|--------|
-| GET | `/openapi.yaml` | Generated OpenAPI 3 (YAML); version matches **`coddy -v`** when built via **`make`**. |
-| GET | `/openapi.json` | Same document as JSON. |
-| GET | `/docs`, `/docs/` | Swagger UI (CDN); points at **`/openapi.yaml`**. |
-| GET | `/v1/models` | Lists Coddy modes **`agent`** and **`plan`** (OpenAI-shaped objects; **`owned_by`** is **`coddy-mode`**). Configure LLMs in YAML **`models`** and pass a **`models[].model`** string in **`model`** when calling chat or responses if you pick a backend explicitly. |
-| POST | `/v1/chat/completions` | Chat; **`model`** is **`agent`**, **`plan`**, or a **`models[].model`** selector from config (mode sets session profile without changing which LLM id is resolved; effective LLM stays **`agent.model`** and optional session overrides). Supports **`stream: true`** (SSE) or non-streaming JSON. |
-| POST | `/v1/responses` | MVP: **`model`** rules match chat completions; **`input`** is plain user text (simplified vs full OpenAI Responses API). |
-| GET | `/v1/responses/{id}` | MVP: returns metadata if **`id`** is an active session id. |
+|--------|------|-------|
+| GET | `/` | Web UI (`index.html`). |
+| GET | `/openapi.yaml`, `/openapi.json` | Spec. |
+| GET | `/docs`, `/docs/` | Swagger UI. |
+| GET | `/v1/models` | **`agent`** / **`plan`** (`owned_by=coddy-mode`). |
+| POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**). |
+| POST | **`/v1/responses`** | **`model`**, **`input`**, optional **`stream`**. Keeps history between turns when using headers. |
+| GET | `/v1/responses/{id}` | Session metadata snapshot. |
+| GET | **`/coddy/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). |
+| GET | **`/coddy/sessions/{id}/messages`** | Serialized conversation snapshot. Cold loads require **`session.json`**. |
+| PATCH | **`/coddy/sessions/{id}`** | **`{"title"}`** pins **`session.json.titlePinned`**. |
+| DELETE | **`/coddy/sessions/{id}`** | Removes persisted bundle plus in-memory MCP clients. |
+| GET/PUT | **`/coddy/sessions/{id}/plan`** | Read or overwrite todo **`entries`** (ACP shape). |
+| POST | **`/coddy/sessions/{id}/plan/archive`** | Archives active todos like **`coddy_todo_plan_archive`**. |
+| GET | **`/coddy/sessions/{id}/memory/tree`** | Without **`root`**, lists **`global`** and **`workspace`**. Otherwise lists allowed **`.md` / `.txt`** children (traversal guarded). |
+| GET | **`/coddy/sessions/{id}/memory/file`** | Query **`root`** + **`path`**. UTF-8 content. |
+| PUT | **`/coddy/sessions/{id}/memory/file`** | JSON **`{"root","path","content"}`**. |
+| POST | **`/coddy/sessions/{id}/memory/dir`** | JSON **`{"root","path"}`** for new subdirectory. |
+| DELETE | **`/coddy/sessions/{id}/memory/file`** | Query **`root`** + **`path`**. |
 
-## Session behavior
+## Sessions and headers
 
-- Without header: each `chat.completions` request that needs a new session calls ACP-style **`session/new`** (default cwd from **`--cwd`** / `CODDY_CWD`).
-- **`X-Coddy-Session-ID`**: use an existing in-memory session (returns **404** if unknown).
-- On the first response for a newly created session, the server may add **`X-Coddy-Session-ID`** (non-streaming and streaming) so clients can continue server-side history.
+### Without **`X-Coddy-Session-ID`**
 
-**Stateless mode (full `messages` every time)**: send the full OpenAI `messages` array; the last message must be **`user`**. Earlier messages become session prefix; the last user line is the new turn (same as the HTTP integration path in the agent).
+`POST /v1/chat/completions` / **`POST /v1/responses`** allocate a random session bundle for that flow (ACP **`session/new`**).
 
-**`/v1/models` vs completions `model`**: **`GET /v1/models`** only exposes session profiles. Passing **`agent`** or **`plan`** as **`model`** switches that profile for this session turn (same tooling rules as **`coddy acp`** modes). Passing a **`models[].model`** value keeps the usual LLM picker behavior.
+### With **`X-Coddy-Session-ID`**
 
-There is no interactive permission UI on HTTP. **`tools.permission_master_key`** bypasses prompts for both ACP and HTTP. Without it, gated tools that require confirmation will fail the turn unless session **`permission_grants.json`** already contains matching **`allow_always`** grants from a prior ACP session on disk.
+1. Active in-memory bundle wins.
+2. Otherwise load from disk when **`session.json`** exists.
+3. Otherwise pin **`session/new`** with the supplied identifier (fresh empty bundle folders).
 
-## CLI
+Malformed ids (**HTTP 400**). Dedicated **`/coddy/*`** helpers return **503** if persistence is unavailable (`Manager` lacked a **`FileStore`**, primarily in tests).
 
-Flags match **`coddy acp`** where applicable (`--config`, `--home`, `--cwd`, `--sessions-dir`, `--disable-session`, `--session-id`, `--log-*`), plus:
+## Memory roots
 
-- **`-H` / `--host`**: bind address (built-in default **`0.0.0.0`** unless **`httpserver.host`** overrides when flags stay at **`0.0.0.0`** and **`12345`**)
-- **`-P` / `--port`**: port (built-in default **`12345`** unless **`httpserver.port`** overrides in the same case)
+Matches `external/memory/README.md`: **`global`** uses configured **`memory.dir`** (fallback **`$CODDY_HOME/memory`**). **`workspace`** resolves to **`$CWD/memory`** for that session bundle. **`agentMemory`** placeholders remain agent-only (`session.json`), not REST-editable here.
 
-YAML **`httpserver.host`** and **`httpserver.port`** apply only when **`--host`** and **`--port`** are still exactly **`0.0.0.0`** and **`12345`**. Passing `-H`/`-P` always wins.
+Interactive tool permission prompts are still bypassed whenever **`tools.permission_master_key`** is enabled; otherwise guarded tools behave like CLI sessions without confirmations.
 
-## Official client (Python)
+## CLI flags
 
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:12345/v1", api_key="dummy")
-# Returns session modes agent and plan, not YAML models[]. To target an LLM, pass agent.model-compatible selector:
-client.chat.completions.create(model="agent", messages=[{"role": "user", "content": "hi"}])
-# Or pass models[].model, e.g. model="openai/gpt-4o", unchanged from config.
-```
-
-Clients may still send **`api_key`**; Coddy ignores it for HTTP.
+Equivalent to **`coddy acp`**: **`--config`**, **`--home`**, **`--cwd`**, **`--sessions-dir`**, **`--session-id`**, **`--log-*`**, optional **`--scheduler-enabled`**. Networking flags: **`-H` / `--host`**, **`-P` / `--port`**. Defaults fall back to YAML **`httpserver.host` / port** when left at **`0.0.0.0:12345`**.
 
 ## Build
 
 ```bash
 make build TAGS=http
-# binary: build/coddy
 ```
 
-Default **`make build`** does not include HTTP; `go test ./...` also skips the HTTP package unless you run **`go test -tags=http ./...`**.
+`go test ./...` skips this tree unless **`go test -tags=http`** (Makefile **`make test`** already covers it).

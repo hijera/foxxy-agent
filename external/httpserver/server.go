@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/ui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -20,6 +22,8 @@ import (
 )
 
 var errSessionNotFound = errors.New("session not found")
+
+var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
@@ -37,12 +41,26 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
-	// Docs and generated OpenAPI - keep openapi.go openAPISpec in sync with handlers above.
+	s.registerCoddyRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
-	s.mux.HandleFunc("GET /docs", s.handleDocs)
-	s.mux.HandleFunc("GET /docs/", s.handleDocs)
+	s.mux.HandleFunc("GET /docs", s.redirectDocsTrailingSlash)
+	swaggerSub, err := fs.Sub(swaggerStatic, "swagger-static")
+	if err != nil {
+		log.Error("swagger static subtree", "error", err)
+	} else {
+		s.mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.FS(swaggerSub))))
+	}
+	s.mux.Handle("/", http.FileServer(http.FS(ui.Assets)))
 	return s
+}
+
+func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
 // Handler returns the root HTTP handler.
@@ -158,6 +176,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 			return
 		}
+		if errors.Is(err, errInvalidSessionHeader) {
+			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
+			return
+		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
@@ -220,11 +242,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
 	sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
 	if sid != "" {
-		st = s.mgr.SessionByID(sid)
-		if st == nil {
-			return nil, "", false, errSessionNotFound
+		if err := session.ValidateFolderSessionID(sid); err != nil {
+			return nil, "", false, errInvalidSessionHeader
 		}
-		return st, sid, false, nil
+		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.defaultCWD)
+		if err != nil {
+			return nil, "", false, err
+		}
+		return st2, sid, false, nil
 	}
 	res, err := s.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: s.defaultCWD})
 	if err != nil {
@@ -301,15 +326,16 @@ func lastAssistantContent(st *session.State) string {
 	return ""
 }
 
-// MVP: POST /v1/responses accepts {"model":"...","input":"..."} and returns a minimal response object.
+// POST /v1/responses accepts model, input, and optional stream (SSE).
 func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
 	var body struct {
-		Model string `json:"model"`
-		Input string `json:"input"`
+		Model  string `json:"model"`
+		Input  string `json:"input"`
+		Stream bool   `json:"stream"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -321,26 +347,49 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	st, sid, _, err := s.resolveSession(ctx, r)
+	st, sid, createdNew, err := s.resolveSession(ctx, r)
 	if err != nil {
 		if errors.Is(err, errSessionNotFound) {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 			return
 		}
+		if errors.Is(err, errInvalidSessionHeader) {
+			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
+			return
+		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 		return
+	}
+	if createdNew {
+		w.Header().Set("X-Coddy-Session-ID", sid)
 	}
 	if err := s.bindModelOrMode(st, model); err != nil {
 		http.Error(w, `{"error":{"message":"unknown or missing model"}}`, http.StatusBadRequest)
 		return
 	}
-	st.ReplaceMessagesWithoutPersist(nil)
-	bridge := NewSender(s.cfg, nil, false, model)
+	var bridge *Sender
+	if body.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		bridge = NewSender(s.cfg, w, true, model)
+	} else {
+		bridge = NewSender(s.cfg, nil, false, model)
+	}
 	if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: sid,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: strings.TrimSpace(body.Input)}},
 	}, bridge); err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+		s.log.Error("responses prompt", "error", err)
+		if body.Stream {
+			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+		} else {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+		}
+		return
+	}
+	if body.Stream {
+		_ = bridge.FinishStream()
 		return
 	}
 	text := lastAssistantContent(st)

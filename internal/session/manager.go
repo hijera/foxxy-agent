@@ -283,6 +283,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.AgentMemory)
+	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
 	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys)
@@ -346,6 +347,61 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
 	return m.loadSessionFromDisk(ctx, params)
+}
+
+// EnsureHTTPSession returns an in-memory session for an already-valid folder id:
+// reuse active session, load from disk if a snapshot exists, or create an empty persisted bundle using the pinned id.
+func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*State, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, fmt.Errorf("empty session id")
+	}
+	if err := ValidateFolderSessionID(sessionID); err != nil {
+		return nil, err
+	}
+	if existing := m.getSession(sessionID); existing != nil {
+		return existing, nil
+	}
+	if m.store != nil && m.store.HasPersistedSnapshot(sessionID) {
+		if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{
+			SessionID: sessionID,
+			CWD:       defaultCWD,
+		}); err != nil {
+			return nil, err
+		}
+		st := m.getSession(sessionID)
+		if st == nil {
+			return nil, fmt.Errorf("session load incomplete: %s", sessionID)
+		}
+		return st, nil
+	}
+	m.SetPreferredSessionID(sessionID)
+	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: defaultCWD})
+	if err != nil {
+		return nil, err
+	}
+	if res.SessionID != sessionID {
+		return nil, fmt.Errorf("session id mismatch creating %s vs %s", sessionID, res.SessionID)
+	}
+	st := m.getSession(sessionID)
+	if st == nil {
+		return nil, fmt.Errorf("internal session missing after new: %s", sessionID)
+	}
+	return st, nil
+}
+
+// ForgetLiveSession disconnects MCP clients for the id and removes it from the active map (does not touch disk).
+func (m *Manager) ForgetLiveSession(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if st, ok := m.sessions[sessionID]; ok {
+		st.CloseAll()
+		delete(m.sessions, sessionID)
+	}
+}
+
+// FileStore returns the persistence backend or nil when the manager runs without disk (tests only).
+func (m *Manager) FileStore() *FileStore {
+	return m.store
 }
 
 func (m *Manager) HandleSessionList(_ context.Context, params acp.SessionListParams) (*acp.SessionListResult, error) {

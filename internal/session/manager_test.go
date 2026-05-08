@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -40,18 +41,23 @@ func noopRunner(context.Context, *session.State, []acp.ContentBlock, acp.UpdateS
 	return string(acp.StopReasonEndTurn), nil
 }
 
-func TestInitializeWithoutPersistenceOmitsLoadAndList(t *testing.T) {
+func TestInitializeWithPersistenceAdvertisesLoad(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "/tmp", nil)
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "/tmp", store)
 	res, err := m.HandleInitialize(context.Background(), acp.InitializeParams{ProtocolVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.AgentCapabilities.LoadSession {
-		t.Fatal("expected LoadSession false without store")
+	if !res.AgentCapabilities.LoadSession {
+		t.Fatal("expected LoadSession true with store")
 	}
-	if res.AgentCapabilities.SessionCapabilities != nil {
-		t.Fatal("expected SessionCapabilities omitted without store")
+	if res.AgentCapabilities.SessionCapabilities == nil {
+		t.Fatal("expected SessionCapabilities with store")
 	}
 }
 
