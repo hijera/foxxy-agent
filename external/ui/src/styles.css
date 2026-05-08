@@ -641,7 +641,7 @@ body {
 .thinking-left {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
 }
 
 .thinking-chevron:before {
@@ -1033,7 +1033,6 @@ textarea#composer {
 .mode-menu {
   position: absolute;
   left: 0;
-  top: calc(100% + 8px);
   min-width: 160px;
   padding: 6px;
   border-radius: 14px;
@@ -1043,6 +1042,14 @@ textarea#composer {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   z-index: 90;
+}
+
+.mode-menu.opens-down {
+  top: calc(100% + 8px);
+}
+
+.mode-menu.opens-up {
+  bottom: calc(100% + 8px);
 }
 
 .mode-item {

@@ -36,6 +36,7 @@ export function Composer(props: {
   const off = c * (1 - pct01);
   const usage = props.tokenUsage || null;
   const maxCtx = typeof props.maxContextTokens === 'number' && props.maxContextTokens > 0 ? props.maxContextTokens : 128000;
+  const modeMenuDirClass = props.isEmpty ? 'opens-down' : 'opens-up';
   const tip = [
     `${typeof pct === 'number' ? pct.toFixed(1) : '0.0'}% context used`,
     props.modelLabel ? `Model ${props.modelLabel}` : '',
@@ -83,7 +84,7 @@ export function Composer(props: {
                 {modeLabel}
               </button>
               {modeOpen ? (
-                <div className="mode-menu" role="menu">
+                <div className={`mode-menu ${modeMenuDirClass}`} role="menu">
                   {props.modes.map((m) => {
                     const label = m.slice(0, 1).toUpperCase() + m.slice(1);
                     return (

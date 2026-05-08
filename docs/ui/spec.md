@@ -87,6 +87,25 @@ SSE payloads
   - `tool_call_update`
   - `plan`
   - `token_usage`
+  - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
+
+## Transcript message types
+
+The chat transcript renders a flat list of UI message blocks. Each block has a `type` and a minimal set of required fields.
+
+- `user_message`
+  - Plain user input text.
+- `thinking`
+  - Renders model reasoning as a lightweight disclosure row.
+  - Status `in_progress` shows label `thinking...` and a spinner.
+  - Status `completed` shows label `thinking` and preserves the text for review.
+  - Multiple `thinking` blocks may appear in one turn (reasoning can resume after tool calls).
+- `tool_call`
+  - A single tool execution card.
+  - Summary row shows tool name, status dot, and duration label.
+  - Details show arguments and result when expanded.
+- `assistant_message`
+  - Final assistant output text for the turn, after tool calls.
 
 ## Live token usage
 

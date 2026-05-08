@@ -78,6 +78,31 @@ Tool cards must include tool name, status, arguments, and result.
 
 Tool call history is persisted per session under `tool_calls/` so it can be restored after restart.
 
+### Transcript message types (technical)
+
+The transcript UI is a flat list of message blocks (no nested threads). The runtime list lives in `external/ui/src/ui/chat/types.ts`.
+
+Current block types:
+
+- `user_message`
+  - Raw user input text (Markdown allowed).
+- `thinking`
+  - Streaming model reasoning deltas (`delta.reasoning_content`) rendered as a disclosure row.
+  - `thinking...` while in progress, `thinking` when completed.
+  - Multiple `thinking` blocks can appear in one user turn. If the model resumes reasoning after tool calls, the UI starts a new `thinking` block and preserves ordering.
+- `tool_call`
+  - Tool execution timeline block (SSE `tool_call` and `tool_call_update`, enriched from `/coddy/sessions/{id}/tool-calls`).
+  - Summary row stays compact; details show args and result.
+  - Duration label is computed from persisted `tool_calls/<id>/meta.json` `startedAt` and `finishedAt` when available.
+- `assistant_message`
+  - Final assistant output for the turn. UI keeps it last and backfills it from `/coddy/sessions/{id}/messages` when streaming ends.
+
+Ordering rules:
+
+- `thinking` blocks appear wherever reasoning arrives in the stream.
+- `tool_call` blocks appear where tool events arrive.
+- Final `assistant_message` is appended after tools and any subsequent `thinking` blocks.
+
 ### Composer pill
 
 Muted **Auto** pill tracks future modality toggles; UI copy stays English everywhere.
