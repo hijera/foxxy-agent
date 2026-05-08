@@ -36,6 +36,12 @@ function getSessionFromHash(): string {
 }
 
 function setSessionHash(id: string): void {
+  if (!id) {
+    if (window.location.hash) {
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+    return;
+  }
   const next = `#/s/${encodeURIComponent(id)}`;
   if (window.location.hash !== next) {
     history.replaceState(null, '', `${window.location.pathname}${window.location.search}${next}`);
@@ -64,24 +70,89 @@ export function App() {
   const [draft, setDraft] = useState('');
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [modes, setModes] = useState<string[]>(['agent', 'plan']);
+  const [mode, setMode] = useState<string>('agent');
+  const [navWide, setNavWide] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('coddy_ui_nav_wide');
+      if (v === '0' || v === '1') return v === '1';
+    } catch {
+      // ignore
+    }
+    return window.matchMedia?.('(min-width: 1024px)').matches ?? true;
+  });
+  const currentTitle = useMemo(() => {
+    if (!sessionId) {
+      return 'New chat';
+    }
+    const row = sessions.find((s) => s.id === sessionId);
+    const t = (row?.title || '').trim();
+    return t || 'New chat';
+  }, [sessionId, sessions]);
 
-  const headers = useMemo(() => ({ [HDR]: sessionId }), [sessionId]);
+  async function saveSessionTitle(id: string, title: string) {
+    const t = title.trim();
+    if (!t) {
+      return;
+    }
+    await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: t }),
+    });
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: t } : s)));
+  }
+
+
+  const headers = useMemo(() => (sessionId ? { [HDR]: sessionId } : {}), [sessionId]);
 
   useEffect(() => {
     let id = getSessionFromHash();
-    if (!id) {
-      id = randomSessionId();
-      setSessionHash(id);
+    setSessionId(id || '');
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.nav = navWide ? 'wide' : 'compact';
+    try {
+      localStorage.setItem('coddy_ui_nav_wide', navWide ? '1' : '0');
+    } catch {
+      // ignore
     }
-    setSessionId(id);
+  }, [navWide]);
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 760px)');
+    const onChange = () => {
+      if (mq.matches) {
+        setNavWide(false);
+      }
+    };
+    onChange();
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetchJSON<{ data?: Array<{ id?: string }> }>('/v1/models');
+      if (!res.ok || !res.data?.data) {
+        return;
+      }
+      const ids = res.data.data.map((d) => (d.id || '').trim()).filter(Boolean);
+      if (ids.length > 0) {
+        setModes(ids);
+        if (!ids.includes(mode)) {
+          setMode(ids[0] || 'agent');
+        }
+      }
+    })();
   }, []);
 
   useEffect(() => {
     const onHash = () => {
       const id = getSessionFromHash();
-      if (id && id !== sessionId) {
-        setSessionId(id);
-      }
+      setSessionId(id || '');
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -139,6 +210,15 @@ export function App() {
     setSessionsOpen(false);
   }
 
+  function goHome() {
+    setSessionHash('');
+    setSessionId('');
+    setItems([]);
+    setDraft('');
+    setTokenUsage(null);
+    setSessionsOpen(false);
+  }
+
   async function renameSession(id: string) {
     const current = sessions.find((s) => s.id === id)?.title ?? '';
     const next = window.prompt('New title', current);
@@ -149,12 +229,7 @@ export function App() {
     if (!title) {
       return;
     }
-    await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title }),
-    });
-    await loadSessions(true);
+    await saveSessionTitle(id, title);
   }
 
   async function deleteSession(id: string) {
@@ -172,6 +247,8 @@ export function App() {
 
   useEffect(() => {
     if (!sessionId) {
+      setItems([]);
+      void loadSessions(true);
       return;
     }
     setTokenUsage(null);
@@ -219,6 +296,13 @@ export function App() {
   }
 
   async function streamResponses(text: string) {
+    let sid = sessionId;
+    if (!sid) {
+      sid = randomSessionId();
+      setSessionHash(sid);
+      setSessionId(sid);
+    }
+    const hdrs = sid ? { [HDR]: sid } : {};
     const userItem: TranscriptItem = { id: newId('u'), type: 'user_message', content: text };
     const assistantId = newId('a');
     const assistantItem: TranscriptItem = { id: assistantId, type: 'assistant_message', content: '', streaming: true };
@@ -228,12 +312,12 @@ export function App() {
 
     const res = await fetch('/v1/responses', {
       method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'agent', input: text, stream: true }),
+      headers: { ...hdrs, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: mode || 'agent', input: text, stream: true }),
     });
 
     const sidHdr = res.headers.get(HDR);
-    if (sidHdr && sidHdr !== sessionId) {
+    if (sidHdr && sidHdr !== sid) {
       setSessionHash(sidHdr);
       setSessionId(sidHdr);
     }
@@ -336,9 +420,11 @@ export function App() {
   return (
     <div className="shell">
       <NavRail
-        onNewChat={() => pickSession(randomSessionId())}
+        onNewChat={goHome}
         menuOpen={sessionsOpen}
         onToggleMenu={() => setSessionsOpen((v) => !v)}
+        navWide={navWide}
+        onToggleNavWide={() => setNavWide((v) => !v)}
       />
 
       <div
@@ -355,14 +441,31 @@ export function App() {
         onClose={() => setSessionsOpen(false)}
         onPick={pickSession}
         onRename={(id: string) => void renameSession(id)}
+        onTitleSave={(id: string, title: string) => void saveSessionTitle(id, title)}
+        onDelete={(id: string) => void deleteSession(id)}
+        onLoadMore={() => void loadSessions(false)}
+      />
+
+      <SessionsSidebar
+        sessionId={sessionId}
+        sessions={sessions}
+        variant="dock"
+        onPick={pickSession}
+        onRename={(id: string) => void renameSession(id)}
+        onTitleSave={(id: string, title: string) => void saveSessionTitle(id, title)}
         onDelete={(id: string) => void deleteSession(id)}
         onLoadMore={() => void loadSessions(false)}
       />
       <ChatScreen
-        title={sessionId}
+        title={currentTitle}
+        sessionId={sessionId}
+        onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
         items={items}
         draft={draft}
         tokenUsage={tokenUsage}
+        mode={mode}
+        modes={modes}
+        onModeChange={setMode}
         onDraftChange={setDraft}
         onSend={(text: string) => {
           setDraft('');

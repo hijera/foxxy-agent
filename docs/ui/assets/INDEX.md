@@ -7,6 +7,9 @@ This folder contains reference screenshots used to align the embedded UI with th
 - `ref-home-1.png` - landing page with collapsed left rail and centered composer
 - `ref-home-composer.png` - expanded left menu and composer action area
 - `ref-chat.png` - in chat view with floating composer and left rail
+- `ref-wide-1.png` - wide desktop layout with expanded left nav and sessions list
+- `ref-wide-2.png` - wide desktop layout variant
+- `ref-wide-3.png` - wide desktop layout with session context menu
 
 ## Mobile
 

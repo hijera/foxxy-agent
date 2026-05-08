@@ -35,7 +35,7 @@ Muted footer row under composer shows **`input` / `output` / `total`** counts fr
 Left-to-right zones:
 
 1. **Icon rail**: quick **New chat** button.
-2. **Session sidebar**: chronological list, pagination (**Load more**), overflow menu placeholders for rename/delete.
+2. **Session drawer**: sessions are hidden by default and opened from the burger menu. Drawer overlays chat on desktop and mobile.
 3. **Chat canvas**: sticky header (**GitHub** + **API docs**), scrollable transcripts,composer with **Send** (**Enter** submits, **`Shift+Enter`** newline).
 
 The right insights rail is removed for the current milestone.
@@ -46,8 +46,16 @@ The right insights rail is removed for the current milestone.
 
 ### Responsive breakpoints
 
-- `<1100px`: hide insights column,maintain core chat+sessions stack.
-- `<760px`: collapse rails for mobile-first readability (sessions accessible via wider layouts only for now).
+- Mobile first: sessions are accessed via drawer.
+- Drawer overlays chat and composer on all screen sizes.
+
+Wide desktop navigation
+
+- On wide screens (full HD and above), UI supports two navigation styles
+  - wide navigation with labels
+  - compact icon-only navigation
+- User choice is persisted in local storage.
+- Default on wide screens is wide navigation.
 
 ## Components
 
@@ -67,6 +75,22 @@ Tool cards must include tool name, status, arguments, and result.
 ### Composer pill
 
 Muted **Auto** pill tracks future modality toggles; UI copy stays English everywhere.
+
+Composer mode selector
+
+- User can pick a mode from `GET /v1/models` in a `Mode` dropdown.
+- Default is `agent`.
+- `plan` is shown as an orange outline.
+- Selected mode is sent as `model` in `POST /v1/responses`.
+
+Composer does not show tools toggles in this milestone.
+
+### Markdown
+
+Messages may contain Markdown.
+
+- Render fenced code blocks with syntax highlighting.
+- Each code block has a copy button in the top right corner that copies only the block contents.
 
 ### Memory tree
 

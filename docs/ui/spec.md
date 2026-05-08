@@ -16,7 +16,19 @@ Three pane layout on desktop
 - Left rail with a new chat action
 - Sessions list with pagination and per session actions
 - Main chat area with streamed assistant output
-- Right rail with todo plan and long term memory file tree
+- Right rail is out of scope for the current milestone
+
+Navigation modes on wide screens
+
+- On large screens (full HD and above) the UI supports two left navigation styles
+  - wide navigation with labels
+  - compact icon-only navigation
+- User choice is persisted in local storage.
+- Default on large screens is wide navigation.
+
+Mobile layout
+
+- On mobile the left rail becomes a top bar to preserve horizontal space.
 
 Header links
 
@@ -25,11 +37,17 @@ Header links
 
 ## Sessions
 
-- Session id is generated client side.
+- Session id is generated client side only after the first message is sent from a new chat.
 - Session id is persisted in the URL fragment.
   - Recommended format `#/s/<sessionId>`
 - Session id is sent in the `X-Coddy-Session-ID` header for chat transport.
 - Session id validation matches `internal/session/ValidateFolderSessionID`.
+
+Session title
+
+- UI shows the session title in the chat header.
+- When the title is missing, UI shows `New chat`.
+- Title is editable inline. On blur the UI saves via `PATCH /coddy/sessions/{id}`.
 
 ## Session list
 
@@ -38,12 +56,22 @@ Header links
 - CRUD
   - Rename via `PATCH /coddy/sessions/{id}` setting `title`.
   - Delete via `DELETE /coddy/sessions/{id}`.
-  - Create new chat by generating a new id and switching the URL.
+  - Create new chat starts on the home screen. Session id is created only on first send.
+
+Session rename UX
+
+- Hover or click on a chat title to edit it.
+- When focus leaves the input, the new title is saved.
 
 ## Chat transport
 
 - Primary transport is `POST /v1/responses`.
 - `stream: true` uses SSE.
+
+Mode selection
+
+- UI lets the user select a mode from `GET /v1/models` (at minimum `agent` and `plan`).
+- Selected mode is sent as `model` field in `POST /v1/responses`.
 
 SSE payloads
 
@@ -59,6 +87,12 @@ SSE payloads
 - UI must show token counters while the agent is working.
 - Counters update when SSE event `token_usage` arrives.
 - Update granularity is per completed backend model call, not per generated token.
+
+## Markdown rendering
+
+- User and assistant messages may contain Markdown.
+- UI renders Markdown with fenced code blocks and syntax highlighting.
+- Each code block has a copy button that copies only that block content.
 
 ## Plan and todo list
 
