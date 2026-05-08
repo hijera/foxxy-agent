@@ -25,6 +25,7 @@ html {
     radial-gradient(900px 500px at 80% 70%, rgba(99, 102, 241, 0.1), transparent 50%),
     linear-gradient(180deg, #0f0f10, #0b0b0c);
   background-color: #0b0b0c;
+  background-attachment: fixed;
 }
 
 body {
@@ -33,6 +34,7 @@ body {
   color: var(--text);
   font-family: system-ui, -apple-system, Segoe UI, sans-serif;
   background: transparent;
+  overflow: hidden;
 }
 
 .sr-only {
@@ -50,9 +52,11 @@ body {
 /* Mobile-first shell */
 .shell {
   height: 100vh;
+  height: 100svh;
   display: grid;
   grid-template-columns: 88px 1fr;
   gap: 0;
+  min-height: 0;
 }
 
 /* Nav rail */
@@ -62,6 +66,7 @@ body {
   padding: 14px 10px;
   display: flex;
   justify-content: center;
+  min-height: 0;
 }
 
 .rail-pill {
@@ -92,6 +97,10 @@ body {
   display: grid;
   place-items: center;
   font-size: 18px;
+}
+
+.nav-toggle {
+  display: inline-grid;
 }
 
 .rail-icon:hover {
@@ -188,6 +197,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   z-index: 50;
+  min-height: 0;
 }
 
 .sessions.dock {
@@ -223,6 +233,7 @@ body {
   flex: 1;
   overflow: auto;
   padding: 8px 8px 12px;
+  min-height: 0;
 }
 
 .session-item {
@@ -289,17 +300,25 @@ body {
   box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
 }
 
+.session-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+}
+
 .session-trash {
   opacity: 0;
   pointer-events: none;
-  width: 34px;
-  height: 30px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(20, 20, 22, 0.35);
+  width: 26px;
+  height: 26px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
   color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   display: grid;
   place-items: center;
@@ -311,7 +330,7 @@ body {
 }
 
 .session-trash:hover {
-  background: rgba(20, 20, 22, 0.55);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .session-menu {
@@ -342,6 +361,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 14px 14px 18px;
+  min-height: 0;
 }
 
 .main.is-empty {
@@ -388,7 +408,7 @@ body {
 }
 
 .chat-title-input {
-  width: min(520px, 60vw);
+  width: min(360px, 40vw);
   font: inherit;
   color: rgba(255, 255, 255, 0.92);
   background: rgba(10, 10, 12, 0.2);
@@ -438,6 +458,13 @@ body {
   opacity: 0.92;
 }
 
+.chat-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .messages {
   flex: 1;
   overflow: auto;
@@ -445,6 +472,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .messages-inner {
@@ -460,6 +489,7 @@ body {
 .chat-bottom {
   position: sticky;
   bottom: 0;
+  flex: none;
 }
 
 .chat-bottom-inner {
@@ -530,6 +560,7 @@ body {
 
 .md {
   color: rgba(255, 255, 255, 0.9);
+  line-height: 1.55;
 }
 
 .md :where(p) {
@@ -540,8 +571,93 @@ body {
   margin-top: 10px;
 }
 
+.md :where(h1, h2, h3) {
+  margin: 14px 0 10px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.md :where(h1) {
+  font-size: 20px;
+}
+
+.md :where(h2) {
+  font-size: 16px;
+  opacity: 0.98;
+}
+
+.md :where(h3) {
+  font-size: 14px;
+  opacity: 0.95;
+}
+
+.md :where(ul, ol) {
+  margin: 10px 0 10px 18px;
+  padding: 0;
+}
+
+.md :where(li) {
+  margin: 6px 0;
+}
+
+.md :where(li > p) {
+  margin: 0;
+}
+
+.md :where(blockquote) {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border-left: 3px solid rgba(167, 139, 250, 0.55);
+  background: rgba(10, 10, 12, 0.18);
+  border-radius: 12px;
+  color: rgba(229, 231, 235, 0.9);
+}
+
+.md :where(hr) {
+  border: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 14px 0;
+}
+
 .md :where(a) {
   color: rgba(167, 139, 250, 0.95);
+}
+
+.md :where(table) {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 10, 12, 0.22);
+}
+
+.md :where(th, td) {
+  padding: 10px 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: top;
+}
+
+.md :where(th) {
+  text-align: left;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.md :where(tr:last-child td) {
+  border-bottom: 0;
+}
+
+.md :where(td:last-child, th:last-child) {
+  border-right: 0;
+}
+
+.md :where(tbody tr:hover td) {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .md :where(code) {
@@ -553,6 +669,14 @@ body {
   background: rgba(10, 10, 12, 0.35);
 }
 
+.md-inline-code {
+  display: inline-block;
+  color: rgba(229, 231, 235, 0.95);
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(10, 10, 12, 0.25);
+  padding: 2px 8px;
+}
+
 .md :where(pre) {
   margin: 0;
 }
@@ -560,6 +684,10 @@ body {
 .md-code {
   position: relative;
   margin-top: 10px;
+}
+
+.md :where(table) {
+  margin: 12px 0;
 }
 
 .md-code pre {
@@ -903,6 +1031,13 @@ textarea#composer {
     padding: 8px 10px;
   }
 
+  html[data-nav='wide'] .rail-brand-text {
+    display: grid;
+    justify-items: start;
+    gap: 2px;
+    white-space: normal;
+  }
+
   html[data-nav='wide'] .rail-icon {
     width: 100%;
     height: 44px;
@@ -921,6 +1056,9 @@ textarea#composer {
 
 /* Mobile: rail becomes top bar */
 @media (max-width: 760px) {
+  .nav-toggle {
+    display: none;
+  }
   .sessions.dock {
     display: none !important;
   }
@@ -950,7 +1088,7 @@ textarea#composer {
   .rail-icon {
     width: 40px;
     height: 40px;
-    border-radius: 14px;
+    border-radius: 10px;
   }
   .rail-icon.rail-link {
     width: 44px;

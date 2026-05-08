@@ -61,7 +61,15 @@ export function Markdown(props: { text: string }) {
         if (p.inline) {
           return <code className={p.className || ''}>{txt}</code>;
         }
-        const isFenced = typeof p.className === 'string' && (p.className.includes('language-') || p.className.includes('hljs'));
+        const hasClass = typeof p.className === 'string' && p.className.trim() !== '';
+        const isFenced = hasClass && (p.className!.includes('language-') || p.className!.includes('hljs'));
+        const isMultiline = txt.includes('\n');
+
+        // Non-fenced single-line blocks should look like inline code, not full-width sections.
+        if (!isFenced && !isMultiline) {
+          return <code className="md-inline-code">{txt}</code>;
+        }
+
         return (
           <div className="md-code">
             {isFenced ? <CopyButton text={txt.replace(/\n$/, '')} /> : null}

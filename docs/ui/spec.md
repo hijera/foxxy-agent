@@ -29,6 +29,7 @@ Navigation modes on wide screens
 Mobile layout
 
 - On mobile the left rail becomes a top bar to preserve horizontal space.
+- On mobile the nav width toggle is hidden.
 
 Header links
 
@@ -60,8 +61,13 @@ Session title
 
 Session rename UX
 
-- Hover or click on a chat title to edit it.
-- When focus leaves the input, the new title is saved.
+- Title rename is done only in the chat header.
+- On blur the UI saves via `PATCH /coddy/sessions/{id}`.
+
+Session delete UX
+
+- Each row has a trash icon button.
+- Clicking delete shows one confirm dialog and then calls `DELETE /coddy/sessions/{id}`.
 
 ## Chat transport
 

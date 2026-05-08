@@ -233,7 +233,7 @@ export function App() {
   }
 
   async function deleteSession(id: string) {
-    const ok = window.confirm(`Delete chat ${id}?`);
+    const ok = window.confirm('Delete chat');
     if (!ok) {
       return;
     }

@@ -21,7 +21,13 @@ export function NavRail(props: {
 
         <div className="rail-spacer" />
 
-        <button type="button" className="rail-icon" aria-label="Toggle nav width" title="Toggle nav" onClick={props.onToggleNavWide}>
+        <button
+          type="button"
+          className="rail-icon nav-toggle"
+          aria-label="Toggle nav width"
+          title="Toggle nav"
+          onClick={props.onToggleNavWide}
+        >
           <span aria-hidden="true">{props.navWide ? '⟷' : '↔'}</span>
         </button>
 

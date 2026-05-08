@@ -57,6 +57,12 @@ Wide desktop navigation
 - User choice is persisted in local storage.
 - Default on wide screens is wide navigation.
 
+Sessions list interactions
+
+- Session list supports open on row click.
+- Session list shows a small trash icon on hover.
+- Renaming is done only in the chat header.
+
 ## Components
 
 ### Repo links
