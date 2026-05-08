@@ -17,14 +17,17 @@ export function ChatScreen(props: {
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string) => void;
+  onLoadToolCallDetails?: (toolCallId: string) => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
-    if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-    }
+    const el = messagesRef.current;
+    if (!el) return;
+    if (!stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [props.items]);
 
   return (
@@ -48,9 +51,23 @@ export function ChatScreen(props: {
         </div>
       ) : (
         <div className="chat-stack">
-          <div id="messages" className="messages" aria-live="polite" ref={messagesRef}>
+          <div
+            id="messages"
+            className="messages"
+            aria-live="polite"
+            ref={messagesRef}
+            onScroll={() => {
+              const el = messagesRef.current;
+              if (!el) return;
+              const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+              stickToBottomRef.current = dist < 80;
+            }}
+          >
             <div className="messages-inner">
-              <MessageList items={props.items} />
+              <MessageList
+                items={props.items}
+                {...(props.onLoadToolCallDetails ? { onLoadToolCallDetails: props.onLoadToolCallDetails } : {})}
+              />
             </div>
           </div>
 

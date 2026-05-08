@@ -31,8 +31,11 @@ No authentication is enforced. Run behind appropriate network controls.
 | GET | `/v1/responses/{id}` | Session metadata snapshot. |
 | GET | **`/coddy/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). |
 | GET | **`/coddy/sessions/{id}/messages`** | Serialized conversation snapshot. Cold loads require **`session.json`**. |
+| GET | **`/coddy/sessions/{id}/tool-calls`** | Tool calls timeline for the session (previews). |
+| GET | **`/coddy/sessions/{id}/tool-calls/{toolCallId}`** | Tool call details: meta, args JSON, result Markdown. |
+| GET | **`/coddy/sessions/{id}/stats`** | Session stats: token usage totals (and optional per turn list). |
 | PATCH | **`/coddy/sessions/{id}`** | **`{"title"}`** pins **`session.json.titlePinned`**. |
-| DELETE | **`/coddy/sessions/{id}`** | Removes persisted bundle plus in-memory MCP clients. |
+| DELETE | **`/coddy/sessions/{id}`** | Removes the entire persisted session directory (including `tool_calls/` and `stats.json`) plus in-memory MCP clients. |
 | GET/PUT | **`/coddy/sessions/{id}/plan`** | Read or overwrite todo **`entries`** (ACP shape). |
 | POST | **`/coddy/sessions/{id}/plan/archive`** | Archives active todos like **`coddy_todo_plan_archive`**. |
 | GET | **`/coddy/sessions/{id}/memory/tree`** | Without **`root`**, lists **`global`** and **`workspace`**. Otherwise lists allowed **`.md` / `.txt`** children (traversal guarded). |

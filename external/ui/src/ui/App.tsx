@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen';
 import { parseSSEBlocks } from './chat/sse';
 import type { TokenUsage, TranscriptItem } from './chat/types';
@@ -19,6 +19,21 @@ type ToolCallStatusUpdate = {
   toolCallId: string;
   status?: string;
   content?: Array<{ type: string; content: { type: string; text?: string } }>;
+};
+
+type ToolCallListRow = {
+  toolCallId: string;
+  name?: string;
+  kind?: string;
+  status?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  argsPreview?: string;
+  resultPreview?: string;
+};
+
+type SessionStats = {
+  tokenUsageTotal?: { inputTokens: number; outputTokens: number; totalTokens: number };
 };
 
 function randomSessionId(): string {
@@ -70,6 +85,7 @@ export function App() {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [draft, setDraft] = useState('');
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
+  const tokenBaselineRef = useRef<{ input: number; output: number; total: number }>({ input: 0, output: 0, total: 0 });
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modes, setModes] = useState<string[]>(['agent', 'plan']);
   const [mode, setMode] = useState<string>('agent');
@@ -155,7 +171,7 @@ export function App() {
   }
 
   async function loadMessages() {
-    const res = await fetchJSON<{ messages: Array<{ role: string; content?: string }> }>(
+    const res = await fetchJSON<{ messages: Array<any> }>(
       `/coddy/sessions/${encodeURIComponent(sessionId)}/messages`,
       { headers },
     );
@@ -164,13 +180,86 @@ export function App() {
       return;
     }
     const next: TranscriptItem[] = [];
+    const toolIdx = new Map<string, number>();
     for (const m of res.data.messages || []) {
-      if (m.role === 'user') {
+      const role = (m.role || '').trim();
+      if (role === 'user') {
         next.push({ id: newId('u'), type: 'user_message', content: m.content || '' });
         continue;
       }
-      if (m.role === 'assistant') {
-        next.push({ id: newId('a'), type: 'assistant_message', content: m.content || '' });
+      if (role === 'assistant') {
+        const content = m.content || '';
+        if (content) {
+          next.push({ id: newId('a'), type: 'assistant_message', content });
+        }
+        const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
+        for (const tc of tcs) {
+          const id = tc?.id || '';
+          const fn = tc?.function || {};
+          const name = (fn?.name || '').trim();
+          const args = fn?.arguments || '';
+          if (!id) continue;
+          if (toolIdx.has(id)) continue;
+          const it: Extract<TranscriptItem, { type: 'tool_call' }> = {
+            id: newId('t'),
+            type: 'tool_call',
+            toolCallId: id,
+            status: 'pending',
+            detailsLoaded: false,
+          };
+          if (name) it.title = name;
+          if (args) it.argsText = args;
+          toolIdx.set(id, next.length);
+          next.push(it);
+        }
+        continue;
+      }
+      if (role === 'tool') {
+        const id = (m.tool_call_id || '').trim();
+        if (!id) continue;
+        const idx = toolIdx.get(id);
+        if (idx === undefined) {
+          const it: Extract<TranscriptItem, { type: 'tool_call' }> = {
+            id: newId('t'),
+            type: 'tool_call',
+            toolCallId: id,
+            status: 'completed',
+            resultText: m.content || '',
+            detailsLoaded: false,
+          };
+          toolIdx.set(id, next.length);
+          next.push(it);
+          continue;
+        }
+        const cur = next[idx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+        next[idx] = { ...cur, status: 'completed', resultText: m.content || '' };
+      }
+    }
+
+    // Enrich tool calls with persisted previews when available.
+    const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(`/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls`, {
+      headers,
+    });
+    if (tcRes.ok && tcRes.data?.toolCalls) {
+      for (const row of tcRes.data.toolCalls) {
+        const id = (row.toolCallId || '').trim();
+        if (!id) continue;
+        const idx = toolIdx.get(id);
+        if (idx === undefined) continue;
+        const cur = next[idx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+        const title = (row.name || cur.title || '').trim() || undefined;
+        const kind = (row.kind || cur.kind || '').trim() || undefined;
+        const status = (row.status as any) || cur.status;
+        const merged: Extract<TranscriptItem, { type: 'tool_call' }> = {
+          ...cur,
+          status,
+          detailsLoaded: false,
+        };
+        if (title) merged.title = title;
+        if (kind) merged.kind = kind;
+        if (row.argsPreview) merged.argsText = row.argsPreview;
+        if (row.resultPreview) merged.resultText = row.resultPreview;
+        next[idx] = merged;
       }
     }
     setItems(next);
@@ -224,10 +313,21 @@ export function App() {
       return;
     }
     setTokenUsage(null);
+    tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     void (async () => {
       const list = await loadSessions(true);
       const exists = !!list?.some((s) => s.id === sessionId);
       if (exists) {
+        const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(`/coddy/sessions/${encodeURIComponent(sessionId)}/stats`, { headers });
+        if (statsRes.ok && statsRes.data?.stats?.tokenUsageTotal) {
+          const t = statsRes.data.stats.tokenUsageTotal;
+          tokenBaselineRef.current = { input: t.inputTokens || 0, output: t.outputTokens || 0, total: t.totalTokens || 0 };
+          setTokenUsage({
+            inputTokens: tokenBaselineRef.current.input,
+            outputTokens: tokenBaselineRef.current.output,
+            totalTokens: tokenBaselineRef.current.total,
+          });
+        }
         await loadMessages();
       } else {
         setItems([]);
@@ -309,6 +409,54 @@ export function App() {
     const dec = new TextDecoder();
     const carry = { buf: '' };
 
+    const toolQueue: Array<Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string }> = [];
+    let raf = 0;
+    const flushToolQueue = () => {
+      raf = 0;
+      if (toolQueue.length === 0) return;
+      const pending = toolQueue.splice(0, toolQueue.length);
+      setItems((prev) => {
+        let next = prev;
+        for (const upd of pending) {
+          const idx = next.findIndex((x) => x.type === 'tool_call' && x.toolCallId === upd.toolCallId);
+          if (idx < 0) {
+            const itBase: Extract<TranscriptItem, { type: 'tool_call' }> = {
+              id: newId('t'),
+              type: 'tool_call',
+              toolCallId: upd.toolCallId,
+              status: (upd.status as any) || 'pending',
+            };
+            const it: Extract<TranscriptItem, { type: 'tool_call' }> = { ...itBase };
+            if (upd.title !== undefined) it.title = upd.title;
+            if (upd.kind !== undefined) it.kind = upd.kind;
+            if (upd.argsText !== undefined) it.argsText = upd.argsText;
+            if (upd.resultText !== undefined) it.resultText = upd.resultText;
+            if (upd.detailsLoaded !== undefined) it.detailsLoaded = upd.detailsLoaded;
+            next = [...next, it];
+            continue;
+          }
+          const arr = next === prev ? [...next] : next;
+          const cur = arr[idx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+          const merged: Extract<TranscriptItem, { type: 'tool_call' }> = {
+            ...cur,
+            status: (upd.status as any) || cur.status,
+          };
+          if (upd.title !== undefined) merged.title = upd.title;
+          if (upd.kind !== undefined) merged.kind = upd.kind;
+          if (upd.argsText !== undefined) merged.argsText = upd.argsText;
+          if (upd.resultText !== undefined) merged.resultText = upd.resultText;
+          if (upd.detailsLoaded !== undefined) merged.detailsLoaded = upd.detailsLoaded;
+          arr[idx] = merged;
+          next = arr;
+        }
+        return next;
+      });
+    };
+    const scheduleToolFlush = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(flushToolQueue);
+    };
+
     while (true) {
       const step = await reader.read();
       if (step.done) {
@@ -339,7 +487,13 @@ export function App() {
 
         if (ev.event === 'token_usage') {
           try {
-            setTokenUsage(JSON.parse(ev.data) as TokenUsage);
+            const u = JSON.parse(ev.data) as TokenUsage;
+            const merged: TokenUsage = {
+              inputTokens: tokenBaselineRef.current.input + (u.inputTokens || 0),
+              outputTokens: tokenBaselineRef.current.output + (u.outputTokens || 0),
+              totalTokens: tokenBaselineRef.current.total + (u.totalTokens || 0),
+            };
+            setTokenUsage(merged);
           } catch {
             // ignore
           }
@@ -355,7 +509,8 @@ export function App() {
             };
             if (t.title !== undefined) patch.title = t.title;
             if (t.kind !== undefined) patch.kind = t.kind;
-            upsertToolCall(patch);
+            toolQueue.push(patch);
+            scheduleToolFlush();
           } catch {
             // ignore
           }
@@ -368,11 +523,14 @@ export function App() {
             const status = (u.status as any) || 'in_progress';
             const text0 = u.content?.[0]?.content?.text || '';
             if (status === 'in_progress' && text0) {
-              upsertToolCall({ toolCallId: u.toolCallId, status, argsText: text0 });
+              toolQueue.push({ toolCallId: u.toolCallId, status, argsText: text0 });
+              scheduleToolFlush();
             } else if ((status === 'completed' || status === 'failed' || status === 'cancelled') && text0) {
-              upsertToolCall({ toolCallId: u.toolCallId, status, resultText: text0 });
+              toolQueue.push({ toolCallId: u.toolCallId, status, resultText: text0 });
+              scheduleToolFlush();
             } else {
-              upsertToolCall({ toolCallId: u.toolCallId, status });
+              toolQueue.push({ toolCallId: u.toolCallId, status });
+              scheduleToolFlush();
             }
           } catch {
             // ignore
@@ -381,6 +539,8 @@ export function App() {
         }
       }
     }
+
+    flushToolQueue();
 
     setItems((prev) =>
       prev.map((it) => (it.type === 'assistant_message' && it.id === assistantId ? { ...it, streaming: false } : it)),
@@ -430,6 +590,24 @@ export function App() {
         onSend={(text: string) => {
           setDraft('');
           void streamResponses(text);
+        }}
+        onLoadToolCallDetails={(toolCallId: string) => {
+          void (async () => {
+            if (!sessionId) return;
+            const det = await fetchJSON<{ args?: string; result?: string; meta?: { status?: string; kind?: string; name?: string } }>(
+              `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+              { headers },
+            );
+            if (!det.ok || !det.data) return;
+            const meta = det.data.meta || {};
+            const patch: any = { toolCallId, detailsLoaded: true };
+            if (meta.name) patch.title = meta.name;
+            if (meta.kind) patch.kind = meta.kind;
+            if (meta.status) patch.status = meta.status;
+            if (det.data.args) patch.argsText = det.data.args;
+            if (det.data.result) patch.resultText = det.data.result;
+            upsertToolCall(patch);
+          })();
         }}
       />
     </div>

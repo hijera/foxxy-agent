@@ -25,5 +25,6 @@ export type TranscriptItem =
       status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
       argsText?: string;
       resultText?: string;
+      detailsLoaded?: boolean;
     };
 

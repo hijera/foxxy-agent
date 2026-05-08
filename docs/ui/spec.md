@@ -40,6 +40,9 @@ Header links
   - Recommended format `#/s/<sessionId>`
 - Session id is sent in the `X-Coddy-Session-ID` header for chat transport.
 - Session id validation matches `internal/session/ValidateFolderSessionID`.
+- Session persisted files live under the session directory and are deleted together when the session is deleted.
+  - `tool_calls/` tool call history
+  - `stats.json` token usage totals
 
 Session title
 
@@ -90,6 +93,7 @@ SSE payloads
 - UI must show token counters while the agent is working.
 - Counters update when SSE event `token_usage` arrives.
 - Update granularity is per completed backend model call, not per generated token.
+- UI restores token counters after restart via `GET /coddy/sessions/{id}/stats`.
 
 ## Markdown rendering
 
@@ -176,3 +180,14 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then the nav width toggle is not present
   - And the nav rail height is 78px
   - And sessions can still be opened from the menu button
+
+- Tool calls survive restart
+  - Given a session has tool calls executed
+  - When the user reloads the page
+  - Then tool call cards are visible in the transcript
+  - And clicking tool details shows full args and result
+
+- Token usage survives restart
+  - Given a session has non zero token usage
+  - When the user reloads the page
+  - Then the token usage HUD shows the persisted totals

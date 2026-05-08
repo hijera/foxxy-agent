@@ -21,6 +21,7 @@ const (
 	todosDirName         = "todos"
 	todosArchiveName     = "archive"
 	activeTodoFile       = "active.md"
+	toolCallsDirName     = "tool_calls"
 	sessionFileLayout    = 1
 	messagesLayout       = 1
 	permissionGrantsVer  = 1
@@ -63,6 +64,9 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 		return "", err
 	}
 	if err := os.MkdirAll(AssetsPath(dir), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, toolCallsDirName), 0o755); err != nil {
 		return "", err
 	}
 	metaPath := filepath.Join(dir, sessionMetaFile)

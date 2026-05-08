@@ -30,6 +30,8 @@ Store the design reference images under `docs/ui/assets/` and link to the specif
 
 Muted footer row under composer shows **`input` / `output` / `total`** counts from streamed **`token_usage`** SSE payloads. Numbers update after each backend LLM pass (between tool executions), not per model token emitted over the wire.
 
+Token usage totals are persisted per session and restored after restart.
+
 ## Layout
 
 Left-to-right zones:
@@ -73,6 +75,8 @@ Tool cards must include tool name, status, arguments, and result.
 
 - Tool arguments arrive via `tool_call_update` status `in_progress` where `content[0].content.text` is raw JSON args.
 - Tool result arrives via `tool_call_update` status `completed` or `failed` where `content[0].content.text` is the display result (possibly truncated by backend).
+
+Tool call history is persisted per session under `tool_calls/` so it can be restored after restart.
 
 ### Composer pill
 

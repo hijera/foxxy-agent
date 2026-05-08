@@ -40,6 +40,9 @@ type pathsForMemoryAPI struct {
 func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}", s.coddySessionDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/plan", s.coddyPlanGet)
@@ -50,6 +53,225 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/memory/file", s.coddyMemoryFilePut)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/memory/dir", s.coddyMemoryDirPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/memory/file", s.coddyMemoryFileDelete)
+}
+
+type coddyToolCallRow struct {
+	ToolCallID    string `json:"toolCallId"`
+	Name          string `json:"name,omitempty"`
+	Kind          string `json:"kind,omitempty"`
+	Status        string `json:"status,omitempty"`
+	StartedAt     string `json:"startedAt,omitempty"`
+	FinishedAt    string `json:"finishedAt,omitempty"`
+	ArgsPreview   string `json:"argsPreview,omitempty"`
+	ResultPreview string `json:"resultPreview,omitempty"`
+}
+
+func previewText(s string, max int) string {
+	txt := strings.TrimSpace(s)
+	if txt == "" {
+		return ""
+	}
+	if max <= 0 || len(txt) <= max {
+		return txt
+	}
+	return txt[:max] + "..."
+}
+
+func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	sd := strings.TrimSpace(st.GetPersistedSessionDir())
+	msgs := st.GetMessages()
+
+	type ent struct {
+		row coddyToolCallRow
+	}
+	ordered := make([]ent, 0)
+	idx := map[string]int{}
+
+	for _, m := range msgs {
+		if m.Role == llm.RoleAssistant && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if strings.TrimSpace(tc.ID) == "" {
+					continue
+				}
+				if _, ok := idx[tc.ID]; ok {
+					continue
+				}
+				idx[tc.ID] = len(ordered)
+				ordered = append(ordered, ent{
+					row: coddyToolCallRow{
+						ToolCallID:  tc.ID,
+						Name:        tc.Name,
+						Kind:        toolKind(tc.Name),
+						Status:      "pending",
+						ArgsPreview: previewText(tc.InputJSON, 200),
+					},
+				})
+			}
+		}
+		if m.Role == llm.RoleTool && strings.TrimSpace(m.ToolCallID) != "" {
+			i, ok := idx[m.ToolCallID]
+			if !ok {
+				idx[m.ToolCallID] = len(ordered)
+				ordered = append(ordered, ent{row: coddyToolCallRow{ToolCallID: m.ToolCallID}})
+				i = idx[m.ToolCallID]
+			}
+			ordered[i].row.Status = "completed"
+			ordered[i].row.ResultPreview = previewText(m.Content, 200)
+		}
+	}
+
+	if sd != "" {
+		for i := range ordered {
+			id := ordered[i].row.ToolCallID
+			if meta, err := session.ReadToolCallMeta(sd, id); err == nil && meta != nil {
+				if strings.TrimSpace(meta.Name) != "" {
+					ordered[i].row.Name = meta.Name
+				}
+				if strings.TrimSpace(meta.Kind) != "" {
+					ordered[i].row.Kind = meta.Kind
+				}
+				if strings.TrimSpace(meta.Status) != "" {
+					ordered[i].row.Status = meta.Status
+				}
+				ordered[i].row.StartedAt = meta.StartedAt
+				ordered[i].row.FinishedAt = meta.FinishedAt
+			}
+			if args, err := session.ReadToolCallArgs(sd, id); err == nil {
+				ordered[i].row.ArgsPreview = previewText(args, 200)
+			}
+			if res, err := session.ReadToolCallResult(sd, id); err == nil {
+				ordered[i].row.ResultPreview = previewText(res, 200)
+			}
+		}
+	}
+
+	outRows := make([]coddyToolCallRow, 0, len(ordered))
+	for _, e := range ordered {
+		outRows = append(outRows, e.row)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "coddy.tool_calls",
+		"sessionId": id,
+		"toolCalls": outRows,
+	})
+}
+
+func (s *Server) coddyToolCallGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	toolCallID := strings.TrimSpace(r.PathValue("toolCallId"))
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	sd := strings.TrimSpace(st.GetPersistedSessionDir())
+
+	var meta *session.ToolCallMeta
+	var args, result string
+
+	if sd != "" {
+		if m, err := session.ReadToolCallMeta(sd, toolCallID); err == nil {
+			meta = m
+		}
+		if a, err := session.ReadToolCallArgs(sd, toolCallID); err == nil {
+			args = a
+		}
+		if res, err := session.ReadToolCallResult(sd, toolCallID); err == nil {
+			result = res
+		}
+	}
+
+	if meta == nil || (args == "" && result == "") {
+		for _, m := range st.GetMessages() {
+			if m.Role == llm.RoleAssistant {
+				for _, tc := range m.ToolCalls {
+					if tc.ID == toolCallID {
+						if meta == nil {
+							tmp := session.ToolCallMeta{
+								ToolCallID: toolCallID,
+								Name:       tc.Name,
+								Kind:       toolKind(tc.Name),
+								Status:     "pending",
+							}
+							meta = &tmp
+						}
+						if args == "" {
+							args = tc.InputJSON
+						}
+					}
+				}
+			}
+			if m.Role == llm.RoleTool && m.ToolCallID == toolCallID {
+				if result == "" {
+					result = m.Content
+				}
+				if meta != nil && meta.Status == "pending" {
+					meta.Status = "completed"
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":     "coddy.tool_call",
+		"sessionId":  id,
+		"toolCallId": toolCallID,
+		"meta":       meta,
+		"args":       args,
+		"result":     result,
+	})
+}
+
+func (s *Server) coddySessionStatsGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	sd := strings.TrimSpace(st.GetPersistedSessionDir())
+	if sd == "" {
+		http.Error(w, `{"error":{"message":"stats unavailable"}}`, http.StatusServiceUnavailable)
+		return
+	}
+	stats, err := session.ReadSessionStats(sd)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"object":    "coddy.session_stats",
+				"sessionId": id,
+				"stats":     nil,
+			})
+			return
+		}
+		http.Error(w, `{"error":{"message":"read failed"}}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "coddy.session_stats",
+		"sessionId": id,
+		"stats":     stats,
+	})
 }
 
 func (s *Server) coddyRequireStore(w http.ResponseWriter) *session.FileStore {
