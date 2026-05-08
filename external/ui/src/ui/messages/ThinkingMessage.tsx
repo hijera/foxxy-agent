@@ -53,7 +53,6 @@ export function ThinkingMessage(props: {
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{label}</span>
           </span>
-          {inProgress ? <span className="thinking-spinner" aria-hidden="true" /> : null}
           <span className="thinking-dur" aria-hidden="true">
             {durationLabel}
           </span>

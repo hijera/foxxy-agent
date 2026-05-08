@@ -87,6 +87,10 @@ function parseRFC3339ms(s: string | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function reasoningDurationCacheKey(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
 export function App() {
   const [sessionId, setSessionId] = useState('');
   const [sessions, setSessions] = useState<SessionRow[]>([]);
@@ -97,6 +101,7 @@ export function App() {
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const tokenBaselineRef = useRef<{ input: number; output: number; total: number }>({ input: 0, output: 0, total: 0 });
   const inFlightRef = useRef(false);
+  const reasoningDurationMsByContentRef = useRef<Map<string, number>>(new Map());
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modes, setModes] = useState<string[]>(['agent', 'plan']);
@@ -222,7 +227,15 @@ export function App() {
       if (role === 'assistant') {
         const reasoning = (m.reasoning || '').trim();
         if (reasoning) {
-          next.push({ id: newId('r'), type: 'thinking', status: 'completed', content: reasoning });
+          const dk = reasoningDurationCacheKey(reasoning);
+          const cachedMs = dk ? reasoningDurationMsByContentRef.current.get(dk) : undefined;
+          next.push({
+            id: newId('r'),
+            type: 'thinking',
+            status: 'completed',
+            content: reasoning,
+            ...(cachedMs !== undefined ? { durationMs: cachedMs } : {}),
+          });
         }
         const content = m.content || '';
         if (content) {
@@ -308,6 +321,7 @@ export function App() {
   }
 
   async function pickSession(id: string, opts?: { closeMenu?: boolean }) {
+    reasoningDurationMsByContentRef.current = new Map();
     setSessionHash(id);
     setSessionId(id);
     if (opts?.closeMenu !== false) {
@@ -323,6 +337,7 @@ export function App() {
     setTokenUsage(null);
     setSessionsOpen(false);
     setDescribePreview(null);
+    reasoningDurationMsByContentRef.current = new Map();
   }
 
   async function renameSession(id: string) {
@@ -621,7 +636,17 @@ export function App() {
         const id = activeThinkingId;
         const dur = Math.max(0, Date.now() - activeThinkingStarted);
         setItems((prev) =>
-          prev.map((it) => (it.type === 'thinking' && it.id === id ? { ...it, status: 'completed', durationMs: dur } : it)),
+          prev.map((it) => {
+            if (it.type !== 'thinking' || it.id !== id) {
+              return it;
+            }
+            const nextIt = { ...it, status: 'completed' as const, durationMs: dur };
+            const dk = reasoningDurationCacheKey(nextIt.content);
+            if (dk.length > 0) {
+              reasoningDurationMsByContentRef.current.set(dk, dur);
+            }
+            return nextIt;
+          }),
         );
         activeThinkingId = null;
       };
