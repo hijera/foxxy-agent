@@ -3,7 +3,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const backend = process.env.CODDY_UI_BACKEND ?? 'http://127.0.0.1:12345';
+const backend = (process.env.CODDY_UI_BACKEND || '').trim();
 
 export default defineConfig({
   root: 'src',
@@ -15,13 +15,17 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: {
-      '/v1': backend,
-      '/coddy': backend,
-      '/docs': backend,
-      '/openapi.yaml': backend,
-      '/openapi.json': backend,
-    },
+    ...(backend
+      ? {
+          proxy: {
+            '/v1': backend,
+            '/coddy': backend,
+            '/docs': backend,
+            '/openapi.yaml': backend,
+            '/openapi.json': backend,
+          },
+        }
+      : {}),
   },
   build: {
     outDir: '../dist',

@@ -1,36 +1,79 @@
+import { useEffect, useRef } from 'react';
 import type { SessionRow } from './types';
 
 export function SessionsSidebar(props: {
   sessionId: string;
   sessions: SessionRow[];
   error?: string | null;
-  variant?: 'dock' | 'drawer';
+  variant: 'drawer' | 'inline';
   open?: boolean;
   onClose?: () => void;
   onPick: (id: string) => void;
-  onRename: (id: string) => void;
   onTitleSave?: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  searchDraft: string;
+  onSearchDraftChange: (v: string) => void;
+  onSearchClear: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
   onLoadMore: () => void;
 }) {
-  const variant = props.variant || 'dock';
-  const isOpen = variant === 'dock' ? true : !!props.open;
+  const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const isOpen = !!props.open;
+
+  useEffect(() => {
+    const root = listRef.current;
+    const sent = sentinelRef.current;
+    if (!isOpen || !root || !sent || !props.hasMore || props.loadingMore) {
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.some((x) => x.isIntersecting);
+        if (hit && props.hasMore && !props.loadingMore) {
+          props.onLoadMore();
+        }
+      },
+      { root, rootMargin: '48px', threshold: 0 },
+    );
+    io.observe(sent);
+    return () => io.disconnect();
+  }, [isOpen, props.hasMore, props.loadingMore, props.sessions.length, props.onLoadMore, props.variant]);
 
   if (!isOpen) {
     return null;
   }
 
+  const drawer = props.variant === 'drawer';
+
   return (
-    <aside className={`sessions ${variant === 'drawer' ? 'drawer' : 'dock'}`} aria-label="Sessions" data-testid="sessions">
+    <aside className={`sessions ${drawer ? 'drawer' : 'sessions-inline'}`} aria-label="Sessions" data-testid="sessions" data-variant={props.variant}>
       <div className="sessions-head">
         <span>Chats</span>
-        {variant === 'drawer' ? (
-          <button type="button" className="sessions-close" aria-label="Close" data-testid="sessions-close" onClick={props.onClose}>
+        <button type="button" className="sessions-close" aria-label="Close chats" data-testid="sessions-close" onClick={props.onClose}>
+          ×
+        </button>
+      </div>
+
+      <div className="sessions-search-row">
+        <input
+          type="search"
+          className="sessions-search-input"
+          placeholder="Search by title or first message"
+          value={props.searchDraft}
+          onChange={(ev) => props.onSearchDraftChange(ev.target.value)}
+          aria-label="Search chats by title or first user message"
+          data-testid="sessions-search"
+        />
+        {props.searchDraft.trim() ? (
+          <button type="button" className="sessions-search-clear" aria-label="Clear search" data-testid="sessions-search-clear" onClick={props.onSearchClear}>
             ×
           </button>
         ) : null}
       </div>
-      <div className="session-list" id="session-list">
+
+      <div className="session-list" id="session-list" ref={listRef}>
         {props.error ? (
           <div className="sessions-empty" data-testid="sessions-error">
             {props.error}
@@ -47,7 +90,6 @@ export function SessionsSidebar(props: {
             className={`session-item ${s.id === props.sessionId ? 'active' : ''}`}
             onClick={() => {
               props.onPick(s.id);
-              props.onClose?.();
             }}
           >
             <div className="session-row">
@@ -70,11 +112,12 @@ export function SessionsSidebar(props: {
             </div>
           </div>
         ))}
-      </div>
-      <div className="sessions-foot">
-        <button type="button" className="link" id="btn-load-more" data-testid="sessions-load-more" onClick={props.onLoadMore}>
-          Load more
-        </button>
+        <div ref={sentinelRef} className="sessions-scroll-sentinel" aria-hidden />
+        {props.loadingMore ? (
+          <div className="sessions-loading-more" data-testid="sessions-loading-more">
+            Loading...
+          </div>
+        ) : null}
       </div>
     </aside>
   );

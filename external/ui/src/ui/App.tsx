@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen';
 import { parseSSEBlocks } from './chat/sse';
 import type { TokenUsage, TranscriptItem } from './chat/types';
 import { NavRail } from './nav/NavRail';
+import { readNavRailCookie, writeNavRailCookie } from './nav/navRailCookie';
 import { SessionsSidebar } from './sessions/SessionsSidebar';
 import type { SessionRow } from './sessions/types';
 import { startSuggestSessionTitle } from './sessionTitleSuggest';
@@ -95,6 +96,7 @@ export function App() {
   const [sessionId, setSessionId] = useState('');
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
+  const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [draft, setDraft] = useState('');
@@ -104,6 +106,14 @@ export function App() {
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(new Map());
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [sessionFilterDraft, setSessionFilterDraft] = useState('');
+  const [sessionFilterQ, setSessionFilterQ] = useState('');
+  const [sessionsHasMore, setSessionsHasMore] = useState(false);
+  const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
+  const sessionsHasMoreRef = useRef(false);
+  const sessionsLoadingMoreRef = useRef(false);
+  const [viewportXL, setViewportXL] = useState(false);
+  const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [modes, setModes] = useState<string[]>(['agent', 'plan']);
   const [mode, setMode] = useState<string>('agent');
   const [describePreview, setDescribePreview] = useState<{ sessionId: string; title: string } | null>(null);
@@ -176,31 +186,112 @@ export function App() {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
   }, [sessionId]);
 
-  async function loadSessions(reset: boolean): Promise<SessionRow[] | null> {
-    const ps = new URLSearchParams();
-    ps.set('limit', '30');
-    if (!reset && sessionsCursor) {
-      ps.set('cursor', sessionsCursor);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1920px)');
+    const apply = () => setViewportXL(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  useEffect(() => {
+    if (!viewportXL) {
+      return;
     }
-    const res = await fetchJSON<{ sessions: SessionRow[]; nextCursor?: string | null }>(`/coddy/sessions?${ps.toString()}`, {
-      headers,
-    });
-    if (!res.ok || !res.data) {
-      setSessionsError(`Backend is unavailable (${res.status})`);
-      return null;
+    const c = readNavRailCookie();
+    setRailLabelsWide(c === 'wide');
+  }, [viewportXL]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSessionFilterQ(sessionFilterDraft.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [sessionFilterDraft]);
+
+  useEffect(() => {
+    sessionsCursorRef.current = sessionsCursor;
+  }, [sessionsCursor]);
+
+  useEffect(() => {
+    sessionsHasMoreRef.current = sessionsHasMore;
+  }, [sessionsHasMore]);
+
+  useEffect(() => {
+    sessionsLoadingMoreRef.current = sessionsLoadingMore;
+  }, [sessionsLoadingMore]);
+
+  useEffect(() => {
+    if (!sessionsOpen) {
+      return;
     }
-    setSessionsError(null);
-    const next = res.data.sessions || [];
-    setSessions((prev) => {
-      if (reset) {
-        return next;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        setSessionsOpen(false);
       }
-      const seen = new Set(prev.map((s) => s.id));
-      return [...prev, ...next.filter((s) => !seen.has(s.id))];
-    });
-    setSessionsCursor(res.data.nextCursor ?? null);
-    return next;
-  }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sessionsOpen]);
+
+  const loadSessionsList = useCallback(
+    async (reset: boolean): Promise<SessionRow[] | null> => {
+      if (reset) {
+        sessionsCursorRef.current = null;
+        setSessionsCursor(null);
+      } else if (!sessionsHasMoreRef.current || sessionsLoadingMoreRef.current) {
+        return null;
+      }
+      if (!reset) {
+        sessionsLoadingMoreRef.current = true;
+        setSessionsLoadingMore(true);
+      }
+      const ps = new URLSearchParams();
+      ps.set('limit', '30');
+      if (!reset) {
+        const cur = sessionsCursorRef.current;
+        if (cur) {
+          ps.set('cursor', cur);
+        }
+      }
+      if (sessionFilterQ) {
+        ps.set('q', sessionFilterQ);
+      }
+      const res = await fetchJSON<{ sessions: SessionRow[]; nextCursor?: string | null; hasMore?: boolean }>(`/coddy/sessions?${ps.toString()}`, {
+        headers,
+      });
+      if (!reset) {
+        sessionsLoadingMoreRef.current = false;
+        setSessionsLoadingMore(false);
+      }
+      if (!res.ok || !res.data) {
+        setSessionsError(`Backend is unavailable (${res.status})`);
+        return null;
+      }
+      setSessionsError(null);
+      const next = res.data.sessions || [];
+      setSessions((prev) => {
+        if (reset) {
+          return next;
+        }
+        const seen = new Set(prev.map((s) => s.id));
+        return [...prev, ...next.filter((s) => !seen.has(s.id))];
+      });
+      const nextCur = res.data.nextCursor ?? null;
+      setSessionsCursor(nextCur);
+      sessionsCursorRef.current = nextCur;
+      const hm = !!res.data.hasMore;
+      setSessionsHasMore(hm);
+      sessionsHasMoreRef.current = hm;
+      return next;
+    },
+    [sessionFilterQ, headers],
+  );
+
+  useEffect(() => {
+    if (!sessionsOpen) {
+      return;
+    }
+    void loadSessionsList(true);
+  }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
 
   async function loadMessages(idOverride?: string): Promise<boolean> {
     const sid = (idOverride ?? sessionId).trim();
@@ -320,13 +411,10 @@ export function App() {
     return next.some((it) => it.type === 'assistant_message');
   }
 
-  async function pickSession(id: string, opts?: { closeMenu?: boolean }) {
+  function pickSession(id: string) {
     reasoningDurationMsByContentRef.current = new Map();
     setSessionHash(id);
     setSessionId(id);
-    if (opts?.closeMenu !== false) {
-      setSessionsOpen(false);
-    }
   }
 
   function goHome() {
@@ -335,22 +423,8 @@ export function App() {
     setItems([]);
     setDraft('');
     setTokenUsage(null);
-    setSessionsOpen(false);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
-  }
-
-  async function renameSession(id: string) {
-    const current = sessions.find((s) => s.id === id)?.title ?? '';
-    const next = window.prompt('New title', current);
-    if (next == null) {
-      return;
-    }
-    const title = next.trim();
-    if (!title) {
-      return;
-    }
-    await saveSessionTitle(id, title);
   }
 
   async function deleteSession(id: string) {
@@ -359,17 +433,24 @@ export function App() {
       return;
     }
     await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers });
+    setSessions((prev) => prev.filter((s) => s.id !== id));
     if (id === sessionId) {
-      pickSession(randomSessionId(), { closeMenu: false });
+      setSessionHash('');
+      setSessionId('');
+      setItems([]);
+      setDraft('');
+      setTokenUsage(null);
+      setDescribePreview(null);
+      reasoningDurationMsByContentRef.current = new Map();
       return;
     }
-    await loadSessions(true);
+    await loadSessionsList(true);
   }
 
   useEffect(() => {
     if (!sessionId) {
       setItems([]);
-      void loadSessions(true);
+      void loadSessionsList(true);
       return;
     }
     if (inFlightRef.current) {
@@ -378,7 +459,7 @@ export function App() {
     setTokenUsage(null);
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     void (async () => {
-      const list = await loadSessions(true);
+      const list = await loadSessionsList(true);
       const exists = !!list?.some((s) => s.id === sessionId);
       if (exists) {
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(`/coddy/sessions/${encodeURIComponent(sessionId)}/stats`, { headers });
@@ -863,7 +944,7 @@ export function App() {
       finishThinking();
       ensureAssistant({ streaming: false });
 
-      void loadSessions(true);
+      void loadSessionsList(true);
       let ok = await syncAssistantFromServer();
       for (let i = 0; i < 10 && !ok; i++) {
         await new Promise((r) => setTimeout(r, 500));
@@ -886,34 +967,67 @@ export function App() {
     return Math.min(100, Math.max(0, (tokenUsage.totalTokens / maxContextTokens) * 100));
   }, [tokenUsage, maxContextTokens]);
 
+  const sessionsPlacementInline = viewportXL && railLabelsWide && sessionsOpen;
+  const sessionsBackdropOpen = sessionsOpen && !sessionsPlacementInline;
+
+  const sessionPanelShared = {
+    sessionId,
+    sessions,
+    error: sessionsError,
+    open: sessionsOpen,
+    onClose: () => setSessionsOpen(false),
+    onPick: pickSession,
+    onTitleSave: saveSessionTitle as (id: string, title: string) => void,
+    onDelete: deleteSession as (id: string) => void | Promise<void>,
+    searchDraft: sessionFilterDraft,
+    onSearchDraftChange: setSessionFilterDraft,
+    onSearchClear: () => setSessionFilterDraft(''),
+    hasMore: sessionsHasMore,
+    loadingMore: sessionsLoadingMore,
+    onLoadMore: () => void loadSessionsList(false),
+  };
+
+  const toggleRailWidth = () => {
+    setRailLabelsWide((prev) => {
+      const next = !prev;
+      writeNavRailCookie(next ? 'wide' : 'narrow');
+      return next;
+    });
+  };
+
   return (
-    <div className="shell">
+    <div
+      className={[
+        'shell',
+        sessionsPlacementInline ? 'shell-inline-sessions' : '',
+        viewportXL && railLabelsWide ? 'shell-rail-wide' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       <NavRail
         onNewChat={goHome}
-        menuOpen={sessionsOpen}
-        onToggleMenu={() => setSessionsOpen((v) => !v)}
+        onOpenHistory={() => setSessionsOpen(true)}
+        historyOpen={sessionsOpen}
+        canWidenRail={viewportXL}
+        railLabelsWide={railLabelsWide}
+        onToggleRailLabels={toggleRailWidth}
       />
 
-      <div
-        className={`backdrop ${sessionsOpen ? 'is-open' : ''}`}
-        onClick={() => setSessionsOpen(false)}
-        aria-hidden={!sessionsOpen}
-      />
+      {sessionsPlacementInline ? (
+        <SessionsSidebar {...sessionPanelShared} variant="inline" />
+      ) : null}
 
-      <SessionsSidebar
-        sessionId={sessionId}
-        sessions={sessions}
-        error={sessionsError}
-        variant="drawer"
-        open={sessionsOpen}
-        onClose={() => setSessionsOpen(false)}
-        onPick={pickSession}
-        onRename={(id: string) => void renameSession(id)}
-        onTitleSave={(id: string, title: string) => void saveSessionTitle(id, title)}
-        onDelete={(id: string) => void deleteSession(id)}
-        onLoadMore={() => void loadSessions(false)}
-      />
-      <ChatScreen
+      <div className="shell-main">
+        <div
+          className={`backdrop ${sessionsBackdropOpen ? 'is-open' : ''}`}
+          onClick={() => setSessionsOpen(false)}
+          aria-hidden={!sessionsBackdropOpen}
+        />
+
+        {!sessionsPlacementInline && sessionsOpen ? <SessionsSidebar {...sessionPanelShared} variant="drawer" /> : null}
+
+        <ChatScreen
         title={currentTitle}
         sessionId={sessionId}
         onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
@@ -949,7 +1063,8 @@ export function App() {
             upsertToolCall(patch);
           })();
         }}
-      />
+        />
+      </div>
     </div>
   );
 }

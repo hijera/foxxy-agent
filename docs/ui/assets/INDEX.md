@@ -2,6 +2,25 @@
 
 This folder contains reference screenshots used to align the embedded UI with the target design.
 
+## Navbar (RPA-style references, May 2026)
+
+Implementation note: **Coddy does not render a circle or logo glyph** before the **Coddy chat** brand. Some references still show that circle, treat it as layout inspiration only.
+
+- `ref-navbar-narrow-tooltips-accent.png` - narrow vertical rail, tooltips right, purple hover on icon
+- `ref-navbar-narrow-icons-only.png` - narrow rail, icons only (Coddy uses History + GitHub + API, not News or Projects)
+- `ref-navbar-wide-with-labels.png` - wide rail with text labels next to items
+
+## Playwright MCP (verification, May 2026)
+
+Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
+
+- `pw-navbar-1440-narrow.png` - desktop under 1920px width, narrow rail (no widen toggle), no burger
+- `pw-navbar-1440-history-hover.png` - History hover / pressed accent and tooltip styling
+- `pw-navbar-1920-wide-labels.png` - min-width 1920px, wide rail (**rectangular panel**, rounded on the right only), header with **collapse** (stacked lines) plus **Coddy chat** text-only brand, full-width rows icon plus label
+- `pw-navbar-1920-github-hover.png` - wide rail, hover on **GitHub** row (label plus icon pick up accent)
+- `pw-navbar-390-mobile-topbar.png` - max-width 760px, rail as top bar row
+- `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
+
 ## Primary
 
 - `ref-home-1.png` - landing page with collapsed left rail and centered composer

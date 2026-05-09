@@ -4,7 +4,7 @@ Purpose: authoritative reference for the embedded SPA built from `external/ui/`.
 
 ## Design references
 
-Store the design reference images under `docs/ui/assets/` and link to the specific file when describing a pixel sensitive UI detail.
+Store the design reference images under `docs/ui/assets/` and link to the specific file when describing a pixel sensitive UI detail. Navbar parity with Cursor - style mockups lives in [`docs/ui/assets/INDEX.md`](docs/ui/assets/INDEX.md) (see Navbar section).
 
 ## Foundations
 
@@ -36,8 +36,8 @@ Token usage totals are persisted per session and restored after restart.
 
 Left-to-right zones:
 
-1. **Nav rail**: burger menu, home action, and repo links.
-2. **Session drawer**: sessions are hidden by default and opened from the burger menu. Drawer overlays chat on desktop and mobile.
+1. **Nav rail**: **History** opens the chat list, brand goes to the empty start screen; GitHub and API links. **Brand is text only** (**Coddy** plus **chat**), **no** circle or logo mark before the label, even if a reference mockup shows one. Optional **narrow vs wide rail** (**icons only vs icons plus labels**) on viewports **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default).
+2. **Session list**: **drawer overlay** unless viewport is **`min-width: 1920px`** and the rail is **wide**, then **inline column** beside the rail. There is **no** global hamburger that opens a separate app menu; the **stacked-lines control** in the wide rail header **only** collapses the rail to the narrow (icons-only) layout, matching the references.
 3. **Chat canvas**: sticky header with editable title, scrollable transcripts, composer with **Send** (**Enter** submits, **`Shift+Enter`** newline).
 
 The right insights rail is removed for the current milestone.
@@ -48,12 +48,13 @@ The right insights rail is removed for the current milestone.
 
 ### Responsive breakpoints
 
-- Mobile first: sessions are accessed via drawer.
-- Drawer overlays chat and composer on all screen sizes.
+- Below **`min-width: 1920px`**: rail width toggle hidden; sessions list opens as drawer only.
+- At **`min-width: 1920px`**: user may widen the rail (**arrow**); drawer when rail is narrow, **inline sessions column** when rail is wide.
+- Mobile (**top bar**) keeps compact rail only; drawer for sessions history.
 
-Desktop navigation
+Sessions search uses **`GET /coddy/sessions?q=...`** (**title or first persisted user message substring only**); list uses infinite scroll toward older pages.
 
-- Desktop navigation does not have a width toggle. The nav rail stays consistent across wide screens.
+Desktop navigation wider than Full HD optionally shows labels on the expanded rail (**cookie** remembers preference).
 
 Sessions list interactions
 

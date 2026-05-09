@@ -13,14 +13,17 @@ This page captures the original UI requirements and the intended end state. It i
 
 Desktop layout
 
-- Left rail with a new chat action
-- Sessions list is a drawer overlay with pagination and per session actions
+- **Brand** is **typography only** (**Coddy** and **chat**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
+- Desktop nav is a **vertical panel** with rounding on the **right** edge (not a full-height center-pill). On **`min-width: 1920px`**, the wide rail header includes an icon with **horizontal lines** used **only** to **collapse** to narrow rail, not as a global navigation drawer.
+- Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**).
+- Sessions list - **drawer** by default or **inline** beside the rail only when **`min-width: 1920px`** and the rail cookie is **wide**
+- Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default)
 - Main chat area with streamed assistant output
 - Right rail is out of scope for the current milestone
 
 Wide screens
 
-- On desktop and wide screens, navigation is consistent and does not have a width toggle.
+- **`min-width: 1920px`** may enable the rail widen control and cookie-backed layout (**see DESIGN.md**)
 
 Mobile layout
 
@@ -53,7 +56,8 @@ Session title
 ## Session list
 
 - Left column lists chats via `GET /coddy/sessions`.
-- Pagination uses `limit` and `cursor`.
+- Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
+- Optional **`q`** query string (**title substring or first **`user`** message content substring only**, case insensitive; **not** full-chat search). Search input updates use client debouncing.
 - CRUD
   - Rename via `PATCH /coddy/sessions/{id}` setting `title`.
   - Delete via `DELETE /coddy/sessions/{id}`.
@@ -68,6 +72,7 @@ Session delete UX
 
 - Each row has a trash icon button.
 - Clicking delete shows one confirm dialog and then calls `DELETE /coddy/sessions/{id}`.
+- The sessions panel does not close on delete or on switching chats. If the user deletes the currently open chat, show the start screen under the panel until the user closes history.
 
 ## Chat transport
 
