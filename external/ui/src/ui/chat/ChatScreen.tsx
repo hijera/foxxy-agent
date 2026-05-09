@@ -16,6 +16,9 @@ export function ChatScreen(props: {
   maxContextTokens?: number;
   mode: string;
   modes: string[];
+  llmModels?: string[];
+  llmModel?: string;
+  onLlmModelChange?: (modelId: string) => void;
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string) => void;
@@ -66,6 +69,9 @@ export function ChatScreen(props: {
               tokenUsage={props.tokenUsage}
               {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
               {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
+              llmModels={props.llmModels}
+              llmModel={props.llmModel}
+              onLlmModelChange={props.onLlmModelChange}
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
@@ -113,6 +119,9 @@ export function ChatScreen(props: {
                 tokenUsage={props.tokenUsage}
                 {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
                 {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
+                llmModels={props.llmModels}
+                llmModel={props.llmModel}
+                onLlmModelChange={props.onLlmModelChange}
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}

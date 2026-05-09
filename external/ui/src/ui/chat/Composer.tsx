@@ -13,11 +13,26 @@ function fmtInt(n: number | undefined): string {
   return Math.max(0, Math.trunc(n)).toString();
 }
 
+/** Short label for **`models[].model`** ids (Coddy profile IDs use displayMode elsewhere). */
+function displayLlmId(id: string): string {
+  const m = id || '';
+  const i = m.lastIndexOf('/');
+  if (i >= 0 && i < m.length - 1) {
+    return m.slice(i + 1);
+  }
+  return m || 'Model';
+}
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
   mode: string;
   modes: string[];
+  /** Configured backends (`owned_by` != **`coddy`**). Omitted when empty. */
+  llmModels?: string[];
+  /** Selected **`models[].model`** id (`metadata.model` on profile requests). */
+  llmModel?: string;
+  onLlmModelChange?: (modelId: string) => void;
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
@@ -28,7 +43,10 @@ export function Composer(props: {
   onSend: (text: string) => void;
 }) {
   const sendDisabled = props.value.trim() === '';
-  const [modeOpen, setModeOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState<'mode' | 'llm' | null>(null);
+  const llmList = props.llmModels ?? [];
+  const showLlm = llmList.length > 0;
+  const llmVal = (props.llmModel || '').trim();
 
   function displayMode(id: string): string {
     const m = id || 'agent';
@@ -42,6 +60,7 @@ export function Composer(props: {
     return m;
   }
   const modeLabel = displayMode(props.mode || 'agent');
+  const llmLabel = llmVal ? displayLlmId(llmVal) : 'Model';
   const contextIdle = props.contextIdle === true;
   const pctRaw = typeof props.contextPct === 'number' ? props.contextPct : null;
   const pct = contextIdle ? null : pctRaw;
@@ -97,32 +116,72 @@ export function Composer(props: {
                 className={`composer-tab mode-btn ${props.mode === 'plan' ? 'mode-plan' : 'mode-agent'}`}
                 aria-label="Mode"
                 title="Mode"
-                onClick={() => setModeOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen === 'mode'}
+                onClick={() => setMenuOpen((cur) => (cur === 'mode' ? null : 'mode'))}
               >
                 {modeLabel}
               </button>
-              {modeOpen ? (
+              {menuOpen === 'mode' ? (
                 <div className={`mode-menu ${modeMenuDirClass}`} role="menu">
                   {props.modes.map((m) => {
                     const label = displayMode(m);
                     return (
-                    <button
-                      key={m}
-                      type="button"
-                      role="menuitem"
-                      className={`mode-item ${m === props.mode ? 'is-selected' : ''}`}
-                      onClick={() => {
-                        props.onModeChange(m);
-                        setModeOpen(false);
-                      }}
-                    >
-                      {label}
-                    </button>
+                      <button
+                        key={m}
+                        type="button"
+                        role="menuitem"
+                        className={`mode-item ${m === props.mode ? 'is-selected' : ''}`}
+                        onClick={() => {
+                          props.onModeChange(m);
+                          setMenuOpen(null);
+                        }}
+                      >
+                        {label}
+                      </button>
                     );
                   })}
                 </div>
               ) : null}
             </div>
+
+            {showLlm && props.onLlmModelChange ? (
+              <div className="mode">
+                <button
+                  type="button"
+                  className="composer-tab mode-btn mode-llm"
+                  aria-label="Model"
+                  title="YAML backend (metadata.model)"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen === 'llm'}
+                  onClick={() => setMenuOpen((cur) => (cur === 'llm' ? null : 'llm'))}
+                >
+                  {llmLabel}
+                </button>
+                {menuOpen === 'llm' ? (
+                  <div className={`mode-menu ${modeMenuDirClass}`} role="menu">
+                    {llmList.map((mid) => {
+                      const label = displayLlmId(mid);
+                      return (
+                        <button
+                          key={mid}
+                          type="button"
+                          role="menuitem"
+                          title={mid}
+                          className={`mode-item ${mid === llmVal ? 'is-selected' : ''}`}
+                          onClick={() => {
+                            props.onLlmModelChange?.(mid);
+                            setMenuOpen(null);
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="composer-bar-actions">

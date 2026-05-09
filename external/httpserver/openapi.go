@@ -34,6 +34,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
 					"description": "Returns **agent**, then **plan** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
+						"Optional **`default_agent_model`** echoes configured **`agent.model`** for clients that default **`metadata.model`** on profile requests. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
 					"responses": map[string]interface{}{
@@ -257,6 +258,10 @@ func openAPISpec() map[string]interface{} {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object": map[string]string{"type": "string", "example": "list"},
+						"default_agent_model": map[string]interface{}{
+							"type":        "string",
+							"description": "Configured **`agent.model`** (**`models[].model`** selector). Omitted when empty. The embedded UI uses it as the default LLM choice for ReAct turns.",
+						},
 						"data": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{

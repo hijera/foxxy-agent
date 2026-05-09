@@ -130,11 +130,17 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		MaxContextTokens int    `json:"max_context_tokens,omitempty"`
 	}
 	out := struct {
-		Object string     `json:"object"`
-		Data   []modelObj `json:"data"`
+		Object             string     `json:"object"`
+		Data               []modelObj `json:"data"`
+		DefaultAgentModel  string     `json:"default_agent_model,omitempty"`
 	}{
 		Object: "list",
 		Data:   nil,
+	}
+	if s.cfg != nil {
+		if dm := strings.TrimSpace(s.cfg.Agent.Model); dm != "" {
+			out.DefaultAgentModel = dm
+		}
 	}
 	maxCtx := maxContextDefault(s)
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan} {

@@ -4,6 +4,7 @@ import { parseSSEBlocks } from './chat/sse';
 import type { TokenUsage, TranscriptItem } from './chat/types';
 import { NavRail } from './nav/NavRail';
 import { readNavRailCookie, writeNavRailCookie } from './nav/navRailCookie';
+import { readLlmModelCookie, writeLlmModelCookie } from './chat/llmModelCookie';
 import { SessionsSidebar } from './sessions/SessionsSidebar';
 import type { SessionRow } from './sessions/types';
 import { startSuggestSessionTitle } from './sessionTitleSuggest';
@@ -34,7 +35,9 @@ type ToolCallListRow = {
   resultPreview?: string;
 };
 
-type ModelInfo = { id: string; maxContextTokens?: number | undefined };
+type ModelInfo = { id: string; ownedBy?: string; maxContextTokens?: number | undefined };
+
+const PROFILE_MODES = ['agent', 'plan'] as const;
 
 type SessionStats = {
   tokenUsageTotal?: { inputTokens: number; outputTokens: number; totalTokens: number };
@@ -114,8 +117,9 @@ export function App() {
   const sessionsLoadingMoreRef = useRef(false);
   const [viewportXL, setViewportXL] = useState(false);
   const [railLabelsWide, setRailLabelsWide] = useState(false);
-  const [modes, setModes] = useState<string[]>(['agent', 'plan']);
   const [mode, setMode] = useState<string>('agent');
+  const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
+  const [llmModel, setLlmModel] = useState('');
   const [describePreview, setDescribePreview] = useState<{ sessionId: string; title: string } | null>(null);
   const currentTitle = useMemo(() => {
     if (!sessionId) {
@@ -155,21 +159,41 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetchJSON<{ data?: Array<{ id?: string; max_context_tokens?: number }> }>('/v1/models');
+      const res = await fetchJSON<{
+        default_agent_model?: string;
+        data?: Array<{ id?: string; owned_by?: string; max_context_tokens?: number }>;
+      }>('/v1/models');
       if (!res.ok || !res.data?.data) {
         return;
       }
-      const rows = res.data.data
-        .map((d) => ({ id: (d.id || '').trim(), ...(d.max_context_tokens !== undefined ? { maxContextTokens: d.max_context_tokens } : {}) }))
+      const raw = res.data.data
+        .map((d) => ({
+          id: (d.id || '').trim(),
+          ownedBy: (d.owned_by || '').trim(),
+          ...(d.max_context_tokens !== undefined ? { maxContextTokens: d.max_context_tokens } : {}),
+        }))
         .filter((d) => d.id);
-      setModelInfos(rows);
-      const ids = rows.map((d) => d.id);
-      if (ids.length > 0) {
-        setModes(ids);
-        if (!ids.includes(mode)) {
-          setMode(ids[0] || 'agent');
+      const rows: ModelInfo[] = raw.map((d) => {
+        const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy };
+        if (d.maxContextTokens !== undefined) {
+          m.maxContextTokens = d.maxContextTokens;
         }
+        return m;
+      });
+      setModelInfos(rows);
+      const backends = raw.filter((r) => r.ownedBy !== 'coddy').map((r) => r.id);
+      setLlmModelIds(backends);
+      const defaultYaml = (res.data.default_agent_model || '').trim();
+      const fromCookie = readLlmModelCookie();
+      let next = '';
+      if (fromCookie && backends.includes(fromCookie)) {
+        next = fromCookie;
+      } else if (defaultYaml && backends.includes(defaultYaml)) {
+        next = defaultYaml;
+      } else if (backends.length > 0 && backends[0]) {
+        next = backends[0];
       }
+      setLlmModel(next);
     })();
   }, []);
 
@@ -588,10 +612,19 @@ export function App() {
       setItems((prev) => [...prev, userItem]);
       setTokenUsage(null);
 
+      const reqBody: Record<string, unknown> = {
+        model: mode || 'agent',
+        input: text,
+        stream: true,
+      };
+      const yamlSel = llmModel.trim();
+      if (yamlSel) {
+        reqBody.metadata = { model: yamlSel };
+      }
       const res = await fetch('/v1/responses', {
         method: 'POST',
         headers: { ...hdrs, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: mode || 'agent', input: text, stream: true }),
+        body: JSON.stringify(reqBody),
       });
 
       const sidHdr = res.headers.get(HDR);
@@ -972,9 +1005,14 @@ export function App() {
   }
 
   const maxContextTokens = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === mode);
+    const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
-  }, [modelInfos, mode]);
+  }, [modelInfos, llmModel]);
+
+  const onLlmModelChange = useCallback((id: string) => {
+    setLlmModel(id);
+    writeLlmModelCookie(id);
+  }, []);
 
   const contextPct = useMemo(() => {
     if (!tokenUsage || !maxContextTokens) return 0;
@@ -1038,7 +1076,10 @@ export function App() {
         contextPct={contextPct}
         maxContextTokens={maxContextTokens}
         mode={mode}
-        modes={modes}
+        modes={[...PROFILE_MODES]}
+        llmModels={llmModelIds}
+        llmModel={llmModel}
+        onLlmModelChange={llmModelIds.length > 0 ? onLlmModelChange : undefined}
         onModeChange={setMode}
         onDraftChange={setDraft}
         onSend={(text: string) => {

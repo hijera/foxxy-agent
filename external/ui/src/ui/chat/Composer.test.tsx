@@ -20,6 +20,23 @@ function renderComposer(opts: { isEmpty: boolean }) {
   );
 }
 
+function renderComposerWithLlm(opts: { isEmpty: boolean }) {
+  return render(
+    <Composer
+      value=""
+      isEmpty={opts.isEmpty}
+      mode="agent"
+      modes={['agent', 'plan']}
+      llmModels={['openai/gpt-4o-mini', 'openai/gpt-4o']}
+      llmModel="openai/gpt-4o-mini"
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+}
+
 test('mode menu opens down on start screen', () => {
   renderComposer({ isEmpty: true });
 
@@ -36,5 +53,61 @@ test('mode menu opens up in active chat composer', () => {
 
   const menu = screen.getByRole('menu');
   expect(menu).toHaveClass('opens-up');
+});
+
+test('yaml model menu opens down on start screen when backends exist', () => {
+  renderComposerWithLlm({ isEmpty: true });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }));
+
+  const menu = screen.getByRole('menu');
+  expect(menu).toHaveClass('opens-down');
+});
+
+test('yaml model menu opens up in active chat composer', () => {
+  renderComposerWithLlm({ isEmpty: false });
+
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }));
+
+  const menu = screen.getByRole('menu');
+  expect(menu).toHaveClass('opens-up');
+});
+
+test('context tooltip percent and Max context follow cap when model max changes', () => {
+  const usage = { inputTokens: 800, outputTokens: 200, totalTokens: 1000 };
+  const { rerender } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={['agent', 'plan']}
+      tokenUsage={usage}
+      contextPct={1.0}
+      maxContextTokens={100000}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const tip = () => screen.getByRole('tooltip').textContent ?? '';
+  expect(tip()).toMatch(/1\.0% context used/);
+  expect(tip()).toMatch(/Max context 100000/);
+
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={['agent', 'plan']}
+      tokenUsage={usage}
+      contextPct={10.0}
+      maxContextTokens={10000}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(tip()).toMatch(/10\.0% context used/);
+  expect(tip()).toMatch(/Max context 10000/);
 });
 

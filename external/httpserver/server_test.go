@@ -33,6 +33,7 @@ func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams
 
 func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	cfg := &config.Config{
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
 		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
@@ -53,8 +54,9 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 	var body struct {
-		Object string `json:"object"`
-		Data   []struct {
+		Object              string `json:"object"`
+		DefaultAgentModel   string `json:"default_agent_model"`
+		Data                []struct {
 			ID               string `json:"id"`
 			Object           string `json:"object"`
 			OwnedBy          string `json:"owned_by"`
@@ -74,6 +76,9 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
 		t.Fatalf("unexpected body %+v", body)
+	}
+	if body.DefaultAgentModel != "openai/gpt-4o" {
+		t.Fatalf("default_agent_model: want openai/gpt-4o got %q", body.DefaultAgentModel)
 	}
 	for i, w := range want {
 		item := body.Data[i]

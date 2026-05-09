@@ -151,10 +151,15 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
 Composer mode selector
 
-- User can pick a mode from `GET /v1/models` in a `Mode` dropdown.
-- Default is `agent`.
-- `plan` is shown as an orange outline.
-- Selected mode is sent as `model` in `POST /v1/responses`.
+- **`GET /v1/models`** merges Coddy profiles and YAML backends in one list. Split by **`owned_by`**: **`coddy`** means session profiles **`agent`** and **`plan`** only. Any other **`owned_by`** marks a configured **`models[].model`** row (YAML backend).
+- **`Mode`** lists only **`agent`** and **`plan`**. Default is **`agent`**. **`plan`** uses the orange outline treatment.
+- Selected mode is sent as top-level **`model`** in **`POST /v1/responses`**.
+
+Composer YAML **`models[].model`** selector
+
+- **`Model`** sits immediately next to **`Mode`** in **`Composer.tsx`**. It lists only YAML backend rows (**`owned_by`** is not **`coddy`**). Opens **down** on the empty start screen (**`isEmpty`**) and **up** when docked over an active chat (same **`opens-down`** / **`opens-up`** convention as **`Mode`**).
+- Default follows **`default_agent_model`** from **`GET /v1/models`** when that id is present among YAML rows; otherwise the first YAML row. Last choice persists in cookie **`coddy_llm_model`** (**`Path=/`**, long **`Max-Age`**) so **New chat** keeps the backend without forcing a re-selection.
+- For ReAct (**`agent`** / **`plan`**), the UI sends **`metadata.model`** with the selected YAML **`id`**; the context-meter **`max_context_tokens`** for the ring follows that YAML row.
 
 Composer does not show tools toggles in this milestone.
 

@@ -1475,6 +1475,10 @@ textarea#composer {
   box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
 }
 
+.composer-tab.mode-llm {
+  border-color: rgba(147, 51, 234, 0.35);
+}
+
 .mode-menu {
   position: absolute;
   left: 0;
