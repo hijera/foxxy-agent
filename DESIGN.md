@@ -65,6 +65,23 @@ The right insights rail is removed for the current milestone.
 - **While a control owns an open overlay** (example **History** with the list visible and **`.is-active`** on the trigger), **hide that row's tooltip** even if the mouse still hovers (**nav stacking can sit above backdrop**).
 - Tooltip **horizontal offset** must use the **same gutter math** as the History drawer (**column padding + nav floating gutter (+ border shim where needed)**), not a shorter offset from icon-only **`rail-tip-host`** width alone.
 
+### Nav rail panel and wide layout (design contract)
+
+- **Panel shape (desktop)**. The nav is a **tall rectangular column** along the **left viewport edge** with **rounding only on the right** (straight left edge flush with the browser). Avoid a centered **full-height capsule** that does not meet the edge.
+- **Wide rail width**. Pill width is **content-driven** (**`fit-content`**) with a sensible **max-width** cap, not a legacy fixed pixel width guess.
+- **Wide header brand**. **Coddy chat** is **one horizontal line** (**Coddy** + muted **chat**). Keep **breathing room to the right** of the label (**extra padding-right** on the brand control) so copy does not sit against the inner right edge of the panel.
+- **Labeled rows (History, GitHub, API docs)**. Rows **share the same width** within the column (stretch to the **widest** row). Each row is a **single interactive surface** (icon + label), not a small icon hit target plus detached text.
+- **Icon column alignment**. The first grid track for row icons matches the **collapse** toggle footprint (**44px** wide control). **Horizontal padding** on row hits stays **balanced** (avoid oversized **padding-left** and cramped **padding-right** at the label end).
+- **Collapse vs global menu**. The **stacked-lines** control **only** narrows the rail. It is **not** a global app navigation drawer (see Nav rail item 2 above).
+
+### Nav rail icons (implementation contract)
+
+- **Collapse (hamburger glyph)**. Use **three equal-length** horizontal lines (**no** shorter third line). Prefer a **compact symmetric** **`viewBox`** (for example **20×20**), **round** line caps, and stroke weight that reads at **18px** output size.
+- **Expand (narrow rail at XL)**. Keep a **chevron / chevron-pair** style control that reads as **widen rail**, not a second burger menu.
+- **GitHub**. Use a **recognizable filled Octicon-style** mark (**`fillRule="evenodd"`** on a **24×24** path grid). **Do not** ship the old single-path **fractional-coordinate** silo that smears when scaled to **18px**.
+- **Rendering**. Small rail SVGs should opt into **`shape-rendering` tuned for crisp curves** (for example **`geometricPrecision`**) and **`flex-shrink: 0`** so flex layout does not squash glyphs.
+- **Regression art**. Use hover captures under **`docs/ui/assets/`** (for example **`pw-rail-icons-burger-hover.png`**, **`pw-rail-icons-github-hover.png`**) when checking outline and press states.
+
 Sessions search uses **`GET /coddy/sessions?q=...`** (**title or first persisted user message substring only**); list uses infinite scroll toward older pages.
 
 Desktop navigation wider than Full HD optionally shows labels on the expanded rail (**cookie** remembers preference).
@@ -103,7 +120,7 @@ Current block types:
 - `thinking`
   - Streaming model reasoning deltas (`delta.reasoning_content`) rendered as a disclosure row.
   - `thinking...` while in progress, `thinking` when completed.
-  - **Summary row layout** - elapsed time stays immediately beside the **thinking** label (inline in **`.thinking-left`**). CSS uses **`gap: 0 5px`** between the label and **`.thinking-dur`**; avoid a wide summary flex that sends the timer to the opposite edge of the transcript.
+  - **Summary row layout** - elapsed time stays immediately beside the **thinking** word, not pushed to the far right of the chat column. In **`ThinkingMessage.tsx`**, **`.thinking-dur`** nests inside **`.thinking-left`**; **`external/ui/src/styles.css`** sets **`.thinking-left { gap: 0 5px; }`** between the label and the timer. Do not use **`justify-content: space-between`** on **`summary.thinking-summary`** for that spacing. Avoid a wide summary flex that sends the timer to the opposite edge of the transcript.
   - Multiple `thinking` blocks can appear in one user turn. If the model resumes reasoning after tool calls, the UI starts a new `thinking` block and preserves ordering.
 - `tool_call`
   - Tool execution timeline block (SSE `tool_call` and `tool_call_update`, enriched from `/coddy/sessions/{id}/tool-calls`).
@@ -121,6 +138,16 @@ Ordering rules:
 ### Composer pill
 
 Muted **Auto** pill tracks future modality toggles; UI copy stays English everywhere.
+
+### Composer context meter
+
+Ring to the **left** of **Send** in **`Composer.tsx`**.
+
+- Do **not** put a percent label **on** the ring. Percentages and counters belong **only** in the tooltip (**`rail-tip`** family), above the ring, centered, wide enough via **`composer-context-tip`** CSS.
+- Idle home (**`contextIdle`**): empty arc; tooltip **`No context usage yet`** plus **`Max context …`** only (no **`Model …`** line).
+- Active session: arc fills from stats; the tooltip may include usage lines but **never** a **`Model …`** line that duplicates **Mode** (the mode dropdown).
+
+See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
 Composer mode selector
 
