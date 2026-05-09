@@ -53,7 +53,7 @@ export function Composer(props: {
         .join('\n');
 
   return (
-    <footer className="composer-wrap">
+    <footer className={['composer-wrap', props.isEmpty ? '' : 'composer-wrap-docked'].filter(Boolean).join(' ')}>
       <label className="sr-only" htmlFor="composer">
         Message
       </label>

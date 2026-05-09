@@ -24,7 +24,12 @@ func TestFileStoreRoundTripMessages(t *testing.T) {
 		SessionDir: dir,
 	}
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
-	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "hello"})
+	st.AddMessage(llm.Message{
+		Role:                llm.RoleAssistant,
+		Content:             "hello",
+		Reasoning:           "step one",
+		ReasoningDurationMs: 42,
+	})
 
 	if err := fs.Save(st); err != nil {
 		t.Fatal(err)
@@ -39,6 +44,9 @@ func TestFileStoreRoundTripMessages(t *testing.T) {
 	}
 	if snap.Messages[1].Role != llm.RoleAssistant {
 		t.Fatalf("second role %+v", snap.Messages[1].Role)
+	}
+	if snap.Messages[1].Reasoning != "step one" || snap.Messages[1].ReasoningDurationMs != 42 {
+		t.Fatalf("reasoning roundtrip %+v", snap.Messages[1])
 	}
 }
 

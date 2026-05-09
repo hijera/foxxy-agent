@@ -599,6 +599,9 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 		if strings.TrimSpace(m.Reasoning) != "" {
 			item["reasoning"] = m.Reasoning
 		}
+		if m.ReasoningDurationMs > 0 {
+			item["reasoning_duration_ms"] = m.ReasoningDurationMs
+		}
 		if m.Role == llm.RoleTool && m.ToolCallID != "" {
 			item["tool_call_id"] = m.ToolCallID
 		}

@@ -277,6 +277,15 @@ func openAPISpec() map[string]interface{} {
 								map[string]interface{}{"type": "object"},
 							},
 						},
+						"reasoning": map[string]interface{}{
+							"type":        "string",
+							"description": "Coddy transcript extension persisted model reasoning alongside assistant replies.",
+						},
+						"reasoning_duration_ms": map[string]interface{}{
+							"type":        "integer",
+							"format":      "int64",
+							"description": "Wall-clock thinking span (ms). Coddy persists this for UI restores.",
+						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
 					},

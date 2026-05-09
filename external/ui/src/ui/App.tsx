@@ -320,12 +320,26 @@ export function App() {
         if (reasoning) {
           const dk = reasoningDurationCacheKey(reasoning);
           const cachedMs = dk ? reasoningDurationMsByContentRef.current.get(dk) : undefined;
+          const durRaw = (m as { reasoning_duration_ms?: unknown }).reasoning_duration_ms;
+          let fromApi: number | undefined;
+          if (typeof durRaw === 'number' && Number.isFinite(durRaw) && durRaw >= 0) {
+            fromApi = Math.round(durRaw);
+          } else if (typeof durRaw === 'string' && durRaw.trim() !== '') {
+            const n = Number(durRaw);
+            if (Number.isFinite(n) && n >= 0) {
+              fromApi = Math.round(n);
+            }
+          }
+          const durationMs = fromApi !== undefined ? fromApi : cachedMs;
+          if (fromApi !== undefined && dk.length > 0) {
+            reasoningDurationMsByContentRef.current.set(dk, fromApi);
+          }
           next.push({
             id: newId('r'),
             type: 'thinking',
             status: 'completed',
             content: reasoning,
-            ...(cachedMs !== undefined ? { durationMs: cachedMs } : {}),
+            ...(durationMs !== undefined ? { durationMs } : {}),
           });
         }
         const content = m.content || '';

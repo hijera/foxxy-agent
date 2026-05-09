@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import type { CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { TokenUsage, TranscriptItem } from './types';
 import { ChatHeader } from './ChatHeader';
 import { Composer } from './Composer';
@@ -21,8 +22,25 @@ export function ChatScreen(props: {
   onLoadToolCallDetails?: (toolCallId: string) => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
   const stickToBottomRef = useRef(true);
+  const [composerReserve, setComposerReserve] = useState(200);
+
+  useLayoutEffect(() => {
+    if (isEmpty) return;
+    const host = composerHostRef.current;
+    if (!host) return;
+    const extra = 10;
+    const apply = () => {
+      const h = host.getBoundingClientRect().height;
+      setComposerReserve(Math.max(140, Math.ceil(h) + extra));
+    };
+    apply();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+    ro?.observe(host);
+    return () => ro?.disconnect();
+  }, [isEmpty, props.tokenUsage]);
 
   useEffect(() => {
     const el = messagesRef.current;
@@ -55,7 +73,14 @@ export function ChatScreen(props: {
           </div>
         </div>
       ) : (
-        <div className="chat-stack">
+        <div
+          className="chat-stack"
+          style={
+            {
+              '--chat-composer-reserve': `${composerReserve}px`,
+            } as CSSProperties
+          }
+        >
           <div
             id="messages"
             className="messages"
@@ -74,10 +99,11 @@ export function ChatScreen(props: {
                 {...(props.onLoadToolCallDetails ? { onLoadToolCallDetails: props.onLoadToolCallDetails } : {})}
               />
             </div>
+            <div className="chat-scroll-tail" aria-hidden />
           </div>
 
           <div className="chat-bottom">
-            <div className="chat-bottom-inner">
+            <div className="chat-bottom-inner" ref={composerHostRef}>
               <Composer
                 value={props.draft}
                 isEmpty={false}

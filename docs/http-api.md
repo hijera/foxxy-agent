@@ -32,7 +32,7 @@ No authentication is enforced. Run behind appropriate network controls.
 | GET | `/v1/responses/{id}` | Session metadata snapshot. |
 | GET | **`/coddy/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). Optional **`q`** substring filter (**case-insensitive**) over **`session.json` title OR the **first persisted `user`** message **`content`** in `messages.json` order (`system`, `assistant`, `tool`, etc. before that first `user` are ignored). **`q` is not full-text search** over the transcript. Pagination applies **after** filtering. |
 | POST | **`/coddy/describe`** | JSON **`{"text"}`** to get a short description phrase. |
-| GET | **`/coddy/sessions/{id}/messages`** | Serialized conversation snapshot. Cold loads require **`session.json`**. |
+| GET | **`/coddy/sessions/{id}/messages`** | Serialized conversation snapshot. Cold loads require **`session.json`**. Assistant messages may include **`reasoning`** plus optional **`reasoning_duration_ms`** so the UI can restore the thinking timer after reload. |
 | GET | **`/coddy/sessions/{id}/tool-calls`** | Tool calls timeline for the session (previews). |
 | GET | **`/coddy/sessions/{id}/tool-calls/{toolCallId}`** | Tool call details: meta, args JSON, result Markdown. |
 | GET | **`/coddy/sessions/{id}/stats`** | Session stats: token usage totals (and optional per turn list). |

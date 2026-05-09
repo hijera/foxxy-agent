@@ -15,11 +15,14 @@ const (
 
 // Message is a single turn in a conversation.
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content"`
-	Reasoning  string     `json:"reasoning,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"` // for RoleTool messages
+	Role      Role   `json:"role"`
+	Content   string `json:"content"`
+	Reasoning string `json:"reasoning,omitempty"`
+	// ReasoningDurationMs wall clock between first streamed reasoning delta and UI-equivalent finish
+	// (first non-whitespace text delta or first tool-call chunk); omitted when unset or zero.
+	ReasoningDurationMs int64      `json:"reasoning_duration_ms,omitempty"`
+	ToolCalls           []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID          string     `json:"tool_call_id,omitempty"` // for RoleTool messages
 }
 
 // ToolCall represents a tool invocation requested by the LLM.

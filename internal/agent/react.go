@@ -152,25 +152,48 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		var streamErr error
 		var reasoningBuf strings.Builder
 
+		reasonClockStart := time.Time{}
+		reasonClockEnd := time.Time{}
+		maybeMarkReasonEnd := func(now time.Time) {
+			if reasonClockStart.IsZero() || !reasonClockEnd.IsZero() {
+				return
+			}
+			if strings.TrimSpace(reasoningBuf.String()) == "" {
+				return
+			}
+			reasonClockEnd = now
+		}
+
 		sessionID := a.state.GetID()
 		response, streamErr = provider.Stream(ctx, messages, toolDefs, func(chunk llm.StreamChunk) {
 			if ctx.Err() != nil {
 				return
 			}
+			now := time.Now()
 			if chunk.ReasoningDelta != "" {
 				reasoningBuf.WriteString(chunk.ReasoningDelta)
+				if reasonClockStart.IsZero() {
+					reasonClockStart = now
+				}
 				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 					Content:       acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: chunk.ReasoningDelta},
 				})
 			}
-			if chunk.TextDelta != "" {
+			if chunk.TextDelta != "" && strings.TrimSpace(chunk.TextDelta) != "" {
+				maybeMarkReasonEnd(now)
+				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: chunk.TextDelta},
+				})
+			} else if chunk.TextDelta != "" {
 				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: chunk.TextDelta},
 				})
 			}
 			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {
+				maybeMarkReasonEnd(now)
 				if st := sessionStatePtr(a.state); st != nil {
 					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(chunk.ToolCall.ID) != "" {
 						_ = session.WriteToolCallMeta(sd, chunk.ToolCall.ID, session.ToolCallMeta{
@@ -233,12 +256,27 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 		turnIndex++
 
+		reasonTrim := strings.TrimSpace(reasoningBuf.String())
+		var reasoningMs int64
+		if reasonTrim != "" && !reasonClockStart.IsZero() {
+			end := reasonClockEnd
+			if end.IsZero() {
+				end = time.Now()
+			}
+			d := end.Sub(reasonClockStart)
+			if d < 0 {
+				d = 0
+			}
+			reasoningMs = d.Milliseconds()
+		}
+
 		// Append assistant message to history.
 		assistantMsg := llm.Message{
-			Role:      llm.RoleAssistant,
-			Content:   response.Content,
-			Reasoning: strings.TrimSpace(reasoningBuf.String()),
-			ToolCalls: response.ToolCalls,
+			Role:                llm.RoleAssistant,
+			Content:             response.Content,
+			Reasoning:           reasonTrim,
+			ToolCalls:           response.ToolCalls,
+			ReasoningDurationMs: reasoningMs,
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
