@@ -1595,16 +1595,24 @@ textarea#composer {
   transition: stroke-dashoffset 160ms ease;
 }
 
+/* Send/stop control: perfect circle so play/stop glyphs read clearly on all breakpoints */
 .composer-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 14px;
+  box-sizing: border-box;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(10, 10, 12, 0.2);
   color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .composer-icon:hover {
@@ -1630,6 +1638,28 @@ textarea#composer {
 
 .composer-send-stop:hover {
   background: rgba(239, 68, 68, 0.32);
+}
+
+/* Line-height / inline text box often sits low inside a circle; flex + slight -Y optical nudge */
+.composer-send-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  font-size: 18px;
+  line-height: 0;
+}
+
+/* Larger play cue; dense stop glyph stays slightly smaller so it fits the circle */
+.composer-send-play .composer-send-glyph {
+  font-size: 22px;
+  transform: translate(calc(1px + 0.04em), -0.09em);
+}
+
+.composer-send-stop .composer-send-glyph {
+  font-size: 17px;
+  transform: translateY(-0.08em);
 }
 
 /* Desktop */

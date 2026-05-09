@@ -99,6 +99,25 @@ SSE payloads
   - `token_usage`
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
+## Composer primary action (`#btn-send`)
+
+Shape and glyphs
+
+- The control sits to the **right** of the context ring (**`.composer-icon`** on **`Composer.tsx`**).
+- The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
+- **Play** (**idle**, draft non-empty): Unicode triangle **`▶`**, enlarged vs body text (**`~22px`** glyph via **`composer-send-glyph`**), slight horizontal nudge for optical centering.
+- **Stop** (**while streaming`): Unicode **`■`**, **~17–18px** so the block fills the circle without clipping.
+- **Disabled** idle state when textarea is whitespace-only (**`:disabled`** on **`composer-send-play`**).
+
+Behavior (unchanged summary)
+
+- **Enter** submits when idle and not generating; **`Shift+Enter`** newline. No submit while **`generating`**.
+- **Stop**: **`POST /coddy/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. Details in **`DESIGN.md`** and **`docs/http-api.md`** (**cancelling** section).
+
+Regression
+
+- Automated UI checks (**Playwright MCP** or **`@playwright/test`**) MAY assert **`#btn-send`** **`offsetWidth`** **≈** **`offsetHeight`** and computed **`border-radius`** **≥ half** **`min(width,height)`** (within sub-pixel tolerance).
+
 ## Transcript message types
 
 The chat transcript renders a flat list of UI message blocks. Each block has a `type` and a minimal set of required fields.

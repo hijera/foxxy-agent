@@ -149,6 +149,13 @@ Ring to the **left** of **Send** in **`Composer.tsx`**.
 
 See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
+### Composer primary action (**Send** **/** **Stop**)
+
+- Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).
+- **Circular button** (**not** pill or squircle): fixed equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`**. Intended diameter **42px** in production CSS (**may track token scale**, but stays a **circle**).
+- **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`~17px`** **■** (dense glyph, avoids clipping inside the circle). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
+- Idle **disabled** when message field empty; streaming shows **stop** affordance (see **`docs/ui/spec.md`**, section **Composer primary action**).
+
 Composer mode selector
 
 - **`GET /v1/models`** merges Coddy profiles and YAML backends in one list. Split by **`owned_by`**: **`coddy`** means session profiles **`agent`** and **`plan`** only. Any other **`owned_by`** marks a configured **`models[].model`** row (YAML backend).

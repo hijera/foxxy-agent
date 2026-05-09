@@ -226,7 +226,9 @@ export function Composer(props: {
                 props.onSend(txt);
               }}
             >
-              <span aria-hidden="true">{props.generating ? '■' : '▶'}</span>
+              <span className="composer-send-glyph" aria-hidden="true">
+                {props.generating ? '■' : '▶'}
+              </span>
             </button>
           </div>
         </div>
