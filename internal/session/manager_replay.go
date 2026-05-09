@@ -107,8 +107,49 @@ func (m *Manager) replayMemoryTrace(sessionID string, row *MemoryTurnTraceJSON) 
 		rowID = fmt.Sprintf("mem-%d", row.UserTurnIndex)
 	}
 
+	unified := row.MemoryDurationMs > 0 || strings.TrimSpace(row.MemoryContextText) != ""
+	if unified {
+		_ = m.server.SendSessionUpdate(sessionID, acp.MemoryPhaseUpdate{
+			SessionUpdate: acp.UpdateTypeMemoryPhase,
+			MemoryRowID:   rowID,
+			Phase:         "memory",
+			Status:        "started",
+			UserTurnIndex: row.UserTurnIndex,
+		})
+		if t := strings.TrimSpace(row.MemoryContextText); t != "" {
+			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
+				MemoryRowID:   rowID,
+				Phase:         "memory",
+				Kind:          "text",
+				Delta:         t,
+			})
+		}
+		ph := acp.MemoryPhaseUpdate{
+			SessionUpdate: acp.UpdateTypeMemoryPhase,
+			MemoryRowID:   rowID,
+			Phase:         "memory",
+			Status:        "completed",
+			UserTurnIndex: row.UserTurnIndex,
+			DurationMs:    row.MemoryDurationMs,
+		}
+		if len(row.RecallReadPaths) > 0 {
+			ph.RecallReadPaths = row.RecallReadPaths
+		}
+		if row.PersistSaved {
+			ph.PersistSaved = true
+			ph.PersistRelativePath = row.PersistRelativePath
+			ph.PersistTitle = row.PersistTitle
+			if strings.TrimSpace(row.PersistSavedBody) != "" {
+				ph.PersistSavedBody = row.PersistSavedBody
+			}
+		}
+		_ = m.server.SendSessionUpdate(sessionID, ph)
+		return
+	}
+
 	hasRecall := row.RecallDurationMs > 0 || strings.TrimSpace(row.RecallText) != "" || strings.TrimSpace(row.RecallReasoningText) != "" || len(row.RecallReadPaths) > 0
-	hasPersist := row.PersistDurationMs > 0 || strings.TrimSpace(row.PersistJudgeText) != "" || row.PersistSaved
+	hasPersist := row.PersistDurationMs > 0 || strings.TrimSpace(row.PersistFinalText) != "" || row.PersistSaved
 
 	if hasRecall {
 		_ = m.server.SendSessionUpdate(sessionID, acp.MemoryPhaseUpdate{
@@ -158,7 +199,7 @@ func (m *Manager) replayMemoryTrace(sessionID string, row *MemoryTurnTraceJSON) 
 			Status:        "started",
 			UserTurnIndex: row.UserTurnIndex,
 		})
-		if r := strings.TrimSpace(row.PersistJudgeText); r != "" {
+		if r := strings.TrimSpace(row.PersistFinalText); r != "" {
 			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
 				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
 				MemoryRowID:   rowID,

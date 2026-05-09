@@ -68,7 +68,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 	a.state.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText})
-	a.runMemoryRecall(ctx, userText)
+	a.runMemoryBeforeTurn(ctx, userText)
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -165,32 +165,38 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 
 		sessionID := a.state.GetID()
+		emitReason := func(d string, now time.Time) {
+			reasoningBuf.WriteString(d)
+			if reasonClockStart.IsZero() {
+				reasonClockStart = now
+			}
+			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: d},
+			})
+		}
+		emitText := func(delta string, now time.Time, markReasonEnd bool) {
+			if markReasonEnd && strings.TrimSpace(delta) != "" {
+				maybeMarkReasonEnd(now)
+			}
+			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: delta},
+			})
+		}
+
 		response, streamErr = provider.Stream(ctx, messages, toolDefs, func(chunk llm.StreamChunk) {
 			if ctx.Err() != nil {
 				return
 			}
 			now := time.Now()
 			if chunk.ReasoningDelta != "" {
-				reasoningBuf.WriteString(chunk.ReasoningDelta)
-				if reasonClockStart.IsZero() {
-					reasonClockStart = now
-				}
-				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
-					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
-					Content:       acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: chunk.ReasoningDelta},
-				})
+				emitReason(chunk.ReasoningDelta, now)
 			}
 			if chunk.TextDelta != "" && strings.TrimSpace(chunk.TextDelta) != "" {
-				maybeMarkReasonEnd(now)
-				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
-					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
-					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: chunk.TextDelta},
-				})
+				emitText(chunk.TextDelta, now, true)
 			} else if chunk.TextDelta != "" {
-				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
-					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
-					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: chunk.TextDelta},
-				})
+				emitText(chunk.TextDelta, now, false)
 			}
 			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {
 				maybeMarkReasonEnd(now)
@@ -284,7 +290,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 		// If no tool calls, we're done.
 		if len(response.ToolCalls) == 0 {
-			a.runMemoryPersist(ctx, userText, response.Content)
 			stopReason := response.StopReason
 			if stopReason == "" || stopReason == "end_turn" {
 				return string(acp.StopReasonEndTurn), nil

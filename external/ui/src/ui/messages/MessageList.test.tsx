@@ -54,7 +54,6 @@ test('renders memory copilot foldout', () => {
 
   expect(screen.getByTestId('memory-copilot-row')).toBeTruthy();
   expect(document.querySelector('.coddy-memory-recall')).toBeTruthy();
-  expect(document.querySelector('.coddy-memory-persist')).toBeTruthy();
   expect(screen.getByText('fact')).toBeInTheDocument();
   expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
 });

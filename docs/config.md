@@ -96,7 +96,7 @@ memory:
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
   recall_max_turns: 6
-  persist_max_turns: 4
+  persist_max_turns: 12
   copilot_max_tokens: 4096
   max_search_hits: 8
 

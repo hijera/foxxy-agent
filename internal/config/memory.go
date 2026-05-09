@@ -10,16 +10,16 @@ import (
 type MemoryConfig struct {
 	Enabled bool `yaml:"enabled"`
 
-	// Model selects cfg.models entry for recall and persist LLM calls. Empty uses agent.model.
+	// Model selects cfg.models entry for the unified memory copilot (before the main agent). Empty uses agent.model.
 	Model string `yaml:"model"`
 
 	// Dir is the long-term memory root under Coddy home semantics. When empty, defaults to $CODDY_HOME/memory.
 	Dir string `yaml:"dir"`
 
-	// RecallMaxTurns caps tool rounds for the recall sub-agent.
+	// RecallMaxTurns and PersistMaxTurns bound the single RunBeforeTurn memory copilot loop; the implementation uses max(RecallMaxTurns, PersistMaxTurns) as the round cap.
 	RecallMaxTurns int `yaml:"recall_max_turns"`
 
-	// PersistMaxTurns caps LLM rounds in the persist tool loop (directory navigation + save needs several steps for some backends).
+	// PersistMaxTurns caps LLM rounds together with RecallMaxTurns (see RecallMaxTurns).
 	PersistMaxTurns int `yaml:"persist_max_turns"`
 
 	// CopilotMaxTokens limits completion size for memory LLM calls.

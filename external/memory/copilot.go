@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -12,58 +11,68 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
-const recallSystem = `You are the memory retrieval step for a coding agent. You never speak to the end user directly.
-Your only job is to load useful long-term notes from disk BEFORE the main assistant answers.
+// beforeTurnSystem is the single memory copilot pass that runs before the main agent each user turn.
+// The model must choose one primary mode: RECALL (read-only tools) or PERSIST (may write), not both in one turn.
+const beforeTurnSystem = `You are the memory copilot for a coding agent. You run exactly ONCE per user message, BEFORE the main assistant model runs. You never speak to the end user directly.
 
-Tools are READ-ONLY in this phase: search, list, read. Do not save, mkdir, edit, or delete here; persistence is handled by the curator after the main reply.
+You have all memory tools. Each user turn you must follow exactly ONE mode:
 
-Paths are always scope:relative where scope is global or project (example global:preferences.md or project:architecture/api.md).
-Global memory uses memory.dir from config when set, otherwise $CODDY_HOME/memory (often ~/.coddy/memory). Project memory is cwd/memory.
+MODE RECALL - load context from disk for the main assistant
+- Use ONLY coddy_memory_search, coddy_memory_list, coddy_memory_read. Do NOT call coddy_memory_mkdir, coddy_memory_save, or coddy_memory_delete.
+- Choose RECALL when the user wants help that benefits from prior saved facts, project context, or preferences, or when they did not clearly ask only to store or forget something.
+- Default to RECALL when unsure.
+- Search uses word overlap between your query and file paths plus bodies. Notes may be written in a different language than the user's message. If the user asks how you are called, your name, identity, or similar (any language), run coddy_memory_search with scope "both" using (1) their wording and (2) a second query with English keywords such as: assistant name identity preferences how to address you call you.
+- If searches still show nothing relevant, try coddy_memory_list on global: and project: then coddy_memory_read plausible paths (for example assistant or preferences folders).
 
-Folders: use coddy_memory_list to inspect layout; thematic subfolders mirror how notes are organized on disk.
+MODE PERSIST - update long-term storage based on this user message alone (you do not have the assistant reply yet)
+- You MAY use coddy_memory_search, coddy_memory_list, coddy_memory_read, coddy_memory_mkdir, coddy_memory_save, coddy_memory_delete.
+- Choose PERSIST when the user explicitly asks to remember, save, store for later, forget, delete a saved fact, or rename their preference; or when the clear primary intent is writing durable notes from what they said.
+- Before saving: read existing notes to avoid duplicates. Use coddy_memory_mkdir before first save under a new folder branch.
 
-Cross-links inside note bodies use the same scope:relative form or Markdown links targeting that path.
+Opt-out: if the user clearly forbids consulting saved notes for this message, skip RECALL tools and reply with one short line; no paths or tool jargon.
 
-Workflow (use several tool rounds if needed):
-1. coddy_memory_search (and list when layout is unclear) to find entry files relevant to the current user message.
-2. coddy_memory_read those files. When a body references other memory paths you still need, read those in follow-up rounds until you have enough context for this turn.
-3. Finish with plain text only (no more tool calls). Structure the answer so the main assistant can tell:
-   - "Already on disk" - short factual bullets grounded ONLY in what you actually read (no invention).
-   - "Not in notes" - optional short bullets for user intent or facts that nothing you read covered, so the main model knows what is not yet in long-term memory (do not guess file contents you did not open).
+Paths use scope:relative (global:... or project:...). Global root defaults to $CODDY_HOME/memory; project root is cwd/memory.
 
-Rules:
-- Call coddy_memory_search first unless you already know exact paths.
-- Call coddy_memory_list when you need the directory layout.
-- Prefer short factual bullets. Do not expose raw tool JSON.
-- Do not invent facts you did not read from files.
-- If nothing is relevant, reply with a single line exactly: (no memory hits)
-- When you finish gathering, answer in plain text without further tool calls.`
+RECALL finishing text (plain only, no tools): structure with "Already on disk" and optional "Not in notes" bullets. Write only facts the main assistant should apply - no memory paths, no scope prefixes (global:/project:), no file names, extensions, or citations like "see ...md". Do not name where a fact was stored. If nothing matched after search/read, reply exactly: (no memory hits)
 
-const persistSystem = `You are a strict memory curator for a coding agent. You never speak to the end user directly.
-
-You MAY call coddy_memory_search, coddy_memory_list, coddy_memory_read, coddy_memory_mkdir, coddy_memory_save, and coddy_memory_delete during this phase.
-
-Before writing, discover what is already stored:
-- Use search, list, and a short chain of reads (including linked paths) like in recall so you see existing notes relevant to this user turn and assistant reply.
-
-Then decide what is NET-NEW durable information compared to files you actually read:
-- If the fact or preference already exists on disk (same meaning), skip coddy_memory_save unless the user clearly asked to revise or replace it.
-- Save only substantive gaps: things the assistant stated that belong in long-term memory and are missing or outdated in what you read.
-
-Prefer thematic folders: call coddy_memory_mkdir before the first coddy_memory_save under a new path.
-Use scope-relative paths everywhere (global:... or project:...).
-
-When linking between notes inside bodies, prefer scope:relative paths or Markdown with the same target.
+PERSIST finishing text (plain only, no tools): briefly what you verified on disk and what you saved, skipped, or deleted.
 
 Secrets: never store API keys, tokens, passwords, or one-off credentials in coddy_memory_save body.
 
-coddy_memory_save ONLY when one of these applies AND the idea is not already adequately covered by an existing note you read:
-- The user explicitly asked to remember / store / save something for later sessions, and the assistant agreed to a concrete fact.
-- The assistant stated a durable preference or project fact (stack, coding style, naming, architecture decision) that will clearly help future turns.
+When finished with tools in your chosen mode, respond with plain text only (no tool calls).`
 
-Do NOT save transient debugging, one-off errors, task status, duplicates, filler, or chat that is not reusable. When unsure, skip save.
+// BeforeTurnOutcome is the result of the single pre-main-agent memory copilot pass.
+type BeforeTurnOutcome struct {
+	Mode        string // "recall" or "persist"
+	ContextText string // merged into Session memory for the main agent
+	ReadPaths   []string
+	Persist     PersistOutcome
+}
 
-When deciding is done, respond with plain text only (no tool calls). Summarize: what you verified on disk, what you saved or skipped (and why).`
+// PersistOutcome is structured data when coddy_memory_save completed in the same pass.
+type PersistOutcome struct {
+	Saved        bool
+	Scope        string
+	RelativePath string
+	Title        string
+	Body         string
+	Reason       string
+	RawFinalText string
+}
+
+// RunBeforeTurnOptions configures streaming hooks for the unified memory pass.
+type RunBeforeTurnOptions struct {
+	OnPhaseStart func()
+	OnStream     func(kind StreamKind, delta string)
+}
+
+// StreamKind discriminates streamed memory copilot content.
+type StreamKind string
+
+const (
+	StreamKindText      StreamKind = "text"
+	StreamKindReasoning StreamKind = "reasoning"
+)
 
 func clampProviderMax(rm *config.ResolvedLLM, cap int) {
 	if rm == nil || cap <= 0 {
@@ -88,96 +97,12 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, rm.MaxTokens, rm.Temperature)
 }
 
-// RunRecall runs the recall sub-agent and returns text for the main prompt memory section.
-// When opts is non-nil, OnStream receives streamed model text and reasoning deltas (recall phase only).
-// ReadPaths lists scope:relative paths successfully read via coddy_memory_read (deduped, order preserved).
-// Returns final recall text, wall-clock duration in milliseconds, read paths, and error.
-func RunRecall(ctx context.Context, log *slog.Logger, cfg *config.Config, cwd, userQuery, modelRef string, opts *RunRecallOptions) (string, int64, []string, error) {
-	var readPaths []string
-	if !cfg.Memory.Enabled {
-		return "", 0, nil, nil
-	}
-	store, err := NewStore(&cfg.Memory, cfg.Paths, cwd)
-	if err != nil {
-		return "", 0, nil, err
-	}
-	if !store.HasAnyFiles() {
-		return "", 0, nil, nil
-	}
-	prov, err := newCopilotProvider(cfg, modelRef)
-	if err != nil {
-		return "", 0, nil, err
-	}
-	tools := RecallToolDefinitions()
-	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: recallSystem},
-		{Role: llm.RoleUser, Content: "User message for this turn:\n" + userQuery},
-	}
-	max := cfg.Memory.RecallMaxTurns
-	recallStarted := timeNowMs()
-	if opts != nil && opts.OnPhaseStart != nil {
-		opts.OnPhaseStart()
-	}
-	for step := 0; step < max; step++ {
-		if ctx.Err() != nil {
-			return "", timeNowMs() - recallStarted, readPaths, ctx.Err()
-		}
-		var resp *llm.Response
-		if opts != nil && opts.OnStream != nil {
-			resp, err = runRecallStreamRound(ctx, prov, msgs, tools, opts.OnStream)
-		} else {
-			resp, err = prov.Complete(ctx, msgs, tools)
-		}
-		if err != nil {
-			return "", timeNowMs() - recallStarted, readPaths, err
-		}
-		if len(resp.ToolCalls) == 0 {
-			out := strings.TrimSpace(resp.Content)
-			dur := timeNowMs() - recallStarted
-			if out == "" {
-				return "", dur, readPaths, nil
-			}
-			return out, dur, readPaths, nil
-		}
-		msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Content: resp.Content, ToolCalls: resp.ToolCalls})
-		for _, tc := range resp.ToolCalls {
-			res, ex := execTool(store, &cfg.Memory, tc.Name, tc.InputJSON)
-			if tc.Name == "coddy_memory_read" && ex == nil {
-				var ra struct {
-					Path string `json:"path"`
-				}
-				if uerr := json.Unmarshal([]byte(tc.InputJSON), &ra); uerr == nil {
-					readPaths = appendRecallReadPath(readPaths, ra.Path)
-				}
-			}
-			if ex != nil {
-				res = "error: " + ex.Error()
-			}
-			msgs = append(msgs, llm.Message{Role: llm.RoleTool, ToolCallID: tc.ID, Content: res})
-		}
-	}
-	if log != nil {
-		log.Warn("memory recall exceeded max turns")
-	}
-	dur := timeNowMs() - recallStarted
-	return "", dur, readPaths, nil
+type saveCapture struct {
+	scopeLabel   string
+	relativePath string
+	title        string
+	body         string
 }
-
-// RunRecallOptions configures optional streaming hooks for recall.
-type RunRecallOptions struct {
-	// OnStream receives text or reasoning deltas from the model (not tool JSON).
-	OnStream func(kind StreamKind, delta string)
-	// OnPhaseStart is invoked once before the first LLM call (for wall-clock UI).
-	OnPhaseStart func()
-}
-
-// StreamKind discriminates streamed memory copilot content.
-type StreamKind string
-
-const (
-	StreamKindText      StreamKind = "text"
-	StreamKindReasoning StreamKind = "reasoning"
-)
 
 func timeNowMs() int64 { return time.Now().UnixMilli() }
 
@@ -194,7 +119,7 @@ func appendRecallReadPath(slice []string, p string) []string {
 	return append(slice, p)
 }
 
-func runRecallStreamRound(ctx context.Context, prov llm.Provider, msgs []llm.Message, tools []llm.ToolDefinition, onStream func(kind StreamKind, delta string)) (*llm.Response, error) {
+func runCopilotStreamRound(ctx context.Context, prov llm.Provider, msgs []llm.Message, tools []llm.ToolDefinition, onStream func(kind StreamKind, delta string)) (*llm.Response, error) {
 	resp, err := prov.Stream(ctx, msgs, tools, func(ch llm.StreamChunk) {
 		if onStream == nil {
 			return
@@ -212,31 +137,10 @@ func runRecallStreamRound(ctx context.Context, prov llm.Provider, msgs []llm.Mes
 	return resp, nil
 }
 
-// PersistOutcome is the structured result after the memory curator runs.
-type PersistOutcome struct {
-	Saved        bool
-	Scope        string
-	RelativePath string // path under memory root written (scope:rel) when Saved
-	Title        string
-	Body         string // markdown body written when Saved (trimmed, for UI)
-	Reason       string
-	RawJudge     string // full final curator text (trace / UI)
-}
-
-// RunPersistOptions configures optional hooks for persist streaming.
-type RunPersistOptions struct {
-	OnPhaseStart func()
-	OnStream     func(kind StreamKind, delta string)
-}
-
-// RunPersist optionally writes memory via tool-calling curator after a user turn.
-func RunPersist(ctx context.Context, log *slog.Logger, cfg *config.Config, cwd, modelRef, userQuery, assistantReply string, opts *RunPersistOptions) (PersistOutcome, int64, error) {
-	out := PersistOutcome{}
+// RunBeforeTurn runs the unified memory copilot once before the main agent: either recall or persist, never both.
+func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cwd, userQuery, modelRef string, opts *RunBeforeTurnOptions) (BeforeTurnOutcome, int64, error) {
+	out := BeforeTurnOutcome{Mode: "recall"}
 	if !cfg.Memory.Enabled {
-		return out, 0, nil
-	}
-	assistantReply = strings.TrimSpace(assistantReply)
-	if assistantReply == "" {
 		return out, 0, nil
 	}
 	store, err := NewStore(&cfg.Memory, cfg.Paths, cwd)
@@ -247,56 +151,73 @@ func RunPersist(ctx context.Context, log *slog.Logger, cfg *config.Config, cwd, 
 	if err != nil {
 		return out, 0, err
 	}
-	userPayload := fmt.Sprintf("User:\n%s\n\nAssistant:\n%s\n", userQuery, assistantReply)
 	tools := PersistToolDefinitions()
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: persistSystem},
-		{Role: llm.RoleUser, Content: userPayload},
+		{Role: llm.RoleSystem, Content: beforeTurnSystem},
+		{Role: llm.RoleUser, Content: "User message for this turn:\n" + userQuery},
 	}
-	persistStarted := timeNowMs()
+	maxTurns := cfg.Memory.PersistMaxTurns
+	if cfg.Memory.RecallMaxTurns > maxTurns {
+		maxTurns = cfg.Memory.RecallMaxTurns
+	}
+	started := timeNowMs()
 	if opts != nil && opts.OnPhaseStart != nil {
 		opts.OnPhaseStart()
 	}
-	max := cfg.Memory.PersistMaxTurns
-	type saveCapture struct {
-		scopeLabel   string
-		relativePath string
-		title        string
-		body         string
-	}
+
+	var readPaths []string
 	var lastSave *saveCapture
-	for step := 0; step < max; step++ {
+	mutationSeen := false
+
+	for step := 0; step < maxTurns; step++ {
 		if ctx.Err() != nil {
-			return out, timeNowMs() - persistStarted, ctx.Err()
+			return out, timeNowMs() - started, ctx.Err()
 		}
 		var resp *llm.Response
+		var err error
 		if opts != nil && opts.OnStream != nil {
-			resp, err = runRecallStreamRound(ctx, prov, msgs, tools, opts.OnStream)
+			resp, err = runCopilotStreamRound(ctx, prov, msgs, tools, opts.OnStream)
 		} else {
 			resp, err = prov.Complete(ctx, msgs, tools)
 		}
 		if err != nil {
-			return out, timeNowMs() - persistStarted, err
+			return out, timeNowMs() - started, err
 		}
 		if len(resp.ToolCalls) == 0 {
 			finalText := strings.TrimSpace(resp.Content)
-			out.RawJudge = finalText
-			out.Reason = finalText
+			out.ContextText = finalText
+			out.Persist.RawFinalText = finalText
+			out.Persist.Reason = finalText
 			if lastSave != nil {
-				out.Saved = true
-				out.Scope = lastSave.scopeLabel
-				out.RelativePath = lastSave.relativePath
-				out.Title = lastSave.title
-				out.Body = lastSave.body
+				out.Persist.Saved = true
+				out.Persist.Scope = lastSave.scopeLabel
+				out.Persist.RelativePath = lastSave.relativePath
+				out.Persist.Title = lastSave.title
+				out.Persist.Body = lastSave.body
 				if log != nil {
 					log.Info("memory saved", "path", lastSave.relativePath)
 				}
 			}
-			return out, timeNowMs() - persistStarted, nil
+			if mutationSeen || out.Persist.Saved {
+				out.Mode = "persist"
+			}
+			return out, timeNowMs() - started, nil
 		}
 		msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Content: resp.Content, ToolCalls: resp.ToolCalls})
 		for _, tc := range resp.ToolCalls {
+			switch tc.Name {
+			case "coddy_memory_save", "coddy_memory_mkdir", "coddy_memory_delete":
+				mutationSeen = true
+			}
 			res, ex := execTool(store, &cfg.Memory, tc.Name, tc.InputJSON)
+			if tc.Name == "coddy_memory_read" && ex == nil {
+				var ra struct {
+					Path string `json:"path"`
+				}
+				if uerr := json.Unmarshal([]byte(tc.InputJSON), &ra); uerr == nil {
+					readPaths = appendRecallReadPath(readPaths, ra.Path)
+				}
+			}
 			if ex != nil {
 				res = "error: " + ex.Error()
 			} else if tc.Name == "coddy_memory_save" {
@@ -325,17 +246,19 @@ func RunPersist(ctx context.Context, log *slog.Logger, cfg *config.Config, cwd, 
 		}
 	}
 	if log != nil {
-		log.Warn("memory persist exceeded max turns")
+		log.Warn("memory before-turn exceeded max turns")
 	}
-	dur := timeNowMs() - persistStarted
+	dur := timeNowMs() - started
 	if lastSave != nil {
-		out.Saved = true
-		out.Scope = lastSave.scopeLabel
-		out.RelativePath = lastSave.relativePath
-		out.Title = lastSave.title
-		out.Body = lastSave.body
-		out.Reason = "persist stopped at max turns after a save"
-		out.RawJudge = out.Reason
+		out.Persist.Saved = true
+		out.Persist.Scope = lastSave.scopeLabel
+		out.Persist.RelativePath = lastSave.relativePath
+		out.Persist.Title = lastSave.title
+		out.Persist.Body = lastSave.body
+		out.Persist.Reason = "memory copilot stopped at max turns after a save"
+		out.Persist.RawFinalText = out.Persist.Reason
+		out.ContextText = out.Persist.Reason
+		out.Mode = "persist"
 	}
 	return out, dur, nil
 }

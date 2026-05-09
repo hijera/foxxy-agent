@@ -43,6 +43,9 @@ export type TranscriptItem =
       type: 'memory_copilot';
       memoryRowId: string;
       userTurnIndex: number;
+      /** Single before-main-agent memory pass (preferred). Legacy rows may omit this. */
+      memoryStatus?: 'idle' | 'in_progress' | 'completed';
+      memoryText?: string;
       recallStatus: 'idle' | 'in_progress' | 'completed';
       persistStatus: 'idle' | 'in_progress' | 'completed';
       recallText: string;
@@ -51,8 +54,10 @@ export type TranscriptItem =
       persistReasoning: string;
       recallDurationMs?: number;
       persistDurationMs?: number;
-      /** Wall clock from first memory phase start until persist completed (live until then). */
+      /** Wall clock from memory phase start until completed (live until then). */
       memoryWallStartedAtMs?: number;
+      /** When main-model thinking rows appear while recall/persist SSE is still marked busy, cap the live wall-clock label at this elapsed ms so it does not keep climbing beside thinking (see freezeMemoryWallWhenThinkingAfterRecall). */
+      memoryWallLiveCapMs?: number;
       memoryWallDurationMs?: number;
       persistSaved?: boolean;
       persistRelativePath?: string;

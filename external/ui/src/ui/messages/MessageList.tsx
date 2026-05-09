@@ -5,10 +5,20 @@ import { ThinkingMessage } from './ThinkingMessage';
 import { ToolCallMessage } from './ToolCallMessage';
 import { UserMessage } from './UserMessage';
 
+/** True while the main-model thinking row above assistant text is streaming for this memory row's turn (same bubble as memory). */
+function mainThinkingOverlapsMemory(items: TranscriptItem[], memIndex: number): boolean {
+  for (let i = memIndex + 1; i < items.length; i++) {
+    const it = items[i];
+    if (!it || it.type === 'user_message') return false;
+    if (it.type === 'thinking' && it.status === 'in_progress') return true;
+  }
+  return false;
+}
+
 export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDetails?: (toolCallId: string) => void }) {
   return (
     <>
-      {props.items.map((it) => {
+      {props.items.map((it, idx) => {
         if (it.type === 'user_message') {
           return <UserMessage key={it.id} content={it.content} />;
         }
@@ -18,8 +28,8 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
               key={it.id}
               status={it.status}
               content={it.content}
-              durationMs={it.durationMs}
-              startedAtMs={it.startedAtMs}
+              {...(typeof it.durationMs === 'number' ? { durationMs: it.durationMs } : {})}
+              {...(typeof it.startedAtMs === 'number' ? { startedAtMs: it.startedAtMs } : {})}
             />
           );
         }
@@ -27,19 +37,21 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
           return (
             <MemoryCopilotMessage
               key={it.id}
+              mainThinkingInProgress={mainThinkingOverlapsMemory(props.items, idx)}
+              {...(typeof it.memoryStatus !== 'undefined' ? { memoryStatus: it.memoryStatus } : {})}
+              {...(typeof it.memoryText === 'string' ? { memoryText: it.memoryText } : {})}
               recallStatus={it.recallStatus}
               persistStatus={it.persistStatus}
               recallText={it.recallText}
-              recallReasoning={it.recallReasoning}
               persistText={it.persistText}
-              persistReasoning={it.persistReasoning}
-              recallDurationMs={it.recallDurationMs}
-              persistDurationMs={it.persistDurationMs}
-              memoryWallStartedAtMs={it.memoryWallStartedAtMs}
-              memoryWallDurationMs={it.memoryWallDurationMs}
-              persistSaved={it.persistSaved}
-              persistRelativePath={it.persistRelativePath}
-              persistTitle={it.persistTitle}
+              {...(typeof it.recallDurationMs === 'number' ? { recallDurationMs: it.recallDurationMs } : {})}
+              {...(typeof it.persistDurationMs === 'number' ? { persistDurationMs: it.persistDurationMs } : {})}
+              {...(typeof it.memoryWallStartedAtMs === 'number' ? { memoryWallStartedAtMs: it.memoryWallStartedAtMs } : {})}
+              {...(typeof it.memoryWallLiveCapMs === 'number' ? { memoryWallLiveCapMs: it.memoryWallLiveCapMs } : {})}
+              {...(typeof it.memoryWallDurationMs === 'number' ? { memoryWallDurationMs: it.memoryWallDurationMs } : {})}
+              {...(typeof it.persistSaved === 'boolean' ? { persistSaved: it.persistSaved } : {})}
+              {...(it.persistRelativePath !== undefined ? { persistRelativePath: it.persistRelativePath } : {})}
+              {...(it.persistTitle !== undefined ? { persistTitle: it.persistTitle } : {})}
               {...(it.persistSavedBody !== undefined ? { persistSavedBody: it.persistSavedBody } : {})}
               {...(it.recallReadPaths !== undefined ? { recallReadPaths: it.recallReadPaths } : {})}
             />
@@ -58,7 +70,7 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}
             {...(it.resultText !== undefined ? { resultText: it.resultText } : {})}
             {...(it.detailsLoaded !== undefined ? { detailsLoaded: it.detailsLoaded } : {})}
-            {...(it.durationMs !== undefined ? { durationMs: it.durationMs } : {})}
+            {...(typeof it.durationMs === 'number' ? { durationMs: it.durationMs } : {})}
             {...(props.onLoadToolCallDetails ? { onLoadDetails: props.onLoadToolCallDetails } : {})}
           />
         );
@@ -66,4 +78,3 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
     </>
   );
 }
-

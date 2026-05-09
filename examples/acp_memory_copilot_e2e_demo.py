@@ -3,10 +3,10 @@
 
 Verifies the memory subsystem behaves like an internal voice (not main-agent tools):
 
-- Pre-seeded global markdown is found via recall and influences the main reply without read_file to that path.
-- After a second turn that asks the model to surface a new memorable fact, a new .md appears under
+- Pre-seeded global markdown is found via the memory copilot (RECALL path) and influences the main reply without read_file to that path.
+- After a second turn that asks the model to surface a new memorable fact, the memory copilot (PERSIST path) may write a new .md under
   $CODDY_HOME/memory or <cwd>/memory and a third question recalls it.
-- Optional prune step: user text nudges the recall copilot to remove a disposable global note; file must disappear.
+- Optional prune step: user text nudges the memory copilot to remove a disposable global note; file must disappear.
 
 Environment (paths):
 
@@ -324,7 +324,7 @@ def main() -> None:
         time.sleep(0.4)
         mid_paths = set(list_memory_markdown(global_mem, project_mem))
 
-        # Turn 2: ask model to invent a stable new fact so judge may persist; then verify grep.
+        # Turn 2: ask model to invent a stable new fact so the persist pass may save notes; then verify grep.
         p2 = (
             f"Second memory exercise. Pick exactly one whimsical favorite fruit for this test user "
             f"and state it as a single sentence that includes the codeword {fruit_word} verbatim.\n"

@@ -20,6 +20,11 @@ type MemoryTurnTraceJSON struct {
 
 	MemoryRowID string `json:"memoryRowId"`
 
+	// Unified before-main-agent pass (new traces).
+	MemoryMode        string `json:"memoryMode,omitempty"` // recall | persist
+	MemoryDurationMs  int64  `json:"memoryDurationMs,omitempty"`
+	MemoryContextText string `json:"memoryContextText,omitempty"` // text merged into main agent prompt
+
 	RecallSkipped bool `json:"recallSkipped,omitempty"`
 
 	RecallText          string `json:"recallText,omitempty"`
@@ -28,14 +33,15 @@ type MemoryTurnTraceJSON struct {
 	// RecallReadPaths are scope:relative paths read via coddy_memory_read during recall (deduped).
 	RecallReadPaths []string `json:"recallReadPaths,omitempty"`
 
-	PersistJudgeText string `json:"persistJudgeText,omitempty"`
-	PersistDurationMs int64 `json:"persistDurationMs,omitempty"`
-	PersistSaved      bool    `json:"persistSaved,omitempty"`
-	PersistScope      string  `json:"persistScope,omitempty"`
+	// PersistFinalText is persisted under JSON key persistJudgeText for backward compatibility with older traces.
+	PersistFinalText    string `json:"persistJudgeText,omitempty"`
+	PersistDurationMs   int64  `json:"persistDurationMs,omitempty"`
+	PersistSaved        bool   `json:"persistSaved,omitempty"`
+	PersistScope        string `json:"persistScope,omitempty"`
 	PersistRelativePath string `json:"persistRelativePath,omitempty"`
-	PersistTitle      string  `json:"persistTitle,omitempty"`
-	PersistReason     string  `json:"persistReason,omitempty"`
-	PersistSavedBody  string  `json:"persistSavedBody,omitempty"` // markdown body written when PersistSaved true
+	PersistTitle        string `json:"persistTitle,omitempty"`
+	PersistReason       string `json:"persistReason,omitempty"`
+	PersistSavedBody    string `json:"persistSavedBody,omitempty"` // markdown body written when PersistSaved true
 }
 
 // MemoryTraceEnvelope is the on-disk envelope for session memory traces.
@@ -102,6 +108,15 @@ func mergeMemoryTurn(old, upd MemoryTurnTraceJSON) MemoryTurnTraceJSON {
 	if upd.MemoryRowID != "" {
 		out.MemoryRowID = upd.MemoryRowID
 	}
+	if upd.MemoryMode != "" {
+		out.MemoryMode = upd.MemoryMode
+	}
+	if upd.MemoryDurationMs > 0 {
+		out.MemoryDurationMs = upd.MemoryDurationMs
+	}
+	if upd.MemoryContextText != "" {
+		out.MemoryContextText = upd.MemoryContextText
+	}
 	if upd.RecallSkipped {
 		out.RecallSkipped = true
 	}
@@ -117,8 +132,8 @@ func mergeMemoryTurn(old, upd MemoryTurnTraceJSON) MemoryTurnTraceJSON {
 	if len(upd.RecallReadPaths) > 0 {
 		out.RecallReadPaths = mergeRecallReadPathsDedup(out.RecallReadPaths, upd.RecallReadPaths)
 	}
-	if upd.PersistJudgeText != "" {
-		out.PersistJudgeText = upd.PersistJudgeText
+	if upd.PersistFinalText != "" {
+		out.PersistFinalText = upd.PersistFinalText
 	}
 	if upd.PersistDurationMs > 0 {
 		out.PersistDurationMs = upd.PersistDurationMs

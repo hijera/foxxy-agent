@@ -1066,7 +1066,7 @@ body {
   min-width: 0;
   /* Same inset as .msg-assistant prose; chevron sits in the band to the left */
   padding-left: 14px;
-  gap: 0 5px;
+  gap: 0 6px;
 }
 
 .thinking-chevron:before {
@@ -1099,15 +1099,24 @@ body {
 }
 
 .thinking-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
   color: rgba(255, 255, 255, 0.56);
   letter-spacing: 0.02em;
+  line-height: 20px;
 }
 
 .thinking-dur {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
   font-size: 12px;
+  line-height: 20px;
   color: rgba(255, 255, 255, 0.4);
   user-select: none;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .thinking-body {
@@ -1142,6 +1151,20 @@ body {
 
 .thinking-body .md-inline-code {
   color: rgba(229, 231, 235, 0.78);
+}
+
+.coddy-memory-copilot-flat-banner {
+  cursor: default;
+  pointer-events: none;
+  user-select: none;
+}
+
+.coddy-memory-copilot-head-left {
+  min-width: 0;
+}
+
+.coddy-memory-persist-merged.coddy-memory-for-agent :where(.md) {
+  font-size: 13px;
 }
 
 .coddy-memory-copilot-body .coddy-memory-phase:first-child {
@@ -1201,7 +1224,7 @@ body {
   font-size: 13px;
 }
 
-.coddy-memory-curator-summary :where(.md) {
+.coddy-memory-persist-summary :where(.md) {
   font-size: 13px;
 }
 

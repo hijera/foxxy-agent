@@ -398,13 +398,15 @@ Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancel
 
 ### `memory_phase` - Memory copilot phase boundary
 
-When `memory.enabled` is true in config, the memory copilot runs outside the main ReAct tool list. Clients may show a **memory** foldout (similar to thinking) using these markers. Phases: `recall` (before the main model answers, read-only tools) and `persist` (memory curator tools after a clean end-of-turn assistant message). Status: `started` | `completed`. `durationMs` is set on `completed`.
+When `memory.enabled` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
+
+Current protocol uses a single phase name **`memory`** (starts before the main agent, finishes when the copilot text is ready). Legacy sessions may still replay **`recall`** / **`persist`** from older traces. Status: `started` | `completed`. `durationMs` is set on `completed`. When a note was written with **`coddy_memory_save`**, **`persistSaved`**, **`persistTitle`**, **`persistRelativePath`**, and optional **`persistSavedBody`** may be set on **`completed`**.
 
 ```json
 {
   "sessionUpdate": "memory_phase",
   "memoryRowId": "mem-1",
-  "phase": "recall",
+  "phase": "memory",
   "status": "completed",
   "userTurnIndex": 1,
   "durationMs": 240
@@ -413,19 +415,20 @@ When `memory.enabled` is true in config, the memory copilot runs outside the mai
 
 ### `memory_message_chunk` - Streamed memory copilot text
 
-Token deltas for the memory sub-agent only (not merged into `messages.json` for the main LLM). `kind` is `text` or `reasoning`. `phase` is `recall` or `persist`.
+Token deltas for the memory sub-agent only (not merged into `messages.json` for the main LLM). **`phase`** is **`memory`** for new runs; **`kind`** is **`text`** for assistant content streamed into the Session memory block (reasoning may still appear on the wire but the SPA only accumulates **`text`** for display).
 
 ```json
 {
   "sessionUpdate": "memory_message_chunk",
   "memoryRowId": "mem-1",
-  "phase": "recall",
+  "phase": "memory",
   "kind": "text",
   "delta": "- "
 }
 ```
 
-See `external/memory/README.md`.
+See `external/memory/README.md` (including **Related work** and the link to [MemAgent](https://github.com/BytedTsinghua-SIA/MemAgent) for partial prompt and flow inspiration).
+
 
 ### `current_mode_update` - Mode changed
 

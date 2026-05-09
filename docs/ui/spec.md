@@ -245,6 +245,6 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - When the user sends a chat message that completes a full ReAct turn
   - Then an element with **`data-testid="memory-copilot-row"`** appears after that user bubble for the turn (grey **memory** foldout, same visual language as **thinking** per `DESIGN.md`)
   - When the user opens the details element
-  - Then **Recalled** and/or **Memorized** sections are visible once the server has finished the corresponding phases
+  - Then the streamed **memory** body shows the text merged into the main agent prompt for that turn (and optional saved-note preview when the copilot wrote `coddy_memory_save`)
 
 For Playwright MCP against a live gateway, start **`make build TAGS=http`** then **`./build/coddy http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.

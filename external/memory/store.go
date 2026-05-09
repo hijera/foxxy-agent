@@ -192,13 +192,15 @@ func (s *Store) Search(query string, scope string, maxHits int) ([]Hit, error) {
 				continue
 			}
 			body := string(b)
-			sc := scoreOverlap(query, filepath.Base(p)+" "+body)
-			if sc <= 0 {
-				continue
-			}
 			rel, err := filepath.Rel(r.root, p)
 			if err != nil {
 				rel = p
+			}
+			relSlash := filepath.ToSlash(rel)
+			pathContext := strings.ReplaceAll(relSlash, "/", " ") + " " + filepath.Base(p)
+			sc := scoreOverlap(query, pathContext+" "+body)
+			if sc <= 0 {
+				continue
 			}
 			all = append(all, cand{path: r.label + ":" + filepath.ToSlash(rel), scope: r.label, score: sc, body: body})
 		}

@@ -35,7 +35,7 @@ func (a *Agent) memoryRowID(turn int) string {
 	return fmt.Sprintf("mem-%d", turn)
 }
 
-func (a *Agent) sendMemoryPhase(rowID, phase, status string, turn int, durationMs int64, persistOutcome *memory.PersistOutcome, recallReadPaths []string) {
+func (a *Agent) sendMemoryPhase(rowID, phase, status string, turn int, durationMs int64, outcome *memory.BeforeTurnOutcome, recallReadPaths []string) {
 	upd := acp.MemoryPhaseUpdate{
 		SessionUpdate: acp.UpdateTypeMemoryPhase,
 		MemoryRowID:   rowID,
@@ -44,15 +44,15 @@ func (a *Agent) sendMemoryPhase(rowID, phase, status string, turn int, durationM
 		UserTurnIndex: turn,
 		DurationMs:    durationMs,
 	}
-	if phase == "recall" && status == "completed" && len(recallReadPaths) > 0 {
+	if status == "completed" && len(recallReadPaths) > 0 {
 		upd.RecallReadPaths = recallReadPaths
 	}
-	if persistOutcome != nil && phase == "persist" && status == "completed" {
-		upd.PersistSaved = persistOutcome.Saved
-		upd.PersistRelativePath = persistOutcome.RelativePath
-		upd.PersistTitle = persistOutcome.Title
-		if persistOutcome.Saved && strings.TrimSpace(persistOutcome.Body) != "" {
-			upd.PersistSavedBody = truncatePersistBodyForWire(persistOutcome.Body)
+	if outcome != nil && status == "completed" && outcome.Persist.Saved {
+		upd.PersistSaved = true
+		upd.PersistRelativePath = outcome.Persist.RelativePath
+		upd.PersistTitle = outcome.Persist.Title
+		if strings.TrimSpace(outcome.Persist.Body) != "" {
+			upd.PersistSavedBody = truncatePersistBodyForWire(outcome.Persist.Body)
 		}
 	}
 	_ = a.server.SendSessionUpdate(a.state.GetID(), upd)
@@ -71,10 +71,11 @@ func (a *Agent) sendMemoryChunk(rowID, phase, kind, delta string) {
 	})
 }
 
-func (a *Agent) runMemoryRecall(ctx context.Context, userText string) {
+func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText string) {
 	if !a.cfg.Memory.Enabled {
 		return
 	}
+	sid := a.state.GetID()
 	mr := strings.TrimSpace(a.cfg.Memory.Model)
 	if mr == "" {
 		mr = a.state.EffectiveModelID(a.cfg)
@@ -83,104 +84,69 @@ func (a *Agent) runMemoryRecall(ctx context.Context, userText string) {
 	rowID := a.memoryRowID(turn)
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 
-	var recallText, recallReasoning strings.Builder
-	opts := &memory.RunRecallOptions{
+	a.log.Info("memory copilot run starting",
+		"session_id", sid,
+		"memory_row_id", rowID,
+		"user_turn_index", turn,
+		"model", mr,
+	)
+
+	opts := &memory.RunBeforeTurnOptions{
 		OnPhaseStart: func() {
-			a.sendMemoryPhase(rowID, "recall", "started", turn, 0, nil, nil)
+			a.sendMemoryPhase(rowID, "memory", "started", turn, 0, nil, nil)
 		},
 		OnStream: func(kind memory.StreamKind, delta string) {
-			switch kind {
-			case memory.StreamKindReasoning:
-				recallReasoning.WriteString(delta)
-				a.sendMemoryChunk(rowID, "recall", "reasoning", delta)
-			default:
-				recallText.WriteString(delta)
-				a.sendMemoryChunk(rowID, "recall", "text", delta)
+			if kind != memory.StreamKindText {
+				return
 			}
+			a.sendMemoryChunk(rowID, "memory", "text", delta)
 		},
 	}
 
-	block, dur, recallReadPaths, err := memory.RunRecall(ctx, a.log, a.cfg, a.state.GetCWD(), userText, mr, opts)
+	outcome, dur, err := memory.RunBeforeTurn(ctx, a.log, a.cfg, a.state.GetCWD(), userText, mr, opts)
 	if err != nil {
-		a.log.Warn("memory recall", "error", err)
-		a.sendMemoryPhase(rowID, "recall", "completed", turn, dur, nil, recallReadPaths)
+		a.log.Warn("memory copilot run failed",
+			"session_id", sid,
+			"memory_row_id", rowID,
+			"user_turn_index", turn,
+			"duration_ms", dur,
+			"error", err,
+		)
+		a.sendMemoryPhase(rowID, "memory", "completed", turn, dur, nil, outcome.ReadPaths)
 		return
 	}
-	a.sendMemoryPhase(rowID, "recall", "completed", turn, dur, nil, recallReadPaths)
+	a.log.Info("memory copilot run finished",
+		"session_id", sid,
+		"memory_row_id", rowID,
+		"user_turn_index", turn,
+		"duration_ms", dur,
+		"mode", outcome.Mode,
+		"persist_saved", outcome.Persist.Saved,
+	)
+	a.sendMemoryPhase(rowID, "memory", "completed", turn, dur, &outcome, outcome.ReadPaths)
 
-	if strings.TrimSpace(block) != "" {
-		a.state.SetMemoryCopilotBlock(block)
+	ctxText := strings.TrimSpace(outcome.ContextText)
+	if ctxText != "" {
+		a.state.SetMemoryCopilotBlock(ctxText)
 	}
-
-	rt := strings.TrimSpace(recallText.String())
-	if rt == "" && strings.TrimSpace(block) != "" {
-		rt = strings.TrimSpace(block)
-	}
-	if sd != "" {
-		_ = session.AppendMemoryTurn(sd, session.MemoryTurnTraceJSON{
-			UserTurnIndex:       turn,
-			MemoryRowID:         rowID,
-			RecallText:          rt,
-			RecallReasoningText: strings.TrimSpace(recallReasoning.String()),
-			RecallDurationMs:    dur,
-			RecallReadPaths:     recallReadPaths,
-		})
-	}
-}
-
-func (a *Agent) runMemoryPersist(ctx context.Context, userText, assistant string) {
-	if !a.cfg.Memory.Enabled {
-		return
-	}
-	mr := strings.TrimSpace(a.cfg.Memory.Model)
-	if mr == "" {
-		mr = a.state.EffectiveModelID(a.cfg)
-	}
-	turn := countUserTurns(a.state.GetMessages())
-	rowID := a.memoryRowID(turn)
-	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
-
-	var judgeText strings.Builder
-	opts := &memory.RunPersistOptions{
-		OnPhaseStart: func() {
-			a.sendMemoryPhase(rowID, "persist", "started", turn, 0, nil, nil)
-		},
-		OnStream: func(kind memory.StreamKind, delta string) {
-			switch kind {
-			case memory.StreamKindReasoning:
-				a.sendMemoryChunk(rowID, "persist", "reasoning", delta)
-			default:
-				judgeText.WriteString(delta)
-				a.sendMemoryChunk(rowID, "persist", "text", delta)
-			}
-		},
-	}
-
-	outcome, dur, err := memory.RunPersist(ctx, a.log, a.cfg, a.state.GetCWD(), mr, userText, assistant, opts)
-	if err != nil {
-		a.log.Warn("memory persist", "error", err)
-		a.sendMemoryPhase(rowID, "persist", "completed", turn, dur, nil, nil)
-		return
-	}
-	a.sendMemoryPhase(rowID, "persist", "completed", turn, dur, &outcome, nil)
 
 	if sd == "" {
 		return
 	}
 	row := session.MemoryTurnTraceJSON{
-		UserTurnIndex:    turn,
-		MemoryRowID:      rowID,
-		PersistJudgeText: strings.TrimSpace(outcome.RawJudge),
-		PersistDurationMs: dur,
-		PersistSaved:     outcome.Saved,
-		PersistScope:     outcome.Scope,
-		PersistRelativePath: outcome.RelativePath,
-		PersistTitle:     outcome.Title,
-		PersistReason:    outcome.Reason,
-		PersistSavedBody: outcome.Body,
-	}
-	if judgeText.Len() > 0 && row.PersistJudgeText == "" {
-		row.PersistJudgeText = strings.TrimSpace(judgeText.String())
+		UserTurnIndex:       turn,
+		MemoryRowID:         rowID,
+		MemoryMode:          outcome.Mode,
+		MemoryDurationMs:    dur,
+		MemoryContextText:   ctxText,
+		RecallReadPaths:     outcome.ReadPaths,
+		PersistSaved:        outcome.Persist.Saved,
+		PersistScope:        outcome.Persist.Scope,
+		PersistRelativePath: outcome.Persist.RelativePath,
+		PersistTitle:        outcome.Persist.Title,
+		PersistReason:       outcome.Persist.Reason,
+		PersistSavedBody:    outcome.Persist.Body,
+		PersistFinalText:    strings.TrimSpace(outcome.Persist.RawFinalText),
 	}
 	_ = session.AppendMemoryTurn(sd, row)
 }

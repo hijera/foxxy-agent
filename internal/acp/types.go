@@ -369,11 +369,11 @@ type TokenUsageUpdate struct {
 	TotalTokens   int    `json:"totalTokens"`
 }
 
-// MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase (recall or persist judge).
+// MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.
 type MemoryPhaseUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "memory_phase"
 	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"`  // "recall" | "persist"
+	Phase         string `json:"phase"`  // "memory" (single pass) | "recall" | "persist" (legacy replay)
 	Status        string `json:"status"` // "started" | "completed"
 	UserTurnIndex int    `json:"userTurnIndex,omitempty"`
 	DurationMs    int64  `json:"durationMs,omitempty"`
@@ -386,11 +386,11 @@ type MemoryPhaseUpdate struct {
 	PersistTitle        string `json:"persistTitle,omitempty"`
 }
 
-// MemoryMessageChunkUpdate streams recall or persist model deltas to the client (not part of llm.Messages).
+// MemoryMessageChunkUpdate streams memory copilot model deltas to the client (not part of llm.Messages).
 type MemoryMessageChunkUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "memory_message_chunk"
 	MemoryRowID   string `json:"memoryRowId"`
-	Phase         string `json:"phase"` // "recall" | "persist"
+	Phase         string `json:"phase"` // "memory" | "recall" | "persist"
 	Kind          string `json:"kind"`  // "text" | "reasoning"
 	Delta         string `json:"delta"`
 }

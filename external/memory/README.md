@@ -10,14 +10,11 @@ Implementation for Coddy lives in this directory (`external/memory`) and is **al
 
 In the LLM sense, "memory" is whatever is injected into the context. Short-term memory is the chat history. **Long-term** memory here means markdown files on disk that are turned into a short block **before** the main model answers, merged into the same template slot as session notes (`{{.Memory}}` in `agent.md` / `plan.md`).
 
-When `memory.enabled` is true, Coddy also emits **ACP `session/update`** notifications (`memory_phase`, `memory_message_chunk`) and persists a per-session **`memory_trace.json`** alongside `messages.json`. That trace and the HTTP **`memoryTurns`** field on **`GET /coddy/sessions/{id}/messages`** are for UI observability only - they are **not** part of the Chat Completions transcript sent to the primary model.
+When `memory.enabled` is true, Coddy runs **one** memory copilot pass per user message **before** the main ReAct agent. That pass chooses either **RECALL** (read-only tools only) or **PERSIST** (may call mkdir/save/delete after reading), never both in the same turn. The final plain text from that pass is merged into `{{.Memory}}`; the main agent then answers with that context.
 
-A separate **memory copilot** (extra `llm.Stream` / completion passes with native tool calling) uses only **`coddy_memory_*`** tools:
+Coddy emits **ACP `session/update`** notifications (`memory_phase` with **`phase`: `memory`**, **`memory_message_chunk`**) and persists **`memory_trace.json`** alongside `messages.json`. The trace and the HTTP **`memoryTurns`** field on **`GET /coddy/sessions/{id}/messages`** are for UI observability only - they are **not** part of the Chat Completions transcript sent to the primary model.
 
-- **Recall** (before the main reply) - **`coddy_memory_search`**, **`coddy_memory_list`**, **`coddy_memory_read`** only. It is expected to **find entry notes, then read linked paths in further rounds** until enough context is loaded. The final plain-text answer should separate what is **already on disk** (from files actually read) from what is **not covered** by those notes, so the main model knows the gap. Output is merged into `{{.Memory}}` after the copilot stops calling tools.
-- **Persist** (after the final assistant message in a user turn, when there are no pending tool calls) - curator uses **`PersistToolDefinitions`**: search/list/read (including link-following) plus **`coddy_memory_mkdir`**, **`coddy_memory_save`**, **`coddy_memory_delete`**. It should **read existing relevant notes first**, then save only **net-new** durable facts not already present. The curator ends with plain text (no tools) summarizing verification and save/skip; **`coddy_memory_save`** body length is capped.
-
-Cross-links inside stored bodies should use **`scope:relative/path.md`** (or Markdown targets with that form) so paths stay unambiguous across global vs project roots.
+The memory copilot uses **`PersistToolDefinitions`** (all **`coddy_memory_*`** tools). In **RECALL** mode it must restrict itself to search/list/read per the system prompt. In **PERSIST** mode it may write after deduplicating against existing notes.
 
 The main ReAct loop **does not** receive these tool definitions and cannot call memory as a normal tool.
 
@@ -30,22 +27,28 @@ Supported file extensions: `.md` and `.txt`. `coddy_memory_search` ranks nested 
 
 REST endpoints under **`/coddy/sessions/{id}/memory/*`** expose the same tree for the SPA and mirror filesystem layout produced by copilot tools.
 
+Cross-links inside stored bodies should use **`scope:relative/path.md`** (or Markdown targets with that form) so paths stay unambiguous across global vs project roots.
+
 ## Configuration (`memory`)
 
 See `config.example.yaml` and `docs/config.md`. Fields:
 
 - `enabled` - master switch at runtime.
-- `model` - optional exact `models[].model` id for **recall and persist only**; does not change the main agent. Pin it (for example `rpa/gpt-oss:120b`) when memory should stay on a fixed model regardless of `agent.model`. Empty uses the active session / `agent.model`.
-- `dir`, `recall_max_turns`, `persist_max_turns`, `copilot_max_tokens`, `max_search_hits` - see the example config comments.
+- `model` - optional exact `models[].model` id for the memory copilot only; does not change the main agent. Pin it when memory should stay on a fixed model regardless of `agent.model`. Empty uses the active session / `agent.model`.
+- `dir`, `recall_max_turns`, `persist_max_turns`, `copilot_max_tokens`, `max_search_hits` - see the example config comments. **Effective tool-round cap** for the unified pass is **max(`recall_max_turns`, `persist_max_turns`)** (see `copilot.go`).
 
 ## Cost and latency
 
-Each user turn with memory enabled adds at least recall LLM rounds when memory files exist, plus persist rounds when the turn ends cleanly. Both steps use English system prompts in `copilot.go`. Persist tool rounds are capped by **`persist_max_turns`**.
+Each user turn with memory enabled adds **one** memory copilot run before the main agent. Latency is bounded by that pass plus the main ReAct loop.
 
 ## Code layout
 
 - `store.go` - roots, search, read/write (flat slug or **`relative_path`**, nested dirs), mkdir, listing, delete.
-- `tools.go` - tool schemas (`RecallToolDefinitions`, `PersistToolDefinitions`) and **`execTool`**.
-- `copilot.go` - recall persist loops with **`llm.Complete`/`Stream`** and tool callbacks.
+- `tools.go` - tool schemas and **`execTool`**.
+- `copilot.go` - **`RunBeforeTurn`** unified loop with **`llm.Stream`** / **`Complete`** and tool callbacks.
 
 Runtime wiring: `internal/agent/memory_hooks.go` imports this package.
+
+## Related work
+
+Prompt shape and the idea of routing context through a dedicated memory pass are **partly** informed by **[MemAgent](https://github.com/BytedTsinghua-SIA/MemAgent)** (Tsinghua-SIA / ByteDance). Coddy is not a fork of that repository - storage, tools, configs, and integrations (ACP, HTTP, UI) are separate.
