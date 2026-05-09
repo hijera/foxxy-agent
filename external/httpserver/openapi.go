@@ -395,6 +395,12 @@ func coddyPagingParams() []interface{} {
 			"name": "cursor", "in": "query", "schema": map[string]string{"type": "string"},
 			"description": "Numeric offset for the next results page.",
 		},
+		map[string]interface{}{
+			"name":        "q",
+			"in":          "query",
+			"schema":      map[string]string{"type": "string"},
+			"description": `Optional substring filter over session title OR the first persisted user message content only (case-insensitive). Other messages are not searched.`,
+		},
 	}
 }
 

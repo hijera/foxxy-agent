@@ -121,7 +121,7 @@ func (p fakeProvider) Stream(context.Context, []llm.Message, []llm.ToolDefinitio
 }
 
 func TestCoddyDescribeEchoesShortCommand(t *testing.T) {
-	_, srv := testHTTPServerPersist(t)
+	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "should not be used"}, nil
 	}
@@ -152,7 +152,7 @@ func TestCoddyDescribeEchoesShortCommand(t *testing.T) {
 }
 
 func TestCoddyDescribeUsesProviderForLongText(t *testing.T) {
-	_, srv := testHTTPServerPersist(t)
+	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "Refactor memory API"}, nil
 	}
@@ -183,7 +183,7 @@ func TestCoddyDescribeUsesProviderForLongText(t *testing.T) {
 }
 
 func TestCoddyDescribeSkipsJunkFirstLine(t *testing.T) {
-	_, srv := testHTTPServerPersist(t)
+	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "Po\nSkills and tools in verse"}, nil
 	}
@@ -214,7 +214,7 @@ func TestCoddyDescribeSkipsJunkFirstLine(t *testing.T) {
 }
 
 func TestCoddyDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
-	_, srv := testHTTPServerPersist(t)
+	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "Po"}, nil
 	}
@@ -376,7 +376,7 @@ func TestGETUIStatic(t *testing.T) {
 	}
 }
 
-func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server) {
+func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	t.Helper()
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -408,11 +408,11 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server) {
 	store := &session.FileStore{Root: sessRoot}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
-	return mgr, srv
+	return mgr, srv, sessRoot
 }
 
 func TestCoddySessionsList(t *testing.T) {
-	mgr, srv := testHTTPServerPersist(t)
+	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
 	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -453,8 +453,60 @@ func TestCoddySessionsList(t *testing.T) {
 	}
 }
 
+func TestCoddySessionsListFilterByQUserMessage(t *testing.T) {
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	fs := &session.FileStore{Root: sessRoot}
+	makeSess := func(id, title, userContent string) {
+		dir, err := fs.EnsureLayout(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := &session.State{
+			ID:         id,
+			CWD:        "/tmp",
+			Mode:       session.ModeAgent,
+			SessionDir: dir,
+		}
+		st.SetTitlePinned(title)
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userContent})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "x"})
+		if err := fs.Save(st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	makeSess("sess_q_keep", "unrelated topic", "match qparam needle")
+	makeSess("sess_q_hide", "other", "nothing here")
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	q := "?q=" + url.QueryEscape("needle")
+	resHTTP, err := http.Get(ts.URL + "/coddy/sessions" + q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		Sessions []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Sessions) != 1 || parsed.Sessions[0].ID != "sess_q_keep" {
+		t.Fatalf("want one sess_q_keep, got %+v (%s)", parsed.Sessions, string(b))
+	}
+}
+
 func TestResponsesMultiTurnHistory(t *testing.T) {
-	_, srv := testHTTPServerPersist(t)
+	_, srv, _ := testHTTPServerPersist(t)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -511,7 +563,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 }
 
 func TestMemoryTreeRejectsTraversal(t *testing.T) {
-	mgr, srv := testHTTPServerPersist(t)
+	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
 	nr, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {

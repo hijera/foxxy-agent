@@ -533,6 +533,14 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 		return
 	}
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		rows, err = fs.FilterSnapshotListForSearch(rows, q)
+		if err != nil {
+			s.log.Error("coddy sessions list filter", "error", err)
+			http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
+			return
+		}
+	}
 	limit, offset := parseLimitCursor(r.URL.Query())
 	start := offset
 	if start >= len(rows) {

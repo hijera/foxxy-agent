@@ -228,6 +228,58 @@ func (f *FileStore) ListSnapshots(cwdFilter string) ([]SessionListEntry, error) 
 	return out, nil
 }
 
+// FirstUserMessageContent returns trimmed content of the first message with role user
+// in messages.json order (skipping system, assistant, tool, etc. before it).
+func (f *FileStore) FirstUserMessageContent(sessionID string) (content string, found bool, err error) {
+	if f == nil || sessionID == "" {
+		return "", false, nil
+	}
+	msgPath := filepath.Join(f.SessionPath(sessionID), messagesFile)
+	b, readErr := os.ReadFile(msgPath)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return "", false, nil
+		}
+		return "", false, readErr
+	}
+	var wrap messagesFileData
+	if jsonErr := json.Unmarshal(b, &wrap); jsonErr != nil {
+		return "", false, nil
+	}
+	for _, m := range wrap.Messages {
+		if m.Role == llm.RoleUser {
+			c := strings.TrimSpace(m.Content)
+			return c, c != "", nil
+		}
+	}
+	return "", false, nil
+}
+
+// FilterSnapshotListForSearch keeps sessions where title matches needle (case-insensitive substring)
+// or the first role-user message content matches (title match checked first).
+func (f *FileStore) FilterSnapshotListForSearch(entries []SessionListEntry, q string) ([]SessionListEntry, error) {
+	needle := strings.ToLower(strings.TrimSpace(q))
+	if needle == "" {
+		return entries, nil
+	}
+	out := make([]SessionListEntry, 0)
+	for _, row := range entries {
+		title := strings.ToLower(strings.TrimSpace(row.Title))
+		if strings.Contains(title, needle) {
+			out = append(out, row)
+			continue
+		}
+		content, _, err := f.FirstUserMessageContent(row.SessionID)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(strings.ToLower(content), needle) {
+			out = append(out, row)
+		}
+	}
+	return out, nil
+}
+
 // Save persists session state into the directory named by state.ID.
 func (f *FileStore) Save(state *State) error {
 	if f == nil || f.Root == "" || state == nil {

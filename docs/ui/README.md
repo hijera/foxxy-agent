@@ -7,6 +7,12 @@ This folder documents the embedded web UI.
 
 ## Quick start
 
+### Embedded same-origin
+
+When UI is served from `coddy http` together with `/v1` and `/coddy`, the SPA uses relative paths. No proxy and no backend URL env is involved.
+
+### Local development with separate processes
+
 Backend
 
 ```bash
@@ -18,12 +24,18 @@ Frontend
 
 ```bash
 npm --prefix external/ui install
-npm --prefix external/ui run dev -- --host 127.0.0.1 --port 5173
+CODDY_UI_BACKEND=http://127.0.0.1:12345 npm --prefix external/ui run dev -- --host 127.0.0.1 --port 5173
 ```
+
+Without `CODDY_UI_BACKEND`, Vite does **not** install a proxy. Requests to `/v1` hit the dev server unless you combine both under one hostname (reverse proxy).
 
 Open
 
 - `http://127.0.0.1:5173/`
+
+### UI-only edits
+
+After `npm install`, `npm --prefix external/ui run dev` is enough to iterate TypeScript/CSS. Rebuilding `coddy` with `make build TAGS=http` is only needed when you want to validate `go:embed` bundles or CI.
 
 ## Specs
 
