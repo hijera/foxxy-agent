@@ -18,9 +18,13 @@ func openAPISpec() map[string]interface{} {
 	return map[string]interface{}{
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
-			"title":       "Coddy HTTP API",
-			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns session operating modes (**agent**, **plan**). The HTTP **model** field on completions can be a mode (`agent`, `plan`) or a **`models[].model`** selector from config; the backend LLM defaults follow **`agent.model`** and optional session overrides. Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
-			"version":     ver,
+			"title": "Coddy HTTP API",
+			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent** and **plan** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
+				"Classify POST **model** values: **agent** / **plan** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
+				"**`metadata.model`** may appear only on agent/plan requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
+				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
+				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
+			"version": ver,
 		},
 		"servers": []interface{}{
 			map[string]interface{}{"url": "/", "description": "Server root (same host/port as coddy http)"},
@@ -28,8 +32,9 @@ func openAPISpec() map[string]interface{} {
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "List session modes",
-					"description": "Lists Coddy operating profiles **agent** and **plan** in OpenAI-compatible model objects (**id**: `agent`, `plan`). Not the YAML **`models`** table (LLM backends). Pick an LLM by passing a **`models[].model`** selector in **model** instead.",
+					"summary": "List models (profiles and configured LLM backends)",
+					"description": "Returns **agent**, then **plan** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
+						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -48,8 +53,10 @@ func openAPISpec() map[string]interface{} {
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
-					"description": "Chat completion in OpenAI-compatible shape. **`model`** must be **`agent`** or **`plan`** (sets session mode) or a **`models[].model`** value from configuration. " +
-						"When **stream** is true the response is **text/event-stream** (SSE chunks). Otherwise JSON. " +
+					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+						"Optional **`metadata`** on agent/plan only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
+						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
+						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: coddy_meta`** before **`[DONE]`**). Otherwise JSON. " +
 						"The last entry in **messages** must have role **user**.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
@@ -71,7 +78,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion or streamed events",
+							"description": "Completion or streamed events. SSE may include **`event: coddy_meta`** (final metadata map) before **`data: [DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -82,7 +89,7 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type":        "string",
 										"format":      "binary",
-										"description": "Server-Sent Events stream (OpenAI-compatible chunk lines).",
+										"description": "Server-Sent Events stream (OpenAI-compatible chunk lines, optional coddy_meta).",
 									},
 								},
 							},
@@ -96,7 +103,8 @@ func openAPISpec() map[string]interface{} {
 			"/v1/responses": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Create response",
-					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is **`agent`**, **`plan`**, or a configured **`models[].model**` selector.",
+					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
+						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -117,7 +125,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**, **`coddy_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -219,7 +227,8 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "Read conversation transcript",
+					"summary":     "Read conversation transcript",
+					"description": "Assistant messages may include `model` (YAML selector persisted for that reply).",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -256,7 +265,8 @@ func openAPISpec() map[string]interface{} {
 									"id":       map[string]string{"type": "string"},
 									"object":   map[string]string{"type": "string", "example": "model"},
 									"created":  map[string]string{"type": "integer", "format": "int64"},
-									"owned_by": map[string]string{"type": "string", "example": "coddy-mode"},
+									"owned_by":              map[string]string{"type": "string", "example": "coddy"},
+									"max_context_tokens":    map[string]string{"type": "integer"},
 								},
 							},
 						},
@@ -286,6 +296,10 @@ func openAPISpec() map[string]interface{} {
 							"format":      "int64",
 							"description": "Wall-clock thinking span (ms). Coddy persists this for UI restores.",
 						},
+						"model": map[string]interface{}{
+							"type":        "string",
+							"description": "YAML `models[].model` selector persisted on assistant replies (Coddy extension).",
+						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
 					},
@@ -296,7 +310,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"model": map[string]interface{}{
 							"type":        "string",
-							"description": "Session mode `agent` or `plan`, or a configured `models[].model` selector for the LLM backend.",
+							"description": "Any `id` from `GET /v1/models` (agent, plan, or `models[].model`).",
 						},
 						"messages": map[string]interface{}{
 							"type":  "array",
@@ -305,6 +319,11 @@ func openAPISpec() map[string]interface{} {
 						"stream":      map[string]string{"type": "boolean"},
 						"max_tokens":  map[string]string{"type": "integer"},
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
+						"metadata": map[string]interface{}{
+							"type":        "object",
+							"description": "Optional. For agent/plan only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"additionalProperties": true,
+						},
 					},
 					"required": []string{"model", "messages"},
 				},
@@ -315,6 +334,11 @@ func openAPISpec() map[string]interface{} {
 						"object":  map[string]string{"type": "string", "example": "chat.completion"},
 						"created": map[string]string{"type": "integer", "format": "int64"},
 						"model":   map[string]string{"type": "string"},
+						"metadata": map[string]interface{}{
+							"type":                   "object",
+							"description":            "Effective YAML model selector under `model`, optional `api_model`.",
+							"additionalProperties": map[string]string{"type": "string"},
+						},
 						"choices": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{
@@ -339,12 +363,17 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"model": map[string]interface{}{
 							"type":        "string",
-							"description": "`agent`, `plan`, or a `models[].model` selector.",
+							"description": "Any `id` from `GET /v1/models`.",
 						},
 						"input": map[string]string{"type": "string"},
 						"stream": map[string]interface{}{
 							"type":        "boolean",
 							"description": "Emit **text/event-stream** when true.",
+						},
+						"metadata": map[string]interface{}{
+							"type":                 "object",
+							"description":          "Optional. For agent/plan only, `model` key selects `models[].model`.",
+							"additionalProperties": true,
 						},
 					},
 					"required": []string{"model", "input"},
@@ -356,6 +385,10 @@ func openAPISpec() map[string]interface{} {
 						"object": map[string]string{"type": "string", "example": "response"},
 						"status": map[string]string{"type": "string", "example": "completed"},
 						"model":  map[string]string{"type": "string"},
+						"metadata": map[string]interface{}{
+							"type":                 "object",
+							"additionalProperties": map[string]string{"type": "string"},
+						},
 						"output": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{

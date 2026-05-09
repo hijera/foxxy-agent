@@ -134,6 +134,23 @@ func (s *Sender) RequestPermission(ctx context.Context, _ acp.PermissionRequestP
 	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 }
 
+// WriteCoddyMetaSSE emits a named event with Coddy response metadata (effective model). No-op when not streaming.
+func (s *Sender) WriteCoddyMetaSSE(metadata map[string]string) error {
+	if !s.stream || s.w == nil || len(metadata) == 0 {
+		return nil
+	}
+	payload := map[string]interface{}{"metadata": metadata}
+	return s.writeNamedEventJSON("coddy_meta", payload)
+}
+
+// FinishStream writes coddy_meta (when metadata non-nil), then [DONE] for SSE.
+func (s *Sender) FinishStreamWithMetadata(meta map[string]string) error {
+	if s.stream && s.w != nil && len(meta) > 0 {
+		_ = s.WriteCoddyMetaSSE(meta)
+	}
+	return s.FinishStream()
+}
+
 // FinishStream writes [DONE] for SSE.
 func (s *Sender) FinishStream() error {
 	if !s.stream || s.w == nil {

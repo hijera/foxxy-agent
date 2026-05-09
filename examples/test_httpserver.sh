@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-export CODDY_CONFIG="${CODDY_CONFIG:-$ROOT/examples/config.demo.yaml}"
+CODDY_CFG_DEFAULT="$ROOT/examples/config.demo.yaml"
+export CODDY_CONFIG="${CODDY_CONFIG:-$CODDY_CFG_DEFAULT}"
 PORT="${1:-19876}"
 BIN="${ROOT}/build/coddy"
 
@@ -45,10 +46,9 @@ if [[ "$ready" != 1 ]]; then
 fi
 
 python3 "$ROOT/examples/http_smoke_basic.py"
-if [[ "${RUN_LIVE:-0}" == "1" ]]; then
-  python3 "$ROOT/examples/http_agent_todo_e2e_demo.py"
-  python3 "$ROOT/examples/http_memory_copilot_e2e_demo.py"
-  python3 "$ROOT/examples/http_toolcalls_persist_e2e_demo.py"
-fi
+python3 "$ROOT/examples/http_models_e2e_demo.py"
+python3 "$ROOT/examples/http_agent_todo_e2e_demo.py"
+python3 "$ROOT/examples/http_memory_copilot_e2e_demo.py"
+python3 "$ROOT/examples/http_toolcalls_persist_e2e_demo.py"
 
 echo "ok httpserver tests"

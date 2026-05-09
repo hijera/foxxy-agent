@@ -1,0 +1,94 @@
+//go:build http
+
+package httpserver
+
+import (
+	"encoding/json"
+	"errors"
+	"strings"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
+)
+
+// metadataResponse builds OpenAI-style extension metadata for the effective YAML model selector.
+func metadataResponse(cfg *config.Config, yamlSel string) map[string]string {
+	out := map[string]string{"model": strings.TrimSpace(yamlSel)}
+	if cfg == nil {
+		return out
+	}
+	if ent := cfg.FindModelEntry(yamlSel); ent != nil {
+		api := strings.TrimSpace(ent.APIModel())
+		if api != "" {
+			out["api_model"] = api
+		}
+	}
+	return out
+}
+
+// profileMetadataPatch applies optional request metadata.model to session (profile POST only).
+// Returns false when metadata is absent or has no model key (no session change).
+func profileMetadataPatch(cfg *config.Config, st *session.State, raw json.RawMessage) (touched bool, err error) {
+	if len(raw) == 0 {
+		return false, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return false, err
+	}
+	v, ok := m["model"]
+	if !ok {
+		return false, nil
+	}
+	if string(v) == "null" {
+		return false, ErrInvalidMetadataModel
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return false, err
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false, ErrInvalidMetadataModel
+	}
+	if cfg == nil || cfg.FindModelEntry(s) == nil {
+		return false, ErrUnknownMetadataModel
+	}
+	st.SetSelectedModelID(s)
+	return true, nil
+}
+
+// completionMetadataForbidden returns true when JSON metadata contains a model key (not allowed for direct completion).
+// coerceMetadataJSON returns an error when metadata is non-empty invalid JSON.
+func coerceMetadataJSON(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var discard interface{}
+	return json.Unmarshal(raw, &discard)
+}
+
+func completionMetadataForbidden(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return false
+	}
+	_, ok := m["model"]
+	return ok
+}
+
+// ErrInvalidMetadataModel is returned when metadata.model is present but empty or null.
+var ErrInvalidMetadataModel = errors.New("invalid metadata.model")
+
+// ErrUnknownMetadataModel is returned when metadata.model is not listed in configuration.
+var ErrUnknownMetadataModel = errors.New("unknown metadata.model")
+
+func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
+	if cfg == nil {
+		return ""
+	}
+	return st.EffectiveModelID(cfg)
+}

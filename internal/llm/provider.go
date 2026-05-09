@@ -23,6 +23,8 @@ type Message struct {
 	ReasoningDurationMs int64      `json:"reasoning_duration_ms,omitempty"`
 	ToolCalls           []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID          string     `json:"tool_call_id,omitempty"` // for RoleTool messages
+	// Model is the YAML models[].model selector used to generate this assistant message (HTTP/Coddy), if set.
+	Model string `json:"model,omitempty"`
 }
 
 // ToolCall represents a tool invocation requested by the LLM.

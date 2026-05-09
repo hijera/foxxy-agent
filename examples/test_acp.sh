@@ -16,9 +16,7 @@ if [[ ! -x "$CODDY_BIN" ]]; then
 fi
 
 python3 "$ROOT/examples/acp_smoke_basic.py"
-
-if [[ "${RUN_E2E:-0}" == "1" ]]; then
-  python3 "$ROOT/examples/acp_agent_todo_e2e_demo.py"
-  python3 "$ROOT/examples/acp_memory_copilot_e2e_demo.py"
-  python3 "$ROOT/examples/acp_toolcalls_persist_e2e_demo.py"
-fi
+python3 "$ROOT/examples/acp_models_e2e_demo.py"
+python3 "$ROOT/examples/acp_agent_todo_e2e_demo.py"
+python3 "$ROOT/examples/acp_memory_copilot_e2e_demo.py"
+python3 "$ROOT/examples/acp_toolcalls_persist_e2e_demo.py"

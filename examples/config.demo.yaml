@@ -8,6 +8,12 @@ models:
   - model: "rpa/gpt-oss:120b"
     max_tokens: 8192
     temperature: 0.2
+    max_context_tokens: 32768
+
+  - model: "rpa/gpt-oss:20b"
+    max_tokens: 4096
+    temperature: 0.3
+    max_context_tokens: 8192
 
 agent:
   model: "rpa/gpt-oss:120b"

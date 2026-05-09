@@ -277,6 +277,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			Reasoning:           reasonTrim,
 			ToolCalls:           response.ToolCalls,
 			ReasoningDurationMs: reasoningMs,
+			Model:               a.state.EffectiveModelID(a.cfg),
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)

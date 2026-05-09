@@ -29,7 +29,19 @@ export function Composer(props: {
 }) {
   const sendDisabled = props.value.trim() === '';
   const [modeOpen, setModeOpen] = useState(false);
-  const modeLabel = (props.mode || 'agent').slice(0, 1).toUpperCase() + (props.mode || 'agent').slice(1);
+
+  function displayMode(id: string): string {
+    const m = id || 'agent';
+    if (m === 'plan' || m === 'agent') {
+      return m.slice(0, 1).toUpperCase() + m.slice(1);
+    }
+    const i = m.lastIndexOf('/');
+    if (i >= 0 && i < m.length - 1) {
+      return m.slice(i + 1);
+    }
+    return m;
+  }
+  const modeLabel = displayMode(props.mode || 'agent');
   const contextIdle = props.contextIdle === true;
   const pctRaw = typeof props.contextPct === 'number' ? props.contextPct : null;
   const pct = contextIdle ? null : pctRaw;
@@ -92,7 +104,7 @@ export function Composer(props: {
               {modeOpen ? (
                 <div className={`mode-menu ${modeMenuDirClass}`} role="menu">
                   {props.modes.map((m) => {
-                    const label = m.slice(0, 1).toUpperCase() + m.slice(1);
+                    const label = displayMode(m);
                     return (
                     <button
                       key={m}

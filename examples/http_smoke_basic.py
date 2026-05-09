@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Minimal HTTP probe for a running `coddy http` (OpenAI-shaped routes).
+
+Environment: ``BASE_URL`` (default ``http://127.0.0.1:19876/v1``), ``MODEL`` (YAML selector from config).
+Requires a working LLM backend for chat and responses steps.
+"""
 
 from __future__ import annotations
 
@@ -36,7 +41,6 @@ def http_json(method: str, url: str, body: dict[str, Any] | None, headers: dict[
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
-    expect_live = os.environ.get("RUN_LIVE", "0").strip() == "1"
 
     code, models, _ = http_json("GET", f"{base}/models", None, {})
     if code != 200 or models.get("object") != "list":
@@ -54,9 +58,6 @@ def main() -> int:
         {},
     )
     if code != 200:
-        if not expect_live and code == 500 and "error" in cc:
-            print("ok http smoke (llm skipped)")
-            return 0
         print("bad /chat/completions code", code, cc, file=sys.stderr)
         return 1
     sid = (headers.get("X-Coddy-Session-Id") or headers.get("X-Coddy-Session-ID") or "").strip()

@@ -33,6 +33,8 @@ type Server struct {
 	defaultCWD      string
 	mux             *http.ServeMux
 	providerFactory func(*config.Config) (llm.Provider, error)
+	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
+	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).
@@ -43,24 +45,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		log:        log,
 		defaultCWD: defaultCWD,
 		mux:        http.NewServeMux(),
-		providerFactory: func(cfg *config.Config) (llm.Provider, error) {
-			if cfg == nil {
-				return nil, fmt.Errorf("config unavailable")
-			}
-			modelRef := strings.TrimSpace(cfg.Agent.Model)
-			if modelRef == "" {
-				return nil, fmt.Errorf("agent.model is empty")
-			}
-			rm, err := cfg.ResolveLLM(modelRef)
-			if err != nil {
-				return nil, err
-			}
-			maxTok := rm.MaxTokens
-			if maxTok <= 0 || maxTok > 96 {
-				maxTok = 96
-			}
-			return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, maxTok, rm.Temperature)
-		},
+		providerFactory: defaultProviderFromAgentModel,
+		makeLLMFromYAML: defaultMakeLLMFromYAML,
 	}
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
@@ -78,6 +64,44 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	}
 	s.mux.Handle("/", http.FileServer(http.FS(ui.Assets)))
 	return s
+}
+
+func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config unavailable")
+	}
+	modelRef := strings.TrimSpace(cfg.Agent.Model)
+	if modelRef == "" {
+		return nil, fmt.Errorf("agent.model is empty")
+	}
+	rm, err := cfg.ResolveLLM(modelRef)
+	if err != nil {
+		return nil, err
+	}
+	maxTok := rm.MaxTokens
+	if maxTok <= 0 || maxTok > 96 {
+		maxTok = 96
+	}
+	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, maxTok, rm.Temperature)
+}
+
+func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config unavailable")
+	}
+	yamlSel = strings.TrimSpace(yamlSel)
+	if yamlSel == "" {
+		return nil, fmt.Errorf("model selector empty")
+	}
+	rm, err := cfg.ResolveLLM(yamlSel)
+	if err != nil {
+		return nil, err
+	}
+	maxTok := rm.MaxTokens
+	if maxTok <= 0 || maxTok > 96 {
+		maxTok = 96
+	}
+	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, maxTok, rm.Temperature)
 }
 
 func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {
@@ -112,50 +136,38 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   nil,
 	}
-	// IDs are Coddy session profiles (modes), not YAML models[]. Same values as ACP session mode.
-	maxCtx := 128000
-	if s.cfg != nil {
-		if ent := s.cfg.FindModelEntry(strings.TrimSpace(s.cfg.Agent.Model)); ent != nil {
-			if ent.MaxContextTokens > 0 {
-				maxCtx = ent.MaxContextTokens
-			}
-		}
-	}
+	maxCtx := maxContextDefault(s)
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
 			Created:          0,
-			OwnedBy:          "coddy-mode",
+			OwnedBy:          ownedByCoddySession,
 			MaxContextTokens: maxCtx,
 		})
 	}
+	if s.cfg != nil {
+		for i := range s.cfg.Models {
+			ent := &s.cfg.Models[i]
+			mid := strings.TrimSpace(ent.Model)
+			if mid == "" {
+				continue
+			}
+			mc := maxCtx
+			if ent.MaxContextTokens > 0 {
+				mc = ent.MaxContextTokens
+			}
+			out.Data = append(out.Data, modelObj{
+				ID:               mid,
+				Object:           "model",
+				Created:          0,
+				OwnedBy:          ent.ProviderName(),
+				MaxContextTokens: mc,
+			})
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
-}
-
-// isHTTPSessionMode reports whether sel selects session operating mode agent or plan (overload of HTTP model field).
-func isHTTPSessionMode(sel string) bool {
-	switch strings.TrimSpace(sel) {
-	case string(session.ModeAgent), string(session.ModePlan):
-		return true
-	default:
-		return false
-	}
-}
-
-// bindModelOrMode sets session mode, or validates and selects a YAML models[].model selector for LLM calls.
-func (s *Server) bindModelOrMode(st *session.State, sel string) error {
-	sel = strings.TrimSpace(sel)
-	if isHTTPSessionMode(sel) {
-		st.SetMode(sel)
-		return nil
-	}
-	if s.cfg.FindModelEntry(sel) == nil {
-		return errors.New("unknown model")
-	}
-	st.SetSelectedModelID(sel)
-	return nil
 }
 
 type chatCompletionRequest struct {
@@ -164,6 +176,7 @@ type chatCompletionRequest struct {
 	Stream   bool            `json:"stream"`
 	MaxTok   int             `json:"max_tokens"`
 	Temp     float64         `json:"temperature"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
 type openAIMessage struct {
@@ -186,6 +199,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		http.Error(w, `{"error":{"message":"model is required"}}`, http.StatusBadRequest)
+		return
+	}
+	if !httpModelListed(s.cfg, model) {
+		http.Error(w, `{"error":{"message":"unknown model"}}`, http.StatusBadRequest)
+		return
+	}
+	if err := coerceMetadataJSON(req.Metadata); err != nil {
+		http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
 		return
 	}
 	msgs, err := openAIMessagesToLLM(req.Messages)
@@ -221,13 +242,21 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-Coddy-Session-ID", sessionID)
 	}
-	if err := s.bindModelOrMode(st, model); err != nil {
-		http.Error(w, `{"error":{"message":"unknown model"}}`, http.StatusBadRequest)
+
+	if httpModelIsCoddyProfile(model) {
+		st.SetMode(model)
+		if _, err := profileMetadataPatch(s.cfg, st, req.Metadata); err != nil {
+			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+	} else if completionMetadataForbidden(req.Metadata) {
+		http.Error(w, `{"error":{"message":"metadata.model is not allowed for direct completion"}}`, http.StatusBadRequest)
 		return
 	}
-	st.ReplaceMessagesWithoutPersist(prefix)
-
-	prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 
 	var bridge *Sender
 	if req.Stream {
@@ -239,11 +268,51 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		bridge = NewSender(s.cfg, nil, false, model)
 	}
 
-	if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
-		SessionID: sessionID,
-		Prompt:    prompt,
-	}, bridge); err != nil {
-		s.log.Error("session prompt", "error", err)
+	if httpModelIsCoddyProfile(model) {
+		st.ReplaceMessagesWithoutPersist(prefix)
+		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
+		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+			SessionID: sessionID,
+			Prompt:    prompt,
+		}, bridge); err != nil {
+			s.log.Error("session prompt", "error", err)
+			if req.Stream {
+				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+			} else {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			}
+			return
+		}
+		meta := metadataResponse(s.cfg, effectiveYAMLModel(s.cfg, st))
+		if req.Stream {
+			_ = bridge.FinishStreamWithMetadata(meta)
+			return
+		}
+		reply := lastAssistantContent(st)
+		resp := map[string]interface{}{
+			"id":       bridge.ChatID(),
+			"object":   "chat.completion",
+			"created":  time.Now().Unix(),
+			"model":    model,
+			"metadata": meta,
+			"choices": []map[string]interface{}{{
+				"index": 0,
+				"message": map[string]string{
+					"role":    "assistant",
+					"content": reply,
+				},
+				"finish_reason": "stop",
+			}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	st.ReplaceMessagesWithoutPersist(prefix)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: last.Content})
+	if _, err := s.runDirectYAMLCompletion(ctx, st, sessionID, model, bridge); err != nil {
+		s.log.Error("direct completion", "error", err)
 		if req.Stream {
 			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 		} else {
@@ -251,16 +320,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	meta := metadataResponse(s.cfg, model)
 	if req.Stream {
-		_ = bridge.FinishStream()
+		_ = bridge.FinishStreamWithMetadata(meta)
 		return
 	}
 	reply := lastAssistantContent(st)
 	resp := map[string]interface{}{
-		"id":      bridge.ChatID(),
-		"object":  "chat.completion",
-		"created": time.Now().Unix(),
-		"model":   model,
+		"id":       bridge.ChatID(),
+		"object":   "chat.completion",
+		"created":  time.Now().Unix(),
+		"model":    model,
+		"metadata": meta,
 		"choices": []map[string]interface{}{{
 			"index": 0,
 			"message": map[string]string{
@@ -368,9 +439,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Model  string `json:"model"`
-		Input  string `json:"input"`
-		Stream bool   `json:"stream"`
+		Model    string          `json:"model"`
+		Input    string          `json:"input"`
+		Stream   bool            `json:"stream"`
+		Metadata json.RawMessage `json:"metadata,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -379,6 +451,14 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	model := strings.TrimSpace(body.Model)
 	if model == "" {
 		http.Error(w, `{"error":{"message":"unknown or missing model"}}`, http.StatusBadRequest)
+		return
+	}
+	if !httpModelListed(s.cfg, model) {
+		http.Error(w, `{"error":{"message":"unknown or missing model"}}`, http.StatusBadRequest)
+		return
+	}
+	if err := coerceMetadataJSON(body.Metadata); err != nil {
+		http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()
@@ -398,10 +478,22 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-Coddy-Session-ID", sid)
 	}
-	if err := s.bindModelOrMode(st, model); err != nil {
-		http.Error(w, `{"error":{"message":"unknown or missing model"}}`, http.StatusBadRequest)
+
+	if httpModelIsCoddyProfile(model) {
+		st.SetMode(model)
+		if _, err := profileMetadataPatch(s.cfg, st, body.Metadata); err != nil {
+			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+	} else if completionMetadataForbidden(body.Metadata) {
+		http.Error(w, `{"error":{"message":"metadata.model is not allowed for direct completion"}}`, http.StatusBadRequest)
 		return
 	}
+
 	var bridge *Sender
 	if body.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -411,11 +503,42 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bridge = NewSender(s.cfg, nil, false, model)
 	}
-	if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
-		SessionID: sid,
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: strings.TrimSpace(body.Input)}},
-	}, bridge); err != nil {
-		s.log.Error("responses prompt", "error", err)
+
+	if httpModelIsCoddyProfile(model) {
+		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+			SessionID: sid,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: strings.TrimSpace(body.Input)}},
+		}, bridge); err != nil {
+			s.log.Error("responses prompt", "error", err)
+			if body.Stream {
+				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+			} else {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+			}
+			return
+		}
+		meta := metadataResponse(s.cfg, effectiveYAMLModel(s.cfg, st))
+		if body.Stream {
+			_ = bridge.FinishStreamWithMetadata(meta)
+			return
+		}
+		text := lastAssistantContent(st)
+		out := map[string]interface{}{
+			"id":       sid,
+			"object":   "response",
+			"status":   "completed",
+			"model":    model,
+			"metadata": meta,
+			"output":   []map[string]string{{"type": "text", "text": text}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
+		return
+	}
+
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(body.Input)})
+	if _, err := s.runDirectYAMLCompletion(ctx, st, sid, model, bridge); err != nil {
+		s.log.Error("responses direct completion", "error", err)
 		if body.Stream {
 			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 		} else {
@@ -423,17 +546,19 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	meta := metadataResponse(s.cfg, model)
 	if body.Stream {
-		_ = bridge.FinishStream()
+		_ = bridge.FinishStreamWithMetadata(meta)
 		return
 	}
 	text := lastAssistantContent(st)
 	out := map[string]interface{}{
-		"id":     sid,
-		"object": "response",
-		"status": "completed",
-		"model":  model,
-		"output": []map[string]string{{"type": "text", "text": text}},
+		"id":       sid,
+		"object":   "response",
+		"status":   "completed",
+		"model":    model,
+		"metadata": meta,
+		"output":   []map[string]string{{"type": "text", "text": text}},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

@@ -31,7 +31,7 @@ func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams
 	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 }
 
-func TestGETModels(t *testing.T) {
+func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	cfg := &config.Config{
 		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
 	}
@@ -64,24 +64,25 @@ func TestGETModels(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Object != "list" || len(body.Data) != 2 {
+	want := []struct {
+		id      string
+		ownedBy string
+	}{
+		{id: string(session.ModeAgent), ownedBy: ownedByCoddySession},
+		{id: string(session.ModePlan), ownedBy: ownedByCoddySession},
+		{id: "openai/gpt-4o", ownedBy: "openai"},
+	}
+	if body.Object != "list" || len(body.Data) != len(want) {
 		t.Fatalf("unexpected body %+v", body)
 	}
-	seen := map[string]bool{}
-	for _, item := range body.Data {
-		seen[item.ID] = true
-		if item.ID != "agent" && item.ID != "plan" {
-			t.Fatalf("unexpected model id %q", item.ID)
-		}
-		if item.Object != "model" || item.OwnedBy != "coddy-mode" {
-			t.Fatalf("unexpected meta on %q %+v", item.ID, item)
+	for i, w := range want {
+		item := body.Data[i]
+		if item.ID != w.id || item.Object != "model" || item.OwnedBy != w.ownedBy {
+			t.Fatalf("row %d: want id=%s owned_by=%s, got %+v", i, w.id, w.ownedBy, item)
 		}
 		if item.MaxContextTokens <= 0 {
-			t.Fatalf("expected max_context_tokens, got %+v", item)
+			t.Fatalf("row %d: expected max_context_tokens, got %+v", i, item)
 		}
-	}
-	if !seen["agent"] || !seen["plan"] {
-		t.Fatalf("want agent and plan, got %+v", body.Data)
 	}
 }
 
@@ -511,7 +512,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	defer ts.Close()
 
 	sid := "sess_test_http_history_01"
-	payload := strings.NewReader(`{"model":"openai/gpt-4o","input":"one","stream":false}`)
+	payload := strings.NewReader(`{"model":"agent","input":"one","stream":false}`)
 	req1, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload)
 	req1.Header.Set("X-Coddy-Session-ID", sid)
 	res1, err := http.DefaultClient.Do(req1)
@@ -520,7 +521,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	}
 	ioReadAllClose(res1.Body)
 
-	payload2 := strings.NewReader(`{"model":"openai/gpt-4o","input":"two","stream":false}`)
+	payload2 := strings.NewReader(`{"model":"agent","input":"two","stream":false}`)
 	req2, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload2)
 	req2.Header.Set("X-Coddy-Session-ID", sid)
 	res2, err := http.DefaultClient.Do(req2)
@@ -559,6 +560,155 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	}
 	if userCount != 2 {
 		t.Fatalf("want 2 user messages, got %d", userCount)
+	}
+}
+
+func TestResponsesDirectCompletionRejectsMetadataModel(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+		return fakeProvider{reply: "ok"}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(
+		`{"model":"openai/gpt-4o","input":"hi","stream":false,"metadata":{"model":"openai/gpt-4o"}}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
+	}
+}
+
+func TestResponsesProfileInvalidMetadataModelEmpty(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(
+		`{"model":"agent","input":"hi","stream":false,"metadata":{"model":""}}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
+	}
+}
+
+func TestResponsesProfileMetadataSelectsYAML(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var sb strings.Builder
+		for _, b := range prompt {
+			if b.Type == "text" {
+				sb.WriteString(b.Text)
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "stub"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home, CWD: "/tmp"},
+		Models: []config.ModelEntry{
+			{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2},
+			{Model: "openai/gpt-4o-mini", MaxTokens: 100, Temperature: 0.2},
+		},
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+	}
+	store := &session.FileStore{Root: sessRoot}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(
+		`{"model":"agent","input":"hi","stream":false,"metadata":{"model":"openai/gpt-4o-mini"}}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d %s", res.StatusCode, b)
+	}
+	var out struct {
+		Metadata map[string]string `json:"metadata"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Metadata["model"] != "openai/gpt-4o-mini" {
+		t.Fatalf("metadata.model want openai/gpt-4o-mini got %+v", out.Metadata)
+	}
+}
+
+func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+		return fakeProvider{reply: "direct-reply"}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sid := "sess_direct_model_persist"
+	payload := strings.NewReader(`{"model":"openai/gpt-4o","input":"one","stream":false}`)
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload)
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+
+	ms, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := ioReadAllClose(ms.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ms.StatusCode != http.StatusOK {
+		t.Fatalf("messages status %d %s", ms.StatusCode, mb)
+	}
+	var body struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+			Model   string `json:"model"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(mb, &body); err != nil {
+		t.Fatal(err)
+	}
+	var lastAsst string
+	for _, m := range body.Messages {
+		if m.Role == "assistant" {
+			lastAsst = m.Model
+		}
+	}
+	if lastAsst != "openai/gpt-4o" {
+		t.Fatalf("assistant.model want openai/gpt-4o, got body %s", mb)
 	}
 }
 

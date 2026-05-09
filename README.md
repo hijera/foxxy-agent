@@ -229,6 +229,8 @@ When the persisted plan is **non-empty**, the agent injects **`### Current todo 
 go test ./...
 make test
 
+# Integration-style example harnesses (ACP + HTTP, see examples/ and AGENTS.md): ./examples/run_full_test.sh
+
 # Build binary (with git version embedded)
 make build
 

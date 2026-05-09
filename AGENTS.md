@@ -44,3 +44,10 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 ## Python samples (`examples/`)
 
 Scripts may bootstrap project-local interpreters (`.venv` recommended); follow each script header for prerequisites.
+
+- **`examples/build_coddy.sh`** - runs **`make build TAGS=http`** and prints **`coddy -v`**.
+- **`examples/test_acp.sh`** - drives **`coddy acp`** (`acp_smoke_basic.py`, **`acp_models_e2e_demo.py`**, then the longer ACP demos in that script).
+- **`examples/test_httpserver.sh`** - starts a temporary **`coddy http`** and runs **`http_smoke_basic.py`**, **`http_models_e2e_demo.py`**, then the HTTP demos listed in that script (optional port argument).
+- **`examples/run_full_test.sh`** - build step then **`test_acp.sh`** and **`test_httpserver.sh`**.
+
+Example HTTP scripts that call completion endpoints expect a reachable provider and return non-zero on HTTP errors.
