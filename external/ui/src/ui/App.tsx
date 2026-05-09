@@ -106,6 +106,10 @@ export function App() {
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const tokenBaselineRef = useRef<{ input: number; output: number; total: number }>({ input: 0, output: 0, total: 0 });
   const inFlightRef = useRef(false);
+  const generationAbortRef = useRef<AbortController | null>(null);
+  const activeStreamSidRef = useRef('');
+  const streamingAssistantIdRef = useRef('');
+  const [generating, setGenerating] = useState(false);
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(new Map());
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -565,6 +569,11 @@ export function App() {
 
   async function streamResponses(text: string) {
     inFlightRef.current = true;
+    const abortCtl = new AbortController();
+    generationAbortRef.current = abortCtl;
+    setGenerating(true);
+    let completedNormally = false;
+    let assistantStreamId = '';
     const isNewChatFirstSend = !sessionId.trim();
     let releaseSessionId: ((id: string) => void) | undefined;
     const sessionIdWhenKnown = isNewChatFirstSend
@@ -609,6 +618,9 @@ export function App() {
       const hdrs = sid ? { [HDR]: sid } : {};
       const userItem: TranscriptItem = { id: newId('u'), type: 'user_message', content: text };
       const assistantId = newId('a');
+      assistantStreamId = assistantId;
+      streamingAssistantIdRef.current = assistantId;
+      activeStreamSidRef.current = sid;
       setItems((prev) => [...prev, userItem]);
       setTokenUsage(null);
 
@@ -625,6 +637,7 @@ export function App() {
         method: 'POST',
         headers: { ...hdrs, 'Content-Type': 'application/json' },
         body: JSON.stringify(reqBody),
+        signal: abortCtl.signal,
       });
 
       const sidHdr = res.headers.get(HDR);
@@ -638,6 +651,7 @@ export function App() {
         );
       }
       latestPreviewSid = sidEffective;
+      activeStreamSidRef.current = sidEffective;
       releaseSessionId?.(sidEffective);
 
       if (!res.ok || !res.body) {
@@ -648,6 +662,7 @@ export function App() {
               : it,
           ),
         );
+        completedNormally = true;
         return;
       }
 
@@ -998,10 +1013,51 @@ export function App() {
         ok = await syncAssistantFromServer();
       }
       await loadMessages(sidEffective);
+      completedNormally = true;
+    } catch (_err: unknown) {
+      // AbortError stops the stream client-side after optional POST cancel
     } finally {
+      streamingAssistantIdRef.current = '';
+      activeStreamSidRef.current = '';
+      generationAbortRef.current = null;
+      setGenerating(false);
+      if (!completedNormally && assistantStreamId) {
+        const aid = assistantStreamId;
+        const now = Date.now();
+        setItems((prev) =>
+          prev.map((it) => {
+            if (it.type === 'thinking' && it.status === 'in_progress') {
+              const dur = Math.max(0, now - (it.startedAtMs || now));
+              const nextIt = { ...it, status: 'completed' as const, durationMs: dur };
+              const dk = reasoningDurationCacheKey(nextIt.content);
+              if (dk.length > 0) reasoningDurationMsByContentRef.current.set(dk, dur);
+              return nextIt;
+            }
+            if (it.type === 'assistant_message' && it.id === aid) {
+              return { ...it, streaming: false };
+            }
+            return it;
+          }),
+        );
+        void loadMessages(sidEffective);
+        void loadSessionsList(true);
+      }
       releaseSessionId?.(sidEffective);
       inFlightRef.current = false;
     }
+  }
+
+  function stopActiveGeneration(): void {
+    const sid = activeStreamSidRef.current;
+    const ctl = generationAbortRef.current;
+    if (!ctl) return;
+    if (sid.trim()) {
+      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
+        method: 'POST',
+        headers: { [HDR]: sid },
+      });
+    }
+    ctl.abort();
   }
 
   const maxContextTokens = useMemo(() => {
@@ -1077,12 +1133,15 @@ export function App() {
         maxContextTokens={maxContextTokens}
         mode={mode}
         modes={[...PROFILE_MODES]}
-        llmModels={llmModelIds}
-        llmModel={llmModel}
-        onLlmModelChange={llmModelIds.length > 0 ? onLlmModelChange : undefined}
+        {...(llmModelIds.length > 0
+          ? { llmModels: llmModelIds, llmModel, onLlmModelChange }
+          : {})}
         onModeChange={setMode}
         onDraftChange={setDraft}
+        generating={generating}
+        onStop={() => stopActiveGeneration()}
         onSend={(text: string) => {
+          if (generating) return;
           setDraft('');
           void streamResponses(text);
         }}

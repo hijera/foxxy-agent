@@ -317,7 +317,15 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	st.ReplaceMessagesWithoutPersist(prefix)
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: last.Content})
-	if _, err := s.runDirectYAMLCompletion(ctx, st, sessionID, model, bridge); err != nil {
+	turnCtx, cancelTurn := context.WithCancel(ctx)
+	st.SetCancel(cancelTurn)
+	defer cancelTurn()
+	if _, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge); err != nil {
+		if errors.Is(err, context.Canceled) && req.Stream {
+			meta := metadataResponse(s.cfg, model)
+			_ = bridge.FinishStreamWithMetadata(meta)
+			return
+		}
 		s.log.Error("direct completion", "error", err)
 		if req.Stream {
 			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
@@ -543,7 +551,15 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(body.Input)})
-	if _, err := s.runDirectYAMLCompletion(ctx, st, sid, model, bridge); err != nil {
+	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
+	st.SetCancel(respCancelTurn)
+	defer respCancelTurn()
+	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge); err != nil {
+		if errors.Is(err, context.Canceled) && body.Stream {
+			meta := metadataResponse(s.cfg, model)
+			_ = bridge.FinishStreamWithMetadata(meta)
+			return
+		}
 		s.log.Error("responses direct completion", "error", err)
 		if body.Stream {
 			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))

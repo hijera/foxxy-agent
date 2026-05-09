@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -107,7 +108,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/sessions/{id}/messages"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -415,6 +416,101 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
 	return mgr, srv, sessRoot
+}
+
+func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	blockStarted := make(chan struct{})
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(blockStarted)
+		<-ctx.Done()
+		var sb strings.Builder
+		for _, b := range prompt {
+			if b.Type == "text" {
+				sb.WriteString(b.Text)
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "cancelled"})
+		return string(acp.StopReasonCancelled), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: "/tmp"},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	store := &session.FileStore{Root: sessRoot}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx := context.Background()
+	sn, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := sn.SessionID
+
+	client := ts.Client()
+	var wg sync.WaitGroup
+	reqErr := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"agent","input":"hi","stream":true}`))
+		if err != nil {
+			reqErr <- err
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", sid)
+		res, err := client.Do(req)
+		if err != nil {
+			reqErr <- err
+			return
+		}
+		_, _ = io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		reqErr <- nil
+	}()
+
+	<-blockStarted
+	req2, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/sessions/"+url.PathEscape(sid)+"/cancel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2.Header.Set("X-Coddy-Session-ID", sid)
+	res2, err := client.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res2.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("cancel status %d body %s", res2.StatusCode, b)
+	}
+	var out map[string]string
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["object"] != "coddy.session_cancelled" || out["id"] != sid {
+		t.Fatalf("unexpected cancel body %+v", out)
+	}
+	wg.Wait()
+	if err := <-reqErr; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCoddySessionsList(t *testing.T) {

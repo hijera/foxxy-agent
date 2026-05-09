@@ -41,8 +41,10 @@ export function Composer(props: {
   onModeChange: (mode: string) => void;
   onChange: (v: string) => void;
   onSend: (text: string) => void;
+  generating?: boolean;
+  onStop?: () => void;
 }) {
-  const sendDisabled = props.value.trim() === '';
+  const idleSendDisabled = props.value.trim() === '';
   const [menuOpen, setMenuOpen] = useState<'mode' | 'llm' | null>(null);
   const llmList = props.llmModels ?? [];
   const showLlm = llmList.length > 0;
@@ -99,6 +101,9 @@ export function Composer(props: {
           onKeyDown={(ev) => {
             if (ev.key === 'Enter' && !ev.shiftKey) {
               ev.preventDefault();
+              if (props.generating) {
+                return;
+              }
               const txt = props.value.trim();
               if (!txt) {
                 return;
@@ -205,11 +210,15 @@ export function Composer(props: {
             </div>
             <button
               type="button"
-              className="composer-icon composer-send"
+              className={['composer-icon', props.generating ? 'composer-send-stop' : 'composer-send-play'].join(' ')}
               id="btn-send"
-              aria-label="Send"
-              disabled={sendDisabled}
+              aria-label={props.generating ? 'Stop generation' : 'Send'}
+              disabled={!props.generating && idleSendDisabled}
               onClick={() => {
+                if (props.generating) {
+                  props.onStop?.();
+                  return;
+                }
                 const txt = props.value.trim();
                 if (!txt) {
                   return;
@@ -217,7 +226,7 @@ export function Composer(props: {
                 props.onSend(txt);
               }}
             >
-              <span aria-hidden="true">➤</span>
+              <span aria-hidden="true">{props.generating ? '■' : '▶'}</span>
             </button>
           </div>
         </div>

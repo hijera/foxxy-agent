@@ -22,6 +22,8 @@ export function ChatScreen(props: {
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string) => void;
+  generating?: boolean;
+  onStop?: () => void;
   onLoadToolCallDetails?: (toolCallId: string) => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -69,12 +71,15 @@ export function ChatScreen(props: {
               tokenUsage={props.tokenUsage}
               {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
               {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
-              llmModels={props.llmModels}
-              llmModel={props.llmModel}
-              onLlmModelChange={props.onLlmModelChange}
+              {...(props.llmModels !== undefined &&
+              props.llmModels.length > 0 &&
+              props.onLlmModelChange !== undefined
+                ? { llmModels: props.llmModels, llmModel: props.llmModel, onLlmModelChange: props.onLlmModelChange }
+                : {})}
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
+              {...(props.generating === true && props.onStop !== undefined ? { generating: true, onStop: props.onStop } : {})}
             />
           </div>
         </div>
@@ -119,12 +124,15 @@ export function ChatScreen(props: {
                 tokenUsage={props.tokenUsage}
                 {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
                 {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
-                llmModels={props.llmModels}
-                llmModel={props.llmModel}
-                onLlmModelChange={props.onLlmModelChange}
+                {...(props.llmModels !== undefined &&
+                props.llmModels.length > 0 &&
+                props.onLlmModelChange !== undefined
+                  ? { llmModels: props.llmModels, llmModel: props.llmModel, onLlmModelChange: props.onLlmModelChange }
+                  : {})}
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
+                {...(props.generating === true && props.onStop !== undefined ? { generating: true, onStop: props.onStop } : {})}
               />
             </div>
           </div>

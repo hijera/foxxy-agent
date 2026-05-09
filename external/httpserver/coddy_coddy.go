@@ -141,6 +141,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}", s.coddySessionDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/plan", s.coddyPlanGet)
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/plan", s.coddyPlanPut)
@@ -150,6 +151,44 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/memory/file", s.coddyMemoryFilePut)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/memory/dir", s.coddyMemoryDirPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/memory/file", s.coddyMemoryFileDelete)
+}
+
+func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := session.ValidateFolderSessionID(id); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	if hdr != "" && hdr != id {
+		http.Error(w, `{"error":{"message":"X-Coddy-Session-ID does not match path id"}}`, http.StatusBadRequest)
+		return
+	}
+	if s.mgr.SessionByID(id) == nil {
+		fs := s.mgr.FileStore()
+		if fs == nil || !fs.HasPersistedSnapshot(id) {
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+			return
+		}
+		if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
+			SessionID: id,
+			CWD:       s.defaultCWD,
+		}); err != nil {
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+			return
+		}
+		if s.mgr.SessionByID(id) == nil {
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+			return
+		}
+	}
+	s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.session_cancelled", "id": id})
 }
 
 func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -278,5 +279,48 @@ func TestManagerPersistMessagesAndReload(t *testing.T) {
 	}
 	if afterReload != 2 {
 		t.Fatalf("session/load should restore 2 persisted messages before turn runs, got %d", afterReload)
+	}
+}
+
+func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
+	cfg := testConfig()
+	blockStarted := make(chan struct{})
+	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(blockStarted)
+		<-ctx.Done()
+		return string(acp.StopReasonCancelled), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res.SessionID
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var out *acp.SessionPromptResult
+	var promptErr error
+	go func() {
+		defer wg.Done()
+		out, promptErr = mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+			SessionID: id,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hello"}},
+		})
+	}()
+
+	<-blockStarted
+	mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
+	wg.Wait()
+
+	if promptErr != nil {
+		t.Fatalf("prompt: %v", promptErr)
+	}
+	if out == nil {
+		t.Fatal("nil prompt result")
+	}
+	if out.StopReason != acp.StopReasonCancelled {
+		t.Fatalf("stop reason %q want %q", out.StopReason, acp.StopReasonCancelled)
 	}
 }

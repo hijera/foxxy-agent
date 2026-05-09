@@ -240,6 +240,26 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/cancel": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Cancel active generation for a session",
+					"description": "Best-effort cancellation of the current ReAct or direct completion turn (ACP **session/cancel** semantics). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Cancellation applied (idempotent when nothing is running)."},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{
 			"schemas": map[string]interface{}{

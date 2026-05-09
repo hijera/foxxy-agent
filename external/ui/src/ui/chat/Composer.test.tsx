@@ -73,6 +73,49 @@ test('yaml model menu opens up in active chat composer', () => {
   expect(menu).toHaveClass('opens-up');
 });
 
+test('send play disabled when input empty', () => {
+  renderComposer({ isEmpty: true });
+  expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+});
+
+test('send play enabled when draft has text', () => {
+  render(
+    <Composer
+      value="hi"
+      isEmpty={true}
+      mode="agent"
+      modes={['agent', 'plan']}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+});
+
+test('generating shows stop and calls onStop', () => {
+  let stopped = false;
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      generating={true}
+      mode="agent"
+      modes={['agent', 'plan']}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+      onStop={() => {
+        stopped = true;
+      }}
+    />,
+  );
+  const b = screen.getByRole('button', { name: 'Stop generation' });
+  expect(b).not.toBeDisabled();
+  fireEvent.click(b);
+  expect(stopped).toBe(true);
+});
+
 test('context tooltip percent and Max context follow cap when model max changes', () => {
   const usage = { inputTokens: 800, outputTokens: 200, totalTokens: 1000 };
   const { rerender } = render(
