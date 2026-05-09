@@ -30,6 +30,35 @@ test('renders user, assistant, and tool call items', () => {
   expect(screen.getByLabelText('Tool summary')).toBeInTheDocument();
 });
 
+test('renders memory copilot foldout', () => {
+  const items: TranscriptItem[] = [
+    { id: 'u1', type: 'user_message', content: 'Hi' },
+    {
+      id: 'm1',
+      type: 'memory_copilot',
+      memoryRowId: 'mem-1',
+      userTurnIndex: 1,
+      recallStatus: 'completed',
+      persistStatus: 'completed',
+      recallText: '- fact',
+      recallReasoning: '',
+      persistText: '{"save":false,"reason":"No durable fact to persist."}',
+      persistReasoning: '',
+      recallDurationMs: 10,
+      persistDurationMs: 5,
+      persistSaved: false,
+    },
+  ];
+
+  render(<MessageList items={items} />);
+
+  expect(screen.getByTestId('memory-copilot-row')).toBeTruthy();
+  expect(document.querySelector('.coddy-memory-recall')).toBeTruthy();
+  expect(document.querySelector('.coddy-memory-persist')).toBeTruthy();
+  expect(screen.getByText('fact')).toBeInTheDocument();
+  expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
+});
+
 test('tool call message uses compact spacing wrapper', () => {
   const items: TranscriptItem[] = [
     {

@@ -37,5 +37,29 @@ export type TranscriptItem =
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;
+    }
+  | {
+      id: string;
+      type: 'memory_copilot';
+      memoryRowId: string;
+      userTurnIndex: number;
+      recallStatus: 'idle' | 'in_progress' | 'completed';
+      persistStatus: 'idle' | 'in_progress' | 'completed';
+      recallText: string;
+      recallReasoning: string;
+      persistText: string;
+      persistReasoning: string;
+      recallDurationMs?: number;
+      persistDurationMs?: number;
+      /** Wall clock from first memory phase start until persist completed (live until then). */
+      memoryWallStartedAtMs?: number;
+      memoryWallDurationMs?: number;
+      persistSaved?: boolean;
+      persistRelativePath?: string;
+      persistTitle?: string;
+      /** Markdown body written when PersistSaved (from server, may be truncated). */
+      persistSavedBody?: string;
+      /** scope:relative paths read via coddy_memory_read during recall. */
+      recallReadPaths?: string[];
     };
 

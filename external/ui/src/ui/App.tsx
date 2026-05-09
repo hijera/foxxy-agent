@@ -35,6 +35,42 @@ type ToolCallListRow = {
   resultPreview?: string;
 };
 
+type MemoryPhaseEvt = {
+  memoryRowId: string;
+  phase: string;
+  status: string;
+  userTurnIndex?: number;
+  durationMs?: number;
+  persistSaved?: boolean;
+  persistRelativePath?: string;
+  persistTitle?: string;
+  persistSavedBody?: string;
+  recallReadPaths?: string[];
+};
+
+type MemoryChunkEvt = {
+  memoryRowId: string;
+  phase: string;
+  kind: string;
+  delta: string;
+};
+
+type MemoryTurnApi = {
+  userTurnIndex: number;
+  memoryRowId?: string;
+  recallSkipped?: boolean;
+  recallText?: string;
+  recallReasoningText?: string;
+  recallDurationMs?: number;
+  persistJudgeText?: string;
+  persistDurationMs?: number;
+  persistSaved?: boolean;
+  persistRelativePath?: string;
+  persistTitle?: string;
+  persistSavedBody?: string;
+  recallReadPaths?: string[];
+};
+
 type ModelInfo = { id: string; ownedBy?: string; maxContextTokens?: number | undefined };
 
 const PROFILE_MODES = ['agent', 'plan'] as const;
@@ -82,6 +118,136 @@ async function fetchJSON<T>(path: string, init?: RequestInit): Promise<{ ok: boo
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
+}
+
+function memoryTranscriptFromApi(row: MemoryTurnApi): Extract<TranscriptItem, { type: 'memory_copilot' }> {
+  const rowId = (row.memoryRowId || '').trim() || `mem-${row.userTurnIndex}`;
+  const rt = (row.recallText || '').trim();
+  const rr = (row.recallReasoningText || '').trim();
+  const paths = Array.isArray(row.recallReadPaths) ? row.recallReadPaths.filter((x) => typeof x === 'string' && x.trim() !== '') : [];
+  const hasRecallTrail = !!(row.recallDurationMs || rt || rr || paths.length > 0);
+  const pt = (row.persistJudgeText || '').trim();
+  const hasPersistTrail = !!(row.persistDurationMs || pt || row.persistSaved);
+  const sumMs = (row.recallDurationMs ?? 0) + (row.persistDurationMs ?? 0);
+  return {
+    id: newId('m'),
+    type: 'memory_copilot',
+    memoryRowId: rowId,
+    userTurnIndex: row.userTurnIndex,
+    recallStatus: hasRecallTrail ? 'completed' : 'idle',
+    persistStatus: hasPersistTrail ? 'completed' : 'idle',
+    recallText: row.recallText || '',
+    recallReasoning: row.recallReasoningText || '',
+    persistText: row.persistJudgeText || '',
+    persistReasoning: '',
+    recallDurationMs: row.recallDurationMs,
+    persistDurationMs: row.persistDurationMs,
+    ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
+    persistSaved: row.persistSaved,
+    persistRelativePath: row.persistRelativePath,
+    persistTitle: row.persistTitle,
+    ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
+    ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
+  };
+}
+
+function applyMemoryPhaseToItems(prev: TranscriptItem[], p: MemoryPhaseEvt): TranscriptItem[] {
+  const now = Date.now();
+  let idx = prev.findIndex((x) => x.type === 'memory_copilot' && x.memoryRowId === p.memoryRowId);
+  const next = [...prev];
+  const uidx = prev.findLastIndex((x) => x.type === 'user_message');
+  const insertAt = uidx >= 0 ? uidx + 1 : next.length;
+
+  const baseMemory = (): Extract<TranscriptItem, { type: 'memory_copilot' }> => ({
+    id: newId('m'),
+    type: 'memory_copilot',
+    memoryRowId: p.memoryRowId,
+    userTurnIndex: typeof p.userTurnIndex === 'number' ? p.userTurnIndex : 0,
+    recallStatus: 'idle',
+    persistStatus: 'idle',
+    recallText: '',
+    recallReasoning: '',
+    persistText: '',
+    persistReasoning: '',
+  });
+
+  if (idx < 0) {
+    next.splice(insertAt, 0, baseMemory());
+    idx = insertAt;
+  }
+
+  const cur = next[idx];
+  if (cur.type !== 'memory_copilot') {
+    return prev;
+  }
+
+  let patch = { ...cur };
+  const st = (p.status || '').trim();
+
+  if (p.phase === 'recall') {
+    if (st === 'started') {
+      patch.recallStatus = 'in_progress';
+      if (patch.memoryWallStartedAtMs == null) patch.memoryWallStartedAtMs = now;
+    }
+    if (st === 'completed') {
+      patch.recallStatus = 'completed';
+      if (typeof p.durationMs === 'number' && p.durationMs > 0) patch.recallDurationMs = p.durationMs;
+      const rp = p.recallReadPaths;
+      if (Array.isArray(rp) && rp.length > 0) {
+        const cleaned = rp.map((x) => String(x).trim()).filter((x) => x !== '');
+        if (cleaned.length > 0) patch.recallReadPaths = cleaned;
+      }
+    }
+  }
+  if (p.phase === 'persist') {
+    if (st === 'started') {
+      patch.persistStatus = 'in_progress';
+      if (patch.memoryWallStartedAtMs == null) patch.memoryWallStartedAtMs = now;
+    }
+    if (st === 'completed') {
+      patch.persistStatus = 'completed';
+      if (typeof p.durationMs === 'number' && p.durationMs > 0) patch.persistDurationMs = p.durationMs;
+      if (typeof p.persistSaved === 'boolean') {
+        patch.persistSaved = p.persistSaved;
+      }
+      const pr = (p.persistRelativePath || '').trim();
+      if (pr) patch.persistRelativePath = pr;
+      const tt = (p.persistTitle || '').trim();
+      if (tt) patch.persistTitle = tt;
+      const pb = (p.persistSavedBody || '').trim();
+      if (pb) patch.persistSavedBody = pb;
+      if (typeof patch.memoryWallStartedAtMs === 'number') {
+        patch.memoryWallDurationMs = Math.max(0, now - patch.memoryWallStartedAtMs);
+      }
+    }
+  }
+
+  next[idx] = patch;
+  return next;
+}
+
+function applyMemoryChunkToItems(prev: TranscriptItem[], c: MemoryChunkEvt): TranscriptItem[] {
+  const idx = prev.findIndex((x) => x.type === 'memory_copilot' && x.memoryRowId === c.memoryRowId);
+  if (idx < 0) return prev;
+  const cur = prev[idx];
+  if (cur.type !== 'memory_copilot') return prev;
+  const next = [...prev];
+  const patch = { ...cur };
+  const ph = (c.phase || '').trim();
+  const kd = (c.kind || '').trim();
+  const d = typeof c.delta === 'string' ? c.delta : '';
+  if (!d) return prev;
+  if (ph === 'recall') {
+    if (kd === 'reasoning') patch.recallReasoning += d;
+    else patch.recallText += d;
+  } else if (ph === 'persist') {
+    if (kd === 'reasoning') patch.persistReasoning += d;
+    else patch.persistText += d;
+  } else {
+    return prev;
+  }
+  next[idx] = patch;
+  return next;
 }
 
 function parseRFC3339ms(s: string | undefined): number | null {
@@ -327,7 +493,7 @@ export function App() {
       setItems([]);
       return false;
     }
-    const res = await fetchJSON<{ messages: Array<any> }>(
+    const res = await fetchJSON<{ messages: Array<any>; memoryTurns?: MemoryTurnApi[] }>(
       `/coddy/sessions/${encodeURIComponent(sid)}/messages`,
       { headers: sid === sessionId ? headers : { [HDR]: sid } },
     );
@@ -335,12 +501,24 @@ export function App() {
       setItems([]);
       return false;
     }
+    const memByTurn = new Map<number, MemoryTurnApi>();
+    for (const row of res.data.memoryTurns || []) {
+      if (typeof row.userTurnIndex === 'number' && row.userTurnIndex > 0) {
+        memByTurn.set(row.userTurnIndex, row);
+      }
+    }
     const next: TranscriptItem[] = [];
     const toolIdx = new Map<string, number>();
+    let userTurnIdx = 0;
     for (const m of res.data.messages || []) {
       const role = (m.role || '').trim();
       if (role === 'user') {
+        userTurnIdx++;
         next.push({ id: newId('u'), type: 'user_message', content: m.content || '' });
+        const mt = memByTurn.get(userTurnIdx);
+        if (mt) {
+          next.push(memoryTranscriptFromApi(mt));
+        }
         continue;
       }
       if (role === 'assistant') {
@@ -867,6 +1045,46 @@ export function App() {
             continue;
           }
 
+          if (ev.event === 'memory_phase') {
+            try {
+              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
+              setItems((prev) =>
+                applyMemoryPhaseToItems(prev, {
+                  memoryRowId: String(raw.memoryRowId || ''),
+                  phase: String(raw.phase || ''),
+                  status: String(raw.status || ''),
+                  ...(typeof raw.userTurnIndex === 'number' ? { userTurnIndex: raw.userTurnIndex } : {}),
+                  ...(typeof raw.durationMs === 'number' ? { durationMs: raw.durationMs } : {}),
+                  ...(typeof raw.persistSaved === 'boolean' ? { persistSaved: raw.persistSaved } : {}),
+                  ...(raw.persistRelativePath ? { persistRelativePath: raw.persistRelativePath } : {}),
+                  ...(raw.persistTitle ? { persistTitle: raw.persistTitle } : {}),
+                  ...(raw.persistSavedBody ? { persistSavedBody: raw.persistSavedBody } : {}),
+                  ...(Array.isArray(raw.recallReadPaths) && raw.recallReadPaths.length > 0 ? { recallReadPaths: raw.recallReadPaths } : {}),
+                }),
+              );
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === 'memory_chunk') {
+            try {
+              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
+              setItems((prev) =>
+                applyMemoryChunkToItems(prev, {
+                  memoryRowId: String(raw.memoryRowId || ''),
+                  phase: String(raw.phase || ''),
+                  kind: String(raw.kind || ''),
+                  delta: typeof raw.delta === 'string' ? raw.delta : '',
+                }),
+              );
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === 'tool_call') {
             try {
               finishThinking();
@@ -949,6 +1167,44 @@ export function App() {
                   ),
                 );
               }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+          if (ev.event === 'memory_phase') {
+            try {
+              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
+              setItems((prev) =>
+                applyMemoryPhaseToItems(prev, {
+                  memoryRowId: String(raw.memoryRowId || ''),
+                  phase: String(raw.phase || ''),
+                  status: String(raw.status || ''),
+                  ...(typeof raw.userTurnIndex === 'number' ? { userTurnIndex: raw.userTurnIndex } : {}),
+                  ...(typeof raw.durationMs === 'number' ? { durationMs: raw.durationMs } : {}),
+                  ...(typeof raw.persistSaved === 'boolean' ? { persistSaved: raw.persistSaved } : {}),
+                  ...(raw.persistRelativePath ? { persistRelativePath: raw.persistRelativePath } : {}),
+                  ...(raw.persistTitle ? { persistTitle: raw.persistTitle } : {}),
+                  ...(raw.persistSavedBody ? { persistSavedBody: raw.persistSavedBody } : {}),
+                  ...(Array.isArray(raw.recallReadPaths) && raw.recallReadPaths.length > 0 ? { recallReadPaths: raw.recallReadPaths } : {}),
+                }),
+              );
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+          if (ev.event === 'memory_chunk') {
+            try {
+              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
+              setItems((prev) =>
+                applyMemoryChunkToItems(prev, {
+                  memoryRowId: String(raw.memoryRowId || ''),
+                  phase: String(raw.phase || ''),
+                  kind: String(raw.kind || ''),
+                  delta: typeof raw.delta === 'string' ? raw.delta : '',
+                }),
+              );
             } catch {
               // ignore
             }

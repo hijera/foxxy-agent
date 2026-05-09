@@ -177,11 +177,13 @@ Messages may contain Markdown.
 - Render fenced code blocks with syntax highlighting.
 - Each code block has a copy button in the top right corner that copies only the block contents.
 
-### Memory tree
+### Memory tree (deferred explorer)
 
-Shows combined **global** (**`memory.dir`** / `$CODDY_HOME/memory`) and **workspace** (`<cwd>/memory`) hierarchies respecting backend filters (`.md` / `.txt` only).
+A file-tree over combined **global** (**`memory.dir`** / `$CODDY_HOME/memory`) and **workspace** (`<cwd>/memory`) remains out of scope for this milestone.
 
-Memory UI is removed for the current milestone.
+### Memory copilot transcript
+
+When **`memory.enabled`** is true, each user turn can show a **`memory`** grey foldout styled like **thinking** (`thinking-row` / `thinking-details` / `thinking-body`), placed **after** that user bubble and **before** the main assistant stream for the same turn. Expanded content has **Recalled** and **Memorized** subheads, optional streamed reasoning and answer text, duration in the summary row, and **`data-testid="memory-copilot-row"`** for automation.
 
 ### Component boundaries
 
@@ -194,6 +196,8 @@ The UI should be implemented as small React components with folder-enforced hier
 - `ui/messages/MessageList`
   - `ui/messages/UserMessage`
   - `ui/messages/AssistantMessage`
+  - `ui/messages/ThinkingMessage`
+  - `ui/messages/MemoryCopilotMessage`
   - `ui/messages/ToolCallMessage`
 
 ### Session overflow menu (`…`)

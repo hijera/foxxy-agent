@@ -9,6 +9,18 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
+// RecallToolDefinitions is read-only: recall must not persist to disk (that is the post-turn judge path).
+func RecallToolDefinitions() []llm.ToolDefinition {
+	all := ToolDefinitions()
+	out := make([]llm.ToolDefinition, 0, 2)
+	for _, t := range all {
+		if t.Name == "coddy_memory_search" || t.Name == "coddy_memory_read" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // ToolDefinitions returns tool schemas only for the memory copilot (never exposed to the main agent).
 func ToolDefinitions() []llm.ToolDefinition {
 	schemaSearch := map[string]any{

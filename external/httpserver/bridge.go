@@ -63,6 +63,10 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		return s.writeNamedEventJSON("plan", u)
 	case acp.TokenUsageUpdate:
 		return s.writeNamedEventJSON("token_usage", u)
+	case acp.MemoryPhaseUpdate:
+		return s.writeNamedEventJSON("memory_phase", u)
+	case acp.MemoryMessageChunkUpdate:
+		return s.writeNamedEventJSON("memory_chunk", u)
 	default:
 		return nil
 	}

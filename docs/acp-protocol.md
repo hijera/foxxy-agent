@@ -396,6 +396,37 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 
 Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancelled`
 
+### `memory_phase` - Memory copilot phase boundary
+
+When `memory.enabled` is true in config, the memory copilot runs outside the main ReAct tool list. Clients may show a **memory** foldout (similar to thinking) using these markers. Phases: `recall` (before the main model answers) and `persist` (judge after a clean end-of-turn assistant message). Status: `started` | `completed`. `durationMs` is set on `completed`.
+
+```json
+{
+  "sessionUpdate": "memory_phase",
+  "memoryRowId": "mem-1",
+  "phase": "recall",
+  "status": "completed",
+  "userTurnIndex": 1,
+  "durationMs": 240
+}
+```
+
+### `memory_message_chunk` - Streamed memory copilot text
+
+Token deltas for the memory sub-agent only (not merged into `messages.json` for the main LLM). `kind` is `text` or `reasoning`. `phase` is `recall` or `persist`.
+
+```json
+{
+  "sessionUpdate": "memory_message_chunk",
+  "memoryRowId": "mem-1",
+  "phase": "recall",
+  "kind": "text",
+  "delta": "- "
+}
+```
+
+See `external/memory/README.md`.
+
 ### `current_mode_update` - Mode changed
 
 ```json

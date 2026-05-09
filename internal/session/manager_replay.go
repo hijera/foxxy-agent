@@ -1,29 +1,43 @@
 package session
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
-func (m *Manager) replayConversation(sessionID string, msgs []llm.Message) error {
+func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string) error {
 	if m.server == nil {
 		return nil
 	}
 
+	byTurn := map[int]*MemoryTurnTraceJSON{}
+	if sd := strings.TrimSpace(sessionDir); sd != "" {
+		if env, err := ReadMemoryTrace(sd); err == nil && env != nil {
+			for i := range env.Turns {
+				row := env.Turns[i]
+				cp := row
+				byTurn[row.UserTurnIndex] = &cp
+			}
+		}
+	}
+
+	userTurn := 0
 	for i := 0; i < len(msgs); i++ {
 		msg := msgs[i]
 		switch msg.Role {
 		case llm.RoleUser:
+			userTurn++
 			content := strings.TrimSpace(msg.Content)
-			if content == "" {
-				continue
+			if content != "" {
+				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+					SessionUpdate: "user_message_chunk",
+					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
+				})
 			}
-			_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
-				SessionUpdate: "user_message_chunk",
-				Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: content},
-			})
+			m.replayMemoryTrace(sessionID, byTurn[userTurn])
 
 		case llm.RoleAssistant:
 			if txt := strings.TrimSpace(msg.Content); txt != "" {
@@ -82,6 +96,93 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message) error
 	}
 
 	return nil
+}
+
+func (m *Manager) replayMemoryTrace(sessionID string, row *MemoryTurnTraceJSON) {
+	if m.server == nil || row == nil {
+		return
+	}
+	rowID := strings.TrimSpace(row.MemoryRowID)
+	if rowID == "" {
+		rowID = fmt.Sprintf("mem-%d", row.UserTurnIndex)
+	}
+
+	hasRecall := row.RecallDurationMs > 0 || strings.TrimSpace(row.RecallText) != "" || strings.TrimSpace(row.RecallReasoningText) != "" || len(row.RecallReadPaths) > 0
+	hasPersist := row.PersistDurationMs > 0 || strings.TrimSpace(row.PersistJudgeText) != "" || row.PersistSaved
+
+	if hasRecall {
+		_ = m.server.SendSessionUpdate(sessionID, acp.MemoryPhaseUpdate{
+			SessionUpdate: acp.UpdateTypeMemoryPhase,
+			MemoryRowID:   rowID,
+			Phase:         "recall",
+			Status:        "started",
+			UserTurnIndex: row.UserTurnIndex,
+		})
+		if r := strings.TrimSpace(row.RecallReasoningText); r != "" {
+			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
+				MemoryRowID:   rowID,
+				Phase:         "recall",
+				Kind:          "reasoning",
+				Delta:         r,
+			})
+		}
+		if r := strings.TrimSpace(row.RecallText); r != "" {
+			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
+				MemoryRowID:   rowID,
+				Phase:         "recall",
+				Kind:          "text",
+				Delta:         r,
+			})
+		}
+		rc := acp.MemoryPhaseUpdate{
+			SessionUpdate: acp.UpdateTypeMemoryPhase,
+			MemoryRowID:   rowID,
+			Phase:         "recall",
+			Status:        "completed",
+			UserTurnIndex: row.UserTurnIndex,
+			DurationMs:    row.RecallDurationMs,
+		}
+		if len(row.RecallReadPaths) > 0 {
+			rc.RecallReadPaths = row.RecallReadPaths
+		}
+		_ = m.server.SendSessionUpdate(sessionID, rc)
+	}
+
+	if hasPersist {
+		_ = m.server.SendSessionUpdate(sessionID, acp.MemoryPhaseUpdate{
+			SessionUpdate: acp.UpdateTypeMemoryPhase,
+			MemoryRowID:   rowID,
+			Phase:         "persist",
+			Status:        "started",
+			UserTurnIndex: row.UserTurnIndex,
+		})
+		if r := strings.TrimSpace(row.PersistJudgeText); r != "" {
+			_ = m.server.SendSessionUpdate(sessionID, acp.MemoryMessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeMemoryMessageChunk,
+				MemoryRowID:   rowID,
+				Phase:         "persist",
+				Kind:          "text",
+				Delta:         r,
+			})
+		}
+		ph := acp.MemoryPhaseUpdate{
+			SessionUpdate:       acp.UpdateTypeMemoryPhase,
+			MemoryRowID:         rowID,
+			Phase:               "persist",
+			Status:              "completed",
+			UserTurnIndex:       row.UserTurnIndex,
+			DurationMs:          row.PersistDurationMs,
+			PersistSaved:        row.PersistSaved,
+			PersistRelativePath: row.PersistRelativePath,
+			PersistTitle:        row.PersistTitle,
+		}
+		if row.PersistSaved && strings.TrimSpace(row.PersistSavedBody) != "" {
+			ph.PersistSavedBody = row.PersistSavedBody
+		}
+		_ = m.server.SendSessionUpdate(sessionID, ph)
+	}
 }
 
 func truncateForReplay(s string) string {

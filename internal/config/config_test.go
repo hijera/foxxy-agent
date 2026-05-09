@@ -326,6 +326,39 @@ func TestLoadExplicitMissingFileReturnsError(t *testing.T) {
 	}
 }
 
+func TestMemoryEnabledFalseFromYAML(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+	content := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "openai/gpt-4o"
+
+memory:
+  enabled: false
+`
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Memory.Enabled {
+		t.Fatal("expected memory.enabled false")
+	}
+}
+
 func TestSchedulerEffectiveEnabledAndDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvCODDYHome, home)

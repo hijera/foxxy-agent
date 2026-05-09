@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '../chat/types';
 import { AssistantMessage } from './AssistantMessage';
+import { MemoryCopilotMessage } from './MemoryCopilotMessage';
 import { ThinkingMessage } from './ThinkingMessage';
 import { ToolCallMessage } from './ToolCallMessage';
 import { UserMessage } from './UserMessage';
@@ -19,6 +20,28 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
               content={it.content}
               durationMs={it.durationMs}
               startedAtMs={it.startedAtMs}
+            />
+          );
+        }
+        if (it.type === 'memory_copilot') {
+          return (
+            <MemoryCopilotMessage
+              key={it.id}
+              recallStatus={it.recallStatus}
+              persistStatus={it.persistStatus}
+              recallText={it.recallText}
+              recallReasoning={it.recallReasoning}
+              persistText={it.persistText}
+              persistReasoning={it.persistReasoning}
+              recallDurationMs={it.recallDurationMs}
+              persistDurationMs={it.persistDurationMs}
+              memoryWallStartedAtMs={it.memoryWallStartedAtMs}
+              memoryWallDurationMs={it.memoryWallDurationMs}
+              persistSaved={it.persistSaved}
+              persistRelativePath={it.persistRelativePath}
+              persistTitle={it.persistTitle}
+              {...(it.persistSavedBody !== undefined ? { persistSavedBody: it.persistSavedBody } : {})}
+              {...(it.recallReadPaths !== undefined ? { recallReadPaths: it.recallReadPaths } : {})}
             />
           );
         }

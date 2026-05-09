@@ -10,7 +10,9 @@ Implementation for Coddy lives in this directory (`external/memory`) and is **al
 
 In the LLM sense, “memory” is whatever is injected into the context. Short-term memory is the chat history. **Long-term** memory here means markdown files on disk that are turned into a short block **before** the main model answers, merged into the same template slot as session notes (`{{.Memory}}` in `agent.md` / `plan.md`).
 
-A separate **memory copilot** (extra `llm.Complete` passes) may call only `coddy_memory_*` tools:
+When `memory.enabled` is true, Coddy also emits **ACP `session/update`** notifications (`memory_phase`, `memory_message_chunk`) and persists a per-session **`memory_trace.json`** alongside `messages.json`. That trace and the HTTP **`memoryTurns`** field on **`GET /coddy/sessions/{id}/messages`** are for UI observability only - they are **not** part of the Chat Completions transcript sent to the primary model.
+
+A separate **memory copilot** (extra `llm.Stream` / completion passes) may call only `coddy_memory_*` tools:
 
 - **Recall** (before the main reply) - search/read (and optional save/delete inside that sub-loop). Output is stored in a per-turn session field and merged with user session notes when rendering the system prompt.
 - **Persist** (after the final assistant message in a user turn, when there are no pending tool calls) - a judge returns JSON; on approval, a new `.md` file is written.

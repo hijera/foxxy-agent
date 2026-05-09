@@ -1144,6 +1144,87 @@ body {
   color: rgba(229, 231, 235, 0.78);
 }
 
+.coddy-memory-copilot-body .coddy-memory-phase:first-child {
+  margin-top: 0;
+}
+
+.coddy-memory-phase-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+  margin-bottom: 6px;
+}
+
+.coddy-memory-stream {
+  margin-top: 4px;
+}
+
+.coddy-memory-reasoning.md-wrap :where(.md) {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 13px;
+}
+
+.coddy-memory-empty,
+.coddy-memory-saved {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.coddy-memory-saved {
+  color: rgba(167, 250, 174, 0.55);
+}
+
+.coddy-memory-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.coddy-memory-hint.muted {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.coddy-memory-read-files {
+  margin: 0 0 6px;
+}
+
+.coddy-memory-copilot-body .coddy-memory-phase + .coddy-memory-phase {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.coddy-memory-for-agent :where(.md) {
+  font-size: 13px;
+}
+
+.coddy-memory-curator-summary :where(.md) {
+  font-size: 13px;
+}
+
+.coddy-memory-saved-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: rgba(167, 250, 174, 0.68);
+}
+
+.coddy-memory-saved-title {
+  font-weight: 600;
+}
+
+.coddy-memory-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .tool-dot {
   width: 10px;
   height: 10px;

@@ -322,7 +322,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	m.sessions[params.SessionID] = st
 	m.mu.Unlock()
 
-	if err := m.replayConversation(params.SessionID, snap.Messages); err != nil {
+	if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
 		m.log.Warn("replay conversation", "error", err)
 	}
 

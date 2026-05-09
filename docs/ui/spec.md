@@ -239,3 +239,12 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Given a session has non zero token usage
   - When the user reloads the page
   - Then the token usage HUD shows the persisted totals
+
+- Memory copilot row (Playwright MCP)
+  - Given **`memory.enabled: true`** on the **`coddy http`** process and at least one Markdown file under global or workspace memory so recall can run
+  - When the user sends a chat message that completes a full ReAct turn
+  - Then an element with **`data-testid="memory-copilot-row"`** appears after that user bubble for the turn (grey **memory** foldout, same visual language as **thinking** per `DESIGN.md`)
+  - When the user opens the details element
+  - Then **Recalled** and/or **Memorized** sections are visible once the server has finished the corresponding phases
+
+For Playwright MCP against a live gateway, start **`make build TAGS=http`** then **`./build/coddy http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.

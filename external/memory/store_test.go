@@ -32,6 +32,20 @@ func TestStoreSearch(t *testing.T) {
 	}
 }
 
+func TestRecallToolDefinitionsReadOnly(t *testing.T) {
+	defs := RecallToolDefinitions()
+	for _, d := range defs {
+		switch d.Name {
+		case "coddy_memory_search", "coddy_memory_read":
+		default:
+			t.Fatalf("unexpected recall tool %q", d.Name)
+		}
+	}
+	if len(defs) != 2 {
+		t.Fatalf("len=%d want 2", len(defs))
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	if g := slugify("  Hello World!!  "); g != "hello-world" {
 		t.Fatalf("got %q", g)

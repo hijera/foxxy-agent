@@ -303,6 +303,8 @@ const (
 	UpdateTypeCurrentModeUpdate  = "current_mode_update"
 	UpdateTypeConfigOptionUpdate = "config_option_update"
 	UpdateTypeTokenUsage         = "token_usage"
+	UpdateTypeMemoryPhase        = "memory_phase"
+	UpdateTypeMemoryMessageChunk = "memory_message_chunk"
 )
 
 // PlanUpdate sends the agent's execution plan to the client.
@@ -365,6 +367,32 @@ type TokenUsageUpdate struct {
 	InputTokens   int    `json:"inputTokens"`
 	OutputTokens  int    `json:"outputTokens"`
 	TotalTokens   int    `json:"totalTokens"`
+}
+
+// MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase (recall or persist judge).
+type MemoryPhaseUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "memory_phase"
+	MemoryRowID   string `json:"memoryRowId"`
+	Phase         string `json:"phase"`  // "recall" | "persist"
+	Status        string `json:"status"` // "started" | "completed"
+	UserTurnIndex int    `json:"userTurnIndex,omitempty"`
+	DurationMs    int64  `json:"durationMs,omitempty"`
+	// Recall-only populates when Phase is recall and Status is completed (coddy_memory_read paths).
+	RecallReadPaths []string `json:"recallReadPaths,omitempty"`
+	// Persist-only populates when Phase is persist and Status is completed.
+	PersistSaved        bool   `json:"persistSaved,omitempty"`
+	PersistSavedBody    string `json:"persistSavedBody,omitempty"` // markdown persisted when PersistSaved true (truncated for wire)
+	PersistRelativePath string `json:"persistRelativePath,omitempty"`
+	PersistTitle        string `json:"persistTitle,omitempty"`
+}
+
+// MemoryMessageChunkUpdate streams recall or persist model deltas to the client (not part of llm.Messages).
+type MemoryMessageChunkUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "memory_message_chunk"
+	MemoryRowID   string `json:"memoryRowId"`
+	Phase         string `json:"phase"` // "recall" | "persist"
+	Kind          string `json:"kind"`  // "text" | "reasoning"
+	Delta         string `json:"delta"`
 }
 
 // ---- ACP session/request_permission ----
