@@ -52,9 +52,9 @@ export function ThinkingMessage(props: {
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{label}</span>
-          </span>
-          <span className="thinking-dur" aria-hidden="true">
-            {durationLabel}
+            <span className="thinking-dur" aria-hidden="true">
+              {durationLabel}
+            </span>
           </span>
         </summary>
         {text ? (
