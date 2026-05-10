@@ -2,6 +2,11 @@ services:
   coddy:
     build:
       context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${CODDY_VERSION:-dev}
+        BUILD_TAGS: ${CODDY_BUILD_TAGS:-http,scheduler,ui}
+    image: coddy-agent:${CODDY_VERSION:-dev}
     ports:
       - "12345:12345"
     working_dir: /workspace

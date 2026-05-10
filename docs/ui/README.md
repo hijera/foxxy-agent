@@ -3,7 +3,14 @@
 This folder documents the embedded web UI.
 
 - Source code lives in `external/ui/` (TypeScript, React, Vite dev server)
-- Build output is generated into `external/ui/dist/` and then synced into `external/ui/` as `index.html`, `styles.css`, `app.js` (embedded into the `coddy` binary)
+- Build output is generated into `external/ui/dist/` and then synced into `external/ui/` as `index.html`, `styles.css`, `app.js` (embedded into the `coddy` binary when the **`ui`** Go build tag is set together with **`http`**)
+
+## Go build tags (**`http`** and **`ui`**)
+
+- **`http`** links the OpenAI-shaped HTTP gateway (**`coddy http`**, **`/v1/*`**, **`/coddy/*`**, Swagger). It does **not** embed the SPA. **`GET /`** returns a plain **404** hint.
+- **`http`** **+** **`ui`** (for example **`make build TAGS="http ui"`**, equivalent to **`go build -tags=http,ui`**) runs **`make ui-build`** first and links **`go:embed`** assets for **`/`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**.
+- **`scheduler`** is independent (cron daemon and tools); combine with **`http`** or **`http,ui`** when you need **`coddy http`** and jobs in one binary.
+- **`Dockerfile`** / **`docker-compose.yml`** pass the same list as **`BUILD_TAGS`** (comma-separated, default **`http,scheduler,ui`**). The Node stage always produces a fresh UI bundle; **`ui`** in **`BUILD_TAGS`** controls whether the Go linker includes it.
 
 ## Quick start
 
@@ -35,7 +42,7 @@ Open
 
 ### UI-only edits
 
-After `npm install`, `npm --prefix external/ui run dev` is enough to iterate TypeScript/CSS. Rebuilding `coddy` with `make build TAGS=http` is only needed when you want to validate `go:embed` bundles or CI.
+After `npm install`, `npm --prefix external/ui run dev` is enough to iterate TypeScript/CSS. Rebuilding `coddy` with **`make build TAGS="http ui"`** is only needed when you want to validate `go:embed` bundles or CI.
 
 ## Specs
 

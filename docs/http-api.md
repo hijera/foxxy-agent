@@ -1,6 +1,8 @@
 # OpenAI-compatible HTTP API
 
-The `coddy http` subcommand ships only when the binary is built with **`go build -tags=http`** (`make build TAGS=http`). It exposes OpenAI-shaped routes plus **`/coddy/*`** helpers and a static SPA from **`GET /`**, backed by the same session manager and ReAct agent as **`coddy acp`**.
+The `coddy http` subcommand ships only when the binary is built with **`go build -tags=http`** (`make build TAGS=http`). It exposes OpenAI-shaped routes plus **`/coddy/*`** helpers, backed by the same session manager and ReAct agent as **`coddy acp`**.
+
+The bundled SPA is included only when you also set the **`ui`** tag (for example **`make build TAGS="http ui"`** or **`go build -tags=http,ui`**). With **http** only, **`GET /`** returns **404** with a plain-text hint.
 
 ## OpenAPI and Swagger UI
 
@@ -11,9 +13,9 @@ Specs are regenerated on each request so they stay aligned with handlers.
 
 No authentication is enforced. Run behind appropriate network controls.
 
-## Embedded web UI
+## Embedded web UI (**`-tags=http,ui`**)
 
-- **`GET /`** serves **`index.html`**, **`styles.css`**, and **`app.js`** from **`external/ui/`** (`go:embed`). Responses for **`/`**, **`/index.html`**, **`/app.js`**, and **`/styles.css`** include **`Cache-Control: no-cache`** so a normal reload picks up assets after you rebuild the binary (fixed URLs, no fingerprint).
+- **`GET /`** serves **`index.html`**, **`styles.css`**, and **`app.js`** from **`external/ui/`** (`go:embed`) when **`ui`** is set at link time with **`http`**. Responses for **`/`**, **`/index.html`**, **`/app.js`**, and **`/styles.css`** include **`Cache-Control: no-cache`** so a normal reload picks up assets after you rebuild the binary (fixed URLs, no fingerprint).
 - Recommended session URL pattern: **`#/s/<sessionId>`** (client-only history). For **`POST /v1/responses`** and **`POST /v1/chat/completions`**, send **`X-Coddy-Session-ID`** with a **`sess_<hex>`** id that satisfies server-side validation (`internal/session/validate.go`).
 - **`GET /coddy/sessions`**, **`PATCH /coddy/sessions/{id}`**, and other **`/coddy/sessions/{id}/...`** routes identify the session **only** by the **`{id}`** path segment (no duplicate header in OpenAPI; clients may still send **`X-Coddy-Session-ID`**, it is not used to pick the resource for those URLs).
 - The bundled UI calls **`POST /v1/responses`** with **`stream: true`**. For ReAct (**`model`** **`agent`** or **`plan`**), it sends optional **`metadata.model`** with the selected YAML **`models[].model`** **`id`** (from **`GET /v1/models`**, **`owned_by`** not **`coddy`**); default follows **`default_agent_model`**, persisted choice in **`coddy_llm_model`**. SSE **default** chunks follow **`chat.completion.chunk`** deltas (**`delta.content`** for assistant text, **`delta.reasoning_content`** for streamed model reasoning so the UI can keep the **thinking** foldout separate). Named **`event:`** lines (**`tool_call`**, **`tool_call_update`**, **`plan`**, **`token_usage`**, **`available_commands`**) expose tool progress and incremental token totals between LLM rounds; when **`memory.enabled`** is **true**, the server also emits **`memory_phase`** (**`sessionUpdate`** **`memory_phase`**) and **`memory_chunk`** (**`memory_message_chunk`**) for the unified memory copilot (**one pass before the main model**, recall-or-persist), streamed model text deltas only, without adding rows to **`messages.json`**. **`GET /coddy/sessions/{id}/messages`** may include **`memoryTurns`** (array of persisted per-turn summaries for the bundled UI transcript). **`coddy_meta`** JSON follows the usual rule immediately before **`data: [DONE]`**. **Stop generation** in the composer calls **`POST /coddy/sessions/{id}/cancel`** with **`X-Coddy-Session-ID`** matching **`{id}`**, then **`AbortSignal`** tears down the streamed **`fetch`**. That maps to ACP **`session/cancel`** for the agent turn (**`TurnCtx`** propagation for direct **`models[].model`** completions uses the same cancel hook).
@@ -23,7 +25,7 @@ No authentication is enforced. Run behind appropriate network controls.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/` | Web UI (`index.html`); **`Cache-Control: no-cache`** also on **`/app.js`** and **`/styles.css`**. |
+| GET | `/` | Embedded web UI (**`-tags=http,ui`**) or **404** with a hint (**`http` only**). **`Cache-Control: no-cache`** on **`/`**, **`/index.html`**, **`/app.js`**, **`/styles.css`** when the UI module is linked. |
 | GET | `/openapi.yaml`, `/openapi.json` | Spec. |
 | GET | `/docs`, `/docs/` | Swagger UI. |
 | GET | `/v1/models` | Merged list: **`agent`**, **`plan`** (each **`owned_by`**: **`coddy`**), then every YAML **`models[].model`** row (**`id`** is the selector; **`owned_by`** is the provider prefix). Ordering is **`agent`**, **`plan`**, then **`models`** in configuration order (same ordering the server emits). Use any returned **`id`** as **`model`** on POST. The JSON object also includes optional **`default_agent_model`**, the configured **`agent.model`** (**`models[].model`**), when set; the bundled UI uses it as the default **`metadata.model`** for ReAct (**`agent`** / **`plan`**) requests. |
@@ -83,9 +85,13 @@ Equivalent to **`coddy acp`**: **`--config`**, **`--home`**, **`--cwd`**, **`--s
 ## Build
 
 ```bash
+# HTTP API only (no npm, no embedded SPA root)
 make build TAGS=http
+
+# HTTP API plus embedded SPA (**make ui-build** runs first)
+make build TAGS="http ui"
 ```
 
-`go test ./...` skips this tree unless **`go test -tags=http`** (Makefile **`make test`** already covers it).
+`go test ./...` skips **`external/httpserver`** unless **`go test -tags=http`**. SPA-specific tests compile under **`go test -tags=http,ui`** (Makefile **`make test`** runs **`ui-build`** once, then **`http`** and **`http,ui`** and scheduler combinations).
 
 For a manual gateway check against a disposable **`coddy http`** process, **`examples/test_httpserver.sh`** runs **`http_smoke_basic.py`** and the bundled HTTP demo scripts (they expect a working **`models`** backend where they call the LLM).

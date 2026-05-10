@@ -48,7 +48,7 @@ go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Ver
 
 **Long-term memory** copilot lives in `external/memory/` and is always linked into `build/coddy`. Turn it on or off at runtime with `memory.enabled` in `config.yaml` (see `external/memory/README.md`).
 
-**Optional OpenAI HTTP API** lives in `external/httpserver/` and is linked only when you build with **`-tags http`** (for example `make build TAGS=http`). It adds the `coddy http` subcommand (`-H` / `--host`, `-P` / `--port`, same session and log flags as `coddy acp`). **`GET /v1/models`** exposes session modes **agent** and **plan**; pass a **`models[].model`** id in **`model`** when you call chat if you pin an LLM. OpenAPI is generated at runtime under **`/openapi.yaml`** and Swagger UI under **`/docs`**. See **`docs/http-api.md`**.
+**Optional OpenAI HTTP API** lives in `external/httpserver/` and is linked only when you build with **`-tags http`** (for example `make build TAGS=http`). It adds the `coddy http` subcommand (`-H` / `--host`, `-P` / `--port`, same session and log flags as `coddy acp`). **`GET /v1/models`** exposes session modes **agent** and **plan**; OpenAPI lives at **`/openapi.yaml`** and Swagger UI at **`/docs`**. Add **`-tags ui`** together with **http** (for example `make build TAGS="http ui"`) when you want the embedded SPA served from **`/`** (**`/`** responds with **404** without **`ui`**). See **`docs/http-api.md`**.
 
 **Optional cron scheduler** lives under **`external/scheduler/`** (package **`scheduler`**, daemon and **`Start`** at the **`external/scheduler`** import path). Job parsing and cron live in **`lib/`** (also package **`scheduler`**, path **`scheduler/lib`**). **`coddy_scheduler_*`** agent tools live in **`tools/`** (package **`schedtools`**). Split layouts avoid an import cycle with **`internal/agent`** and **`internal/tools`**. Linked only with **`-tags scheduler`** (combine with **`http`** when you need both). Enable **`scheduler.enabled`** in config or **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** (sets the same YAML field for this process). Jobs are markdown files under **`~/.coddy/scheduler`** with UTC crontab metadata in YAML frontmatter.
 
@@ -198,7 +198,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
 - [Configuration](docs/config.md) - full config file reference
-- [HTTP API](docs/http-api.md) - REST gateway and embedded web UI (`TAGS=http`)
+- [HTTP API](docs/http-api.md) - REST gateway (`TAGS=http`) and optional embedded UI (`TAGS="http ui"`)
+- [Embedded UI](docs/ui/README.md) - Vite SPA, dev workflow, build tags (**`TAGS=http`** vs **`TAGS="http ui"`**, same as **`-tags=http,ui`** for embed)
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Skills & Rules](docs/skills.md) - cursor rules and skills guide

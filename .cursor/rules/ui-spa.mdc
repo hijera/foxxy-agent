@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Embedded UI (`external/ui`)
 
-- Rebuild **`go:embed`** assets after UI changes: **`make build TAGS=http`** (runs **`ui-build`**).
+- Rebuild **`go:embed`** assets after UI changes: **`make build TAGS="http ui"`** (runs **`ui-build`**).
 - **Thinking disclosure row** - duration must sit **next to** the **thinking** label, not at the trailing edge of the column. Markup keeps **`.thinking-dur`** inside **`.thinking-left`** in **`ThinkingMessage.tsx`**. Styles use **`.thinking-left { gap: 0 5px; }`** in **`styles.css`**. Do not drive label vs timer spacing with **`justify-content: space-between`** on **`summary.thinking-summary`**.
 - **Composer context ring** (indicator left of Send in **`Composer.tsx`**)
   - The ring itself is **only** a stroked arc (relative context fill). Do **not** place a numeric percent label inside or on top of it. Percent usage and token counts belong in the tooltip only.

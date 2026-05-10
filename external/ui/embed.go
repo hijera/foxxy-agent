@@ -1,4 +1,4 @@
-//go:build http
+//go:build http && ui
 
 // Package ui holds static assets for coddy http (embedded into the binary).
 package ui

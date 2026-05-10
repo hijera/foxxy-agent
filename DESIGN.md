@@ -208,7 +208,7 @@ Transcript chips (**.md .coddy-skill-chip**) are **not** bound by this contract;
 
 Full browser checks against a running **`coddy http`** instance (including a **mobile viewport**) use **Playwright MCP** in Cursor, Codex or any other code agent you use. This repository does not ship **`@playwright/test`** as an npm dependency.
 
-**Frosted glass (Playwright MCP smoke)** - after **`npm run dev`** under **`external/ui/`** (or **`coddy http`** with **`make build TAGS=http`**), use **`browser_tabs` / `browser_navigate`** to the SPA, then **`browser_evaluate`** **`getComputedStyle(...).backdropFilter`** and **`.backgroundColor`** on:
+**Frosted glass (Playwright MCP smoke)** - after **`npm run dev`** under **`external/ui/`** (or **`coddy http`** with **`make build TAGS="http ui"`**), use **`browser_tabs` / `browser_navigate`** to the SPA, then **`browser_evaluate`** **`getComputedStyle(...).backdropFilter`** and **`.backgroundColor`** on:
 
 | Target | **`backdrop-filter`** | **`backgroundColor`** (example) |
 | --- | --- | --- |
@@ -238,7 +238,7 @@ Use these to regress behaviour after CSS or **`Composer`** edits. **Vitest** row
 | UC5 | Strip legacy **`a [/demo](coddy-skill:demo) b`** | Output **`a /demo b`** | **`segmentComposerSlashSpans.test.ts`** · `stripCoddySkillMarkdownLinks restores plain slash token` |
 | UC6 | User bubble **`hi /demo there`** | **`data-testid="coddy-skill-span"`** text **`/demo`** | **`external/ui/src/ui/messages/UserMessage.test.tsx`** |
 | UC7 | Display-only slug transform | Plain **`/`** → **`[/<n>](coddy-skill:<n>)`**; legacy link preserved before second token | **`segmentComposerSlashSpans.test.ts`** · `slugSlashesForUserBubbleMarkdown for Markdown chip render` and **`slugSlashesForUserBubbleMarkdown strips legacy first then chips`** |
-| UC8 | Live **`coddy http`** after **`make build TAGS=http`**, **`#composer`** with **`/coddy_slash_demo`** | **`textarea.value`** plain; **`fontFamily`** chip **===** **`#composer`**; EOL **`selectionStart === value.length`** | **Playwright MCP** · **`browser_navigate`**, **`browser_fill_form`**, **`browser_evaluate`** |
+| UC8 | Live **`coddy http`** after **`make build TAGS="http ui"`**, **`#composer`** with **`/coddy_slash_demo`** | **`textarea.value`** plain; **`fontFamily`** chip **===** **`#composer`**; EOL **`selectionStart === value.length`** | **Playwright MCP** · **`browser_navigate`**, **`browser_fill_form`**, **`browser_evaluate`** |
 
 ### Markdown
 

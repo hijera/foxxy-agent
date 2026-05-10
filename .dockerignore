@@ -18,6 +18,10 @@ rpa-agent
 *.test
 *.out
 
+# UI (fresh npm ci on Node-capable Dockerfile stage)
+**/node_modules/
+external/ui/dist/
+
 # Go build cache
 /vendor/
 __pycache__/

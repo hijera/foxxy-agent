@@ -9,9 +9,9 @@ alwaysApply: true
 ## Commands
 
 - Full suite (what agents should run before finishing): **`make test`**
-  - Runs `go test ./...` plus tagged variants: **`-tags=http`**, **`-tags=scheduler`**, **`-tags=http,scheduler`**.
+  - Runs **`go test ./...`**, **`-tags=http`**, **`-tags=scheduler`**, then **`make ui-build`**, then **`-tags=http,ui`**, **`-tags=http,scheduler`**, **`-tags=http,scheduler,ui`**.
 - Targeted run while iterating: **`go test ./path/to/pkg -run TestName -count=1`**
-- HTTP server package is behind **`//go:build http`**. Use **`-tags=http`** when testing only `external/httpserver` without `make test`.
+- HTTP server core is **`//go:build http`**. Embedded UI tests compile with **`go test -tags=http,ui ./external/httpserver`**. SPA-free **`http`** build uses **`//go:build http && !ui`** handlers under **`external/httpserver`**.
 
 ## Conventions
 

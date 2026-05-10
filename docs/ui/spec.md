@@ -152,7 +152,7 @@ Verification use cases
 | UC5 | **`stripCoddySkillMarkdownLinks`** on legacy paste | **`segmentComposerSlashSpans.test.ts`** (`stripCoddySkillMarkdownLinks restores plain slash token`) |
 | UC6 | Bubble shows **`coddy-skill-span`** for **`hi /demo there`** | **`UserMessage.test.tsx`** |
 | UC7 | Display-only **`slugSlashes`** (plain **`/`** and legacy mix) | **`segmentComposerSlashSpans.test.ts`** (`slugSlashesForUserBubbleMarkdown for Markdown chip render`, `slugSlashesForUserBubbleMarkdown strips legacy first then chips`) |
-| UC8 | Live **`coddy http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS=http`** |
+| UC8 | Live **`coddy http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
 
 ## Transcript message types
 
@@ -240,7 +240,7 @@ File API
 - Edit TypeScript sources under `external/ui/src/`.
 - Use `npm --prefix external/ui run dev` to iterate without rebuilding the Go binary.
 - Build and sync embed assets with `npm --prefix external/ui run build:go`.
-- `make build TAGS=http` runs the UI build step automatically.
+- **`make build TAGS="http ui"`** runs the UI build step (**make ui-build**) before linking the embedded bundle.
 
 ## Reference images
 
@@ -308,4 +308,4 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - When the user opens the details element
   - Then the streamed **memory** body shows the text merged into the main agent prompt for that turn (and optional saved-note preview when the copilot wrote `coddy_memory_save`)
 
-For Playwright MCP against a live gateway, start **`make build TAGS=http`** then **`./build/coddy http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.
+For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/coddy http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.

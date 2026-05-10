@@ -140,7 +140,7 @@ tools:
   # When non-empty, auto-approve all tool permission prompts (ACP and HTTP). Use only in trusted environments.
   # permission_master_key: "${CODDY_PERMISSION_MASTER_KEY}"
 
-# HTTP OpenAI gateway (only with go build -tags=http). See docs/http-api.md
+# HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"
 #   port: 8080

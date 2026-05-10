@@ -1,11 +1,15 @@
 .PHONY: build build-acp test lint clean install print-version
 
 # ---- Build options (extend when you add optional Go build tags) ----
-#   TAGS   optional extra `go build -tags` values (space-separated). Example: make build TAGS=http
+#   TAGS   optional extra `go build -tags` values (space-separated).
+#     http     OpenAI-compatible gateway (coddy http)
+#     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
+#     scheduler   cron scheduler daemon and tools (see external/scheduler/)
+#   Examples: make build TAGS=http
+#             make build TAGS="http ui"
+#             make build TAGS="http scheduler"
 #   Long-term memory lives in external/memory and is always linked into coddy. Turn it on or off at
 #   runtime with memory.enabled in config.yaml (no separate memory binary).
-#   OpenAI-compatible HTTP (external/httpserver) is included only with TAGS=http.
-#   Cron scheduler (external/scheduler, lib/, tools/) is included only with TAGS=scheduler.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,
@@ -29,8 +33,8 @@ ifneq ($(strip $(TAGS)),)
 GO_TAGS_FLAG := -tags "$(strip $(TAGS))"
 endif
 
-# When building with TAGS=http, compile UI TypeScript into external/ui/ for go:embed.
-ifneq (,$(findstring http,$(TAGS)))
+# Embedded UI (go:embed) is included only with both http and ui tags.
+ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
@@ -58,10 +62,12 @@ install: build
 # Run all tests.
 test:
 	go test ./...
-	$(MAKE) ui-build
 	go test -tags=http ./...
 	go test -tags=scheduler ./...
+	$(MAKE) ui-build
+	go test -tags=http,ui ./...
 	go test -tags=http,scheduler ./...
+	go test -tags=http,scheduler,ui ./...
 
 # Clean build artifacts.
 clean:

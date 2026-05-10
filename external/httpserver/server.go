@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/external/ui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -67,22 +66,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	} else {
 		s.mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.FS(swaggerSub))))
 	}
-	s.mux.Handle("/", uiEmbeddedSPAHandler(http.FS(ui.Assets)))
+	mountEmbeddedSPARoot(s.mux)
 	return s
-}
-
-// uiEmbeddedSPAHandler serves the bundled SPA and sets Cache-Control on fixed asset paths
-// so browsers revalidate after rebuilds (URLs have no content hash).
-func uiEmbeddedSPAHandler(root http.FileSystem) http.Handler {
-	next := http.FileServer(root)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/", "/index.html", "/app.js", "/styles.css":
-			w.Header().Set("Cache-Control", "no-cache")
-		default:
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {

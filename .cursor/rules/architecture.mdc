@@ -21,7 +21,7 @@ alwaysApply: true
 ## Optional build tags
 
 - **`external/memory`** - long-term memory (linked by default per README).
-- **`external/httpserver`** - OpenAI-shaped HTTP API; **`//go:build http`**. Keep handler registration and **`openapi.go`** in sync.
+- **`external/httpserver`** - OpenAI-shaped HTTP API; **`//go:build http`**. Embedded SPA uses **`//go:build http && ui`** with **`external/ui`**. Keep handler registration and **`openapi.go`** in sync.
 - **`external/scheduler`**, **`lib/`**, **`tools/`** (schedtools) - cron and related tools; scheduler tag.
 
 Do not introduce import cycles. If a new package would cycle, split interfaces or move shared types down-layer.

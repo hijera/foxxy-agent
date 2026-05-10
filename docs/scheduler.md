@@ -17,7 +17,7 @@ The cron parser uses five fields and interprets schedules in UTC.
 - Build with scheduler only
   - `go build -tags=scheduler ./cmd/coddy`
 - Build with HTTP and scheduler
-  - `go build -tags=http,scheduler ./cmd/coddy`
+  - `go build -tags=http,scheduler ./cmd/coddy` (add `,ui` with `http` when you want the embedded SPA)
 
 ### Enabling
 
