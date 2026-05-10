@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -12,9 +13,12 @@ func TestContentBlocksToText_textAndResource(t *testing.T) {
 		{Type: "resource", Resource: &acp.Resource{URI: "file:///a/b.go", Text: "pkg main"}},
 	}
 	got := contentBlocksToText(blocks)
-	want := "hello\n\n[File: file:///a/b.go]\npkg main"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	if !strings.Contains(got, `<coddy_attachment path="`) ||
+		!strings.Contains(got, `name="b.go"`) ||
+		!strings.Contains(got, "<![CDATA[") ||
+		!strings.Contains(got, "pkg main") ||
+		!strings.Contains(got, "]]>") {
+		t.Fatalf("unexpected XML bundle: %s", got)
 	}
 }
 

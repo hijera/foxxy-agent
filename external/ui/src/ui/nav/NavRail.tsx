@@ -1,9 +1,16 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from "react";
 
 /** Octicon-style mark, integer geometry (reads clearly at 18px). */
 function IconGitHub(props: { className?: string }) {
   return (
-    <svg className={props.className} width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
       <path
         fillRule="evenodd"
         clipRule="evenodd"
@@ -15,9 +22,26 @@ function IconGitHub(props: { className?: string }) {
 
 function IconBook(props: { className?: string }) {
   return (
-    <svg className={props.className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-      <path d="M4 19.5A2.5 2.5 0 016.5 17H20" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      aria-hidden
+    >
+      <path
+        d="M4 19.5A2.5 2.5 0 016.5 17H20"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <path d="M8 7h8M8 11h6" strokeLinecap="round" />
     </svg>
   );
@@ -25,8 +49,21 @@ function IconBook(props: { className?: string }) {
 
 function IconApi(props: { className?: string }) {
   return (
-    <svg className={props.className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-      <path d="M14 7h2a5 5 0 015 5v0a5 5 0 01-5 5h-2M10 17H8A5 5 0 013 12v0a5 5 0 015-5h2M8 12h8" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      aria-hidden
+    >
+      <path
+        d="M14 7h2a5 5 0 015 5v0a5 5 0 01-5 5h-2M10 17H8A5 5 0 013 12v0a5 5 0 015-5h2M8 12h8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -34,7 +71,14 @@ function IconApi(props: { className?: string }) {
 /** Three equal-width lines (symmetric hamburger) for collapse wide rail; not a global app drawer. */
 function IconSidebarCollapse(props: { className?: string }) {
   return (
-    <svg className={props.className} width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden
+    >
       <path
         d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13"
         stroke="currentColor"
@@ -48,7 +92,18 @@ function IconSidebarCollapse(props: { className?: string }) {
 /** Open wide rail again (narrow column at xl). */
 function IconSidebarExpand(props: { className?: string }) {
   return (
-    <svg className={props.className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M11 7l5 5-5 5M6 7l5 5-5 5" />
     </svg>
   );
@@ -65,29 +120,40 @@ export function NavRail(props: {
   const railRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const el = railRef.current;
-    const shell = el?.closest('.shell');
+    const shell = el?.closest(".shell");
     if (!el || !(shell instanceof HTMLElement)) {
       return undefined;
     }
     const syncTrack = () => {
-      shell.style.setProperty('--rail-shell-track-width', `${el.offsetWidth}px`);
+      shell.style.setProperty(
+        "--rail-shell-track-width",
+        `${el.offsetWidth}px`,
+      );
     };
     syncTrack();
     const ro = new ResizeObserver(syncTrack);
     ro.observe(el);
     return () => {
       ro.disconnect();
-      shell.style.removeProperty('--rail-shell-track-width');
+      shell.style.removeProperty("--rail-shell-track-width");
     };
   }, [props.canWidenRail, props.railLabelsWide]);
 
   const pillWide = props.canWidenRail && props.railLabelsWide;
-  const navBtnCls = pillWide ? 'rail-hit rail-nav-hit rail-nav-hit-wide' : 'rail-hit rail-hit-icon rail-nav-hit rail-nav-hit-narrow';
-  const navLinkCls = pillWide ? 'rail-hit rail-nav-hit rail-nav-hit-wide rail-link' : 'rail-hit rail-hit-link rail-nav-hit rail-nav-hit-narrow rail-link';
+  const navBtnCls = pillWide
+    ? "rail-hit rail-nav-hit rail-nav-hit-wide"
+    : "rail-hit rail-hit-icon rail-nav-hit rail-nav-hit-narrow";
+  const navLinkCls = pillWide
+    ? "rail-hit rail-nav-hit rail-nav-hit-wide rail-link"
+    : "rail-hit rail-hit-link rail-nav-hit rail-nav-hit-narrow rail-link";
 
   return (
-    <aside ref={railRef} className={`rail-column ${pillWide ? 'rail-column-wide' : ''}`} aria-label="Nav">
-      <div className={`rail-pill ${pillWide ? 'is-wide' : ''}`}>
+    <aside
+      ref={railRef}
+      className={`rail-column ${pillWide ? "rail-column-wide" : ""}`}
+      aria-label="Nav"
+    >
+      <div className={`rail-pill ${pillWide ? "is-wide" : ""}`}>
         {props.canWidenRail ? (
           pillWide ? (
             <div className="rail-header rail-header-wide">
@@ -99,7 +165,13 @@ export function NavRail(props: {
               >
                 <IconSidebarCollapse className="rail-toggle-svg" />
               </button>
-              <button type="button" className="rail-brand rail-brand-header" aria-label="Coddy agent home" data-testid="nav-home" onClick={props.onNewChat}>
+              <button
+                type="button"
+                className="rail-brand rail-brand-header"
+                aria-label="Coddy agent home"
+                data-testid="nav-home"
+                onClick={props.onNewChat}
+              >
                 <span className="rail-brand-text-header-single">
                   Coddy <span className="rail-brand-header-agent">agent</span>
                 </span>
@@ -121,7 +193,13 @@ export function NavRail(props: {
                 </span>
               </div>
               <div className="rail-tip-host rail-brand-tip-host">
-                <button type="button" className="rail-brand" aria-label="Coddy agent home" data-testid="nav-home" onClick={props.onNewChat}>
+                <button
+                  type="button"
+                  className="rail-brand"
+                  aria-label="Coddy agent home"
+                  data-testid="nav-home"
+                  onClick={props.onNewChat}
+                >
                   <span className="rail-brand-text">
                     <span className="rail-brand-title">Coddy</span>
                     <span className="rail-brand-sub">agent</span>
@@ -135,7 +213,13 @@ export function NavRail(props: {
           )
         ) : (
           <div className="rail-tip-host rail-brand-tip-host">
-            <button type="button" className="rail-brand" aria-label="Coddy agent home" data-testid="nav-home" onClick={props.onNewChat}>
+            <button
+              type="button"
+              className="rail-brand"
+              aria-label="Coddy agent home"
+              data-testid="nav-home"
+              onClick={props.onNewChat}
+            >
               <span className="rail-brand-text">
                 <span className="rail-brand-title">Coddy</span>
                 <span className="rail-brand-sub">agent</span>
@@ -151,14 +235,16 @@ export function NavRail(props: {
           <div className="rail-tip-host">
             <button
               type="button"
-              className={`${navBtnCls} ${props.historyOpen ? 'is-active' : ''}`}
+              className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
               aria-label="History"
               aria-pressed={props.historyOpen}
               data-testid="nav-history"
               onClick={props.onOpenHistory}
             >
               <IconBook className="rail-svg rail-nav-hit-svg" />
-              {pillWide ? <span className="rail-nav-label">History</span> : null}
+              {pillWide ? (
+                <span className="rail-nav-label">History</span>
+              ) : null}
             </button>
             {!pillWide ? (
               <span className="rail-tip" role="tooltip">
@@ -180,7 +266,9 @@ export function NavRail(props: {
                 data-testid="nav-github"
               >
                 <IconGitHub className="rail-svg rail-nav-hit-svg" />
-                {pillWide ? <span className="rail-nav-label">GitHub</span> : null}
+                {pillWide ? (
+                  <span className="rail-nav-label">GitHub</span>
+                ) : null}
               </a>
               {!pillWide ? (
                 <span className="rail-tip" role="tooltip">
@@ -199,7 +287,9 @@ export function NavRail(props: {
                 data-testid="nav-api-docs"
               >
                 <IconApi className="rail-svg rail-nav-hit-svg" />
-                {pillWide ? <span className="rail-nav-label">API docs</span> : null}
+                {pillWide ? (
+                  <span className="rail-nav-label">API docs</span>
+                ) : null}
               </a>
               {!pillWide ? (
                 <span className="rail-tip" role="tooltip">

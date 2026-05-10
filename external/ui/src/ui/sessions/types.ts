@@ -4,4 +4,3 @@ export type SessionRow = {
   updatedAt?: string;
   cwd?: string;
 };
-

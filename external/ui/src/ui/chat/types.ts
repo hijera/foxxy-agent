@@ -7,30 +7,30 @@ export type TokenUsage = {
 export type TranscriptItem =
   | {
       id: string;
-      type: 'user_message';
+      type: "user_message";
       content: string;
     }
   | {
       id: string;
-      type: 'thinking';
-      status: 'in_progress' | 'completed';
+      type: "thinking";
+      status: "in_progress" | "completed";
       content: string;
       durationMs?: number;
       startedAtMs?: number;
     }
   | {
       id: string;
-      type: 'assistant_message';
+      type: "assistant_message";
       content: string;
       streaming?: boolean;
     }
   | {
       id: string;
-      type: 'tool_call';
+      type: "tool_call";
       toolCallId: string;
       title?: string;
       kind?: string;
-      status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+      status: "pending" | "in_progress" | "completed" | "failed" | "cancelled";
       argsText?: string;
       /** Truncated preview from SSE or list endpoint (never replace with full body). */
       resultText?: string;
@@ -44,20 +44,20 @@ export type TranscriptItem =
     }
   | {
       id: string;
-      type: 'system_notice';
-      level: 'error';
+      type: "system_notice";
+      level: "error";
       message: string;
     }
   | {
       id: string;
-      type: 'memory_copilot';
+      type: "memory_copilot";
       memoryRowId: string;
       userTurnIndex: number;
       /** Single before-main-agent memory pass (preferred). Legacy rows may omit this. */
-      memoryStatus?: 'idle' | 'in_progress' | 'completed';
+      memoryStatus?: "idle" | "in_progress" | "completed";
       memoryText?: string;
-      recallStatus: 'idle' | 'in_progress' | 'completed';
-      persistStatus: 'idle' | 'in_progress' | 'completed';
+      recallStatus: "idle" | "in_progress" | "completed";
+      persistStatus: "idle" | "in_progress" | "completed";
       recallText: string;
       recallReasoning: string;
       persistText: string;
@@ -77,4 +77,3 @@ export type TranscriptItem =
       /** scope:relative paths read via coddy_memory_read during recall. */
       recallReadPaths?: string[];
     };
-

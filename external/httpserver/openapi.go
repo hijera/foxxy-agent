@@ -108,7 +108,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** only.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -269,6 +269,61 @@ func openAPISpec() map[string]interface{} {
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
 										"$ref": "#/components/schemas/CoddySlashCommandsPage",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/workspace/files": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List workspace files under session cwd (paginated)",
+					"description": "**`page`** (1-based) and **`page_size`** (1 to 200) are required. **Case-insensitive** **`prefix`** substring filter over **`path_rel`** (non-empty substring required; omit or blank **`prefix`** yields an empty **`items`** page without scanning). " +
+						"Optional **`dirs=true`** adds **`kind`** **`dir`** rows with **`path_rel`** ending in **`/`** for navigation-only rows. Responses are sorted **`path_rel`** ascending. Paths never escape session **cwd**.",
+					"operationId": "listWorkspaceFiles",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the listing root.",
+						},
+						map[string]interface{}{
+							"name": "page", "in": "query", "required": true,
+							"schema":      map[string]interface{}{"type": "integer", "minimum": 1},
+							"description": "Page index (1-based).",
+						},
+						map[string]interface{}{
+							"name": "page_size", "in": "query", "required": true,
+							"schema": map[string]interface{}{
+								"type": "integer", "minimum": 1, "maximum": 200,
+							},
+							"description": "Rows per page.",
+						},
+						map[string]interface{}{
+							"name": "prefix", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Case-insensitive substring filter applied to **`path_rel`**. When empty, **`items`** is empty.",
+						},
+						map[string]interface{}{
+							"name": "dirs", "in": "query", "required": false,
+							"schema": map[string]interface{}{
+								"type": "string",
+								"enum": []interface{}{"", "true", "false", "1", "0", "yes"},
+							},
+							"description": "Include directory rows (**`dirs=true`** / **`yes`**). File-only attachments still require non-folder paths.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Paged workspace file rows relative to cwd",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddyWorkspaceFilesPage",
 									},
 								},
 							},
@@ -455,8 +510,31 @@ func openAPISpec() map[string]interface{} {
 							"description":          "Optional. For agent/plan only, `model` key selects `models[].model`.",
 							"additionalProperties": true,
 						},
+						"attachments": map[string]interface{}{
+							"type":        "array",
+							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
+						},
 					},
 					"required": []string{"model", "input"},
+				},
+				"ResponsesPromptAttachment": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]string{
+							"type":        "string",
+							"description": "Relative path within session **cwd** (no traversal). Folder paths (**trailing slash**) are rejected.",
+						},
+						"source": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"literal": map[string]string{"type": "string"},
+								"start":   map[string]string{"type": "integer"},
+								"end":     map[string]string{"type": "integer"},
+							},
+						},
+					},
+					"required": []string{"path"},
 				},
 				"ResponsesCreateResponse": map[string]interface{}{
 					"type": "object",
@@ -506,6 +584,36 @@ func openAPISpec() map[string]interface{} {
 							"items": map[string]interface{}{"$ref": "#/components/schemas/CoddySlashCommandRow"},
 						},
 						"total":     map[string]string{"type": "integer", "description": "Row count after prefix filter."},
+						"has_more":  map[string]string{"type": "boolean"},
+						"page":      map[string]string{"type": "integer"},
+						"page_size": map[string]string{"type": "integer"},
+					},
+					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
+				},
+				"CoddyWorkspaceFileRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name": map[string]string{"type": "string"},
+						"path_rel": map[string]string{
+							"type":        "string",
+							"description": "POSIX-style relative segment from cwd. Directory rows end with **/** when **dirs=true**.",
+						},
+						"kind": map[string]interface{}{
+							"type": "string",
+							"enum": []interface{}{"file", "dir"},
+						},
+					},
+					"required": []string{"name", "path_rel", "kind"},
+				},
+				"CoddyWorkspaceFilesPage": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.workspace_files_page"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/CoddyWorkspaceFileRow"},
+						},
+						"total":     map[string]string{"type": "integer"},
 						"has_more":  map[string]string{"type": "boolean"},
 						"page":      map[string]string{"type": "integer"},
 						"page_size": map[string]string{"type": "integer"},

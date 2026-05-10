@@ -11,6 +11,8 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -460,10 +462,11 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Model    string          `json:"model"`
-		Input    string          `json:"input"`
-		Stream   bool            `json:"stream"`
-		Metadata json.RawMessage `json:"metadata,omitempty"`
+		Model       string                         `json:"model"`
+		Input       string                         `json:"input"`
+		Stream      bool                           `json:"stream"`
+		Metadata    json.RawMessage                `json:"metadata,omitempty"`
+		Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -514,6 +517,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"metadata.model is not allowed for direct completion"}}`, http.StatusBadRequest)
 		return
 	}
+	if len(body.Attachments) > 0 && !httpModelIsCoddyProfile(model) {
+		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
+		return
+	}
 
 	var bridge *Sender
 	if body.Stream {
@@ -526,9 +533,37 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if httpModelIsCoddyProfile(model) {
+		cwdAbs, err := filepath.Abs(st.GetCWD())
+		if err != nil {
+			s.log.Error("responses prompt cwd", "error", err)
+			http.Error(w, `{"error":{"message":"session cwd unavailable"}}`, http.StatusInternalServerError)
+			return
+		}
+		promptBlocks, err := session.BuildHydratedComposerPrompt(cwdAbs, strings.TrimSpace(body.Input), body.Attachments)
+		if err != nil {
+			code := http.StatusBadRequest
+			if !errors.Is(err, session.ErrPathTraversal) &&
+				!errors.Is(err, session.ErrFolderAttach) &&
+				!os.IsNotExist(err) &&
+				!strings.Contains(err.Error(), "file too large") &&
+				!strings.Contains(err.Error(), "UTF-8") &&
+				!strings.Contains(err.Error(), "invalid attachment") {
+				code = http.StatusInternalServerError
+			}
+			if code == http.StatusInternalServerError {
+				s.log.Error("responses prompt attachments", "error", err)
+			}
+			if body.Stream {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+			} else {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+			}
+			return
+		}
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sid,
-			Prompt:    []acp.ContentBlock{{Type: "text", Text: strings.TrimSpace(body.Input)}},
+			Prompt:    promptBlocks,
 		}, bridge); err != nil {
 			s.log.Error("responses prompt", "error", err)
 			if body.Stream {

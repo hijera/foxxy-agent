@@ -1,4 +1,7 @@
-export function SystemNoticeMessage(props: { level: 'error'; message: string }) {
+export function SystemNoticeMessage(props: {
+  level: "error";
+  message: string;
+}) {
   return (
     <div className={`msg msg-system msg-system-${props.level}`} role="alert">
       <div className="msg-system-label">System</div>

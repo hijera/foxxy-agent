@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
-export function ChatHeader(props: { title: string; editable?: boolean; onTitleSave?: (title: string) => void }) {
+export function ChatHeader(props: {
+  title: string;
+  editable?: boolean;
+  onTitleSave?: (title: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(props.title || '');
+  const [value, setValue] = useState(props.title || "");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!editing) {
-      setValue(props.title || '');
+      setValue(props.title || "");
     }
   }, [props.title, editing]);
 
@@ -32,16 +36,16 @@ export function ChatHeader(props: { title: string; editable?: boolean; onTitleSa
             onBlur={() => {
               setEditing(false);
               const t = value.trim();
-              if (t && t !== (props.title || '').trim()) {
+              if (t && t !== (props.title || "").trim()) {
                 props.onTitleSave?.(t);
               }
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 (e.target as HTMLInputElement).blur();
               }
-              if (e.key === 'Escape') {
-                setValue(props.title || '');
+              if (e.key === "Escape") {
+                setValue(props.title || "");
                 setEditing(false);
               }
             }}
@@ -49,7 +53,7 @@ export function ChatHeader(props: { title: string; editable?: boolean; onTitleSa
         ) : (
           <button
             type="button"
-            className={`chat-title-btn ${canEdit ? 'is-editable' : ''}`}
+            className={`chat-title-btn ${canEdit ? "is-editable" : ""}`}
             onClick={() => {
               if (canEdit) {
                 setEditing(true);
@@ -57,7 +61,7 @@ export function ChatHeader(props: { title: string; editable?: boolean; onTitleSa
             }}
             aria-label="Chat title"
           >
-            {props.title || 'New chat'}
+            {props.title || "New chat"}
           </button>
         )}
       </div>

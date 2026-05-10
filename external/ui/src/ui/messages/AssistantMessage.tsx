@@ -1,4 +1,4 @@
-import { Markdown } from '../markdown/Markdown';
+import { Markdown } from "../markdown/Markdown";
 
 export function AssistantMessage(props: { content: string }) {
   return (

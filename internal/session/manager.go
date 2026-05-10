@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -458,7 +459,15 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	state.SetCancel(cancel)
 	defer cancel()
 
-	stopReason, err := m.runner(turnCtx, state, params.Prompt, sender)
+	cwdAbs, err := filepath.Abs(state.GetCWD())
+	if err != nil {
+		return nil, fmt.Errorf("session cwd: %w", err)
+	}
+	hydrated, err := HydratePromptContentBlocks(cwdAbs, params.Prompt)
+	if err != nil {
+		return nil, err
+	}
+	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())

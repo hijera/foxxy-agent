@@ -7,7 +7,8 @@
   --coddy-skill-chip-bd: rgba(147, 51, 234, 0.52);
   --coddy-skill-chip-text: rgba(237, 220, 255, 0.96);
   --coddy-skill-chip-font:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --text: #ffffff;
   --muted: #9ca3af;
   --bubble-user: #2d2d2d;
@@ -50,8 +51,16 @@ body {
 
 html {
   background:
-    radial-gradient(1200px 600px at 30% 10%, rgba(147, 51, 234, 0.12), transparent 55%),
-    radial-gradient(900px 500px at 80% 70%, rgba(99, 102, 241, 0.1), transparent 50%),
+    radial-gradient(
+      1200px 600px at 30% 10%,
+      rgba(147, 51, 234, 0.12),
+      transparent 55%
+    ),
+    radial-gradient(
+      900px 500px at 80% 70%,
+      rgba(99, 102, 241, 0.1),
+      transparent 50%
+    ),
     linear-gradient(180deg, #0f0f10, #0b0b0c);
   background-color: #0b0b0c;
   background-attachment: fixed;
@@ -61,7 +70,11 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    sans-serif;
   background: transparent;
 }
 
@@ -120,7 +133,9 @@ body {
   gap: 0;
   min-height: 0;
   /* Narrow default; overwritten at runtime via NavRail ResizeObserver when column width changes */
-  --rail-shell-track-width: calc(var(--rail-pill-track) + var(--rail-column-pad-end));
+  --rail-shell-track-width: calc(
+    var(--rail-pill-track) + var(--rail-column-pad-end)
+  );
 }
 
 .shell-main {
@@ -291,7 +306,8 @@ body {
     Outer pill right edge matches drawer math (track + pad + gutter). +1px accounts for pill border on the content box edge.
   */
   left: calc(
-    100% + var(--rail-pill-pad-inline) + var(--rail-column-pad-end) + var(--nav-floating-gutter) + 1px
+    100% + var(--rail-pill-pad-inline) + var(--rail-column-pad-end) +
+      var(--nav-floating-gutter) + 1px
   );
   top: 50%;
   transform: translateY(-50%);
@@ -547,7 +563,12 @@ body {
   top: 14px;
   bottom: 14px;
   left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
-  width: min(320px, calc(100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px));
+  width: min(
+    320px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
+    )
+  );
   border-radius: var(--coddy-glass-panel-radius);
   box-shadow: var(--coddy-glass-panel-shadow);
   display: flex;
@@ -953,7 +974,7 @@ body {
 
 /* Full-width vignette above the docked composer (no side gaps vs narrow card stripe) */
 .chat-bottom:has(.composer-wrap-docked)::before {
-  content: '';
+  content: "";
   position: absolute;
   left: var(--coddy-chat-scrollbar-gutter);
   right: var(--coddy-chat-scrollbar-gutter);
@@ -968,7 +989,11 @@ body {
       rgba(11, 11, 12, 0.18) 45%,
       transparent 72%
     ),
-    linear-gradient(to bottom, rgba(11, 11, 12, 0) 0%, rgba(11, 11, 12, 0.12) 100%);
+    linear-gradient(
+      to bottom,
+      rgba(11, 11, 12, 0) 0%,
+      rgba(11, 11, 12, 0.12) 100%
+    );
 }
 
 .chat-bottom-inner {
@@ -1644,12 +1669,14 @@ body {
   bottom: 0;
   margin: 0 auto;
   max-width: min(560px, 100vw);
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius) 0 0;
+  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+    0 0;
   z-index: 41;
 }
 
 .slash-menu--sheet .slash-menu-surface {
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius) 0 0;
+  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+    0 0;
 }
 
 .slash-menu--sheet .slash-menu-scroll {
@@ -1685,7 +1712,7 @@ body {
 
 .slash-row-btn {
   display: grid;
-  grid-template-columns: minmax(0, auto) 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
   gap: 10px;
   align-items: start;
   width: 100%;
@@ -1706,6 +1733,9 @@ body {
   font-weight: 600;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .slash-row-desc {
@@ -1834,7 +1864,8 @@ textarea#composer {
 }
 
 /* Match textarea glyph metrics only: no extra horizontal padding/border (those widen the mirror vs the field and shift the caret). */
-.composer-skill-chip-inline {
+.composer-skill-chip-inline,
+.composer-at-chip-inline {
   display: inline;
   padding: 0;
   margin: 0;

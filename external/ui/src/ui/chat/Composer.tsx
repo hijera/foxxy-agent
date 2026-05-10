@@ -1,9 +1,30 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import type { TokenUsage } from './types';
-import { draftExtendsFailedSlashPrefix, slashMenuDraftAtCaret } from '../skills/draftSlash';
-import { segmentComposerMirrorSpans } from '../skills/composerMirrorSegments';
-import { shellStackMaxWidthMediaQuery } from '../shellBreakpoint';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import type { TokenUsage } from "./types";
+import {
+  draftExtendsFailedAtPrefix,
+  atMenuDraftAtCaret,
+} from "../skills/draftAt";
+import {
+  draftExtendsFailedSlashPrefix,
+  slashMenuDraftAtCaret,
+} from "../skills/draftSlash";
+import { segmentComposerMirrorSpans } from "../skills/composerMirrorSegments";
+import { workspacePickRowSubtitle } from "../skills/workspacePickRowSubtitle";
+import {
+  pickerRowFromRecent,
+  readWorkspaceAtRecents,
+  recordWorkspaceAtRecent,
+  WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+} from "../skills/workspaceAtRecents";
+import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -13,24 +34,31 @@ function clamp01(x: number): number {
 }
 
 function fmtInt(n: number | undefined): string {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '0';
+  if (typeof n !== "number" || !Number.isFinite(n)) return "0";
   return Math.max(0, Math.trunc(n)).toString();
 }
 
 /** Short label for **`models[].model`** ids (Coddy profile IDs use displayMode elsewhere). */
 function displayLlmId(id: string): string {
-  const m = id || '';
-  const i = m.lastIndexOf('/');
+  const m = id || "";
+  const i = m.lastIndexOf("/");
   if (i >= 0 && i < m.length - 1) {
     return m.slice(i + 1);
   }
-  return m || 'Model';
+  return m || "Model";
 }
 
 type SlashRow = { name: string; description: string };
 
+type WorkspaceFileRow = { name: string; path_rel: string; kind: string };
+
 /** Floating slash menu anchored to **`composer-field-wrap`** (viewport-relative). */
-type SlashFloatRect = { left: number; width: number; bottom: number; maxH: number };
+type PickerFloatRect = {
+  left: number;
+  width: number;
+  bottom: number;
+  maxH: number;
+};
 
 export function Composer(props: {
   value: string;
@@ -55,8 +83,8 @@ export function Composer(props: {
   generating?: boolean;
   onStop?: () => void;
 }) {
-  const idleSendDisabled = props.value.trim() === '';
-  const [menuOpen, setMenuOpen] = useState<'mode' | 'llm' | null>(null);
+  const idleSendDisabled = props.value.trim() === "";
+  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | null>(null);
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
@@ -66,94 +94,185 @@ export function Composer(props: {
   const slashFetchGenRef = useRef(0);
   const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
   const [slashOpen, setSlashOpen] = useState(false);
-  const [slashPrefix, setSlashPrefix] = useState('');
+  const [slashPrefix, setSlashPrefix] = useState("");
   const [slashLoading, setSlashLoading] = useState(false);
   const [slashErr, setSlashErr] = useState<string | null>(null);
   const [slashPage, setSlashPage] = useState(1);
   const [slashHasMore, setSlashHasMore] = useState(false);
-  const [slashReplace, setSlashReplace] = useState<{ from: number; to: number } | null>(null);
-  const [slashFloatRect, setSlashFloatRect] = useState<SlashFloatRect | null>(null);
+  const [slashReplace, setSlashReplace] = useState<{
+    from: number;
+    to: number;
+  } | null>(null);
+  const [pickerFloatRect, setPickerFloatRect] =
+    useState<PickerFloatRect | null>(null);
   /** Server returned zero rows for failed `prefix`; hide picker/chip while the user extends that prefix at the same `/`. */
-  const [slashNoMatch, setSlashNoMatch] = useState<{ slashIdx: number; prefix: string } | null>(null);
+  const [slashNoMatch, setSlashNoMatch] = useState<{
+    slashIdx: number;
+    prefix: string;
+  } | null>(null);
+  const atFetchGenRef = useRef(0);
+  /**
+   * After a workspace row is chosen, `setSelectionRange` + textarea `select` fires
+   * `updatePickerMenus` while the line still matches `atMenuDraftAtCaret`
+   * (file picks append a trailing space, which MENU_PATH treats as inside the `@` token).
+   * Skip reopening `@` on the next picker sync ticks (handles duplicate selection events).
+   */
+  const deferAtDraftPickerTicksRef = useRef(0);
+  const [atItems, setAtItems] = useState<WorkspaceFileRow[]>([]);
+  const [atOpen, setAtOpen] = useState(false);
+  const [atPrefix, setAtPrefix] = useState("");
+  const [atLoading, setAtLoading] = useState(false);
+  const [atErr, setAtErr] = useState<string | null>(null);
+  const [atPage, setAtPage] = useState(1);
+  const [atHasMore, setAtHasMore] = useState(false);
+  const [atReplace, setAtReplace] = useState<{
+    from: number;
+    to: number;
+  } | null>(null);
+  const [atNoMatch, setAtNoMatch] = useState<{
+    atIdx: number;
+    prefix: string;
+  } | null>(null);
   const [caretPos, setCaretPos] = useState(0);
+  /** Stacked-shell viewports (`max-width`) use a bottom sheet so the picker is not clipped off-screen. */
+  const [pickerUseSheet, setPickerUseSheet] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+  });
 
-  const measureSlashFloat = useCallback(() => {
-    if (!slashOpen) {
-      setSlashFloatRect(null);
+  const pickerOpen = slashOpen || atOpen;
+  const measurePickerFloat = useCallback(() => {
+    if (!pickerOpen) {
+      setPickerFloatRect(null);
+      return;
+    }
+    if (pickerUseSheet) {
+      setPickerFloatRect(null);
       return;
     }
     const el = composerFieldWrapRef.current;
     if (!el) {
-      setSlashFloatRect(null);
+      setPickerFloatRect(null);
       return;
     }
     const r = el.getBoundingClientRect();
     if (r.width < 8) {
-      setSlashFloatRect(null);
+      setPickerFloatRect(null);
       return;
     }
     const maxH = Math.min(260, Math.round(window.innerHeight * 0.42));
-    setSlashFloatRect({
+    setPickerFloatRect({
       left: r.left,
       width: r.width,
       bottom: window.innerHeight - r.top + 8,
       maxH,
     });
-  }, [slashOpen]);
+  }, [pickerOpen, pickerUseSheet]);
 
   useLayoutEffect(() => {
-    if (!slashOpen) {
-      setSlashFloatRect(null);
+    if (!pickerOpen) {
+      setPickerFloatRect(null);
       return;
     }
-    measureSlashFloat();
+    if (pickerUseSheet) {
+      setPickerFloatRect(null);
+      return;
+    }
+    measurePickerFloat();
     const el = composerFieldWrapRef.current;
     let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && el) {
-      ro = new ResizeObserver(() => measureSlashFloat());
+    if (typeof ResizeObserver !== "undefined" && el) {
+      ro = new ResizeObserver(() => measurePickerFloat());
       ro.observe(el);
     }
-    window.addEventListener('resize', measureSlashFloat);
-    const onMsgs = () => measureSlashFloat();
+    window.addEventListener("resize", measurePickerFloat);
+    const onMsgs = () => measurePickerFloat();
     const shellMobile =
-      typeof document !== 'undefined' && window.matchMedia(shellStackMaxWidthMediaQuery).matches;
+      typeof document !== "undefined" &&
+      window.matchMedia(shellStackMaxWidthMediaQuery).matches;
     if (shellMobile) {
-      window.addEventListener('scroll', onMsgs, { passive: true });
+      window.addEventListener("scroll", onMsgs, { passive: true });
     } else {
-      const msgEl = typeof document !== 'undefined' ? document.getElementById('messages') : null;
-      msgEl?.addEventListener('scroll', onMsgs, { passive: true });
+      const msgEl =
+        typeof document !== "undefined"
+          ? document.getElementById("messages")
+          : null;
+      msgEl?.addEventListener("scroll", onMsgs, { passive: true });
     }
     return () => {
       ro?.disconnect();
-      window.removeEventListener('resize', measureSlashFloat);
+      window.removeEventListener("resize", measurePickerFloat);
       if (shellMobile) {
-        window.removeEventListener('scroll', onMsgs);
+        window.removeEventListener("scroll", onMsgs);
       } else {
-        const msgEl = typeof document !== 'undefined' ? document.getElementById('messages') : null;
-        msgEl?.removeEventListener('scroll', onMsgs);
+        const msgEl =
+          typeof document !== "undefined"
+            ? document.getElementById("messages")
+            : null;
+        msgEl?.removeEventListener("scroll", onMsgs);
       }
     };
-  }, [slashOpen, measureSlashFloat, props.isEmpty]);
+  }, [
+    pickerOpen,
+    pickerUseSheet,
+    measurePickerFloat,
+    props.isEmpty,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const mq = window.matchMedia(shellStackMaxWidthMediaQuery);
+    const sync = () => setPickerUseSheet(mq.matches);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   const bumpSlashFetchGen = () => {
     slashFetchGenRef.current++;
   };
 
+  const bumpAtFetchGen = () => {
+    atFetchGenRef.current++;
+  };
+
+  /** Close floating slash/workspace pickers without mutating textarea text (Escape or sheet backdrop). */
+  function dismissSlashAtPickers() {
+    setSlashOpen(false);
+    setSlashReplace(null);
+    setSlashNoMatch(null);
+    bumpSlashFetchGen();
+    setSlashLoading(false);
+    setSlashErr(null);
+
+    setAtOpen(false);
+    setAtReplace(null);
+    setAtNoMatch(null);
+    bumpAtFetchGen();
+    setAtLoading(false);
+    setAtErr(null);
+  }
+
   const fetchSlashPage = useCallback(
     async (prefix: string, page: number) => {
       const sp = new URLSearchParams({
         page: String(page),
-        page_size: '30',
+        page_size: "30",
       });
       if (prefix) {
-        sp.set('prefix', prefix);
+        sp.set("prefix", prefix);
       }
       const headers: Record<string, string> = {};
-      const sid = (props.sessionId || '').trim();
+      const sid = (props.sessionId || "").trim();
       if (sid) {
-        headers['X-Coddy-Session-ID'] = sid;
+        headers["X-Coddy-Session-ID"] = sid;
       }
-      const res = await fetch(`/coddy/slash-commands?${sp.toString()}`, { headers });
+      const res = await fetch(`/coddy/slash-commands?${sp.toString()}`, {
+        headers,
+      });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -161,6 +280,33 @@ export function Composer(props: {
         items: SlashRow[];
         has_more: boolean;
         page: number;
+      };
+    },
+    [props.sessionId],
+  );
+
+  const fetchAtPage = useCallback(
+    async (prefix: string, page: number) => {
+      const sp = new URLSearchParams({
+        page: String(page),
+        page_size: "10",
+        prefix,
+        dirs: "true",
+      });
+      const headers: Record<string, string> = {};
+      const sid = (props.sessionId || "").trim();
+      if (sid) {
+        headers["X-Coddy-Session-ID"] = sid;
+      }
+      const res = await fetch(`/coddy/workspace/files?${sp.toString()}`, {
+        headers,
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return (await res.json()) as {
+        items: WorkspaceFileRow[];
+        has_more: boolean;
       };
     },
     [props.sessionId],
@@ -191,7 +337,12 @@ export function Composer(props: {
       const gen = slashFetchGenRef.current;
       void (async () => {
         const el = taRef.current;
-        const now = el ? slashMenuDraftAtCaret(el.value, el.selectionStart ?? el.value.length) : null;
+        const now = el
+          ? slashMenuDraftAtCaret(
+              el.value,
+              el.selectionStart ?? el.value.length,
+            )
+          : null;
         if (
           gen !== slashFetchGenRef.current ||
           !now ||
@@ -209,7 +360,12 @@ export function Composer(props: {
             return;
           }
           const el2 = taRef.current;
-          const after = el2 ? slashMenuDraftAtCaret(el2.value, el2.selectionStart ?? el2.value.length) : null;
+          const after = el2
+            ? slashMenuDraftAtCaret(
+                el2.value,
+                el2.selectionStart ?? el2.value.length,
+              )
+            : null;
           if (
             !after ||
             !after.open ||
@@ -233,7 +389,7 @@ export function Composer(props: {
           if (gen !== slashFetchGenRef.current) {
             return;
           }
-          setSlashErr(e instanceof Error ? e.message : 'request failed');
+          setSlashErr(e instanceof Error ? e.message : "request failed");
           setSlashItems([]);
           setSlashHasMore(false);
           setSlashNoMatch(null);
@@ -247,10 +403,146 @@ export function Composer(props: {
     [fetchSlashPage, slashNoMatch],
   );
 
+  const updateAtMenu = useCallback(
+    (value: string, caret: number) => {
+      const draft = atMenuDraftAtCaret(value, caret);
+      if (!draft.open) {
+        bumpAtFetchGen();
+        setAtOpen(false);
+        setAtReplace(null);
+        setAtNoMatch(null);
+        setAtLoading(false);
+        return;
+      }
+      if (atNoMatch && draftExtendsFailedAtPrefix(draft, atNoMatch)) {
+        bumpAtFetchGen();
+        setAtOpen(false);
+        setAtReplace(null);
+        setAtLoading(false);
+        return;
+      }
+      setAtOpen(true);
+      setAtReplace({ from: draft.atIdx, to: draft.caret });
+      setAtPrefix(draft.prefix);
+
+      if (draft.prefix.trim() === "") {
+        bumpAtFetchGen();
+        const wk =
+          (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
+        const recents = readWorkspaceAtRecents(wk).map(pickerRowFromRecent);
+        setAtItems(recents);
+        setAtPage(1);
+        setAtHasMore(false);
+        setAtNoMatch(null);
+        setAtLoading(false);
+        setAtErr(null);
+        return;
+      }
+
+      atFetchGenRef.current += 1;
+      const gen = atFetchGenRef.current;
+      void (async () => {
+        const el = taRef.current;
+        const now = el
+          ? atMenuDraftAtCaret(el.value, el.selectionStart ?? el.value.length)
+          : null;
+        if (
+          gen !== atFetchGenRef.current ||
+          !now ||
+          !now.open ||
+          now.atIdx !== draft.atIdx ||
+          now.prefix !== draft.prefix
+        ) {
+          return;
+        }
+        setAtLoading(true);
+        setAtErr(null);
+        try {
+          const body = await fetchAtPage(now.prefix.trimEnd(), 1);
+          if (gen !== atFetchGenRef.current) {
+            return;
+          }
+          const el2 = taRef.current;
+          const after = el2
+            ? atMenuDraftAtCaret(
+                el2.value,
+                el2.selectionStart ?? el2.value.length,
+              )
+            : null;
+          if (
+            !after ||
+            !after.open ||
+            after.atIdx !== now.atIdx ||
+            after.prefix !== now.prefix
+          ) {
+            return;
+          }
+          const rows = body.items || [];
+          setAtItems(rows);
+          setAtPage(1);
+          setAtHasMore(!!body.has_more);
+          if (rows.length === 0) {
+            setAtNoMatch({ atIdx: after.atIdx, prefix: after.prefix });
+            setAtItems([]);
+            setAtHasMore(false);
+          } else {
+            setAtNoMatch(null);
+          }
+        } catch (e) {
+          if (gen !== atFetchGenRef.current) {
+            return;
+          }
+          setAtErr(e instanceof Error ? e.message : "request failed");
+          setAtItems([]);
+          setAtHasMore(false);
+          setAtNoMatch(null);
+        } finally {
+          if (gen === atFetchGenRef.current) {
+            setAtLoading(false);
+          }
+        }
+      })();
+    },
+    [fetchAtPage, atNoMatch, props.sessionId],
+  );
+
+  const updatePickerMenus = useCallback(
+    (value: string, caret: number) => {
+      let deferAtDraft = false;
+      if (deferAtDraftPickerTicksRef.current > 0) {
+        deferAtDraftPickerTicksRef.current -= 1;
+        deferAtDraft = true;
+      }
+      const ad = atMenuDraftAtCaret(value, caret);
+      if (ad.open && !deferAtDraft) {
+        bumpSlashFetchGen();
+        setSlashOpen(false);
+        setSlashReplace(null);
+        setSlashNoMatch(null);
+        setSlashLoading(false);
+        updateAtMenu(value, caret);
+        return;
+      }
+      bumpAtFetchGen();
+      setAtOpen(false);
+      setAtReplace(null);
+      setAtNoMatch(null);
+      setAtLoading(false);
+      updateSlashMenu(value, caret);
+    },
+    [updateAtMenu, updateSlashMenu],
+  );
+
   const maskComposerText = props.value.length > 0;
   const composerSegments = useMemo(
-    () => segmentComposerMirrorSpans(props.value, caretPos, slashNoMatch),
-    [props.value, caretPos, slashNoMatch],
+    () =>
+      segmentComposerMirrorSpans(
+        props.value,
+        caretPos,
+        slashNoMatch,
+        atNoMatch,
+      ),
+    [props.value, caretPos, slashNoMatch, atNoMatch],
   );
 
   useLayoutEffect(() => {
@@ -315,6 +607,46 @@ export function Composer(props: {
     setSlashNoMatch(null);
     bumpSlashFetchGen();
     setSlashLoading(false);
+    setAtOpen(false);
+    setAtReplace(null);
+    setAtNoMatch(null);
+    bumpAtFetchGen();
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) {
+        return;
+      }
+      const pos = from + insert.length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const applyAtChoice = (row: WorkspaceFileRow) => {
+    if (!atReplace) {
+      return;
+    }
+    deferAtDraftPickerTicksRef.current = 2;
+    const { from, to } = atReplace;
+    const insert =
+      row.kind === "dir"
+        ? `@${row.path_rel}`
+        : `@${row.path_rel.replace(/\/$/, "")} `;
+    const next = props.value.slice(0, from) + insert + props.value.slice(to);
+    props.onChange(next);
+    recordWorkspaceAtRecent(
+      (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+      row,
+    );
+    setAtOpen(false);
+    setAtReplace(null);
+    setAtNoMatch(null);
+    bumpAtFetchGen();
+    setSlashOpen(false);
+    setSlashReplace(null);
+    setSlashNoMatch(null);
+    bumpSlashFetchGen();
+    setSlashLoading(false);
     requestAnimationFrame(() => {
       const el = taRef.current;
       if (!el) {
@@ -344,59 +676,99 @@ export function Composer(props: {
         setSlashPage(nextPage);
         setSlashHasMore(!!body.has_more);
       } catch (e) {
-        setSlashErr(e instanceof Error ? e.message : 'request failed');
+        setSlashErr(e instanceof Error ? e.message : "request failed");
       } finally {
         setSlashLoading(false);
       }
     })();
   };
+
+  const loadMoreAt = () => {
+    if (!atOpen || atLoading || !atHasMore || atPrefix.trim() === "") {
+      return;
+    }
+    void (async () => {
+      setAtLoading(true);
+      setAtErr(null);
+      try {
+        const nextPage = atPage + 1;
+        const body = await fetchAtPage(atPrefix.trimEnd(), nextPage);
+        const more = body.items || [];
+        setAtItems((prev) => [...prev, ...more]);
+        if (more.length > 0) {
+          setAtNoMatch(null);
+        }
+        setAtPage(nextPage);
+        setAtHasMore(!!body.has_more);
+      } catch (e) {
+        setAtErr(e instanceof Error ? e.message : "request failed");
+      } finally {
+        setAtLoading(false);
+      }
+    })();
+  };
+
   const llmList = props.llmModels ?? [];
   const showLlm = llmList.length > 0;
-  const llmVal = (props.llmModel || '').trim();
+  const llmVal = (props.llmModel || "").trim();
 
   function displayMode(id: string): string {
-    const m = id || 'agent';
-    if (m === 'plan' || m === 'agent') {
+    const m = id || "agent";
+    if (m === "plan" || m === "agent") {
       return m.slice(0, 1).toUpperCase() + m.slice(1);
     }
-    const i = m.lastIndexOf('/');
+    const i = m.lastIndexOf("/");
     if (i >= 0 && i < m.length - 1) {
       return m.slice(i + 1);
     }
     return m;
   }
-  const modeLabel = displayMode(props.mode || 'agent');
-  const llmLabel = llmVal ? displayLlmId(llmVal) : 'Model';
+  const modeLabel = displayMode(props.mode || "agent");
+  const llmLabel = llmVal ? displayLlmId(llmVal) : "Model";
   const contextIdle = props.contextIdle === true;
-  const pctRaw = typeof props.contextPct === 'number' ? props.contextPct : null;
+  const pctRaw = typeof props.contextPct === "number" ? props.contextPct : null;
   const pct = contextIdle ? null : pctRaw;
-  const pct01 = contextIdle ? 0 : clamp01(typeof pct === 'number' ? pct / 100 : 0);
+  const pct01 = contextIdle
+    ? 0
+    : clamp01(typeof pct === "number" ? pct / 100 : 0);
   const r = 12;
   const vb = 28;
   const cx = vb / 2;
   const c = 2 * Math.PI * r;
   const off = c * (1 - pct01);
   const usage = contextIdle ? null : props.tokenUsage || null;
-  const maxCtx = typeof props.maxContextTokens === 'number' && props.maxContextTokens > 0 ? props.maxContextTokens : 128000;
-  const modeMenuDirClass = props.isEmpty ? 'opens-down' : 'opens-up';
+  const maxCtx =
+    typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
+      ? props.maxContextTokens
+      : 128000;
+  const modeMenuDirClass = props.isEmpty ? "opens-down" : "opens-up";
   const tip = contextIdle
-    ? ['No context usage yet', `Max context ${fmtInt(maxCtx)}`].join('\n')
+    ? ["No context usage yet", `Max context ${fmtInt(maxCtx)}`].join("\n")
     : [
-        `${typeof pct === 'number' ? pct.toFixed(1) : '0.0'}% context used`,
-        usage ? `Input ${fmtInt(usage.inputTokens)}   Output ${fmtInt(usage.outputTokens)}   Total ${fmtInt(usage.totalTokens)}` : '',
+        `${typeof pct === "number" ? pct.toFixed(1) : "0.0"}% context used`,
+        usage
+          ? `Input ${fmtInt(usage.inputTokens)}   Output ${fmtInt(usage.outputTokens)}   Total ${fmtInt(usage.totalTokens)}`
+          : "",
         `Max context ${fmtInt(maxCtx)}`,
       ]
         .filter(Boolean)
-        .join('\n');
+        .join("\n");
 
   const slashMenuChrome = (
     <>
       <div className="slash-menu-surface" aria-hidden />
-      <div className="slash-menu-scroll" style={{ maxHeight: slashFloatRect?.maxH }}>
+      <div
+        className="slash-menu-scroll"
+        style={{ maxHeight: pickerFloatRect?.maxH }}
+      >
         <div className="slash-menu-title">Skills</div>
-        {slashLoading && slashItems.length === 0 ? <div className="slash-muted">Loading…</div> : null}
+        {slashLoading && slashItems.length === 0 ? (
+          <div className="slash-muted">Loading…</div>
+        ) : null}
         {slashErr ? <div className="slash-err">{slashErr}</div> : null}
-        {!slashLoading && slashItems.length === 0 && !slashErr ? <div className="slash-muted">No commands</div> : null}
+        {!slashLoading && slashItems.length === 0 && !slashErr ? (
+          <div className="slash-muted">No commands</div>
+        ) : null}
         <ul className="slash-rows">
           {slashItems.map((row) => (
             <li key={row.name}>
@@ -425,7 +797,63 @@ export function Composer(props: {
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => loadMoreSlash()}
           >
-            {slashLoading ? 'Loading…' : 'More'}
+            {slashLoading ? "Loading…" : "More"}
+          </button>
+        ) : null}
+      </div>
+    </>
+  );
+
+  const atMenuChrome = (
+    <>
+      <div className="slash-menu-surface" aria-hidden />
+      <div
+        className="slash-menu-scroll"
+        style={{ maxHeight: pickerFloatRect?.maxH }}
+      >
+        <div className="slash-menu-title">Workspace files</div>
+        {atPrefix.trim() === "" && atItems.length === 0 ? (
+          <div className="slash-muted">Type after @ to search</div>
+        ) : null}
+        {atLoading && atItems.length === 0 && atPrefix.trim() !== "" ? (
+          <div className="slash-muted">Loading…</div>
+        ) : null}
+        {atErr ? <div className="slash-err">{atErr}</div> : null}
+        {!atLoading &&
+        atItems.length === 0 &&
+        !atErr &&
+        atPrefix.trim() !== "" ? (
+          <div className="slash-muted">No files</div>
+        ) : null}
+        <ul className="slash-rows">
+          {atItems.map((row) => (
+            <li key={`${row.kind}:${row.path_rel}`}>
+              <button
+                type="button"
+                role="option"
+                className="slash-row-btn"
+                data-testid={`workspace-file-row-${row.path_rel.replace(/[^a-zA-Z0-9_-]+/g, "_")}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applyAtChoice(row);
+                }}
+              >
+                <span className="slash-row-name">@{row.path_rel}</span>
+                <span className="slash-row-desc">{workspacePickRowSubtitle(row)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {atHasMore ? (
+          <button
+            type="button"
+            className="slash-load-more"
+            disabled={atLoading}
+            data-testid="workspace-files-more"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => loadMoreAt()}
+          >
+            {atLoading ? "Loading…" : "More"}
           </button>
         ) : null}
       </div>
@@ -434,176 +862,180 @@ export function Composer(props: {
 
   return (
     <>
-      <footer className={['composer-wrap', props.isEmpty ? '' : 'composer-wrap-docked'].filter(Boolean).join(' ')}>
-      <label className="sr-only" htmlFor="composer">
-        Message
-      </label>
-      <div className="composer-card">
-        <div className="composer-field-wrap" ref={composerFieldWrapRef}>
-          <div className="composer-stack">
-            {maskComposerText ? (
-              <div className="composer-mirror" aria-hidden="true">
-                <div
-                  ref={mirrorInnerRef}
-                  className="composer-mirror-inner"
-                  style={{ transform: `translateY(-${composerScrollTop}px)` }}
-                >
-                  {composerSegments.map((seg, idx) =>
-                    seg.type === 'text' ? (
-                      <span key={idx}>{seg.value}</span>
-                    ) : (
-                      <span
-                        key={idx}
-                        className="composer-skill-chip-inline"
-                        data-testid="composer-skill-chip"
-                        data-skill-name={seg.name}
-                      >
-                        {seg.literal}
-                      </span>
-                    ),
-                  )}
-                </div>
-              </div>
-            ) : null}
-            <textarea
-              ref={taRef}
-              id="composer"
-              className={maskComposerText ? 'composer-ta-masked' : undefined}
-              rows={props.isEmpty ? 5 : 2}
-              placeholder={props.isEmpty ? 'Ask anything...' : 'Message Coddy'}
-              autoComplete="off"
-              value={props.value}
-              onChange={(ev) => {
-                const v = ev.target.value;
-                const caret = ev.target.selectionStart ?? v.length;
-                setCaretPos(caret);
-                props.onChange(v);
-                updateSlashMenu(v, caret);
-              }}
-              onScroll={() => syncComposerScroll()}
-              onKeyUp={(ev) => {
-                const el = taRef.current;
-                if (!el) {
-                  return;
-                }
-                setCaretPos(el.selectionStart ?? el.value.length);
-                if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'Home' || ev.key === 'End') {
-                  updateSlashMenu(props.value, el.selectionStart);
-                }
-              }}
-              onSelect={() => {
-                const el = taRef.current;
-                if (el) {
-                  setCaretPos(el.selectionStart ?? el.value.length);
-                  updateSlashMenu(props.value, el.selectionStart);
-                  syncComposerScroll();
-                }
-              }}
-              onClick={() => {
-                const el = taRef.current;
-                if (el) {
-                  setCaretPos(el.selectionStart ?? el.value.length);
-                  updateSlashMenu(props.value, el.selectionStart);
-                  syncComposerScroll();
-                }
-              }}
-              onKeyDown={(ev) => {
-                if (ev.key === 'Escape' && slashOpen) {
-                  ev.preventDefault();
-                  setSlashOpen(false);
-                  setSlashReplace(null);
-                  setSlashNoMatch(null);
-                  bumpSlashFetchGen();
-                  setSlashLoading(false);
-                  return;
-                }
-                if (ev.key === 'Enter' && !ev.shiftKey && slashOpen && slashItems.length > 0 && !props.generating) {
-                  ev.preventDefault();
-                  const row0 = slashItems[0];
-                  if (row0) {
-                    applySlashChoice(row0.name);
-                  }
-                  return;
-                }
-                if (ev.key === 'Enter' && !ev.shiftKey) {
-                  ev.preventDefault();
-                  if (props.generating) {
-                    return;
-                  }
-                  const txt = props.value.trim();
-                  if (!txt) {
-                    return;
-                  }
-                  props.onSend(txt);
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="composer-bar">
-          <div className="composer-tabs" aria-label="Composer options">
-            <div className="mode">
-              <button
-                type="button"
-                className={`composer-tab mode-btn ${props.mode === 'plan' ? 'mode-plan' : 'mode-agent'}`}
-                aria-label="Mode"
-                title="Mode"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen === 'mode'}
-                onClick={() => setMenuOpen((cur) => (cur === 'mode' ? null : 'mode'))}
-              >
-                {modeLabel}
-              </button>
-              {menuOpen === 'mode' ? (
-                <div className={`mode-menu ${modeMenuDirClass}`} role="menu">
-                  {props.modes.map((m) => {
-                    const label = displayMode(m);
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        role="menuitem"
-                        className={`mode-item ${m === props.mode ? 'is-selected' : ''}`}
-                        onClick={() => {
-                          props.onModeChange(m);
-                          setMenuOpen(null);
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
+      <footer
+        className={[
+          "composer-wrap",
+          props.isEmpty ? "" : "composer-wrap-docked",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <label className="sr-only" htmlFor="composer">
+          Message
+        </label>
+        <div className="composer-card">
+          <div className="composer-field-wrap" ref={composerFieldWrapRef}>
+            <div className="composer-stack">
+              {maskComposerText ? (
+                <div className="composer-mirror" aria-hidden="true">
+                  <div
+                    ref={mirrorInnerRef}
+                    className="composer-mirror-inner"
+                    style={{ transform: `translateY(-${composerScrollTop}px)` }}
+                  >
+                    {composerSegments.map((seg, idx) =>
+                      seg.type === "text" ? (
+                        <span key={idx}>{seg.value}</span>
+                      ) : seg.type === "slash" ? (
+                        <span
+                          key={idx}
+                          className="composer-skill-chip-inline"
+                          data-testid="composer-skill-chip"
+                          data-skill-name={seg.name}
+                        >
+                          {seg.literal}
+                        </span>
+                      ) : (
+                        <span
+                          key={idx}
+                          className="composer-at-chip-inline"
+                          data-testid="composer-at-chip"
+                          data-path-rel={seg.pathRel}
+                        >
+                          {seg.literal}
+                        </span>
+                      ),
+                    )}
+                  </div>
                 </div>
               ) : null}
+              <textarea
+                ref={taRef}
+                id="composer"
+                className={maskComposerText ? "composer-ta-masked" : undefined}
+                rows={props.isEmpty ? 5 : 2}
+                placeholder={
+                  props.isEmpty ? "Ask anything..." : "Message Coddy"
+                }
+                autoComplete="off"
+                value={props.value}
+                onChange={(ev) => {
+                  const v = ev.target.value;
+                  const caret = ev.target.selectionStart ?? v.length;
+                  setCaretPos(caret);
+                  props.onChange(v);
+                  updatePickerMenus(v, caret);
+                }}
+                onScroll={() => syncComposerScroll()}
+                onKeyUp={(ev) => {
+                  const el = taRef.current;
+                  if (!el) {
+                    return;
+                  }
+                  setCaretPos(el.selectionStart ?? el.value.length);
+                  if (
+                    ev.key === "ArrowLeft" ||
+                    ev.key === "ArrowRight" ||
+                    ev.key === "Home" ||
+                    ev.key === "End"
+                  ) {
+                    updatePickerMenus(props.value, el.selectionStart);
+                  }
+                }}
+                onSelect={() => {
+                  const el = taRef.current;
+                  if (el) {
+                    setCaretPos(el.selectionStart ?? el.value.length);
+                    updatePickerMenus(props.value, el.selectionStart);
+                    syncComposerScroll();
+                  }
+                }}
+                onClick={() => {
+                  const el = taRef.current;
+                  if (el) {
+                    setCaretPos(el.selectionStart ?? el.value.length);
+                    updatePickerMenus(props.value, el.selectionStart);
+                    syncComposerScroll();
+                  }
+                }}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Escape" && (slashOpen || atOpen)) {
+                    ev.preventDefault();
+                    dismissSlashAtPickers();
+                    return;
+                  }
+                  if (
+                    ev.key === "Enter" &&
+                    !ev.shiftKey &&
+                    atOpen &&
+                    atItems.length > 0 &&
+                    !props.generating
+                  ) {
+                    ev.preventDefault();
+                    const row0 = atItems[0];
+                    if (row0) {
+                      applyAtChoice(row0);
+                    }
+                    return;
+                  }
+                  if (
+                    ev.key === "Enter" &&
+                    !ev.shiftKey &&
+                    slashOpen &&
+                    slashItems.length > 0 &&
+                    !props.generating
+                  ) {
+                    ev.preventDefault();
+                    const row0 = slashItems[0];
+                    if (row0) {
+                      applySlashChoice(row0.name);
+                    }
+                    return;
+                  }
+                  if (ev.key === "Enter" && !ev.shiftKey) {
+                    ev.preventDefault();
+                    if (props.generating) {
+                      return;
+                    }
+                    const txt = props.value.trim();
+                    if (!txt) {
+                      return;
+                    }
+                    props.onSend(txt);
+                  }
+                }}
+              />
             </div>
+          </div>
 
-            {showLlm && props.onLlmModelChange ? (
+          <div className="composer-bar">
+            <div className="composer-tabs" aria-label="Composer options">
               <div className="mode">
                 <button
                   type="button"
-                  className="composer-tab mode-btn mode-llm"
-                  aria-label="Model"
-                  title="YAML backend (metadata.model)"
+                  className={`composer-tab mode-btn ${props.mode === "plan" ? "mode-plan" : "mode-agent"}`}
+                  aria-label="Mode"
+                  title="Mode"
                   aria-haspopup="menu"
-                  aria-expanded={menuOpen === 'llm'}
-                  onClick={() => setMenuOpen((cur) => (cur === 'llm' ? null : 'llm'))}
+                  aria-expanded={menuOpen === "mode"}
+                  onClick={() =>
+                    setMenuOpen((cur) => (cur === "mode" ? null : "mode"))
+                  }
                 >
-                  {llmLabel}
+                  {modeLabel}
                 </button>
-                {menuOpen === 'llm' ? (
+                {menuOpen === "mode" ? (
                   <div className={`mode-menu ${modeMenuDirClass}`} role="menu">
-                    {llmList.map((mid) => {
-                      const label = displayLlmId(mid);
+                    {props.modes.map((m) => {
+                      const label = displayMode(m);
                       return (
                         <button
-                          key={mid}
+                          key={m}
                           type="button"
                           role="menuitem"
-                          title={mid}
-                          className={`mode-item ${mid === llmVal ? 'is-selected' : ''}`}
+                          className={`mode-item ${m === props.mode ? "is-selected" : ""}`}
                           onClick={() => {
-                            props.onLlmModelChange?.(mid);
+                            props.onModeChange(m);
                             setMenuOpen(null);
                           }}
                         >
@@ -614,72 +1046,155 @@ export function Composer(props: {
                   </div>
                 ) : null}
               </div>
-            ) : null}
-          </div>
 
-          <div className="composer-bar-actions">
-            <div className="composer-context-tip-host" tabIndex={0} aria-label="Context usage">
-              <div className="context-ring" role="img" aria-hidden="true">
-                <svg viewBox={`0 0 ${vb} ${vb}`} width="30" height="30" aria-hidden="true">
-                  <circle className="context-ring-bg" cx={cx} cy={cx} r={r} />
-                  <circle
-                    className="context-ring-fg"
-                    cx={cx}
-                    cy={cx}
-                    r={r}
-                    strokeDasharray={c}
-                    strokeDashoffset={off}
-                  />
-                </svg>
-              </div>
-              <span className="rail-tip composer-context-tip" role="tooltip">
-                {tip}
-              </span>
+              {showLlm && props.onLlmModelChange ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    className="composer-tab mode-btn mode-llm"
+                    aria-label="Model"
+                    title="YAML backend (metadata.model)"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "llm"}
+                    onClick={() =>
+                      setMenuOpen((cur) => (cur === "llm" ? null : "llm"))
+                    }
+                  >
+                    {llmLabel}
+                  </button>
+                  {menuOpen === "llm" ? (
+                    <div
+                      className={`mode-menu ${modeMenuDirClass}`}
+                      role="menu"
+                    >
+                      {llmList.map((mid) => {
+                        const label = displayLlmId(mid);
+                        return (
+                          <button
+                            key={mid}
+                            type="button"
+                            role="menuitem"
+                            title={mid}
+                            className={`mode-item ${mid === llmVal ? "is-selected" : ""}`}
+                            onClick={() => {
+                              props.onLlmModelChange?.(mid);
+                              setMenuOpen(null);
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            <button
-              type="button"
-              className={['composer-icon', props.generating ? 'composer-send-stop' : 'composer-send-play'].join(' ')}
-              id="btn-send"
-              aria-label={props.generating ? 'Stop generation' : 'Send'}
-              disabled={!props.generating && idleSendDisabled}
-              onClick={() => {
-                if (props.generating) {
-                  props.onStop?.();
-                  return;
-                }
-                const txt = props.value.trim();
-                if (!txt) {
-                  return;
-                }
-                props.onSend(txt);
-              }}
-            >
-              <span className="composer-send-glyph" aria-hidden="true">
-                {props.generating ? '■' : '▶'}
-              </span>
-            </button>
+
+            <div className="composer-bar-actions">
+              <div
+                className="composer-context-tip-host"
+                tabIndex={0}
+                aria-label="Context usage"
+              >
+                <div className="context-ring" role="img" aria-hidden="true">
+                  <svg
+                    viewBox={`0 0 ${vb} ${vb}`}
+                    width="30"
+                    height="30"
+                    aria-hidden="true"
+                  >
+                    <circle className="context-ring-bg" cx={cx} cy={cx} r={r} />
+                    <circle
+                      className="context-ring-fg"
+                      cx={cx}
+                      cy={cx}
+                      r={r}
+                      strokeDasharray={c}
+                      strokeDashoffset={off}
+                    />
+                  </svg>
+                </div>
+                <span className="rail-tip composer-context-tip" role="tooltip">
+                  {tip}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={[
+                  "composer-icon",
+                  props.generating
+                    ? "composer-send-stop"
+                    : "composer-send-play",
+                ].join(" ")}
+                id="btn-send"
+                aria-label={props.generating ? "Stop generation" : "Send"}
+                disabled={!props.generating && idleSendDisabled}
+                onClick={() => {
+                  if (props.generating) {
+                    props.onStop?.();
+                    return;
+                  }
+                  const txt = props.value.trim();
+                  if (!txt) {
+                    return;
+                  }
+                  props.onSend(txt);
+                }}
+              >
+                <span className="composer-send-glyph" aria-hidden="true">
+                  {props.generating ? "■" : "▶"}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    </footer>
-    {slashOpen && slashFloatRect
-      ? createPortal(
-          <div
-            className="slash-menu slash-menu--portal"
-            data-testid="slash-command-menu"
-            role="listbox"
-            aria-label="Slash commands"
-            style={{
-              left: slashFloatRect.left,
-              width: slashFloatRect.width,
-              bottom: slashFloatRect.bottom,
-            }}
-          >
-            {slashMenuChrome}
-          </div>,
-          document.body,
-        )
-      : null}
+      </footer>
+      {pickerOpen
+        ? createPortal(
+            pickerUseSheet ? (
+              <>
+                <button
+                  type="button"
+                  className="slash-sheet-backdrop"
+                  aria-label="Close picker"
+                  tabIndex={-1}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    dismissSlashAtPickers();
+                  }}
+                />
+                <div
+                  className="slash-menu slash-menu--sheet"
+                  data-testid={
+                    atOpen ? "workspace-files-menu" : "slash-command-menu"
+                  }
+                  role="listbox"
+                  aria-label={atOpen ? "Workspace files" : "Slash commands"}
+                >
+                  {atOpen ? atMenuChrome : slashMenuChrome}
+                </div>
+              </>
+            ) : pickerFloatRect ? (
+              <div
+                className="slash-menu slash-menu--portal"
+                data-testid={
+                  atOpen ? "workspace-files-menu" : "slash-command-menu"
+                }
+                role="listbox"
+                aria-label={atOpen ? "Workspace files" : "Slash commands"}
+                style={{
+                  left: pickerFloatRect.left,
+                  width: pickerFloatRect.width,
+                  bottom: pickerFloatRect.bottom,
+                }}
+              >
+                {atOpen ? atMenuChrome : slashMenuChrome}
+              </div>
+            ) : null,
+            document.body,
+          )
+        : null}
     </>
   );
 }
