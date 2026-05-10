@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { TokenUsage } from './types';
 import { draftExtendsFailedSlashPrefix, slashMenuDraftAtCaret } from '../skills/draftSlash';
 import { segmentComposerMirrorSpans } from '../skills/composerMirrorSegments';
+import { shellStackMaxWidthMediaQuery } from '../shellBreakpoint';
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -115,7 +116,7 @@ export function Composer(props: {
     window.addEventListener('resize', measureSlashFloat);
     const onMsgs = () => measureSlashFloat();
     const shellMobile =
-      typeof document !== 'undefined' && window.matchMedia('(max-width: 899px)').matches;
+      typeof document !== 'undefined' && window.matchMedia(shellStackMaxWidthMediaQuery).matches;
     if (shellMobile) {
       window.addEventListener('scroll', onMsgs, { passive: true });
     } else {

@@ -4,18 +4,19 @@ import type { TokenUsage, TranscriptItem } from './types';
 import { ChatHeader } from './ChatHeader';
 import { Composer } from './Composer';
 import { MessageList } from '../messages/MessageList';
+import { shellStackMaxWidthMediaQuery } from '../shellBreakpoint';
 
-const MOBILE_DOC_SCROLL_MQ = '(max-width: 899px)';
+const DOC_SCROLL_SHELL_STACK_MQ = shellStackMaxWidthMediaQuery;
 
 function subscribeMobileDocScroll(cb: () => void) {
   if (typeof window === 'undefined') return () => {};
-  const mq = window.matchMedia(MOBILE_DOC_SCROLL_MQ);
+  const mq = window.matchMedia(DOC_SCROLL_SHELL_STACK_MQ);
   mq.addEventListener('change', cb);
   return () => mq.removeEventListener('change', cb);
 }
 
 function snapshotMobileDocScroll() {
-  return typeof window !== 'undefined' && window.matchMedia(MOBILE_DOC_SCROLL_MQ).matches;
+  return typeof window !== 'undefined' && window.matchMedia(DOC_SCROLL_SHELL_STACK_MQ).matches;
 }
 
 function serverSnapshotMobileDocScroll() {
@@ -147,7 +148,9 @@ export function ChatScreen(props: {
         >
           <div id="messages" className="chat-scroll" aria-live="polite" ref={messagesRef}>
             <div className="chat-scroll-sticky-head">
-              <ChatHeader title={props.title} editable={true} onTitleSave={props.onTitleSave} />
+              <div className="chat-title-column">
+                <ChatHeader title={props.title} editable={true} onTitleSave={props.onTitleSave} />
+              </div>
             </div>
             <div className="messages-inner">
               <MessageList

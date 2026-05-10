@@ -276,7 +276,7 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then the sessions drawer is hidden
 
 - Mobile uses top bar and single line brand
-  - Given viewport width is at most 899px
+  - Given viewport width is at most 1199px
   - When the app loads
   - Then the nav width toggle is not present
   - And the nav rail height is 78px

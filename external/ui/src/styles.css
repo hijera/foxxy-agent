@@ -65,15 +65,15 @@ body {
   background: transparent;
 }
 
-/* Desktop chat shell: single inner scrollport; narrow viewports use body scroll + sticky chrome (see max-width: 899px) */
-@media (min-width: 900px) {
+/* Desktop chat shell: single inner scrollport; narrow viewports use body scroll + sticky chrome (see max-width: 1199px) */
+@media (min-width: 1200px) {
   body {
     overflow: hidden;
   }
 }
 
-/* Narrow / tablet portrait: document scroll; top nav rail is sticky to the viewport */
-@media (max-width: 899px) {
+/* Stacked nav + document scroll: phones, tablets, and sub-xl desktops */
+@media (max-width: 1199px) {
   /* Break the desktop height:100% / 100vh chain so body scroll drives content under the sticky rail */
   /* Do not set overflow-x on html/body: any non-visible horizontal overflow on ancestors breaks position:sticky for mobile chat chrome. */
   html {
@@ -427,7 +427,7 @@ body {
   }
 }
 
-@media (max-width: 899px) {
+@media (max-width: 1199px) {
   .rail-tip {
     display: none;
   }
@@ -786,6 +786,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 12px 14px;
   border-radius: 18px;
   background: rgba(15, 15, 16, 0.35);
@@ -795,9 +796,10 @@ body {
 }
 
 .chat-title {
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
   opacity: 0.9;
-  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -821,20 +823,29 @@ body {
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* Match .chat-title-btn padding so view/edit heights stay aligned; full width of .chat-title */
 .chat-title-input {
-  width: min(360px, 40vw);
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
   font: inherit;
+  font-weight: 600;
+  line-height: 1.35;
   color: rgba(255, 255, 255, 0.92);
-  background: rgba(10, 10, 12, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  border: 0;
   border-radius: 12px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   outline: none;
+  box-sizing: border-box;
 }
 
-.chat-title-input:focus {
-  border-color: rgba(147, 51, 234, 0.45);
-  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
+.chat-title-input:focus,
+.chat-title-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .header-links {
@@ -902,6 +913,15 @@ body {
   z-index: 4;
   flex-shrink: 0;
   padding: 0 0 16px;
+}
+
+/* Same max-width as .chat-bottom-inner / transcript column so title and composer share one vertical stripe */
+.chat-title-column {
+  width: 100%;
+  max-width: 920px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
 }
 
 .messages-inner {
@@ -2057,8 +2077,8 @@ textarea#composer {
   transform: translateY(-0.08em);
 }
 
-/* Desktop */
-@media (min-width: 900px) {
+/* Desktop main padding (shell with side rail) */
+@media (min-width: 1200px) {
   .main {
     padding: 14px 18px 18px;
   }
@@ -2068,12 +2088,8 @@ textarea#composer {
   }
 }
 
-/* Mobile / small tablet: rail becomes top bar; document is the scrollport */
-@media (max-width: 899px) {
-  .shell {
-    --coddy-mobile-top-inset: calc(78px + env(safe-area-inset-top, 0px));
-  }
-
+/* Stacked top rail: body is the scrollport */
+@media (max-width: 1199px) {
   .nav-toggle {
     display: none;
   }
@@ -2087,6 +2103,12 @@ textarea#composer {
     z-index: 70;
   }
   .shell {
+    --coddy-mobile-top-inset: calc(78px + env(safe-area-inset-top, 0px));
+    /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
+    --coddy-mobile-chat-stack-gap: 12px;
+    --coddy-mobile-title-sticky-top: calc(
+      var(--coddy-mobile-top-inset) + var(--coddy-mobile-chat-stack-gap)
+    );
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
@@ -2208,9 +2230,18 @@ textarea#composer {
     min-height: min-content;
   }
 
-  .main {
-    padding-top: 10px;
+  /* Let #messages apply top spacing so rail-to-title matches title-to-bubble (one 12px band). */
+  .main:not(.is-empty) {
+    padding-top: 0;
     overflow: visible;
+  }
+
+  .main {
+    overflow: visible;
+  }
+
+  .messages-inner {
+    gap: var(--coddy-mobile-chat-stack-gap);
   }
 
   .chat-stack {
@@ -2228,6 +2259,7 @@ textarea#composer {
     overflow: visible !important;
     overscroll-behavior: auto;
     scrollbar-gutter: auto;
+    padding-top: var(--coddy-mobile-chat-stack-gap);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     max-height: none !important;
   }
@@ -2235,9 +2267,9 @@ textarea#composer {
   /* Sticks below the fixed top rail while the document scrolls ("New chat" row) */
   .chat-scroll-sticky-head {
     position: sticky !important;
-    top: var(--coddy-mobile-top-inset);
+    top: var(--coddy-mobile-title-sticky-top);
     z-index: 37;
-    padding-bottom: 12px;
+    padding-bottom: var(--coddy-mobile-chat-stack-gap);
     flex-shrink: 0;
   }
 

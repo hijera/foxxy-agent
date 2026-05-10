@@ -18,7 +18,7 @@ Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
 - `pw-navbar-1440-history-hover.png` - History hover / pressed accent and tooltip styling
 - `pw-navbar-1920-wide-labels.png` - min-width 1920px, wide rail (**rectangular panel**, rounded on the right only), header with **collapse** (stacked lines) plus **Coddy agent** text-only brand, full-width rows icon plus label
 - `pw-navbar-1920-github-hover.png` - wide rail, hover on **GitHub** row (label plus icon pick up accent)
-- `pw-navbar-390-mobile-topbar.png` - max-width 899px, rail as top bar row
+- `pw-navbar-390-mobile-topbar.png` - max-width 1199px shell, rail as top bar row
 - `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
 
 ## Primary
