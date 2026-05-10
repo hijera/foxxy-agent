@@ -48,6 +48,7 @@ Detailed instructions...
 ```
 
 Skills are discovered by searching for `SKILL.md` files in the configured skill directories.
+A **symbolic link** in a skill root that points to a directory is treated like a normal subfolder if that directory contains **`SKILL.md`** (so `~/.coddy/skills/my-skill -> elsewhere/my-skill` works).
 
 ### 3. Plain Markdown Rules
 
@@ -68,11 +69,11 @@ Every discovered skill has a canonical slash **`name`** (folder name for `subdir
 
 1. A Markdown catalog listing all commands with short descriptions (**`ListSkills`**).
 2. Full bodies for **`globs`** / **`alwaysApply`** matches (existing behavior).
-3. On a user message, line-leading **`/name`** tokens outside fenced code and blockquotes append the matching skill body for that turn when the name is **not** already in the glob-selected active set (catalog lines alone do not count as a full body); the persisted user message is unchanged.
-
+3. On a user message, **`/name`** tokens preceded by line start or ASCII whitespace (and legacy **`[/name](coddy-skill:name)`** forms if present in stored text) are collected outside fenced code and blockquotes and append the matching skill body for that turn when the name is **not** already in the glob-selected active set (catalog lines alone do not count as a full body); the persisted user message is unchanged.
+c
 ACP clients receive **`session/update`** **`available_commands_update`** with **`name`** and **`description`** for the same listings after **`session/new`** and **`session/load`**.
 
-The **`coddy http`** SPA queries **`GET /coddy/slash-commands`** (required pagination) for autocomplete; picking a row inserts **`[/<name>](coddy-skill:<name>)`** in the composer (rendered as a chip in user bubbles).
+The **`coddy http`** SPA queries **`GET /coddy/slash-commands`** (required pagination) for autocomplete; picking a row inserts plain **`/<name> `** in the composer. The UI highlights those tokens locally; user bubbles run a display-only Markdown pass so transcript chips still render from **`coddy-skill:`** autolinks.
 
 ## How Rules Are Applied
 

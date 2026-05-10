@@ -181,20 +181,49 @@ Composer does not show tools toggles in this milestone.
 
 ### Slash commands picker (skills)
 
-When the caret sits on the current composer line immediately after **`/`** (leading spaces allowed) and outside Markdown fences or blockquotes, the UI loads **`GET /coddy/slash-commands`** with a **100ms** debounce, required **`page=1`** and **`page_size=30`**, and optional **`prefix`** from typed characters after **`/`**.
+When the caret sits on the current composer line on a **`/`** that is **line-start or preceded by whitespace**, with optional `[a-zA-Z0-9_-]*` typed after it, and outside Markdown fences or blockquotes, the UI loads **`GET /coddy/slash-commands`** with a **100ms** debounce, required **`page=1`** and **`page_size=30`**, and optional **`prefix`** from typed characters after **`/`** (works mid-line, for example `say /foo`). Menu open/close rules match **`slashMenuDraftAtCaret`** in **`external/ui/src/ui/skills/draftSlash.ts`**.
 
 - **Automation** uses **`data-testid="slash-command-menu"`**, per-row **`data-testid={`slash-command-row-${name}`}`**, and **`data-testid="slash-command-more"`** for paging.
 - **Desktop** (**`slash-menu--floating`**) attaches above the textarea inside **`composer-card`**. **`Mobile`** (**narrow width**, match roughly **`max-width: 720px`**) renders a dimming backdrop (**`slash-sheet-backdrop`**) plus a bottom sheet (**`slash-menu--sheet`**).
-- Choosing a row replaces the typed **`/`…** segment with **`[/<name>](coddy-skill:<name>) `** so **`Markdown.tsx`** renders a **`coddy-skill-chip`** (**`data-testid="coddy-skill-span"`**) in **`user_message`** bubbles.
+- Choosing a row replaces the typed **`/`…** segment with **`/<name> `** (plain **`#composer`** value and wire text to **`POST /v1/responses`**). The UI **never** stores **`[/<name>](coddy-skill:<name>)`** in the composer draft.
+- While the draft is non-empty, **`Composer`** draws a **mirror layer** (see **Caret sync** below) and highlights slash tokens parsed by **`segmentComposerSlashSpans`** (**`external/ui/src/ui/skills/segmentComposerSlashSpans.ts`**) with **`span.composer-skill-chip-inline`** (**`data-testid="composer-skill-chip"`**).
+- **`user_message`** bubbles run **`slugSlashesForUserBubbleMarkdown`** (same module) so **`Markdown.tsx`** renders transcript chips from **`coddy-skill:`** autolinks (**`data-testid="coddy-skill-span"`**) while persisted user text remains plain slashes.
 - **`Escape`** closes the menu; **`Enter`** confirms the first row when results are loaded and the menu is open (same turn as **`/`** autocomplete).
 
+#### Composer mirror and caret sync (contract)
+
+The textarea uses **transparent** glyphs when the draft is non-empty; the user-visible line is the **mirror** (`.composer-mirror-inner`) that must be **pixel-aligned** with **`#composer`** for the same string. The **caret** position is computed **only** by the textarea engine on the raw characters, so any styling in the mirror that **changes horizontal advance** of the same code points **breaks** perceived caret placement.
+
+Rules for **`.composer-skill-chip-inline`** (composer only):
+
+- **MUST** use the **same effective font metrics** as **`#composer`**: **`font-family`**, **`font-size`**, **`line-height`**, **`font-weight`**, **`letter-spacing`**, **`font-style`** inherited or explicitly matched (current gate: **400** weight on both mirror and textarea in **`styles.css`**).
+- **MUST NOT** add **horizontal** **`padding`**, **`margin`**, or a **`border`** that participates in the inline box width. Use **`box-shadow: 0 0 0 1px …`** for a ring and **`padding: 0`**, **`margin: 0`** so chip width tracks the underlying `/name` glyphs.
+- **MUST** keep **`scrollbar-gutter: stable`** on **`#composer`** and mirror **`padding-right`** adjusted for scrollbar width (**`ResizeObserver`** in **`Composer.tsx`**) so wrapped lines do not drift.
+
+Transcript chips (**.md .coddy-skill-chip**) are **not** bound by this contract; they may use monospace, heavier weight, and pill padding because they are not paired with a transparent textarea.
+
 Full browser checks against a running **`coddy http`** instance (including a **mobile viewport**) use **Playwright MCP** in Cursor, Codex or any other code agent you use. This repository does not ship **`@playwright/test`** as an npm dependency.
+
+#### Slash skills verification use cases
+
+Use these to regress behaviour after CSS or **`Composer`** edits. **Vitest** rows are under **`external/ui/src`**.
+
+| ID | Scenario | Expected | Automated check |
+| --- | --- | --- | --- |
+| UC1 | Type `asdfasf /find-skills asdfasdf` in **`#composer`** | One mirror chip **`/find-skills`**, **`textarea.value`** exactly that plain string (no markdown) | **`external/ui/src/ui/chat/Composer.test.tsx`** · `composer highlights plain slash token as chip while editing` |
+| UC2 | Open slash menu mid-line | Menu draft open; **`prefix`** from chars after **`/`** | **`external/ui/src/ui/skills/draftSlash.test.ts`** · `slashMenuDraftAtCaret works after whitespace mid-line` |
+| UC3 | Token **`x/foo`** | Whole token plain text slice (no chip for **`/foo`**) | **`external/ui/src/ui/skills/segmentComposerSlashSpans.test.ts`** · `segmentComposerSlashSpans skips letter before slash` |
+| UC4 | Line-leading **`/foo`** | Single **`slash`** segment **`/foo`** | **`segmentComposerSlashSpans.test.ts`** · `segmentComposerSlashSpans line start slash` |
+| UC5 | Strip legacy **`a [/demo](coddy-skill:demo) b`** | Output **`a /demo b`** | **`segmentComposerSlashSpans.test.ts`** · `stripCoddySkillMarkdownLinks restores plain slash token` |
+| UC6 | User bubble **`hi /demo there`** | **`data-testid="coddy-skill-span"`** text **`/demo`** | **`external/ui/src/ui/messages/UserMessage.test.tsx`** |
+| UC7 | Display-only slug transform | Plain **`/`** → **`[/<n>](coddy-skill:<n>)`**; legacy link preserved before second token | **`segmentComposerSlashSpans.test.ts`** · `slugSlashesForUserBubbleMarkdown for Markdown chip render` and **`slugSlashesForUserBubbleMarkdown strips legacy first then chips`** |
+| UC8 | Live **`coddy http`** after **`make build TAGS=http`**, **`#composer`** with **`/coddy_slash_demo`** | **`textarea.value`** plain; **`fontFamily`** chip **===** **`#composer`**; EOL **`selectionStart === value.length`** | **Playwright MCP** · **`browser_navigate`**, **`browser_fill_form`**, **`browser_evaluate`** |
 
 ### Markdown
 
 Messages may contain Markdown.
 
-- **`coddy-skill:`** autolinks from the picker render as **`span.coddy-skill-chip`** (not a navigating anchor).
+- **`coddy-skill:`** autolinks in transcripts (see **`slugSlashesForUserBubbleMarkdown`**) render as **`span.coddy-skill-chip`** (not a navigating anchor).
 - Render fenced code blocks with syntax highlighting.
 - Each code block has a copy button in the top right corner that copies only the block contents.
 

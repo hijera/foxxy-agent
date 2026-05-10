@@ -22,8 +22,8 @@ export type SlashMenuDraft =
   | { open: true; lineStart: number; slashIdx: number; caret: number; prefix: string };
 
 /**
- * When the current line starts with optional spaces then `/slashname` and the caret is after `/`,
- * returns menu state. Prefix is the segment after `/` before the caret ([a-zA-Z0-9_-]* only).
+ * When the current line ends (before caret) with optional spaces then `/` + optional name token,
+ * with `/` preceded by line start or whitespace, returns picker state after `/`.
  */
 export function slashMenuDraftAtCaret(text: string, caret: number): SlashMenuDraft {
   if (caret < 0 || caret > text.length) {
@@ -41,14 +41,22 @@ export function slashMenuDraftAtCaret(text: string, caret: number): SlashMenuDra
   }
   const caretInLine = caret - lineStart;
   const beforeCaret = line.slice(0, caretInLine);
-  const m = /^(\s*)\/(.*)$/.exec(beforeCaret);
-  if (!m) {
-    return { open: false };
+  const tokenOk = (s: string) => /^[a-zA-Z0-9_-]*$/.test(s);
+
+  for (let i = beforeCaret.length - 1; i >= 0; i--) {
+    if (beforeCaret[i] !== '/') {
+      continue;
+    }
+    const after = beforeCaret.slice(i + 1);
+    if (!tokenOk(after)) {
+      continue;
+    }
+    if (i > 0 && !/\s/.test(beforeCaret[i - 1]!)) {
+      continue;
+    }
+    const slashIdx = lineStart + i;
+    const prefix = after;
+    return { open: true, lineStart, slashIdx, caret, prefix };
   }
-  const prefix = m[2] ?? '';
-  if (prefix !== '' && !/^[a-zA-Z0-9_-]*$/.test(prefix)) {
-    return { open: false };
-  }
-  const slashIdx = lineStart + m[1].length;
-  return { open: true, lineStart, slashIdx, caret, prefix };
+  return { open: false };
 }

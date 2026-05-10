@@ -19,8 +19,17 @@ test('slashMenuDraftAtCaret inactive in blockquote', () => {
   expect(slashMenuDraftAtCaret('> /foo', 6).open).toBe(false);
 });
 
-test('slashMenuDraftAtCaret not at line start', () => {
-  expect(slashMenuDraftAtCaret('x /foo', 6).open).toBe(false);
+test('slashMenuDraftAtCaret works after whitespace mid-line', () => {
+  const line = 'ljsdfa /fin';
+  const s = slashMenuDraftAtCaret(line, line.length);
+  if (!s.open) {
+    throw new Error('expected open draft mid-line');
+  }
+  expect(s.prefix).toBe('fin');
+});
+
+test('slashMenuDraftAtCaret rejects slash after non-whitespace letter', () => {
+  expect(slashMenuDraftAtCaret('x/foo', 4).open).toBe(false);
 });
 
 test('inMarkdownFenceBeforeCaret toggles on closed lines only', () => {

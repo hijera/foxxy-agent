@@ -93,6 +93,23 @@ test('send play enabled when draft has text', () => {
   expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
 });
 
+test('composer highlights plain slash token as chip while editing', () => {
+  render(
+    <Composer
+      value="asdfasf /find-skills asdfasdf"
+      isEmpty={false}
+      mode="agent"
+      modes={['agent', 'plan']}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId('composer-skill-chip');
+  expect(chip).toHaveTextContent('/find-skills');
+  expect(chip).toHaveAttribute('data-skill-name', 'find-skills');
+});
+
 test('generating shows stop and calls onStop', () => {
   let stopped = false;
   render(

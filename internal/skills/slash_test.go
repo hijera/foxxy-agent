@@ -45,8 +45,28 @@ func TestParseInvokedCommandNames_fencesAndQuotes(t *testing.T) {
 	}
 }
 
-func TestParseInvokedCommandNames_notAtLineStart(t *testing.T) {
-	if g := skills.ParseInvokedCommandNames("see /foo"); len(g) != 0 {
+func TestParseInvokedCommandNames_whitespaceSlashMidLine(t *testing.T) {
+	if g := skills.ParseInvokedCommandNames("see /foo"); len(g) != 1 || g[0] != "foo" {
+		t.Fatalf("got %#v", g)
+	}
+}
+
+func TestParseInvokedCommandNames_coddySkillPickLink(t *testing.T) {
+	g := skills.ParseInvokedCommandNames("[/demo](coddy-skill:demo) extra.")
+	if len(g) != 1 || g[0] != "demo" {
+		t.Fatalf("got %#v", g)
+	}
+}
+
+func TestParseInvokedCommandNames_pickLinkDedupSlash(t *testing.T) {
+	g := skills.ParseInvokedCommandNames("[/demo](coddy-skill:demo) /demo trailing")
+	if len(g) != 1 || g[0] != "demo" {
+		t.Fatalf("got %#v want single demo", g)
+	}
+}
+
+func TestParseInvokedCommandNames_rejectsUnequalCoddyHref(t *testing.T) {
+	if g := skills.ParseInvokedCommandNames("[/demo](coddy-skill:other)"); len(g) != 0 {
 		t.Fatalf("got %#v", g)
 	}
 }

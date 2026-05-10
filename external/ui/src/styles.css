@@ -3,6 +3,11 @@
   --nav: rgba(37, 37, 37, 0.6);
   --sidebar: rgba(30, 30, 30, 0.7);
   --accent: #9333ea;
+  --coddy-skill-chip-bg: rgba(147, 51, 234, 0.14);
+  --coddy-skill-chip-bd: rgba(147, 51, 234, 0.52);
+  --coddy-skill-chip-text: rgba(237, 220, 255, 0.96);
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   --text: #ffffff;
   --muted: #9ca3af;
   --bubble-user: #2d2d2d;
@@ -1624,13 +1629,17 @@ body {
 .md .coddy-skill-chip {
   display: inline-flex;
   align-items: baseline;
-  padding: 0 7px;
+  padding: 0 8px;
   margin: 0 1px;
-  border-radius: 8px;
+  border-radius: 999px;
+  font-family: var(--coddy-skill-chip-font);
   font-weight: 600;
-  font-size: 0.92em;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.38);
+  font-size: 0.88em;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  border: 1px solid var(--coddy-skill-chip-bd);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .composer-wrap-docked .composer-card {
@@ -1648,12 +1657,87 @@ textarea#composer {
   width: 100%;
   min-height: 76px;
   max-height: 180px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   color: var(--text);
   background: transparent;
   border: 0;
   border-radius: 0;
   padding: 16px 16px 10px;
   outline: none;
+}
+
+.composer-stack {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.composer-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.composer-mirror-inner {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 16px 16px 10px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  color: var(--text);
+}
+
+textarea#composer.composer-ta-masked {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+@supports (-webkit-text-fill-color: transparent) {
+  textarea#composer.composer-ta-masked {
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+textarea#composer.composer-ta-masked::selection {
+  background: rgba(147, 51, 234, 0.18);
+}
+
+.composer-mirror-inner,
+textarea#composer {
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-style: normal;
+  font-variant-numeric: normal;
+}
+
+/* Match textarea glyph metrics only: no extra horizontal padding/border (those widen the mirror vs the field and shift the caret). */
+.composer-skill-chip-inline {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  box-shadow: 0 0 0 1px var(--coddy-skill-chip-bd);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .composer-bar {

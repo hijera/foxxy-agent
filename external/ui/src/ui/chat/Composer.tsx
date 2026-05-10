@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TokenUsage } from './types';
 import { slashMenuDraftAtCaret } from '../skills/draftSlash';
+import { segmentComposerSlashSpans } from '../skills/segmentComposerSlashSpans';
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -53,6 +54,8 @@ export function Composer(props: {
   const [menuOpen, setMenuOpen] = useState<'mode' | 'llm' | null>(null);
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
+  const [composerScrollTop, setComposerScrollTop] = useState(0);
   const debounceSlashRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mobileUi, setMobileUi] = useState(false);
   const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
@@ -144,13 +147,57 @@ export function Composer(props: {
 
   useEffect(() => () => cancelSlashDebounce(), []);
 
+  const maskComposerText = props.value.length > 0;
+  const composerSegments = useMemo(() => segmentComposerSlashSpans(props.value), [props.value]);
+
+  const adjustMirrorToTextarea = useCallback(() => {
+    const ta = taRef.current;
+    const inner = mirrorInnerRef.current;
+    if (!ta || !inner) {
+      return;
+    }
+    const sw = Math.max(0, ta.offsetWidth - ta.clientWidth);
+    inner.style.paddingRight = `${16 + sw}px`;
+    inner.style.minHeight = `${Math.max(ta.clientHeight, ta.scrollHeight)}px`;
+    setComposerScrollTop(ta.scrollTop);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!maskComposerText) {
+      setComposerScrollTop(0);
+      return;
+    }
+    adjustMirrorToTextarea();
+  }, [props.value, maskComposerText, props.isEmpty, adjustMirrorToTextarea]);
+
+  useEffect(() => {
+    if (!maskComposerText) {
+      return;
+    }
+    const ta = taRef.current;
+    if (!ta) {
+      return;
+    }
+    const ro = new ResizeObserver(() => adjustMirrorToTextarea());
+    ro.observe(ta);
+    return () => ro.disconnect();
+  }, [maskComposerText, adjustMirrorToTextarea]);
+
+  function syncComposerScroll() {
+    const ta = taRef.current;
+    if (!ta || !maskComposerText) {
+      return;
+    }
+    setComposerScrollTop(ta.scrollTop);
+  }
+
   const applySlashChoice = (name: string) => {
     if (!slashReplace) {
       return;
     }
     const { from, to } = slashReplace;
-    const link = `[/${name}](coddy-skill:${name}) `;
-    const next = props.value.slice(0, from) + link + props.value.slice(to);
+    const insert = `/${name} `;
+    const next = props.value.slice(0, from) + insert + props.value.slice(to);
     props.onChange(next);
     setSlashOpen(false);
     setSlashReplace(null);
@@ -160,7 +207,7 @@ export function Composer(props: {
       if (!el) {
         return;
       }
-      const pos = from + link.length;
+      const pos = from + insert.length;
       el.focus();
       el.setSelectionRange(pos, pos);
     });
@@ -245,66 +292,96 @@ export function Composer(props: {
           />
         ) : null}
         <div className="composer-field-wrap">
-          <textarea
-            ref={taRef}
-            id="composer"
-            rows={props.isEmpty ? 5 : 2}
-            placeholder={props.isEmpty ? 'Ask anything...' : 'Message Coddy'}
-            autoComplete="off"
-            value={props.value}
-            onChange={(ev) => {
-              const v = ev.target.value;
-              const caret = ev.target.selectionStart ?? v.length;
-              props.onChange(v);
-              updateSlashMenu(v, caret);
-            }}
-            onKeyUp={(ev) => {
-              const el = taRef.current;
-              if (!el) {
-                return;
-              }
-              if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'Home' || ev.key === 'End') {
-                updateSlashMenu(props.value, el.selectionStart);
-              }
-            }}
-            onSelect={() => {
-              const el = taRef.current;
-              if (el) {
-                updateSlashMenu(props.value, el.selectionStart);
-              }
-            }}
-            onClick={() => {
-              const el = taRef.current;
-              if (el) {
-                updateSlashMenu(props.value, el.selectionStart);
-              }
-            }}
-            onKeyDown={(ev) => {
-              if (ev.key === 'Escape' && slashOpen) {
-                ev.preventDefault();
-                setSlashOpen(false);
-                setSlashReplace(null);
-                cancelSlashDebounce();
-                return;
-              }
-              if (ev.key === 'Enter' && !ev.shiftKey && slashOpen && slashItems.length > 0 && !props.generating) {
-                ev.preventDefault();
-                applySlashChoice(slashItems[0].name);
-                return;
-              }
-              if (ev.key === 'Enter' && !ev.shiftKey) {
-                ev.preventDefault();
-                if (props.generating) {
+          <div className="composer-stack">
+            {maskComposerText ? (
+              <div className="composer-mirror" aria-hidden="true">
+                <div
+                  ref={mirrorInnerRef}
+                  className="composer-mirror-inner"
+                  style={{ transform: `translateY(-${composerScrollTop}px)` }}
+                >
+                  {composerSegments.map((seg, idx) =>
+                    seg.type === 'text' ? (
+                      <span key={idx}>{seg.value}</span>
+                    ) : (
+                      <span
+                        key={idx}
+                        className="composer-skill-chip-inline"
+                        data-testid="composer-skill-chip"
+                        data-skill-name={seg.name}
+                      >
+                        {seg.literal}
+                      </span>
+                    ),
+                  )}
+                </div>
+              </div>
+            ) : null}
+            <textarea
+              ref={taRef}
+              id="composer"
+              className={maskComposerText ? 'composer-ta-masked' : undefined}
+              rows={props.isEmpty ? 5 : 2}
+              placeholder={props.isEmpty ? 'Ask anything...' : 'Message Coddy'}
+              autoComplete="off"
+              value={props.value}
+              onChange={(ev) => {
+                const v = ev.target.value;
+                const caret = ev.target.selectionStart ?? v.length;
+                props.onChange(v);
+                updateSlashMenu(v, caret);
+              }}
+              onScroll={() => syncComposerScroll()}
+              onKeyUp={(ev) => {
+                const el = taRef.current;
+                if (!el) {
                   return;
                 }
-                const txt = props.value.trim();
-                if (!txt) {
+                if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'Home' || ev.key === 'End') {
+                  updateSlashMenu(props.value, el.selectionStart);
+                }
+              }}
+              onSelect={() => {
+                const el = taRef.current;
+                if (el) {
+                  updateSlashMenu(props.value, el.selectionStart);
+                  syncComposerScroll();
+                }
+              }}
+              onClick={() => {
+                const el = taRef.current;
+                if (el) {
+                  updateSlashMenu(props.value, el.selectionStart);
+                  syncComposerScroll();
+                }
+              }}
+              onKeyDown={(ev) => {
+                if (ev.key === 'Escape' && slashOpen) {
+                  ev.preventDefault();
+                  setSlashOpen(false);
+                  setSlashReplace(null);
+                  cancelSlashDebounce();
                   return;
                 }
-                props.onSend(txt);
-              }
-            }}
-          />
+                if (ev.key === 'Enter' && !ev.shiftKey && slashOpen && slashItems.length > 0 && !props.generating) {
+                  ev.preventDefault();
+                  applySlashChoice(slashItems[0].name);
+                  return;
+                }
+                if (ev.key === 'Enter' && !ev.shiftKey) {
+                  ev.preventDefault();
+                  if (props.generating) {
+                    return;
+                  }
+                  const txt = props.value.trim();
+                  if (!txt) {
+                    return;
+                  }
+                  props.onSend(txt);
+                }
+              }}
+            />
+          </div>
           {slashOpen ? (
             <div
               className={mobileUi ? 'slash-menu slash-menu--sheet' : 'slash-menu slash-menu--floating'}

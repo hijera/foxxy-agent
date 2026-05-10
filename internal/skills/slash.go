@@ -7,7 +7,12 @@ import (
 	"strings"
 )
 
-var invokedLineNameToken = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*`)
+// coddySkillPickRE matches the slash picker insertion form (parity with SPA Composer).
+// Name in the label and href must match (checked in collect block; RE2 has no backrefs).
+var coddySkillPickRE = regexp.MustCompile(`\[\/([a-zA-Z0-9][a-zA-Z0-9_-]*)\]\(coddy-skill:([a-zA-Z0-9][a-zA-Z0-9_-]*)\)`)
+
+// invokedMidLineSlashRE finds /names after line start or ASCII whitespace outside stripped pick spans.
+var invokedMidLineSlashRE = regexp.MustCompile(`(?:^|[\t ])\/([a-zA-Z0-9][a-zA-Z0-9_-]*)`)
 
 // SkillSummary is a slash command listing row (ACP / HTTP catalog).
 type SkillSummary struct {
@@ -108,7 +113,9 @@ func BuildSlashCatalogMarkdown(sums []SkillSummary) string {
 	return b.String()
 }
 
-// ParseInvokedCommandNames finds /command tokens at line starts outside fenced code and blockquotes.
+// ParseInvokedCommandNames finds coddy-skill markdown links from the SPA picker plus /name tokens
+// after whitespace or line start outside fenced code and blockquotes. Matches Compose picker output
+// `[/cmd](coddy-skill:cmd)` so full skill bodies are injected for those turns.
 func ParseInvokedCommandNames(text string) []string {
 	lines := strings.Split(text, "\n")
 	inFence := false
@@ -143,20 +150,17 @@ func ParseInvokedCommandNames(text string) []string {
 			continue
 		}
 
-		idx := strings.Index(line, "/")
-		if idx < 0 {
-			continue
+		for _, sm := range coddySkillPickRE.FindAllStringSubmatch(line, -1) {
+			if len(sm) > 2 && sm[1] == sm[2] {
+				appendName(sm[1])
+			}
 		}
-		prefix := line[:idx]
-		if strings.Trim(prefix, " \t") != "" {
-			continue
+		scratch := coddySkillPickRE.ReplaceAllString(line, " ")
+		for _, sm := range invokedMidLineSlashRE.FindAllStringSubmatch(scratch, -1) {
+			if len(sm) > 1 {
+				appendName(sm[1])
+			}
 		}
-		after := line[idx+1:]
-		m := invokedLineNameToken.FindString(after)
-		if m == "" {
-			continue
-		}
-		appendName(m)
 	}
 	return hits
 }
