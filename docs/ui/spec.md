@@ -133,6 +133,21 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - A single tool execution card.
   - Summary row shows tool name, status dot, and duration label.
   - Details show arguments and streamed result when expanded. The **result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline), monospace, muted grey (**`.tool-result-raw`**). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, no **Load more** link and no fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), **overflow-y** hidden until **Load more**. **Load more results** (**`data-testid="tool-result-more-link"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then **overflow-y auto** and **Hide** (**`data-testid="tool-result-hide-link"`** ); **Hide** restores the clipped preview without a second GET while **fullResultText** stays in memory.
+
+## Tool call card (bundled SPA, current)
+
+Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklist.
+
+| Concern | Current behaviour |
+| --- | --- |
+| Component | **`ToolCallMessage.tsx`** (`details` **`.tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`**) |
+| Args | **`pre.tool-block`**, **`aria-label="Tool arguments"`** |
+| Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
+| Markdown | Not used for tool **result** (user or assistant bubbles still use the Markdown pipeline per below) |
+| List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
+| Full text | First **Load more** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
+| CSS | **`styles.css`**: **`.tool-result-raw`**, **`.tool-result-pre`**, **`.tool-result-viewport`** / **`--tall`** / **`--clip`** / **`--scroll`**, **`.tool-result-toggle-row`**, **`.tool-result-text-link`** |
+
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.
 
@@ -234,7 +249,8 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Given a session has tool calls executed
   - When the user reloads the page
   - Then tool call cards are visible in the transcript
-  - And expanding a tool card shows args and preview result; truncated runs show **Load more results** then **Hide** as above
+  - And expanding a tool card shows args and raw grey **result** preview
+  - And if the server marked the preview truncated, **Load more results** then **Hide** behave as in the table above; if not truncated, there is no **Load more** row and no **`tool-result-viewport--tall`** on the result panel
 
 - Tool result truncation (Playwright MCP)
   - Given a persisted session whose tool output on disk exceeds the preview line cap
