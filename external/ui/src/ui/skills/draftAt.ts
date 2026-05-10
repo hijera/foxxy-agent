@@ -17,12 +17,33 @@ export type AtMenuDraft =
     };
 
 /**
- * Builds attachment list from **`@path`** occurrences in composer text (files only).
- * Folder navigation tokens end with **`/`** and are skipped.
+ * When the menu prefix already ends in a dotted file segment and is followed by
+ * optional spaces then text whose first word does not look like a path segment,
+ * the user is typing the message body, not extending the picker filter.
  */
-export function extractAtFileAttachments(text: string): { path: string }[] {
-  const out: { path: string }[] = [];
-  const seen = new Set<string>();
+function prefixClosedAfterFileExtensionForAtMenu(prefix: string): boolean {
+  const m = /^(.+\.[\p{L}\p{N}]{1,16})\s+(\S[\s\S]*)$/u.exec(prefix);
+  if (!m) {
+    return false;
+  }
+  const cont = (m[2] ?? "").trim();
+  if (cont === "") {
+    return false;
+  }
+  const word = /^([\p{L}\p{N}_][\p{L}\p{N}_.\-]*)/u.exec(cont);
+  const w = word ? (word[1] ?? "") : "";
+  if (w.includes("/") || w.includes(".")) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Workspace-relative **`@path`** spans (files only) in document order.
+ * Folder navigation tokens end with **`/`** and are omitted.
+ */
+export function listAtPathSpans(text: string): { start: number; end: number; path: string }[] {
+  const out: { start: number; end: number; path: string }[] = [];
   let i = 0;
   const n = text.length;
   while (i < text.length) {
@@ -76,11 +97,24 @@ export function extractAtFileAttachments(text: string): { path: string }[] {
     if (raw.endsWith("/")) {
       continue;
     }
-    if (seen.has(raw)) {
+    out.push({ start: j, end: k, path: raw });
+  }
+  return out;
+}
+
+/**
+ * Builds attachment list from **`@path`** occurrences in composer text (files only).
+ * Folder navigation tokens end with **`/`** and are skipped.
+ */
+export function extractAtFileAttachments(text: string): { path: string }[] {
+  const out: { path: string }[] = [];
+  const seen = new Set<string>();
+  for (const sp of listAtPathSpans(text)) {
+    if (seen.has(sp.path)) {
       continue;
     }
-    seen.add(raw);
-    out.push({ path: raw });
+    seen.add(sp.path);
+    out.push({ path: sp.path });
   }
   return out;
 }
@@ -137,6 +171,9 @@ export function atMenuDraftAtCaret(text: string, caret: number): AtMenuDraft {
       continue;
     }
     if (i > 0 && !/\s/.test(beforeCaret[i - 1]!)) {
+      continue;
+    }
+    if (prefixClosedAfterFileExtensionForAtMenu(after)) {
       continue;
     }
     const atIdx = lineStart + i;

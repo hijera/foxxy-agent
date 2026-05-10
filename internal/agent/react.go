@@ -3,9 +3,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -515,6 +518,8 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
+// Hydrated attachments become **<coddy_attachment path="..." name="...">…</coddy_attachment>**
+// with file body inside CDATA so the SPA can strip tags for display while the model retains full context.
 func contentBlocksToText(blocks []acp.ContentBlock) string {
 	var parts []string
 	for _, b := range blocks {
@@ -523,11 +528,43 @@ func contentBlocksToText(blocks []acp.ContentBlock) string {
 			parts = append(parts, b.Text)
 		case "resource":
 			if b.Resource != nil {
-				parts = append(parts, fmt.Sprintf("[File: %s]\n%s", b.Resource.URI, b.Resource.Text))
+				parts = append(parts, resourceBlockToXMLAttachment(b.Resource))
 			}
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func xmlEscapedAttr(s string) string {
+	var buf bytes.Buffer
+	_ = xml.EscapeText(&buf, []byte(s))
+	return buf.String()
+}
+
+func wrapXMLCDATA(body string) string {
+	// Split CDATA if the payload contains the terminator sequence.
+	escaped := strings.ReplaceAll(body, "]]>", "]]]]><![CDATA[>")
+	return "<![CDATA[" + escaped + "]]>"
+}
+
+func resourceBlockToXMLAttachment(res *acp.Resource) string {
+	pathRaw := strings.TrimSpace(res.URI)
+	pathRaw = strings.TrimPrefix(pathRaw, "file://")
+	pathFwd := filepath.ToSlash(pathRaw)
+	name := filepath.Base(pathFwd)
+	if name == "." || name == "/" {
+		name = pathFwd
+	}
+	var b strings.Builder
+	b.WriteString(`<coddy_attachment path="`)
+	b.WriteString(xmlEscapedAttr(pathFwd))
+	b.WriteString(`" name="`)
+	b.WriteString(xmlEscapedAttr(name))
+	b.WriteString(`">`)
+	b.WriteByte('\n')
+	b.WriteString(wrapXMLCDATA(res.Text))
+	b.WriteString("\n</coddy_attachment>")
+	return b.String()
 }
 
 // extractContextFiles returns file paths referenced in content blocks.

@@ -38,3 +38,23 @@ test("at mirror chip wraps active @ token before slash", () => {
     { type: "at", literal: "@notes.txt", pathRel: "notes.txt" },
   ]);
 });
+
+test("completed @ mention stays chipped after space and non-path text", () => {
+  const s = "@http_todo_report.md что в файле?";
+  const caret = s.length;
+  const segs = segmentComposerMirrorSpans(s, caret, null, null);
+  expect(segs).toEqual([
+    { type: "at", literal: "@http_todo_report.md", pathRel: "http_todo_report.md" },
+    { type: "text", value: " что в файле?" },
+  ]);
+});
+
+test("completed @ mention chips file only when prose follows ASCII path", () => {
+  const s = "@http_todo_report.md asdf asdf zxcv";
+  const caret = s.length;
+  const segs = segmentComposerMirrorSpans(s, caret, null, null);
+  expect(segs).toEqual([
+    { type: "at", literal: "@http_todo_report.md", pathRel: "http_todo_report.md" },
+    { type: "text", value: " asdf asdf zxcv" },
+  ]);
+});

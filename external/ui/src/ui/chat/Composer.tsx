@@ -458,7 +458,7 @@ export function Composer(props: {
         setAtLoading(true);
         setAtErr(null);
         try {
-          const body = await fetchAtPage(now.prefix, 1);
+          const body = await fetchAtPage(now.prefix.trimEnd(), 1);
           if (gen !== atFetchGenRef.current) {
             return;
           }
@@ -692,7 +692,7 @@ export function Composer(props: {
       setAtErr(null);
       try {
         const nextPage = atPage + 1;
-        const body = await fetchAtPage(atPrefix, nextPage);
+        const body = await fetchAtPage(atPrefix.trimEnd(), nextPage);
         const more = body.items || [];
         setAtItems((prev) => [...prev, ...more]);
         if (more.length > 0) {
@@ -812,12 +812,8 @@ export function Composer(props: {
         style={{ maxHeight: pickerFloatRect?.maxH }}
       >
         <div className="slash-menu-title">Workspace files</div>
-        {atPrefix.trim() === "" ? (
-          <div className="slash-muted">
-            {atItems.length === 0
-              ? "Type after @ to search"
-              : "Recent in this workspace"}
-          </div>
+        {atPrefix.trim() === "" && atItems.length === 0 ? (
+          <div className="slash-muted">Type after @ to search</div>
         ) : null}
         {atLoading && atItems.length === 0 && atPrefix.trim() !== "" ? (
           <div className="slash-muted">Loading…</div>
