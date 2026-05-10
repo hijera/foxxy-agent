@@ -180,7 +180,9 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/sessions": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":    "List persisted chat sessions",
+					"summary": "List persisted chat sessions",
+					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
+						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it.",
 					"parameters": coddyPagingParams(),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},

@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -236,6 +237,80 @@ func TestManagerSetConfigOptionUnknownValue(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown model id")
+	}
+}
+
+func TestSessionLoadDoesNotRewriteSessionUpdatedAt(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: root}
+	cfg := testConfig()
+
+	id := "sess_list_order_keep"
+	dir, err := store.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metaPath := filepath.Join(dir, "session.json")
+	var meta struct {
+		Version   int    `json:"version"`
+		ID        string `json:"id"`
+		CWD       string `json:"cwd"`
+		Mode      string `json:"mode"`
+		UpdatedAt string `json:"updatedAt"`
+	}
+	before := "2019-06-01T12:00:00Z"
+	if err := json.Unmarshal(slurpFile(t, metaPath), &meta); err != nil {
+		t.Fatal(err)
+	}
+	meta.CWD = "/tmp"
+	meta.Mode = "agent"
+	meta.UpdatedAt = before
+	writeJSONIndent(t, metaPath, meta)
+	msgPath := filepath.Join(dir, "messages.json")
+	msgWrap := map[string]interface{}{
+		"version":  1,
+		"messages": []interface{}{},
+	}
+	writeJSONIndent(t, msgPath, msgWrap)
+
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "/tmp", store)
+	ctx := context.Background()
+	if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{
+		SessionID:  id,
+		CWD:        "/tmp",
+		MCPServers: nil,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var metaAfter struct {
+		UpdatedAt string `json:"updatedAt"`
+	}
+	if err := json.Unmarshal(slurpFile(t, metaPath), &metaAfter); err != nil {
+		t.Fatal(err)
+	}
+	if metaAfter.UpdatedAt != before {
+		t.Fatalf("session.json updatedAt changed on load: %q -> %q", before, metaAfter.UpdatedAt)
+	}
+}
+
+func slurpFile(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func writeJSONIndent(t *testing.T, path string, v interface{}) {
+	t.Helper()
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = append(b, '\n')
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

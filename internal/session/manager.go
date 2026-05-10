@@ -339,10 +339,6 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	m.sendAvailableSlashCommands(params.SessionID, st)
 
-	if err := m.store.Save(st); err != nil {
-		m.log.Warn("session load save", "error", err)
-	}
-
 	m.log.Info("session loaded", "id", params.SessionID, "cwd", cwd)
 
 	return &acp.SessionLoadResult{

@@ -111,8 +111,8 @@ type messagesFileData struct {
 }
 
 type uiLogFileData struct {
-	Version  int          `json:"version"`
-	Entries  []UILogEntry `json:"entries"`
+	Version int          `json:"version"`
+	Entries []UILogEntry `json:"entries"`
 }
 
 type permissionGrantsFileData struct {
@@ -239,9 +239,15 @@ func (f *FileStore) ListSnapshots(cwdFilter string) ([]SessionListEntry, error) 
 		ti, ei := time.Parse(time.RFC3339, out[i].UpdatedAt)
 		tj, ej := time.Parse(time.RFC3339, out[j].UpdatedAt)
 		if ei != nil || ej != nil {
-			return out[i].UpdatedAt > out[j].UpdatedAt
+			if out[i].UpdatedAt != out[j].UpdatedAt {
+				return out[i].UpdatedAt > out[j].UpdatedAt
+			}
+			return out[i].SessionID < out[j].SessionID
 		}
-		return ti.After(tj)
+		if !ti.Equal(tj) {
+			return ti.After(tj)
+		}
+		return out[i].SessionID < out[j].SessionID
 	})
 	return out, nil
 }
