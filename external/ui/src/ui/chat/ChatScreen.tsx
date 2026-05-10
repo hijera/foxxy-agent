@@ -1,22 +1,31 @@
-import type { CSSProperties } from 'react';
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { TokenUsage, TranscriptItem } from './types';
-import { ChatHeader } from './ChatHeader';
-import { Composer } from './Composer';
-import { MessageList } from '../messages/MessageList';
-import { shellStackMaxWidthMediaQuery } from '../shellBreakpoint';
+import type { CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import type { TokenUsage, TranscriptItem } from "./types";
+import { ChatHeader } from "./ChatHeader";
+import { Composer } from "./Composer";
+import { MessageList } from "../messages/MessageList";
+import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
 
 const DOC_SCROLL_SHELL_STACK_MQ = shellStackMaxWidthMediaQuery;
 
 function subscribeMobileDocScroll(cb: () => void) {
-  if (typeof window === 'undefined') return () => {};
+  if (typeof window === "undefined") return () => {};
   const mq = window.matchMedia(DOC_SCROLL_SHELL_STACK_MQ);
-  mq.addEventListener('change', cb);
-  return () => mq.removeEventListener('change', cb);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
 }
 
 function snapshotMobileDocScroll() {
-  return typeof window !== 'undefined' && window.matchMedia(DOC_SCROLL_SHELL_STACK_MQ).matches;
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia(DOC_SCROLL_SHELL_STACK_MQ).matches
+  );
 }
 
 function serverSnapshotMobileDocScroll() {
@@ -66,7 +75,8 @@ export function ChatScreen(props: {
       setComposerReserve(Math.max(140, Math.ceil(h) + extra));
     };
     apply();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+    const ro =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
     ro?.observe(host);
     return () => ro?.disconnect();
   }, [isEmpty, props.tokenUsage]);
@@ -76,8 +86,11 @@ export function ChatScreen(props: {
     if (!stickToBottomRef.current) return;
     if (mobileDocScroll) {
       const run = () => {
-        const top = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
-        window.scrollTo({ top, left: 0, behavior: 'auto' });
+        const top = Math.max(
+          document.body.scrollHeight,
+          document.documentElement.scrollHeight,
+        );
+        window.scrollTo({ top, left: 0, behavior: "auto" });
       };
       requestAnimationFrame(() => requestAnimationFrame(run));
       return;
@@ -101,16 +114,16 @@ export function ChatScreen(props: {
       }
     };
     if (mobileDocScroll) {
-      window.addEventListener('scroll', onScroll, { passive: true });
-      return () => window.removeEventListener('scroll', onScroll);
+      window.addEventListener("scroll", onScroll, { passive: true });
+      return () => window.removeEventListener("scroll", onScroll);
     }
     const el = messagesRef.current;
-    el?.addEventListener('scroll', onScroll, { passive: true });
-    return () => el?.removeEventListener('scroll', onScroll);
+    el?.addEventListener("scroll", onScroll, { passive: true });
+    return () => el?.removeEventListener("scroll", onScroll);
   }, [isEmpty, mobileDocScroll]);
 
   return (
-    <main className={`main ${isEmpty ? 'is-empty' : ''}`}>
+    <main className={`main ${isEmpty ? "is-empty" : ""}`}>
       {isEmpty ? (
         <div className="hero" id="hero">
           <h1 className="hero-title">What do you want to know?</h1>
@@ -123,17 +136,27 @@ export function ChatScreen(props: {
               mode={props.mode}
               modes={props.modes}
               tokenUsage={props.tokenUsage}
-              {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
-              {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
+              {...(props.contextPct !== undefined
+                ? { contextPct: props.contextPct }
+                : {})}
+              {...(props.maxContextTokens !== undefined
+                ? { maxContextTokens: props.maxContextTokens }
+                : {})}
               {...(props.llmModels !== undefined &&
               props.llmModels.length > 0 &&
               props.onLlmModelChange !== undefined
-                ? { llmModels: props.llmModels, llmModel: props.llmModel, onLlmModelChange: props.onLlmModelChange }
+                ? {
+                    llmModels: props.llmModels,
+                    llmModel: props.llmModel,
+                    onLlmModelChange: props.onLlmModelChange,
+                  }
                 : {})}
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
-              {...(props.generating === true && props.onStop !== undefined ? { generating: true, onStop: props.onStop } : {})}
+              {...(props.generating === true && props.onStop !== undefined
+                ? { generating: true, onStop: props.onStop }
+                : {})}
             />
           </div>
         </div>
@@ -142,20 +165,31 @@ export function ChatScreen(props: {
           className="chat-stack"
           style={
             {
-              '--chat-composer-reserve': `${composerReserve}px`,
+              "--chat-composer-reserve": `${composerReserve}px`,
             } as CSSProperties
           }
         >
-          <div id="messages" className="chat-scroll" aria-live="polite" ref={messagesRef}>
+          <div
+            id="messages"
+            className="chat-scroll"
+            aria-live="polite"
+            ref={messagesRef}
+          >
             <div className="chat-scroll-sticky-head">
               <div className="chat-title-column">
-                <ChatHeader title={props.title} editable={true} onTitleSave={props.onTitleSave} />
+                <ChatHeader
+                  title={props.title}
+                  editable={true}
+                  onTitleSave={props.onTitleSave}
+                />
               </div>
             </div>
             <div className="messages-inner">
               <MessageList
                 items={props.items}
-                {...(props.onFetchToolCallFull ? { onFetchToolCallFull: props.onFetchToolCallFull } : {})}
+                {...(props.onFetchToolCallFull
+                  ? { onFetchToolCallFull: props.onFetchToolCallFull }
+                  : {})}
               />
             </div>
             <div className="chat-scroll-tail" aria-hidden />
@@ -171,17 +205,27 @@ export function ChatScreen(props: {
                 mode={props.mode}
                 modes={props.modes}
                 tokenUsage={props.tokenUsage}
-                {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
-                {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
+                {...(props.contextPct !== undefined
+                  ? { contextPct: props.contextPct }
+                  : {})}
+                {...(props.maxContextTokens !== undefined
+                  ? { maxContextTokens: props.maxContextTokens }
+                  : {})}
                 {...(props.llmModels !== undefined &&
                 props.llmModels.length > 0 &&
                 props.onLlmModelChange !== undefined
-                  ? { llmModels: props.llmModels, llmModel: props.llmModel, onLlmModelChange: props.onLlmModelChange }
+                  ? {
+                      llmModels: props.llmModels,
+                      llmModel: props.llmModel,
+                      onLlmModelChange: props.onLlmModelChange,
+                    }
                   : {})}
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
-                {...(props.generating === true && props.onStop !== undefined ? { generating: true, onStop: props.onStop } : {})}
+                {...(props.generating === true && props.onStop !== undefined
+                  ? { generating: true, onStop: props.onStop }
+                  : {})}
               />
             </div>
           </div>

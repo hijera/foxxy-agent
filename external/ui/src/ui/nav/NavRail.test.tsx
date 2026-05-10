@@ -1,11 +1,11 @@
-import React from 'react';
-import { afterEach, expect, test } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
-import { NavRail } from './NavRail';
+import React from "react";
+import { afterEach, expect, test } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { NavRail } from "./NavRail";
 
 afterEach(() => cleanup());
 
-test('nav brand uses Coddy agent label (compact rail)', () => {
+test("nav brand uses Coddy agent label (compact rail)", () => {
   render(
     <NavRail
       onNewChat={() => {}}
@@ -17,11 +17,13 @@ test('nav brand uses Coddy agent label (compact rail)', () => {
     />,
   );
 
-  expect(screen.getByRole('button', { name: 'Coddy agent home' })).toBeInTheDocument();
-  expect(screen.getByText('agent')).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Coddy agent home" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("agent")).toBeInTheDocument();
 });
 
-test('nav brand uses Coddy agent label (wide header row)', () => {
+test("nav brand uses Coddy agent label (wide header row)", () => {
   render(
     <NavRail
       onNewChat={() => {}}
@@ -33,6 +35,8 @@ test('nav brand uses Coddy agent label (wide header row)', () => {
     />,
   );
 
-  expect(screen.getByRole('button', { name: 'Coddy agent home' })).toBeInTheDocument();
-  expect(screen.getByTestId('nav-home')).toHaveTextContent('Coddy agent');
+  expect(
+    screen.getByRole("button", { name: "Coddy agent home" }),
+  ).toBeInTheDocument();
+  expect(screen.getByTestId("nav-home")).toHaveTextContent("Coddy agent");
 });

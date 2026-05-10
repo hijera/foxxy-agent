@@ -27,9 +27,9 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
   void (async () => {
     let describeRes: Response;
     try {
-      describeRes = await fetchFn('/coddy/describe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      describeRes = await fetchFn("/coddy/describe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: trimmed }),
       });
     } catch {
@@ -38,10 +38,10 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
     if (!describeRes.ok) {
       return;
     }
-    let short = '';
+    let short = "";
     try {
       const data = (await describeRes.json()) as { short?: string };
-      short = (data.short || '').trim();
+      short = (data.short || "").trim();
     } catch {
       return;
     }
@@ -49,7 +49,7 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
       return;
     }
 
-    const previewId = (deps.getPreviewSessionId?.() ?? '').trim();
+    const previewId = (deps.getPreviewSessionId?.() ?? "").trim();
     if (previewId && deps.onShortReady) {
       deps.onShortReady(previewId, short);
     }
@@ -68,8 +68,8 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
       let patchRes: Response;
       try {
         patchRes = await fetchFn(`/coddy/sessions/${encodeURIComponent(sid)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: short }),
         });
       } catch {

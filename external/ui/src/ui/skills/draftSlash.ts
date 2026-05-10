@@ -1,25 +1,34 @@
 /** True when caret sits inside a fenced code block (``` toggles), mirroring Go slash parsing. */
-export function inMarkdownFenceBeforeCaret(text: string, caret: number): boolean {
+export function inMarkdownFenceBeforeCaret(
+  text: string,
+  caret: number,
+): boolean {
   const head = text.slice(0, caret);
   const lines = head.split(/\r?\n/);
   let inFence = false;
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
-    const trimmedLead = line.replace(/^[ \t]+/, '');
-    if (trimmedLead.startsWith('```')) {
+    const trimmedLead = line.replace(/^[ \t]+/, "");
+    if (trimmedLead.startsWith("```")) {
       inFence = !inFence;
     }
   }
   return inFence;
 }
 
-function blockquoteLine(line: string): boolean {
+export function blockquoteLine(line: string): boolean {
   return /^[ \t]*>/.test(line);
 }
 
 export type SlashMenuDraft =
   | { open: false }
-  | { open: true; lineStart: number; slashIdx: number; caret: number; prefix: string };
+  | {
+      open: true;
+      lineStart: number;
+      slashIdx: number;
+      caret: number;
+      prefix: string;
+    };
 
 /**
  * True while the caret stays in a slash token whose prefix cannot match any command:
@@ -34,25 +43,30 @@ export function draftExtendsFailedSlashPrefix(
   if (!draft.open || draft.slashIdx !== failed.slashIdx) {
     return false;
   }
-  if (failed.prefix === '') {
+  if (failed.prefix === "") {
     return true;
   }
-  return draft.prefix === failed.prefix || draft.prefix.startsWith(failed.prefix);
+  return (
+    draft.prefix === failed.prefix || draft.prefix.startsWith(failed.prefix)
+  );
 }
 
 /**
  * When the current line ends (before caret) with optional spaces then `/` + optional name token,
  * with `/` preceded by line start or whitespace, returns picker state after `/`.
  */
-export function slashMenuDraftAtCaret(text: string, caret: number): SlashMenuDraft {
+export function slashMenuDraftAtCaret(
+  text: string,
+  caret: number,
+): SlashMenuDraft {
   if (caret < 0 || caret > text.length) {
     return { open: false };
   }
   if (inMarkdownFenceBeforeCaret(text, caret)) {
     return { open: false };
   }
-  const lineStart = text.lastIndexOf('\n', caret - 1) + 1;
-  const lineEndIdx = text.indexOf('\n', caret);
+  const lineStart = text.lastIndexOf("\n", caret - 1) + 1;
+  const lineEndIdx = text.indexOf("\n", caret);
   const lineEnd = lineEndIdx < 0 ? text.length : lineEndIdx;
   const line = text.slice(lineStart, lineEnd);
   if (blockquoteLine(line)) {
@@ -63,7 +77,7 @@ export function slashMenuDraftAtCaret(text: string, caret: number): SlashMenuDra
   const tokenOk = (s: string) => /^[a-zA-Z0-9_-]*$/.test(s);
 
   for (let i = beforeCaret.length - 1; i >= 0; i--) {
-    if (beforeCaret[i] !== '/') {
+    if (beforeCaret[i] !== "/") {
       continue;
     }
     const after = beforeCaret.slice(i + 1);

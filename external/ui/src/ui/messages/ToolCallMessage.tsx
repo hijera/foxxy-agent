@@ -1,4 +1,10 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 function safePrettyJSON(text: string): string {
   try {
@@ -10,7 +16,7 @@ function safePrettyJSON(text: string): string {
 }
 
 function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (!Number.isFinite(ms) || ms < 0) return "";
   if (ms >= 60_000) {
     const mins = ms / 60_000;
     const fixed = mins < 10 ? mins.toFixed(1) : mins.toFixed(0);
@@ -33,36 +39,55 @@ export function ToolCallMessage(props: {
   startedAtMs?: number;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
 }) {
-  const args = useMemo(() => (props.argsText ? safePrettyJSON(props.argsText) : ''), [props.argsText]);
-  const preview = useMemo(() => (props.resultText ? props.resultText : ''), [props.resultText]);
-  const full = props.fullResultText || '';
-  const rawName = (props.title || props.kind || 'tool').trim();
-  const status = (props.status || '').toLowerCase();
-  const pendingLike = status === 'pending' || status === 'in_progress';
-  const displayLabel = pendingLike ? `${rawName || 'tool'}...` : rawName || 'tool';
+  const args = useMemo(
+    () => (props.argsText ? safePrettyJSON(props.argsText) : ""),
+    [props.argsText],
+  );
+  const preview = useMemo(
+    () => (props.resultText ? props.resultText : ""),
+    [props.resultText],
+  );
+  const full = props.fullResultText || "";
+  const rawName = (props.title || props.kind || "tool").trim();
+  const status = (props.status || "").toLowerCase();
+  const pendingLike = status === "pending" || status === "in_progress";
+  const displayLabel = pendingLike
+    ? `${rawName || "tool"}...`
+    : rawName || "tool";
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!pendingLike || typeof props.startedAtMs !== 'number') return;
+    if (!pendingLike || typeof props.startedAtMs !== "number") return;
     const h = window.setInterval(() => setNowMs(Date.now()), 160);
     return () => window.clearInterval(h);
   }, [pendingLike, props.startedAtMs]);
 
   const durationLabel = useMemo(() => {
-    const terminal = status === 'completed' || status === 'failed' || status === 'cancelled';
+    const terminal =
+      status === "completed" || status === "failed" || status === "cancelled";
     if (terminal) {
-      if (typeof props.durationMs === 'number' && Number.isFinite(props.durationMs) && props.durationMs >= 0) {
+      if (
+        typeof props.durationMs === "number" &&
+        Number.isFinite(props.durationMs) &&
+        props.durationMs >= 0
+      ) {
         return formatDuration(props.durationMs);
       }
-      return '-';
+      return "-";
     }
-    if (typeof props.startedAtMs === 'number' && Number.isFinite(props.startedAtMs)) {
+    if (
+      typeof props.startedAtMs === "number" &&
+      Number.isFinite(props.startedAtMs)
+    ) {
       return formatDuration(Math.max(0, nowMs - props.startedAtMs));
     }
-    if (typeof props.durationMs === 'number' && Number.isFinite(props.durationMs)) {
+    if (
+      typeof props.durationMs === "number" &&
+      Number.isFinite(props.durationMs)
+    ) {
       return formatDuration(props.durationMs);
     }
-    return '-';
+    return "-";
   }, [props.durationMs, props.startedAtMs, props.status, nowMs]);
 
   const [showExpanded, setShowExpanded] = useState(false);
@@ -74,7 +99,8 @@ export function ToolCallMessage(props: {
   }, [props.toolCallId]);
 
   const canExpand =
-    props.resultWasTruncated === true && (status === 'completed' || status === 'failed' || status === 'cancelled');
+    props.resultWasTruncated === true &&
+    (status === "completed" || status === "failed" || status === "cancelled");
   const fetchFull = props.onFetchToolCallFull;
 
   const onLoadMore = useCallback(async () => {
@@ -96,7 +122,7 @@ export function ToolCallMessage(props: {
 
   const resultBody = showExpanded && full ? full : preview;
   const useTallViewport =
-    props.resultWasTruncated === true || (showExpanded && full.trim() !== '');
+    props.resultWasTruncated === true || (showExpanded && full.trim() !== "");
 
   const showToggleRow = canExpand && !!fetchFull && !!(preview || full);
   let toggleLink: ReactElement | null = null;
@@ -127,22 +153,27 @@ export function ToolCallMessage(props: {
             void onLoadMore();
           }}
         >
-          {loadingFull ? 'Loading...' : 'Load more results'}
+          {loadingFull ? "Loading..." : "Load more results"}
         </button>
       );
     }
   }
 
-  const viewportMode = showExpanded && full ? 'scroll' : 'clip';
+  const viewportMode = showExpanded && full ? "scroll" : "clip";
 
   const hasBody =
-    !!args ||
-    !!(resultBody && resultBody.length > 0) ||
-    !!toggleLink;
+    !!args || !!(resultBody && resultBody.length > 0) || !!toggleLink;
 
   return (
-    <div className="thinking-row coddy-tool-call-row" data-kind={props.kind || ''} data-status={props.status}>
-      <details className="thinking-details coddy-tool-details" data-testid={`tool-details-${props.toolCallId}`}>
+    <div
+      className="thinking-row coddy-tool-call-row"
+      data-kind={props.kind || ""}
+      data-status={props.status}
+    >
+      <details
+        className="thinking-details coddy-tool-details"
+        data-testid={`tool-details-${props.toolCallId}`}
+      >
         <summary className="thinking-summary" aria-label="Tool summary">
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
@@ -153,7 +184,10 @@ export function ToolCallMessage(props: {
           </span>
         </summary>
         {hasBody ? (
-          <div className="thinking-body coddy-tool-call-body" aria-label="Tool call details">
+          <div
+            className="thinking-body coddy-tool-call-body"
+            aria-label="Tool call details"
+          >
             {args ? (
               <pre className="tool-block" aria-label="Tool arguments">
                 {args}
@@ -162,17 +196,20 @@ export function ToolCallMessage(props: {
             {resultBody ? (
               <div
                 className={[
-                  'tool-block tool-result tool-result-raw',
-                  useTallViewport && `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  "tool-block tool-result tool-result-raw",
+                  useTallViewport &&
+                    `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
                 ]
                   .filter(Boolean)
-                  .join(' ')}
+                  .join(" ")}
                 aria-label="Tool result"
               >
                 <pre className="tool-result-pre">{resultBody}</pre>
               </div>
             ) : null}
-            {toggleLink ? <div className="tool-result-toggle-row">{toggleLink}</div> : null}
+            {toggleLink ? (
+              <div className="tool-result-toggle-row">{toggleLink}</div>
+            ) : null}
           </div>
         ) : null}
       </details>

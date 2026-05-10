@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import type { SessionRow } from './types';
+import { useEffect, useRef } from "react";
+import type { SessionRow } from "./types";
 
 export function SessionsSidebar(props: {
   sessionId: string;
@@ -34,21 +34,38 @@ export function SessionsSidebar(props: {
           props.onLoadMore();
         }
       },
-      { root, rootMargin: '48px', threshold: 0 },
+      { root, rootMargin: "48px", threshold: 0 },
     );
     io.observe(sent);
     return () => io.disconnect();
-  }, [isOpen, props.hasMore, props.loadingMore, props.sessions.length, props.onLoadMore]);
+  }, [
+    isOpen,
+    props.hasMore,
+    props.loadingMore,
+    props.sessions.length,
+    props.onLoadMore,
+  ]);
 
   if (!isOpen) {
     return null;
   }
 
   return (
-    <aside className="sessions drawer" aria-label="History" data-testid="sessions" data-variant="drawer">
+    <aside
+      className="sessions drawer"
+      aria-label="History"
+      data-testid="sessions"
+      data-variant="drawer"
+    >
       <div className="sessions-head">
         <span>History</span>
-        <button type="button" className="sessions-close" aria-label="Close history" data-testid="sessions-close" onClick={props.onClose}>
+        <button
+          type="button"
+          className="sessions-close"
+          aria-label="Close history"
+          data-testid="sessions-close"
+          onClick={props.onClose}
+        >
           ×
         </button>
       </div>
@@ -64,7 +81,13 @@ export function SessionsSidebar(props: {
           data-testid="sessions-search"
         />
         {props.searchDraft.trim() ? (
-          <button type="button" className="sessions-search-clear" aria-label="Clear search" data-testid="sessions-search-clear" onClick={props.onSearchClear}>
+          <button
+            type="button"
+            className="sessions-search-clear"
+            aria-label="Clear search"
+            data-testid="sessions-search-clear"
+            onClick={props.onSearchClear}
+          >
             ×
           </button>
         ) : null}
@@ -84,14 +107,14 @@ export function SessionsSidebar(props: {
         {props.sessions.map((s) => (
           <div
             key={s.id}
-            className={`session-item ${s.id === props.sessionId ? 'active' : ''}`}
+            className={`session-item ${s.id === props.sessionId ? "active" : ""}`}
             onClick={() => {
               props.onPick(s.id);
             }}
           >
             <div className="session-row">
-              <span className="session-title" title={s.title || 'New chat'}>
-                {s.title || 'New chat'}
+              <span className="session-title" title={s.title || "New chat"}>
+                {s.title || "New chat"}
               </span>
               <button
                 className="session-trash"
@@ -109,9 +132,16 @@ export function SessionsSidebar(props: {
             </div>
           </div>
         ))}
-        <div ref={sentinelRef} className="sessions-scroll-sentinel" aria-hidden />
+        <div
+          ref={sentinelRef}
+          className="sessions-scroll-sentinel"
+          aria-hidden
+        />
         {props.loadingMore ? (
-          <div className="sessions-loading-more" data-testid="sessions-loading-more">
+          <div
+            className="sessions-loading-more"
+            data-testid="sessions-loading-more"
+          >
             Loading...
           </div>
         ) : null}

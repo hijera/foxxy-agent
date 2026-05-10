@@ -1,7 +1,7 @@
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
-import { isValidElement, useCallback, useMemo, useState } from 'react';
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import { isValidElement, useCallback, useMemo, useState } from "react";
 
 type CodeProps = {
   inline?: boolean;
@@ -20,15 +20,15 @@ type AProps = {
 
 function normalizeText(children: unknown): string {
   if (Array.isArray(children)) {
-    return children.map((c) => normalizeText(c)).join('');
+    return children.map((c) => normalizeText(c)).join("");
   }
   if (isValidElement(children)) {
     return normalizeText((children.props as any)?.children);
   }
-  if (typeof children === 'string') {
+  if (typeof children === "string") {
     return children;
   }
-  return '';
+  return "";
 }
 
 function CopyButton(props: { text: string }) {
@@ -41,14 +41,14 @@ function CopyButton(props: { text: string }) {
       window.setTimeout(() => setCopied(false), 900);
     } catch {
       try {
-        const ta = document.createElement('textarea');
+        const ta = document.createElement("textarea");
         ta.value = props.text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
         document.body.appendChild(ta);
         ta.focus();
         ta.select();
-        document.execCommand('copy');
+        document.execCommand("copy");
         document.body.removeChild(ta);
         setCopied(true);
         window.setTimeout(() => setCopied(false), 900);
@@ -59,8 +59,13 @@ function CopyButton(props: { text: string }) {
   }, [props.text]);
 
   return (
-    <button type="button" className="md-copy" onClick={() => void onCopy()} aria-label="Copy code">
-      {copied ? 'Copied' : 'Copy'}
+    <button
+      type="button"
+      className="md-copy"
+      onClick={() => void onCopy()}
+      aria-label="Copy code"
+    >
+      {copied ? "Copied" : "Copy"}
     </button>
   );
 }
@@ -70,32 +75,41 @@ export function Markdown(props: { text: string }) {
     () => ({
       code: (p: CodeProps) => {
         if (p.inline) {
-          return <code className={p.className || ''}>{p.children as any}</code>;
+          return <code className={p.className || ""}>{p.children as any}</code>;
         }
-        return <code className={p.className || ''}>{p.children as any}</code>;
+        return <code className={p.className || ""}>{p.children as any}</code>;
       },
       pre: (p: PreProps) => {
         const txt = normalizeText(p.children);
         return (
           <div className="md-code">
-            <CopyButton text={txt.replace(/\n$/, '')} />
+            <CopyButton text={txt.replace(/\n$/, "")} />
             <pre>{p.children as any}</pre>
           </div>
         );
       },
       a: (p: AProps) => {
-        const href = typeof p.href === 'string' ? p.href : '';
-        if (href.startsWith('coddy-skill:')) {
-          const name = href.slice('coddy-skill:'.length);
+        const href = typeof p.href === "string" ? p.href : "";
+        if (href.startsWith("coddy-skill:")) {
+          const name = href.slice("coddy-skill:".length);
           return (
-            <span className="coddy-skill-chip" data-testid="coddy-skill-span" data-skill-name={name}>
+            <span
+              className="coddy-skill-chip"
+              data-testid="coddy-skill-span"
+              data-skill-name={name}
+            >
               {p.children as any}
             </span>
           );
         }
         const external = /^https?:\/\//i.test(href);
         return (
-          <a href={href} {...(external ? ({ target: '_blank', rel: 'noreferrer noopener' } as const) : {})}>
+          <a
+            href={href}
+            {...(external
+              ? ({ target: "_blank", rel: "noreferrer noopener" } as const)
+              : {})}
+          >
             {p.children as any}
           </a>
         );
@@ -105,7 +119,7 @@ export function Markdown(props: { text: string }) {
   );
 
   const urlTransform = useCallback((url: string, key: string, node: any) => {
-    if (url.startsWith('coddy-skill:')) {
+    if (url.startsWith("coddy-skill:")) {
       return url;
     }
     return defaultUrlTransform(url, key, node);

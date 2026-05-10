@@ -109,7 +109,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -988,6 +988,163 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 	_ = rp.Body.Close()
 	if rp.StatusCode != http.StatusOK || pref.Total != 1 || len(pref.Items) != 1 || pref.Items[0]["name"] != "zebra" {
 		t.Fatalf("prefix: status=%d %+v", rp.StatusCode, pref)
+	}
+}
+
+func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	skillsDir := filepath.Join(root, "skills")
+	wd := filepath.Join(root, "wd")
+	for _, d := range []string{filepath.Join(home, "memory"), filepath.Join(skillsDir, "z"), wd, filepath.Join(wd, "pkg")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(wd, "with space.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "pkg", "readme.md"), []byte("#"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: wd},
+		Skills: config.Skills{Dirs: []string{skillsDir}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, nil)
+	srv := New(cfg, mgr, slog.Default(), wd)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	emptyPref, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var emptyBody struct {
+		Items []interface{} `json:"items"`
+		Total int           `json:"total"`
+	}
+	if err := json.NewDecoder(emptyPref.Body).Decode(&emptyBody); err != nil {
+		t.Fatal(err)
+	}
+	_ = emptyPref.Body.Close()
+	if emptyPref.StatusCode != http.StatusOK || emptyBody.Total != 0 || len(emptyBody.Items) != 0 {
+		t.Fatalf("empty prefix: status=%d %+v", emptyPref.StatusCode, emptyBody)
+	}
+
+	rsp, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10&prefix=space")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Items []map[string]string `json:"items"`
+		Total int                 `json:"total"`
+	}
+	if err := json.NewDecoder(rsp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	_ = rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK || body.Total != 1 || len(body.Items) != 1 ||
+		body.Items[0]["path_rel"] != "with space.go" || body.Items[0]["kind"] != "file" {
+		t.Fatalf("space prefix: status=%d %+v", rsp.StatusCode, body)
+	}
+
+	rd, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10&prefix=pkg&dirs=true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dbody struct {
+		Items []map[string]string `json:"items"`
+		Total int                 `json:"total"`
+	}
+	if err := json.NewDecoder(rd.Body).Decode(&dbody); err != nil {
+		t.Fatal(err)
+	}
+	_ = rd.Body.Close()
+	if rd.StatusCode != http.StatusOK || dbody.Total != 2 {
+		t.Fatalf("dirs: status=%d total=%d %+v", rd.StatusCode, dbody.Total, dbody.Items)
+	}
+	var sawDir bool
+	for _, row := range dbody.Items {
+		if row["path_rel"] == "pkg/" && row["kind"] == "dir" {
+			sawDir = true
+		}
+	}
+	if !sawDir {
+		t.Fatalf("expected pkg/ dir row, got %+v", dbody.Items)
+	}
+}
+
+func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	wd := filepath.Join(root, "wd")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "note.txt"), []byte("inside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		var sb strings.Builder
+		for _, b := range prompt {
+			if b.Type == "text" {
+				sb.WriteString(b.Text)
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	store := &session.FileStore{Root: sessRoot}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, store)
+	srv := New(cfg, mgr, slog.Default(), wd)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sid := "sess_http_attach_1"
+	payload := `{"model":"agent","input":"read @note.txt","stream":false,"attachments":[{"path":"note.txt"}]}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) < 2 {
+		t.Fatalf("expected hydrated blocks: %+v", blocks)
+	}
+	if blocks[0].Type != "text" || blocks[1].Type != "resource" || blocks[1].Resource == nil || blocks[1].Resource.Text != "inside" {
+		t.Fatalf("blocks %+v", blocks)
 	}
 }
 
