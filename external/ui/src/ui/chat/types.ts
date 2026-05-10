@@ -33,6 +33,8 @@ export type TranscriptItem =
       status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
       argsText?: string;
       resultText?: string;
+      /** True when SSE or list preview hid lines; user can load full text from GET …/tool-calls/{id}. */
+      resultWasTruncated?: boolean;
       detailsLoaded?: boolean;
       startedAtMs?: number;
       finishedAtMs?: number;

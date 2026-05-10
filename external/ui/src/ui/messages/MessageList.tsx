@@ -69,6 +69,7 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}
             {...(it.resultText !== undefined ? { resultText: it.resultText } : {})}
+            {...(it.resultWasTruncated === true ? { resultWasTruncated: true } : {})}
             {...(it.detailsLoaded !== undefined ? { detailsLoaded: it.detailsLoaded } : {})}
             {...(typeof it.durationMs === 'number' ? { durationMs: it.durationMs } : {})}
             {...(props.onLoadToolCallDetails ? { onLoadDetails: props.onLoadToolCallDetails } : {})}

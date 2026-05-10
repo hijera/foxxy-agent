@@ -105,7 +105,7 @@ Captured via SSE (**`tool_call`**, **`tool_call_update`**). Rendered compact gre
 Tool cards must include tool name, status, arguments, and result.
 
 - Tool arguments arrive via `tool_call_update` status `in_progress` where `content[0].content.text` is raw JSON args.
-- Tool result arrives via `tool_call_update` status `completed` or `failed` where `content[0].content.text` is the display result (possibly truncated by backend).
+- Tool result arrives via `tool_call_update` status `completed` or `failed` where `content[0].content.text` is capped to the first **10 lines** plus **`...`** when longer; **`_meta.coddy.toolResultPreview`** marks truncation. Full text loads only when the user clicks **Load full output** (GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`, which always returns the saved result).
 
 Tool call history is persisted per session under `tool_calls/` so it can be restored after restart.
 
@@ -124,7 +124,7 @@ Current block types:
   - Multiple `thinking` blocks can appear in one user turn. If the model resumes reasoning after tool calls, the UI starts a new `thinking` block and preserves ordering.
 - `tool_call`
   - Tool execution timeline block (SSE `tool_call` and `tool_call_update`, enriched from `/coddy/sessions/{id}/tool-calls`).
-  - Summary row stays compact; details show args and result.
+  - Summary row stays compact; details show args and streamed result preview. **Load full output** fetches the complete result from the Coddy REST helper (not on expand alone).
   - Duration label is computed from persisted `tool_calls/<id>/meta.json` `startedAt` and `finishedAt` when available.
 - `assistant_message`
   - Final assistant output for the turn. UI keeps it last and backfills it from `/coddy/sessions/{id}/messages` when streaming ends.

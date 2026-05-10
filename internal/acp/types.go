@@ -341,6 +341,7 @@ type ToolCallStatusUpdate struct {
 	ToolCallID    string               `json:"toolCallId"`
 	Status        string               `json:"status"` // "in_progress", "completed", "failed", "cancelled"
 	Content       []ToolCallResultItem `json:"content,omitempty"`
+	Meta          map[string]interface{} `json:"_meta,omitempty"` // ACP extensibility; Coddy uses coddy.toolResultPreview for truncated previews
 }
 
 // ToolCallResultItem wraps content in a tool call result.

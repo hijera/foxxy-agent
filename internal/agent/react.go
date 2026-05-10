@@ -447,13 +447,15 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
 	}
 
+	payload := result
+	if execErr != nil {
+		payload = fmt.Sprintf("error: %v", execErr)
+	}
 	var content []acp.ToolCallResultItem
-	if result != "" {
-		// Truncate very long results for the notification (full result still sent to LLM).
-		display := result
-		if len(display) > 2000 {
-			display = display[:2000] + "\n... (truncated)"
-		}
+	var previewMeta map[string]interface{}
+	if strings.TrimSpace(payload) != "" {
+		display, meta := session.PreviewToolResultForSessionUpdate(tc.Name, payload)
+		previewMeta = meta
 		content = []acp.ToolCallResultItem{
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: display}},
 		}
@@ -464,6 +466,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		ToolCallID:    tc.ID,
 		Status:        status,
 		Content:       content,
+		Meta:          previewMeta,
 	})
 
 	return result, execErr

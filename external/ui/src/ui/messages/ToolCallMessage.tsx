@@ -27,7 +27,8 @@ export function ToolCallMessage(props: {
   status: string;
   argsText?: string | undefined;
   resultText?: string | undefined;
-  detailsLoaded?: boolean;
+  resultWasTruncated?: boolean | undefined;
+  detailsLoaded?: boolean | undefined;
   durationMs?: number;
   onLoadDetails?: (toolCallId: string) => void;
 }) {
@@ -36,7 +37,11 @@ export function ToolCallMessage(props: {
   const name = (props.title || props.kind || 'tool').trim();
   const status = (props.status || '').toLowerCase();
   const showSpinner = status === 'pending' || status === 'in_progress';
-  const canLoad = !!props.onLoadDetails && !props.detailsLoaded;
+  const needsFull =
+    !!props.onLoadDetails &&
+    !props.detailsLoaded &&
+    props.resultWasTruncated === true &&
+    (status === 'completed' || status === 'failed' || status === 'cancelled');
   const dur =
     typeof props.durationMs === 'number' && Number.isFinite(props.durationMs) && props.durationMs >= 0
       ? formatDuration(props.durationMs)
@@ -44,16 +49,8 @@ export function ToolCallMessage(props: {
 
   return (
     <div className="msg msg-tools msg-compact" data-kind={props.kind || ''} data-status={props.status}>
-      <details
-        className="tool-details"
-        onToggle={(e) => {
-          const el = e.currentTarget;
-          if (!el.open) return;
-          if (!canLoad) return;
-          props.onLoadDetails?.(props.toolCallId);
-        }}
-      >
-        <summary className="tool-summary" aria-label="Tool summary" title="Click to view details">
+      <details className="tool-details">
+        <summary className="tool-summary" aria-label="Tool summary" title="Click to expand">
           <span className="tool-left">
             <span className={`tool-dot tool-dot-${status || 'unknown'}`} aria-hidden="true" />
             {showSpinner ? <span className="tool-spinner" aria-hidden="true" /> : null}
@@ -73,6 +70,17 @@ export function ToolCallMessage(props: {
         {result ? (
           <div className="tool-block tool-result" aria-label="Tool result">
             <Markdown text={result} />
+          </div>
+        ) : null}
+        {needsFull ? (
+          <div className="tool-load-full-wrap">
+            <button
+              type="button"
+              className="tool-load-full"
+              onClick={() => props.onLoadDetails?.(props.toolCallId)}
+            >
+              Load full output
+            </button>
           </div>
         ) : null}
       </details>

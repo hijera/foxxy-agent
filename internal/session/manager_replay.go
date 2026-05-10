@@ -55,28 +55,37 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 					Status:        "pending",
 				})
 			}
-			for range msg.ToolCalls {
-				if i+1 < len(msgs) && msgs[i+1].Role == llm.RoleTool {
-					tm := msgs[i+1]
-					i++
-					display := truncateForReplay(tm.Content)
-					var content []acp.ToolCallResultItem
-					if display != "" {
-						content = []acp.ToolCallResultItem{
-							{Type: "content", Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: display}},
-						}
-					}
-					_ = m.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-						SessionUpdate: acp.UpdateTypeToolCallUpdate,
-						ToolCallID:    tm.ToolCallID,
-						Status:        "completed",
-						Content:       content,
-					})
+			for k := range msg.ToolCalls {
+				tc := msg.ToolCalls[k]
+				if i+1 >= len(msgs) || msgs[i+1].Role != llm.RoleTool {
+					break
 				}
+				tm := msgs[i+1]
+				i++
+				display, pmeta := PreviewToolResultForSessionUpdate(tc.Name, tm.Content)
+				var content []acp.ToolCallResultItem
+				if display != "" {
+					content = []acp.ToolCallResultItem{
+						{Type: "content", Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: display}},
+					}
+				}
+				_ = m.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: acp.UpdateTypeToolCallUpdate,
+					ToolCallID:    tm.ToolCallID,
+					Status:        "completed",
+					Content:       content,
+					Meta:          pmeta,
+				})
 			}
 
 		case llm.RoleTool:
-			display := truncateForReplay(msg.Content)
+			toolName := ""
+			if sd := strings.TrimSpace(sessionDir); sd != "" {
+				if meta, err := ReadToolCallMeta(sd, msg.ToolCallID); err == nil && meta != nil {
+					toolName = meta.Name
+				}
+			}
+			display, pmeta := PreviewToolResultForSessionUpdate(toolName, msg.Content)
 			var content []acp.ToolCallResultItem
 			if display != "" {
 				content = []acp.ToolCallResultItem{
@@ -88,6 +97,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 				ToolCallID:    msg.ToolCallID,
 				Status:        "completed",
 				Content:       content,
+				Meta:          pmeta,
 			})
 
 		default:
@@ -224,14 +234,6 @@ func (m *Manager) replayMemoryTrace(sessionID string, row *MemoryTurnTraceJSON) 
 		}
 		_ = m.server.SendSessionUpdate(sessionID, ph)
 	}
-}
-
-func truncateForReplay(s string) string {
-	display := strings.TrimRight(s, "\n\r")
-	if len(display) > 2000 {
-		display = display[:2000] + "\n... (truncated)"
-	}
-	return display
 }
 
 func replayToolKind(name string) string {

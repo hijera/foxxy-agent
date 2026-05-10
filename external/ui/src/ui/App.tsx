@@ -23,6 +23,7 @@ type ToolCallStatusUpdate = {
   toolCallId: string;
   status?: string;
   content?: Array<{ type: string; content: { type: string; text?: string } }>;
+  _meta?: { coddy?: { toolResultPreview?: { truncated?: boolean; totalLines?: number } } };
 };
 
 type ToolCallListRow = {
@@ -34,7 +35,13 @@ type ToolCallListRow = {
   finishedAt?: string;
   argsPreview?: string;
   resultPreview?: string;
+  resultPreviewTruncated?: boolean;
 };
+
+function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
+  const p = u._meta?.coddy?.toolResultPreview;
+  return !!(p && p.truncated === true);
+}
 
 type MemoryPhaseEvt = {
   memoryRowId: string;
@@ -704,6 +711,7 @@ export function App() {
         if (kind) merged.kind = kind;
         if (row.argsPreview) merged.argsText = row.argsPreview;
         if (row.resultPreview) merged.resultText = row.resultPreview;
+        if (row.resultPreviewTruncated === true) merged.resultWasTruncated = true;
         const st = parseRFC3339ms(row.startedAt);
         const fin = parseRFC3339ms(row.finishedAt);
         if (st != null && fin != null && fin >= st) {
@@ -799,6 +807,8 @@ export function App() {
         if (update.kind !== undefined) it.kind = update.kind;
         if (update.argsText !== undefined) it.argsText = update.argsText;
         if (update.resultText !== undefined) it.resultText = update.resultText;
+        if (update.resultWasTruncated !== undefined) it.resultWasTruncated = update.resultWasTruncated;
+        if (update.detailsLoaded !== undefined) it.detailsLoaded = update.detailsLoaded;
         if (update.startedAtMs !== undefined) it.startedAtMs = update.startedAtMs;
         if (update.finishedAtMs !== undefined) it.finishedAtMs = update.finishedAtMs;
         if (update.durationMs !== undefined) it.durationMs = update.durationMs;
@@ -825,6 +835,8 @@ export function App() {
       if (update.kind !== undefined) merged.kind = update.kind;
       if (update.argsText !== undefined) merged.argsText = update.argsText;
       if (update.resultText !== undefined) merged.resultText = update.resultText;
+      if (update.resultWasTruncated !== undefined) merged.resultWasTruncated = update.resultWasTruncated;
+      if (update.detailsLoaded !== undefined) merged.detailsLoaded = update.detailsLoaded;
       next[idx] = merged;
       return next;
     });
@@ -955,6 +967,7 @@ export function App() {
             if (upd.kind !== undefined) it.kind = upd.kind;
             if (upd.argsText !== undefined) it.argsText = upd.argsText;
             if (upd.resultText !== undefined) it.resultText = upd.resultText;
+            if (upd.resultWasTruncated !== undefined) it.resultWasTruncated = upd.resultWasTruncated;
             if (upd.detailsLoaded !== undefined) it.detailsLoaded = upd.detailsLoaded;
             if (upd.startedAtMs !== undefined) it.startedAtMs = upd.startedAtMs;
             if (upd.finishedAtMs !== undefined) it.finishedAtMs = upd.finishedAtMs;
@@ -990,6 +1003,7 @@ export function App() {
           if (upd.kind !== undefined) merged.kind = upd.kind;
           if (upd.argsText !== undefined) merged.argsText = upd.argsText;
           if (upd.resultText !== undefined) merged.resultText = upd.resultText;
+          if (upd.resultWasTruncated !== undefined) merged.resultWasTruncated = upd.resultWasTruncated;
           if (upd.detailsLoaded !== undefined) merged.detailsLoaded = upd.detailsLoaded;
           arr[idx] = merged;
           next = arr;
@@ -1205,7 +1219,14 @@ export function App() {
                 toolQueue.push({ toolCallId: u.toolCallId, status, argsText: text0, startedAtMs: now });
                 scheduleToolFlush();
               } else if ((status === 'completed' || status === 'failed' || status === 'cancelled') && text0) {
-                toolQueue.push({ toolCallId: u.toolCallId, status, resultText: text0, finishedAtMs: now });
+                const trunc = toolSseShowsTruncatedPreview(u);
+                toolQueue.push({
+                  toolCallId: u.toolCallId,
+                  status,
+                  resultText: text0,
+                  finishedAtMs: now,
+                  ...(trunc ? { resultWasTruncated: true as const } : {}),
+                });
                 scheduleToolFlush();
               } else {
                 if (status === 'completed' || status === 'failed' || status === 'cancelled') {
@@ -1329,7 +1350,14 @@ export function App() {
                 toolQueue.push({ toolCallId: u.toolCallId, status, argsText: text0, startedAtMs: now });
                 scheduleToolFlush();
               } else if ((status === 'completed' || status === 'failed' || status === 'cancelled') && text0) {
-                toolQueue.push({ toolCallId: u.toolCallId, status, resultText: text0, finishedAtMs: now });
+                const trunc = toolSseShowsTruncatedPreview(u);
+                toolQueue.push({
+                  toolCallId: u.toolCallId,
+                  status,
+                  resultText: text0,
+                  finishedAtMs: now,
+                  ...(trunc ? { resultWasTruncated: true as const } : {}),
+                });
                 scheduleToolFlush();
               } else {
                 if (status === 'completed' || status === 'failed' || status === 'cancelled') {
@@ -1494,18 +1522,22 @@ export function App() {
         onLoadToolCallDetails={(toolCallId: string) => {
           void (async () => {
             if (!sessionId) return;
-            const det = await fetchJSON<{ args?: string; result?: string; meta?: { status?: string; kind?: string; name?: string } }>(
+            const det = await fetchJSON<{
+              args?: string;
+              result?: string;
+              meta?: { status?: string; kind?: string; name?: string };
+            }>(
               `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
               { headers },
             );
             if (!det.ok || !det.data) return;
             const meta = det.data.meta || {};
-            const patch: any = { toolCallId, detailsLoaded: true };
+            const patch: any = { toolCallId, detailsLoaded: true, resultWasTruncated: false };
             if (meta.name) patch.title = meta.name;
             if (meta.kind) patch.kind = meta.kind;
             if (meta.status) patch.status = meta.status;
             if (det.data.args) patch.argsText = det.data.args;
-            if (det.data.result) patch.resultText = det.data.result;
+            if (det.data.result !== undefined) patch.resultText = det.data.result;
             upsertToolCall(patch);
           })();
         }}

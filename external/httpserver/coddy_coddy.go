@@ -258,14 +258,16 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 }
 
 type coddyToolCallRow struct {
-	ToolCallID    string `json:"toolCallId"`
-	Name          string `json:"name,omitempty"`
-	Kind          string `json:"kind,omitempty"`
-	Status        string `json:"status,omitempty"`
-	StartedAt     string `json:"startedAt,omitempty"`
-	FinishedAt    string `json:"finishedAt,omitempty"`
-	ArgsPreview   string `json:"argsPreview,omitempty"`
-	ResultPreview string `json:"resultPreview,omitempty"`
+	ToolCallID             string `json:"toolCallId"`
+	Name                   string `json:"name,omitempty"`
+	Kind                   string `json:"kind,omitempty"`
+	Status                 string `json:"status,omitempty"`
+	StartedAt              string `json:"startedAt,omitempty"`
+	FinishedAt             string `json:"finishedAt,omitempty"`
+	ArgsPreview            string `json:"argsPreview,omitempty"`
+	ResultPreview          string `json:"resultPreview,omitempty"`
+	ResultPreviewTruncated bool   `json:"resultPreviewTruncated,omitempty"`
+	ResultTotalLines       int    `json:"resultTotalLines,omitempty"`
 }
 
 func previewText(s string, max int) string {
@@ -294,6 +296,70 @@ func toolKind(name string) string {
 		return "fs"
 	}
 	return "tool"
+}
+
+func coddyApplyResultPreview(row *coddyToolCallRow, full string) {
+	snip, trunc, tl := session.PreviewToolResultSnippet(strings.TrimSpace(row.Name), full)
+	row.ResultPreview = snip
+	row.ResultPreviewTruncated = trunc
+	row.ResultTotalLines = tl
+}
+
+// coddyLoadToolCallBundle resolves meta, args, full tool output from disk and in-memory transcript.
+func (s *Server) coddyLoadToolCallBundle(st *session.State, sd, toolCallID string) (meta *session.ToolCallMeta, primaryName string, args string, fullResult string) {
+	toolCallID = strings.TrimSpace(toolCallID)
+	if sd != "" {
+		if m, err := session.ReadToolCallMeta(sd, toolCallID); err == nil {
+			meta = m
+			if m != nil && strings.TrimSpace(m.Name) != "" {
+				primaryName = strings.TrimSpace(m.Name)
+			}
+		}
+		if a, err := session.ReadToolCallArgs(sd, toolCallID); err == nil {
+			args = a
+		}
+		if res, err := session.ReadToolCallResult(sd, toolCallID); err == nil {
+			fullResult = res
+		}
+	}
+	if meta == nil || (args == "" && fullResult == "") {
+		for _, m := range st.GetMessages() {
+			if m.Role == llm.RoleAssistant {
+				for _, tc := range m.ToolCalls {
+					if tc.ID != toolCallID {
+						continue
+					}
+					if primaryName == "" && strings.TrimSpace(tc.Name) != "" {
+						primaryName = strings.TrimSpace(tc.Name)
+					}
+					if meta == nil {
+						tmp := session.ToolCallMeta{
+							ToolCallID: toolCallID,
+							Name:       tc.Name,
+							Kind:       toolKind(tc.Name),
+							Status:     "pending",
+						}
+						meta = &tmp
+					}
+					if args == "" {
+						args = tc.InputJSON
+					}
+				}
+			}
+			if m.Role == llm.RoleTool && m.ToolCallID == toolCallID {
+				if fullResult == "" {
+					fullResult = m.Content
+				}
+				if meta != nil && meta.Status == "pending" {
+					meta.Status = "completed"
+				}
+			}
+		}
+	}
+	if meta != nil && primaryName == "" && strings.TrimSpace(meta.Name) != "" {
+		primaryName = strings.TrimSpace(meta.Name)
+	}
+	return meta, primaryName, args, fullResult
 }
 
 func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
@@ -344,7 +410,7 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 				i = idx[m.ToolCallID]
 			}
 			ordered[i].row.Status = "completed"
-			ordered[i].row.ResultPreview = previewText(m.Content, 200)
+			coddyApplyResultPreview(&ordered[i].row, m.Content)
 		}
 	}
 
@@ -368,7 +434,7 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 				ordered[i].row.ArgsPreview = previewText(args, 200)
 			}
 			if res, err := session.ReadToolCallResult(sd, id); err == nil {
-				ordered[i].row.ResultPreview = previewText(res, 200)
+				coddyApplyResultPreview(&ordered[i].row, res)
 			}
 		}
 	}
@@ -399,61 +465,19 @@ func (s *Server) coddyToolCallGet(w http.ResponseWriter, r *http.Request) {
 	}
 	sd := strings.TrimSpace(st.GetPersistedSessionDir())
 
-	var meta *session.ToolCallMeta
-	var args, result string
+	meta, _, args, full := s.coddyLoadToolCallBundle(st, sd, toolCallID)
 
-	if sd != "" {
-		if m, err := session.ReadToolCallMeta(sd, toolCallID); err == nil {
-			meta = m
-		}
-		if a, err := session.ReadToolCallArgs(sd, toolCallID); err == nil {
-			args = a
-		}
-		if res, err := session.ReadToolCallResult(sd, toolCallID); err == nil {
-			result = res
-		}
-	}
-
-	if meta == nil || (args == "" && result == "") {
-		for _, m := range st.GetMessages() {
-			if m.Role == llm.RoleAssistant {
-				for _, tc := range m.ToolCalls {
-					if tc.ID == toolCallID {
-						if meta == nil {
-							tmp := session.ToolCallMeta{
-								ToolCallID: toolCallID,
-								Name:       tc.Name,
-								Kind:       toolKind(tc.Name),
-								Status:     "pending",
-							}
-							meta = &tmp
-						}
-						if args == "" {
-							args = tc.InputJSON
-						}
-					}
-				}
-			}
-			if m.Role == llm.RoleTool && m.ToolCallID == toolCallID {
-				if result == "" {
-					result = m.Content
-				}
-				if meta != nil && meta.Status == "pending" {
-					meta.Status = "completed"
-				}
-			}
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	payload := map[string]interface{}{
 		"object":     "coddy.tool_call",
 		"sessionId":  id,
 		"toolCallId": toolCallID,
 		"meta":       meta,
 		"args":       args,
-		"result":     result,
-	})
+		"result":     full,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func (s *Server) coddySessionStatsGet(w http.ResponseWriter, r *http.Request) {

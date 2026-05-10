@@ -1006,6 +1006,25 @@ body {
   white-space: nowrap;
 }
 
+.tool-load-full-wrap {
+  margin: 6px 0 0;
+}
+
+.tool-load-full {
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(80, 120, 255, 0.25);
+  border: 1px solid rgba(120, 160, 255, 0.35);
+}
+
+.tool-load-full:hover {
+  background: rgba(80, 120, 255, 0.38);
+}
+
 .tool-dur {
   margin-left: auto;
   font-size: 11px;

@@ -132,7 +132,7 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 - `tool_call`
   - A single tool execution card.
   - Summary row shows tool name, status dot, and duration label.
-  - Details show arguments and result when expanded.
+  - Details show arguments and streamed result preview when expanded. **Load full output** loads the complete result from Coddy REST when the stream preview was truncated.
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.
 
@@ -233,7 +233,7 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Given a session has tool calls executed
   - When the user reloads the page
   - Then tool call cards are visible in the transcript
-  - And clicking tool details shows full args and result
+  - And expanding a tool card shows args and preview result; truncated runs offer **Load full output** for the saved full result
 
 - Token usage survives restart
   - Given a session has non zero token usage
