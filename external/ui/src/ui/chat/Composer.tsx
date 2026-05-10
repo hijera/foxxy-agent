@@ -2,7 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import type { TokenUsage } from './types';
 import { slashMenuDraftAtCaret } from '../skills/draftSlash';
-import { segmentComposerSlashSpans } from '../skills/segmentComposerSlashSpans';
+import {
+  segmentComposerSlashSpans,
+  segmentComposerSlashSpansForcedPlainRange,
+} from '../skills/segmentComposerSlashSpans';
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -72,6 +75,9 @@ export function Composer(props: {
   const [slashHasMore, setSlashHasMore] = useState(false);
   const [slashReplace, setSlashReplace] = useState<{ from: number; to: number } | null>(null);
   const [slashFloatRect, setSlashFloatRect] = useState<SlashFloatRect | null>(null);
+  /** Server returned zero rows for this `/` + prefix; hide picker and skill chip until the token changes. */
+  const [slashNoMatch, setSlashNoMatch] = useState<{ slashIdx: number; prefix: string } | null>(null);
+  const [caretPos, setCaretPos] = useState(0);
 
   const measureSlashFloat = useCallback(() => {
     if (!slashOpen || mobileUi) {
@@ -169,6 +175,17 @@ export function Composer(props: {
         cancelSlashDebounce();
         setSlashOpen(false);
         setSlashReplace(null);
+        setSlashNoMatch(null);
+        return;
+      }
+      if (
+        slashNoMatch &&
+        slashNoMatch.slashIdx === draft.slashIdx &&
+        slashNoMatch.prefix === draft.prefix
+      ) {
+        cancelSlashDebounce();
+        setSlashOpen(false);
+        setSlashReplace(null);
         return;
       }
       setSlashOpen(true);
@@ -178,30 +195,78 @@ export function Composer(props: {
       debounceSlashRef.current = setTimeout(() => {
         debounceSlashRef.current = null;
         void (async () => {
+          const el = taRef.current;
+          const now = el
+            ? slashMenuDraftAtCaret(el.value, el.selectionStart ?? el.value.length)
+            : null;
+          if (!now || !now.open || now.slashIdx !== draft.slashIdx || now.prefix !== draft.prefix) {
+            return;
+          }
           setSlashLoading(true);
           setSlashErr(null);
           try {
-            const body = await fetchSlashPage(draft.prefix, 1);
-            setSlashItems(body.items || []);
+            const body = await fetchSlashPage(now.prefix, 1);
+            const el2 = taRef.current;
+            const after = el2
+              ? slashMenuDraftAtCaret(el2.value, el2.selectionStart ?? el2.value.length)
+              : null;
+            if (
+              !after ||
+              !after.open ||
+              after.slashIdx !== now.slashIdx ||
+              after.prefix !== now.prefix
+            ) {
+              return;
+            }
+            const rows = body.items || [];
+            setSlashItems(rows);
             setSlashPage(1);
             setSlashHasMore(!!body.has_more);
+            if (rows.length === 0) {
+              setSlashNoMatch({ slashIdx: after.slashIdx, prefix: after.prefix });
+              setSlashOpen(false);
+              setSlashReplace(null);
+            } else {
+              setSlashNoMatch(null);
+            }
           } catch (e) {
             setSlashErr(e instanceof Error ? e.message : 'request failed');
             setSlashItems([]);
             setSlashHasMore(false);
+            setSlashNoMatch(null);
           } finally {
             setSlashLoading(false);
           }
         })();
       }, 100);
     },
-    [fetchSlashPage],
+    [fetchSlashPage, slashNoMatch],
   );
 
   useEffect(() => () => cancelSlashDebounce(), []);
 
   const maskComposerText = props.value.length > 0;
-  const composerSegments = useMemo(() => segmentComposerSlashSpans(props.value), [props.value]);
+  const composerSegments = useMemo(() => {
+    const draft = slashMenuDraftAtCaret(props.value, caretPos);
+    if (
+      slashNoMatch &&
+      draft.open &&
+      draft.slashIdx === slashNoMatch.slashIdx &&
+      draft.prefix === slashNoMatch.prefix
+    ) {
+      const to = slashNoMatch.slashIdx + 1 + slashNoMatch.prefix.length;
+      return segmentComposerSlashSpansForcedPlainRange(props.value, slashNoMatch.slashIdx, to);
+    }
+    return segmentComposerSlashSpans(props.value);
+  }, [props.value, caretPos, slashNoMatch]);
+
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el) {
+      return;
+    }
+    setCaretPos(el.selectionStart ?? el.value.length);
+  }, [props.value]);
 
   const adjustMirrorToTextarea = useCallback(() => {
     const ta = taRef.current;
@@ -254,6 +319,7 @@ export function Composer(props: {
     props.onChange(next);
     setSlashOpen(false);
     setSlashReplace(null);
+    setSlashNoMatch(null);
     cancelSlashDebounce();
     requestAnimationFrame(() => {
       const el = taRef.current;
@@ -276,7 +342,14 @@ export function Composer(props: {
       try {
         const nextPage = slashPage + 1;
         const body = await fetchSlashPage(slashPrefix, nextPage);
-        setSlashItems((prev) => [...prev, ...(body.items || [])]);
+        const more = body.items || [];
+        setSlashItems((prev) => {
+          const merged = [...prev, ...more];
+          if (merged.length > 0) {
+            setSlashNoMatch(null);
+          }
+          return merged;
+        });
         setSlashPage(nextPage);
         setSlashHasMore(!!body.has_more);
       } catch (e) {

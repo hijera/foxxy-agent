@@ -27,7 +27,10 @@ func openAPISpec() map[string]interface{} {
 			"version": ver,
 		},
 		"servers": []interface{}{
-			map[string]interface{}{"url": "/", "description": "Server root (same host/port as coddy http)"},
+			map[string]interface{}{
+				"url":         "/",
+				"description": "Server root (same host/port as coddy http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`** set **`Cache-Control: no-cache`**.",
+			},
 		},
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{

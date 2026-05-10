@@ -51,3 +51,27 @@ export function segmentComposerSlashSpans(value: string): ComposerSlashSegment[]
   }
   return out;
 }
+
+/**
+ * Renders `[plainFrom, plainTo)` as plain text in the overlay (no skill chip)
+ * when the server matched no slash commands for that `/` + prefix.
+ */
+export function segmentComposerSlashSpansForcedPlainRange(
+  value: string,
+  plainFrom: number,
+  plainToExclusive: number,
+): ComposerSlashSegment[] {
+  const n = value.length;
+  if (plainFrom < 0 || plainToExclusive < plainFrom || plainFrom > n) {
+    return segmentComposerSlashSpans(value);
+  }
+  const end = Math.min(plainToExclusive, n);
+  const a = value.slice(0, plainFrom);
+  const b = value.slice(plainFrom, end);
+  const c = value.slice(end);
+  return [
+    ...segmentComposerSlashSpans(a),
+    ...(b !== '' ? [{ type: 'text' as const, value: b }] : []),
+    ...segmentComposerSlashSpans(c),
+  ];
+}

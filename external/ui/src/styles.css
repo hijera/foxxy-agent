@@ -1556,7 +1556,7 @@ body {
   position: relative;
   z-index: 1;
   /* Match #composer horizontal padding so skills list lines up with typed text */
-  padding: 12px 16px 10px;
+  padding: 10px 10px 5px;
   min-height: 0;
 }
 

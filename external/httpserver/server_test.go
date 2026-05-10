@@ -33,6 +33,32 @@ func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams
 	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 }
 
+func TestEmbeddedUIPublicAssetsCacheControl(t *testing.T) {
+	cfg := &config.Config{
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	for _, path := range []string{"/", "/index.html", "/app.js", "/styles.css"} {
+		t.Run(path, func(t *testing.T) {
+			res, err := http.Get(ts.URL + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			if cc := res.Header.Get("Cache-Control"); cc != "no-cache" {
+				t.Fatalf("Cache-Control %q for %s, want no-cache", cc, path)
+			}
+		})
+	}
+}
+
 func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	cfg := &config.Config{
 		Agent:  config.Agent{Model: "openai/gpt-4o"},
@@ -56,9 +82,9 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 	var body struct {
-		Object              string `json:"object"`
-		DefaultAgentModel   string `json:"default_agent_model"`
-		Data                []struct {
+		Object            string `json:"object"`
+		DefaultAgentModel string `json:"default_agent_model"`
+		Data              []struct {
 			ID               string `json:"id"`
 			Object           string `json:"object"`
 			OwnedBy          string `json:"owned_by"`
