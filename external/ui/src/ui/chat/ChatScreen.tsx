@@ -1,9 +1,26 @@
 import type { CSSProperties } from 'react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { TokenUsage, TranscriptItem } from './types';
 import { ChatHeader } from './ChatHeader';
 import { Composer } from './Composer';
 import { MessageList } from '../messages/MessageList';
+
+const MOBILE_DOC_SCROLL_MQ = '(max-width: 899px)';
+
+function subscribeMobileDocScroll(cb: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  const mq = window.matchMedia(MOBILE_DOC_SCROLL_MQ);
+  mq.addEventListener('change', cb);
+  return () => mq.removeEventListener('change', cb);
+}
+
+function snapshotMobileDocScroll() {
+  return typeof window !== 'undefined' && window.matchMedia(MOBILE_DOC_SCROLL_MQ).matches;
+}
+
+function serverSnapshotMobileDocScroll() {
+  return false;
+}
 
 export function ChatScreen(props: {
   title: string;
@@ -32,6 +49,11 @@ export function ChatScreen(props: {
   const isEmpty = props.items.length === 0;
   const stickToBottomRef = useRef(true);
   const [composerReserve, setComposerReserve] = useState(200);
+  const mobileDocScroll = useSyncExternalStore(
+    subscribeMobileDocScroll,
+    snapshotMobileDocScroll,
+    serverSnapshotMobileDocScroll,
+  );
 
   useLayoutEffect(() => {
     if (isEmpty) return;
@@ -49,16 +71,45 @@ export function ChatScreen(props: {
   }, [isEmpty, props.tokenUsage]);
 
   useEffect(() => {
-    const el = messagesRef.current;
-    if (!el) return;
+    if (isEmpty) return;
     if (!stickToBottomRef.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [props.items]);
+    if (mobileDocScroll) {
+      const run = () => {
+        const top = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+        window.scrollTo({ top, left: 0, behavior: 'auto' });
+      };
+      requestAnimationFrame(() => requestAnimationFrame(run));
+      return;
+    }
+    const el = messagesRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [props.items, isEmpty, mobileDocScroll]);
+
+  useEffect(() => {
+    if (isEmpty) return;
+    const onScroll = () => {
+      if (mobileDocScroll) {
+        const doc = document.documentElement;
+        const dist = doc.scrollHeight - window.scrollY - window.innerHeight;
+        stickToBottomRef.current = dist < 80;
+      } else {
+        const el = messagesRef.current;
+        if (!el) return;
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        stickToBottomRef.current = dist < 80;
+      }
+    };
+    if (mobileDocScroll) {
+      window.addEventListener('scroll', onScroll, { passive: true });
+      return () => window.removeEventListener('scroll', onScroll);
+    }
+    const el = messagesRef.current;
+    el?.addEventListener('scroll', onScroll, { passive: true });
+    return () => el?.removeEventListener('scroll', onScroll);
+  }, [isEmpty, mobileDocScroll]);
 
   return (
     <main className={`main ${isEmpty ? 'is-empty' : ''}`}>
-      {isEmpty ? null : <ChatHeader title={props.title} editable={true} onTitleSave={props.onTitleSave} />}
-
       {isEmpty ? (
         <div className="hero" id="hero">
           <h1 className="hero-title">What do you want to know?</h1>
@@ -94,18 +145,10 @@ export function ChatScreen(props: {
             } as CSSProperties
           }
         >
-          <div
-            id="messages"
-            className="messages"
-            aria-live="polite"
-            ref={messagesRef}
-            onScroll={() => {
-              const el = messagesRef.current;
-              if (!el) return;
-              const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-              stickToBottomRef.current = dist < 80;
-            }}
-          >
+          <div id="messages" className="chat-scroll" aria-live="polite" ref={messagesRef}>
+            <div className="chat-scroll-sticky-head">
+              <ChatHeader title={props.title} editable={true} onTitleSave={props.onTitleSave} />
+            </div>
             <div className="messages-inner">
               <MessageList
                 items={props.items}

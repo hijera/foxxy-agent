@@ -63,7 +63,6 @@ export function Composer(props: {
   const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
   const slashFetchGenRef = useRef(0);
-  const [mobileUi, setMobileUi] = useState(false);
   const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashPrefix, setSlashPrefix] = useState('');
@@ -78,7 +77,7 @@ export function Composer(props: {
   const [caretPos, setCaretPos] = useState(0);
 
   const measureSlashFloat = useCallback(() => {
-    if (!slashOpen || mobileUi) {
+    if (!slashOpen) {
       setSlashFloatRect(null);
       return;
     }
@@ -99,10 +98,10 @@ export function Composer(props: {
       bottom: window.innerHeight - r.top + 8,
       maxH,
     });
-  }, [slashOpen, mobileUi]);
+  }, [slashOpen]);
 
   useLayoutEffect(() => {
-    if (!slashOpen || mobileUi) {
+    if (!slashOpen) {
       setSlashFloatRect(null);
       return;
     }
@@ -114,23 +113,26 @@ export function Composer(props: {
       ro.observe(el);
     }
     window.addEventListener('resize', measureSlashFloat);
-    const msgEl = typeof document !== 'undefined' ? document.getElementById('messages') : null;
     const onMsgs = () => measureSlashFloat();
-    msgEl?.addEventListener('scroll', onMsgs, { passive: true });
+    const shellMobile =
+      typeof document !== 'undefined' && window.matchMedia('(max-width: 899px)').matches;
+    if (shellMobile) {
+      window.addEventListener('scroll', onMsgs, { passive: true });
+    } else {
+      const msgEl = typeof document !== 'undefined' ? document.getElementById('messages') : null;
+      msgEl?.addEventListener('scroll', onMsgs, { passive: true });
+    }
     return () => {
       ro?.disconnect();
       window.removeEventListener('resize', measureSlashFloat);
-      msgEl?.removeEventListener('scroll', onMsgs);
+      if (shellMobile) {
+        window.removeEventListener('scroll', onMsgs);
+      } else {
+        const msgEl = typeof document !== 'undefined' ? document.getElementById('messages') : null;
+        msgEl?.removeEventListener('scroll', onMsgs);
+      }
     };
-  }, [slashOpen, mobileUi, measureSlashFloat, props.isEmpty]);
-
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 720px)');
-    const apply = () => setMobileUi(mq.matches);
-    apply();
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
-  }, []);
+  }, [slashOpen, measureSlashFloat, props.isEmpty]);
 
   const bumpSlashFetchGen = () => {
     slashFetchGenRef.current++;
@@ -436,21 +438,6 @@ export function Composer(props: {
         Message
       </label>
       <div className="composer-card">
-        {slashOpen && mobileUi ? (
-          <button
-            type="button"
-            className="slash-sheet-backdrop"
-            aria-label="Close slash commands"
-              onMouseDown={(e) => {
-              e.preventDefault();
-              setSlashOpen(false);
-              setSlashReplace(null);
-              setSlashNoMatch(null);
-              bumpSlashFetchGen();
-              setSlashLoading(false);
-            }}
-          />
-        ) : null}
         <div className="composer-field-wrap" ref={composerFieldWrapRef}>
           <div className="composer-stack">
             {maskComposerText ? (
@@ -551,50 +538,6 @@ export function Composer(props: {
               }}
             />
           </div>
-          {slashOpen && mobileUi ? (
-            <div className="slash-menu slash-menu--sheet" data-testid="slash-command-menu" role="listbox" aria-label="Slash commands">
-              <div className="slash-menu-surface" aria-hidden />
-              <div className="slash-menu-scroll">
-                <div className="slash-menu-title">Skills</div>
-                {slashLoading && slashItems.length === 0 ? <div className="slash-muted">Loading…</div> : null}
-                {slashErr ? <div className="slash-err">{slashErr}</div> : null}
-                {!slashLoading && slashItems.length === 0 && !slashErr ? (
-                  <div className="slash-muted">No commands</div>
-                ) : null}
-                <ul className="slash-rows">
-                  {slashItems.map((row) => (
-                    <li key={row.name}>
-                      <button
-                        type="button"
-                        role="option"
-                        className="slash-row-btn"
-                        data-testid={`slash-command-row-${row.name}`}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          applySlashChoice(row.name);
-                        }}
-                      >
-                        <span className="slash-row-name">/{row.name}</span>
-                        <span className="slash-row-desc">{row.description}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {slashHasMore ? (
-                  <button
-                    type="button"
-                    className="slash-load-more"
-                    disabled={slashLoading}
-                    data-testid="slash-command-more"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => loadMoreSlash()}
-                  >
-                    {slashLoading ? 'Loading…' : 'More'}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
         </div>
 
         <div className="composer-bar">
@@ -718,7 +661,7 @@ export function Composer(props: {
         </div>
       </div>
     </footer>
-    {slashOpen && !mobileUi && slashFloatRect
+    {slashOpen && slashFloatRect
       ? createPortal(
           <div
             className="slash-menu slash-menu--portal"

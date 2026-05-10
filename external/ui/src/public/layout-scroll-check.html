@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat scroll layout (fixture)</title>
+    <script type="module" src="/layoutScrollFixtureCss.ts"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg, #121212);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="rail-column">
+        <div class="rail-pill" style="height: 64px">Nav</div>
+      </aside>
+      <div class="shell-main">
+        <main class="main" style="flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px">
+          <div class="chat-stack">
+            <div id="messages" class="chat-scroll" style="min-height: 0">
+              <div class="chat-scroll-sticky-head">
+                <div class="chat-header"><span class="chat-title">fixture-title</span></div>
+              </div>
+              <div class="messages-inner">
+                <div style="height: 120vh; background: rgba(80, 80, 90, 0.35); border-radius: 12px"></div>
+              </div>
+              <div class="chat-scroll-tail" style="--chat-composer-reserve: 180px" aria-hidden="true"></div>
+            </div>
+            <div class="chat-bottom">
+              <div class="chat-bottom-inner">
+                <div class="composer-wrap composer-wrap-docked">
+                  <div class="composer-card" style="height: 100px; background: rgba(40, 40, 48, 0.9)"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

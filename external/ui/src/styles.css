@@ -63,7 +63,40 @@ body {
   color: var(--text);
   font-family: system-ui, -apple-system, Segoe UI, sans-serif;
   background: transparent;
-  overflow: hidden;
+}
+
+/* Desktop chat shell: single inner scrollport; narrow viewports use body scroll + sticky chrome (see max-width: 899px) */
+@media (min-width: 900px) {
+  body {
+    overflow: hidden;
+  }
+}
+
+/* Narrow / tablet portrait: document scroll; top nav rail is sticky to the viewport */
+@media (max-width: 899px) {
+  /* Break the desktop height:100% / 100vh chain so body scroll drives content under the sticky rail */
+  /* Do not set overflow-x on html/body: any non-visible horizontal overflow on ancestors breaks position:sticky for mobile chat chrome. */
+  html {
+    height: auto !important;
+    min-height: 100svh;
+  }
+
+  body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    height: auto !important;
+    min-height: 100svh;
+  }
+
+  #root {
+    min-height: 100svh;
+    height: auto;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
 }
 
 .sr-only {
@@ -394,7 +427,7 @@ body {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 899px) {
   .rail-tip {
     display: none;
   }
@@ -845,20 +878,30 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* Match native scrollbar gutters so the docked composer does not paint over the scroll track */
+  --coddy-chat-scrollbar-gutter: 14px;
 }
 
-.messages {
+.chat-scroll {
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 16px 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0;
   overscroll-behavior: contain;
   /* both-edges keeps #messages content center aligned with composer (stable alone reserves inline-end only) */
   scrollbar-gutter: stable both-edges;
+}
+
+.chat-scroll-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  flex-shrink: 0;
+  padding: 0 0 16px;
 }
 
 .messages-inner {
@@ -884,14 +927,16 @@ body {
   bottom: 0;
   z-index: 3;
   pointer-events: none;
+  box-sizing: border-box;
+  padding-inline: var(--coddy-chat-scrollbar-gutter);
 }
 
 /* Full-width vignette above the docked composer (no side gaps vs narrow card stripe) */
 .chat-bottom:has(.composer-wrap-docked)::before {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
+  left: var(--coddy-chat-scrollbar-gutter);
+  right: var(--coddy-chat-scrollbar-gutter);
   bottom: 100%;
   height: clamp(56px, 16vh, 120px);
   pointer-events: none;
@@ -2023,8 +2068,12 @@ textarea#composer {
   }
 }
 
-/* Mobile: rail becomes top bar */
-@media (max-width: 760px) {
+/* Mobile / small tablet: rail becomes top bar; document is the scrollport */
+@media (max-width: 899px) {
+  .shell {
+    --coddy-mobile-top-inset: calc(78px + env(safe-area-inset-top, 0px));
+  }
+
   .nav-toggle {
     display: none;
   }
@@ -2038,16 +2087,32 @@ textarea#composer {
     z-index: 70;
   }
   .shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: 78px 1fr;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 100svh;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible;
+    grid-template-columns: unset;
+    grid-template-rows: unset;
   }
+  /* Fixed: sticky was ineffective here while the shell/document chain still offset the rail on scroll (overflow/extra ancestors). */
   .rail-column {
-    height: 78px;
-    grid-row: 1;
-    padding: 10px 10px 0;
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    flex: none !important;
+    align-self: stretch;
+    min-height: 78px;
+    height: auto;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 0;
     justify-content: stretch;
     box-sizing: border-box;
-    min-height: 0;
+    background: transparent;
+    z-index: 38;
   }
   .rail-middle {
     flex: 1 1 auto;
@@ -2124,19 +2189,91 @@ textarea#composer {
     display: none;
   }
   .shell-main {
-    grid-row: 2;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
     min-height: 0;
+    overflow: visible;
+    grid-row: unset;
+    padding-top: var(--coddy-mobile-top-inset);
   }
-  .main {
+
+  .shell-main > .main.is-empty {
     flex: 1;
     min-height: 0;
-    padding-top: 10px;
   }
+
+  .shell-main > .main:not(.is-empty) {
+    flex: 1 1 auto;
+    min-height: min-content;
+  }
+
+  .main {
+    padding-top: 10px;
+    overflow: visible;
+  }
+
+  .chat-stack {
+    flex: 1 1 auto;
+    min-height: min-content;
+    overflow: visible;
+    --coddy-chat-scrollbar-gutter: 0px;
+  }
+
+  /* Single scrollport is document; kill inner scroll from .chat-scroll desktop rules */
+  #messages.chat-scroll,
+  .chat-scroll {
+    flex: none;
+    min-height: unset;
+    overflow: visible !important;
+    overscroll-behavior: auto;
+    scrollbar-gutter: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    max-height: none !important;
+  }
+
+  /* Sticks below the fixed top rail while the document scrolls ("New chat" row) */
+  .chat-scroll-sticky-head {
+    position: sticky !important;
+    top: var(--coddy-mobile-top-inset);
+    z-index: 37;
+    padding-bottom: 12px;
+    flex-shrink: 0;
+  }
+
+  .chat-bottom:has(.composer-wrap-docked) {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 32;
+    padding-inline: 14px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    margin-top: 0;
+    pointer-events: none;
+  }
+
+  .chat-bottom:has(.composer-wrap-docked) .chat-bottom-inner {
+    pointer-events: auto;
+  }
+
+  .chat-bottom:has(.composer-wrap-docked)::before {
+    display: none;
+  }
+
+  .chat-bottom-inner {
+    max-width: 920px;
+  }
+
+  .slash-menu--portal {
+    z-index: 45;
+  }
+
   .sessions.drawer {
     left: 10px;
     right: 10px;
     width: auto;
-    top: 84px;
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: 14px;
   }
 }

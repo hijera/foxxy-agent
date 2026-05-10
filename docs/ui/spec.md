@@ -27,7 +27,7 @@ Wide screens
 
 Mobile layout
 
-- On mobile the left rail becomes a top bar to preserve horizontal space.
+- On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--coddy-mobile-top-inset`**) while **`body`** scrolls the chat.
 - On mobile the brand stays on a single line.
 
 Header links
@@ -276,7 +276,7 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then the sessions drawer is hidden
 
 - Mobile uses top bar and single line brand
-  - Given viewport width is at most 760px
+  - Given viewport width is at most 899px
   - When the app loads
   - Then the nav width toggle is not present
   - And the nav rail height is 78px
