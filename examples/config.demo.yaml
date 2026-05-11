@@ -50,9 +50,9 @@ scheduler:
   timeout: "6m"
 
 logger:
-  level: "info"
-  outputs: ["stderr"]
-  file: ""
+  level: "debug"
+  outputs: ["stderr", "file"]
+  file: "__E2E_LOG_PATH__"
   format: "text"
   rotation:
     max_size_mb: 0

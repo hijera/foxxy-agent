@@ -33,6 +33,10 @@ JOB_SCHEDULE = "* * * * *"
 RESULT_FILE = "SCHEDULER_RUN_RESULT.txt"
 RESULT_NEEDLE = "SCHEDULER_RUN_RESULT_OK"
 
+# Must match slog msg strings in external/scheduler/daemon/run.go (text or JSON log lines).
+SCHEDULER_LOG_RUN_SPAWN = "scheduler_run_spawn"
+SCHEDULER_LOG_RUN_FINISH = "scheduler_run_finish"
+
 
 def jd(obj: dict[str, Any]) -> str:
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
@@ -329,7 +333,7 @@ STEP 3 - Reply single line OK when both steps succeeded.
 
         result_path = work / RESULT_FILE
 
-        patterns = ["scheduler job start", "scheduler job done", JOB_BASENAME]
+        patterns = [SCHEDULER_LOG_RUN_SPAWN, SCHEDULER_LOG_RUN_FINISH, JOB_ID]
 
         wait_until(lambda: result_path.is_file(), 210.0, what="scheduled run_result file")
         data = result_path.read_text(encoding="utf-8", errors="replace")
@@ -338,7 +342,7 @@ STEP 3 - Reply single line OK when both steps succeeded.
 
         wait_log_patterns(glo, patterns, timeout_sec=90.0)
         body = glo.read_text(encoding="utf-8", errors="replace")
-        if "scheduler job start" not in body or "scheduler job done" not in body:
+        if SCHEDULER_LOG_RUN_SPAWN not in body or SCHEDULER_LOG_RUN_FINISH not in body:
             raise AssertionError("scheduler lifecycle lines missing")
 
         state_p = job_md.parent / (job_md.stem + ".state")
@@ -422,7 +426,11 @@ STEP 3: reply OK
     if RESULT_NEEDLE not in txt:
         raise AssertionError(f"missing RESULT_NEEDLE HTTP {txt!r}")
 
-    wait_log_patterns(glo.resolve(), ["scheduler job start", "scheduler job done", JOB_BASENAME], 90.0)
+    wait_log_patterns(
+        glo.resolve(),
+        [SCHEDULER_LOG_RUN_SPAWN, SCHEDULER_LOG_RUN_FINISH, JOB_ID],
+        90.0,
+    )
     state_p = job_md.parent / (job_md.stem + ".state")
     wait_until(lambda: state_p.is_file(), 120.0, what="basename.state http")
     assert_no_stale_lock(job_md)
