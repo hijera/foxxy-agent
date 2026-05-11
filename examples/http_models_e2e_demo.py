@@ -158,18 +158,29 @@ def main() -> int:
         print("metadata.model mismatch", md, "want", alt, file=sys.stderr)
         return 1
 
-    if sid:
+    # Switch metadata.model back to agent default (e.g. 120b after testing 20b).
+    if alt != agent_default:
+        extra: dict[str, str] = {}
+        if sid:
+            extra["X-Coddy-Session-ID"] = sid
         code2, sw, _ = http_json(
             "POST",
             f"{base}/responses",
-            {"model": "agent", "input": "Reply with exactly: HI.", "stream": False, "metadata": {"model": agent_default}},
-            {"X-Coddy-Session-ID": sid},
+            {
+                "model": "agent",
+                "input": "Reply with exactly: HI.",
+                "stream": False,
+                "metadata": {"model": agent_default},
+            },
+            extra,
         )
-        if code2 == 200:
-            md2 = sw.get("metadata") or {}
-            if md2.get("model") != agent_default:
-                print("second switch metadata mismatch", md2, "want", agent_default, file=sys.stderr)
-                return 1
+        if code2 != 200:
+            print("restore completion want 200, got", code2, sw, file=sys.stderr)
+            return 1
+        md2 = sw.get("metadata") or {}
+        if md2.get("model") != agent_default:
+            print("restore metadata.model mismatch", md2, "want", agent_default, file=sys.stderr)
+            return 1
 
     print("ok http models e2e")
     return 0
