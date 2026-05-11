@@ -19,7 +19,8 @@ func shouldSkipDuplicateCronSpawn(absJobPath string, dueSlot time.Time, lastFrom
 	defer spawnDedupeMu.Unlock()
 	if !lastFromDisk.IsZero() && !lastFromDisk.Before(dueSlot) {
 		delete(spawnDedupe, absJobPath)
-		return false
+		// Checkpoint on disk already covers this fire (or newer): do not launch again.
+		return true
 	}
 	prev, ok := spawnDedupe[absJobPath]
 	if ok && prev.Equal(dueSlot) {

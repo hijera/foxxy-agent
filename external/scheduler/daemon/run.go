@@ -71,11 +71,9 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 	if fm != nil && fm.Paused {
 		return nil
 	}
-	absJob, err := filepath.Abs(jobPath)
-	if err != nil {
+	absJob := storage.CanonicalSchedulerJobPath(jobPath)
+	if absJob == "" {
 		absJob = filepath.Clean(jobPath)
-	} else {
-		absJob = filepath.Clean(absJob)
 	}
 	jobID := jobIDFromMDPath(absJob)
 	lock := storage.LockPath(absJob)
@@ -105,7 +103,8 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		log.Error("scheduler_run_session_layout", "job_id", jobID, "error", err)
 		return err
 	}
-	started := time.Now().UTC().Format(time.RFC3339)
+	spawnUTC := time.Now().UTC()
+	started := spawnUTC.Format(time.RFC3339)
 
 	jobCWD, err := resolveJobCWD(processCWD, fm)
 	if err != nil {
@@ -135,11 +134,13 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 	}
 
 	if updateLastScheduledState {
-		if werr := storage.WriteJobState(stPath, fireSlot); werr != nil {
+		if werr := storage.WriteJobSchedulerCheckpoint(stPath, fireSlot, spawnUTC); werr != nil {
 			log.Warn("scheduler_run_state_write", "job_id", jobID, "path", stPath, "error", werr)
 			return werr
 		}
 		noteSpawnDispatched(absJob, fireSlot)
+	} else if werr := storage.WriteJobSpawnStarted(stPath, spawnUTC); werr != nil {
+		log.Warn("scheduler_spawn_throttle_write", "job_id", jobID, "path", stPath, "error", werr)
 	}
 
 	log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", sid)

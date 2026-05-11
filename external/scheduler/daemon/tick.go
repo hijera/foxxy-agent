@@ -65,12 +65,16 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 			log.Warn("scheduler bad cron", "path", path, "error", err)
 			continue
 		}
-		last, err := storage.ReadJobState(storage.StatePath(path))
+		lastSched, lastSpawn, err := storage.ReadJobDiskState(storage.StatePath(path))
 		if err != nil {
 			log.Warn("scheduler state read", "path", path, "error", err)
 			continue
 		}
-		slot := storage.DueFireSlotUTC(sch, last, now)
+		minGap := storage.ScheduleMinimumInterval(sch)
+		if minGap > 0 && !lastSpawn.IsZero() && now.Before(lastSpawn.Add(minGap)) {
+			continue
+		}
+		slot := storage.DueFireSlotUTC(sch, lastSched, now)
 		if slot.After(now) {
 			continue
 		}
@@ -78,7 +82,7 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 		if lt, ok := storage.ReadSchedulerLockFireSlotUTC(lockPath); ok && lt.Equal(slot) {
 			continue
 		}
-		if shouldSkipDuplicateCronSpawn(path, slot, last) {
+		if shouldSkipDuplicateCronSpawn(path, slot, lastSched) {
 			continue
 		}
 		select {

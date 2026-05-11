@@ -19,6 +19,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ScheduleMinimumInterval returns the wall-clock gap between two consecutive cron fires from a
+// fixed anchor (robfig's Next twice). Used to enforce at least that much time between process
+// spawn times so a long run that crosses into the next cron minute does not immediately start
+// another execution ("not more than once per minute" for * * * * * in practice).
+func ScheduleMinimumInterval(sched cron.Schedule) time.Duration {
+	t0 := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := sched.Next(t0).UTC()
+	t2 := sched.Next(t1).UTC()
+	d := t2.Sub(t1)
+	if d <= 0 {
+		return 0
+	}
+	return d
+}
+
 var standardParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 // ParseCronUTC parses a 5-field crontab expression interpreted in UTC.
@@ -200,15 +215,37 @@ func ListFlatJobMarkdownFiles(roots []string) ([]string, error) {
 			if err != nil {
 				continue
 			}
-			if _, ok := seen[ap]; ok {
+			canonical := CanonicalSchedulerJobPath(ap)
+			if canonical == "" {
+				canonical = ap
+			}
+			if _, ok := seen[canonical]; ok {
 				continue
 			}
-			seen[ap] = struct{}{}
-			out = append(out, ap)
+			seen[canonical] = struct{}{}
+			out = append(out, canonical)
 		}
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// CanonicalSchedulerJobPath returns an absolute path for a *.md job file. When possible,
+// symbolic link segments are resolved so scans via symlinked scheduler dirs share .state,
+// lock files, and in-process dedupe keys with the resolved location.
+func CanonicalSchedulerJobPath(jobMDPath string) string {
+	p := strings.TrimSpace(jobMDPath)
+	if p == "" {
+		return ""
+	}
+	ap, err := filepath.Abs(p)
+	if err != nil {
+		ap = filepath.Clean(p)
+	}
+	if sym, err := filepath.EvalSymlinks(ap); err == nil {
+		return sym
+	}
+	return ap
 }
 
 // LockPath returns the lock file path for a job .md path.
@@ -245,44 +282,59 @@ func StatePath(jobMDPath string) string {
 }
 
 type jobDiskState struct {
-	LastScheduledUTC string `json:"last_scheduled_utc"`
+	LastScheduledUTC    string `json:"last_scheduled_utc,omitempty"`
+	LastSpawnStartedUTC string `json:"last_spawn_started_utc,omitempty"`
+}
+
+func parseRFC3339Field(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
+}
+
+// ReadJobDiskState reads last_scheduled_utc and optional last_spawn_started_utc from a .state file.
+func ReadJobDiskState(path string) (lastScheduled, lastSpawnStarted time.Time, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, time.Time{}, nil
+		}
+		return time.Time{}, time.Time{}, err
+	}
+	var st jobDiskState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if t, ok := parseRFC3339Field(st.LastScheduledUTC); ok {
+		lastScheduled = t
+	}
+	if t, ok := parseRFC3339Field(st.LastSpawnStartedUTC); ok {
+		lastSpawnStarted = t
+	}
+	return lastScheduled, lastSpawnStarted, nil
 }
 
 // ReadJobState reads last scheduled fire time from a .state file.
 func ReadJobState(path string) (time.Time, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return time.Time{}, nil
-		}
-		return time.Time{}, err
-	}
-	var st jobDiskState
-	if err := json.Unmarshal(data, &st); err != nil {
-		return time.Time{}, err
-	}
-	if strings.TrimSpace(st.LastScheduledUTC) == "" {
-		return time.Time{}, nil
-	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(st.LastScheduledUTC))
-	if err != nil {
-		return time.Time{}, err
-	}
-	return t.UTC(), nil
+	last, _, err := ReadJobDiskState(path)
+	return last, err
 }
 
-// WriteJobState persists the last executed cron slot (UTC).
-// It writes through a temp file in the same directory and renames into place so
-// concurrent daemon ticks never read a truncated JSON file as an empty checkpoint.
-// On Unix, rename replaces an existing destination atomically. On Windows the prior
-// file is removed first because os.Rename cannot replace an existing path there.
-func WriteJobState(path string, lastScheduled time.Time) error {
-	st := jobDiskState{LastScheduledUTC: lastScheduled.UTC().Format(time.RFC3339)}
+func marshalJobDiskState(st jobDiskState) ([]byte, error) {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	data = append(data, '\n')
+	return append(data, '\n'), nil
+}
+
+func persistJobDiskState(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, filepath.Base(path)+".")
 	if err != nil {
@@ -316,4 +368,57 @@ func WriteJobState(path string, lastScheduled time.Time) error {
 		return err
 	}
 	return nil
+}
+
+// WriteJobSchedulerCheckpoint persists the committed cron slot and the wall-clock spawn instant
+// used to throttle back-to-back starts within one schedule period.
+func WriteJobSchedulerCheckpoint(path string, lastScheduledSlot, spawnStartedUTC time.Time) error {
+	st := jobDiskState{
+		LastScheduledUTC:    lastScheduledSlot.UTC().Format(time.RFC3339),
+		LastSpawnStartedUTC: spawnStartedUTC.UTC().Format(time.RFC3339),
+	}
+	data, err := marshalJobDiskState(st)
+	if err != nil {
+		return err
+	}
+	return persistJobDiskState(path, data)
+}
+
+// WriteJobSpawnStarted updates only last_spawn_started_utc, preserving last_scheduled_utc when present.
+// Manual runs use this so the next cron tick respects minimum spacing after a manual execution.
+func WriteJobSpawnStarted(path string, spawnStartedUTC time.Time) error {
+	lastSched, _, err := ReadJobDiskState(path)
+	if err != nil {
+		return err
+	}
+	st := jobDiskState{LastSpawnStartedUTC: spawnStartedUTC.UTC().Format(time.RFC3339)}
+	if !lastSched.IsZero() {
+		st.LastScheduledUTC = lastSched.UTC().Format(time.RFC3339)
+	}
+	data, err := marshalJobDiskState(st)
+	if err != nil {
+		return err
+	}
+	return persistJobDiskState(path, data)
+}
+
+// WriteJobState persists the last executed cron slot (UTC), preserving last_spawn_started_utc when present.
+// It writes through a temp file in the same directory and renames into place so
+// concurrent daemon ticks never read a truncated JSON file as an empty checkpoint.
+// On Unix, rename replaces an existing destination atomically. On Windows the prior
+// file is removed first because os.Rename cannot replace an existing path there.
+func WriteJobState(path string, lastScheduled time.Time) error {
+	_, spawn, err := ReadJobDiskState(path)
+	if err != nil {
+		return err
+	}
+	st := jobDiskState{LastScheduledUTC: lastScheduled.UTC().Format(time.RFC3339)}
+	if !spawn.IsZero() {
+		st.LastSpawnStartedUTC = spawn.UTC().Format(time.RFC3339)
+	}
+	data, err := marshalJobDiskState(st)
+	if err != nil {
+		return err
+	}
+	return persistJobDiskState(path, data)
 }

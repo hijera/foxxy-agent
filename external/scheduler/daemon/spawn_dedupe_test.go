@@ -32,8 +32,8 @@ func TestSpawnDedupeClearsWhenDiskCaughtUp(t *testing.T) {
 	var zero time.Time
 	noteSpawnDispatched(p, slot)
 	last := slot
-	if shouldSkipDuplicateCronSpawn(p, slot, last) {
-		t.Fatal("when last on disk is at due slot, do not skip (dedupe cleared)")
+	if !shouldSkipDuplicateCronSpawn(p, slot, last) {
+		t.Fatal("when last on disk equals due slot, must skip duplicate spawn")
 	}
 	if shouldSkipDuplicateCronSpawn(p, slot, zero) {
 		t.Fatal("after disk catch-up path, mem entry should be gone")

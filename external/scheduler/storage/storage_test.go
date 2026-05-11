@@ -16,6 +16,50 @@ func TestParseCronUTC_MatchesStandardFiveField(t *testing.T) {
 	}
 }
 
+func TestScheduleMinimumInterval_EveryMinute(t *testing.T) {
+	s, err := ParseCronUTC("* * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := ScheduleMinimumInterval(s); g != time.Minute {
+		t.Fatalf("got %v want 1m", g)
+	}
+}
+
+func TestScheduleMinimumInterval_Hourly(t *testing.T) {
+	s, err := ParseCronUTC("0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := ScheduleMinimumInterval(s); g != time.Hour {
+		t.Fatalf("got %v want 1h", g)
+	}
+}
+
+func TestSpawnThrottleBlocksBackToBackMinuteCron(t *testing.T) {
+	// Long run crossing into the next cron minute: without spawn spacing, a second start can
+	// occur seconds after the first finishes; throttle requires minGap since last spawn.
+	lastSpawn, err := time.Parse(time.RFC3339, "2026-05-12T22:30:44Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-12T22:31:14Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := ParseCronUTC("* * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	minGap := ScheduleMinimumInterval(s)
+	if minGap != time.Minute {
+		t.Fatalf("minGap %v", minGap)
+	}
+	if !now.Before(lastSpawn.Add(minGap)) {
+		t.Fatal("expected throttle to block another spawn")
+	}
+}
+
 func TestNextScheduledUTCHourly(t *testing.T) {
 	s, err := ParseCronUTC("0 * * * *")
 	if err != nil {
@@ -175,6 +219,28 @@ func TestStatePathLockPath(t *testing.T) {
 	}
 }
 
+func TestCanonicalSchedulerJobPath_ResolvesSymlinkDir(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(dir, "link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skip(err)
+	}
+	jobViaLink := filepath.Join(linkDir, "job.md")
+	jobReal := filepath.Join(realDir, "job.md")
+	if err := os.WriteFile(jobViaLink, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	canLink := CanonicalSchedulerJobPath(jobViaLink)
+	canReal := CanonicalSchedulerJobPath(jobReal)
+	if canLink != canReal {
+		t.Fatalf("canonical mismatch: %q vs %q", canLink, canReal)
+	}
+}
+
 func TestParseJobFromBytes(t *testing.T) {
 	raw := `---
 description: "Test"
@@ -214,6 +280,55 @@ func TestReadWriteJobStateRoundTrip(t *testing.T) {
 	}
 	if !empty.IsZero() {
 		t.Fatalf("missing file should yield zero time, got %v", empty)
+	}
+}
+
+func TestWriteJobSchedulerCheckpointRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "job.state")
+	slot, err := time.Parse(time.RFC3339, "2024-06-01T12:30:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spawn, err := time.Parse(time.RFC3339, "2024-06-01T12:30:44Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteJobSchedulerCheckpoint(p, slot, spawn); err != nil {
+		t.Fatal(err)
+	}
+	gotSched, gotSpawn, err := ReadJobDiskState(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotSched.Equal(slot.UTC()) || !gotSpawn.Equal(spawn.UTC()) {
+		t.Fatalf("sched=%v spawn=%v", gotSched, gotSpawn)
+	}
+}
+
+func TestWriteJobSpawnStartedPreservesScheduled(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "job.state")
+	slot, err := time.Parse(time.RFC3339, "2024-06-01T12:30:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteJobState(p, slot); err != nil {
+		t.Fatal(err)
+	}
+	spawn, err := time.Parse(time.RFC3339, "2024-06-01T14:00:01Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteJobSpawnStarted(p, spawn); err != nil {
+		t.Fatal(err)
+	}
+	gotSched, gotSpawn, err := ReadJobDiskState(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotSched.Equal(slot.UTC()) || !gotSpawn.Equal(spawn.UTC()) {
+		t.Fatalf("sched=%v spawn=%v", gotSched, gotSpawn)
 	}
 }
 

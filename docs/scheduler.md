@@ -57,6 +57,8 @@ Body - markdown used as the one-shot user instruction for that scheduler run.
 
 Each execution persists a normal session directory under **`sessions.dir`** with **`schedulerRun`** metadata in **`session.json`** (job id, start or end timestamps, **`status`**). Completed runs older than **`scheduler.retain_sessions`** per **`job_id`** are pruned (default **5** when unset).
 
+The daemon records **`last_spawn_started_utc`** in **`basename.state`** alongside **`last_scheduled_utc`** and refuses to start another run until at least one **minimum schedule interval** has elapsed since that spawn time (derived from the cron expression, for example **one minute** for a five-field every-minute schedule). That way a long run that crosses into the next cron minute does not immediately trigger another execution right after the previous one finishes.
+
 Composer session list (**`GET /coddy/sessions`**) omits scheduler-only bundles unless **`include_scheduler=true`**.
 
 Inspect runs - **`GET /coddy/scheduler/jobs/{job_id}/runs`** or tool **`coddy_scheduler_job_runs`**; transcripts - **`GET /coddy/sessions/{session_id}/messages`**.
