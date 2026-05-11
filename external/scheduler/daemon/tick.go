@@ -74,6 +74,13 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 		if slot.After(now) {
 			continue
 		}
+		lockPath := storage.LockPath(path)
+		if lt, ok := storage.ReadSchedulerLockFireSlotUTC(lockPath); ok && lt.Equal(slot) {
+			continue
+		}
+		if shouldSkipDuplicateCronSpawn(path, slot, last) {
+			continue
+		}
 		select {
 		case sem <- struct{}{}:
 			go func(p string, fm *storage.JobFrontmatter, instruction string, fire time.Time) {

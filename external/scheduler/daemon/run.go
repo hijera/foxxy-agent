@@ -88,7 +88,7 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		}
 		return err
 	}
-	_, _ = f.WriteString(time.Now().UTC().Format(time.RFC3339) + "\n")
+	_, _ = f.WriteString(fireSlot.UTC().Format(time.RFC3339) + "\n")
 	_ = f.Close()
 	defer func() { _ = os.Remove(lock) }()
 
@@ -139,6 +139,7 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 			log.Warn("scheduler_run_state_write", "job_id", jobID, "path", stPath, "error", werr)
 			return werr
 		}
+		noteSpawnDispatched(absJob, fireSlot)
 	}
 
 	log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", sid)

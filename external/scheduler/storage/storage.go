@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -216,6 +217,27 @@ func LockPath(jobMDPath string) string {
 	return filepath.Join(filepath.Dir(jobMDPath), base+".lock")
 }
 
+// ReadSchedulerLockFireSlotUTC reads the first line of a job .lock file as an RFC3339 instant in UTC.
+// The daemon writes the committed cron fire slot there so ticks between lock creation and .state
+// rename still see that this fire is already in progress.
+// It returns (zero, false) when the file is missing, empty, or the first line is not valid RFC3339.
+func ReadSchedulerLockFireSlotUTC(lockPath string) (time.Time, bool) {
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		return time.Time{}, false
+	}
+	first := strings.Split(string(data), "\n")[0]
+	line := strings.TrimSpace(first)
+	if line == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, line)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
+}
+
 // StatePath returns the state file path for a job .md path.
 func StatePath(jobMDPath string) string {
 	base := strings.TrimSuffix(filepath.Base(jobMDPath), ".md")
@@ -252,6 +274,8 @@ func ReadJobState(path string) (time.Time, error) {
 // WriteJobState persists the last executed cron slot (UTC).
 // It writes through a temp file in the same directory and renames into place so
 // concurrent daemon ticks never read a truncated JSON file as an empty checkpoint.
+// On Unix, rename replaces an existing destination atomically. On Windows the prior
+// file is removed first because os.Rename cannot replace an existing path there.
 func WriteJobState(path string, lastScheduled time.Time) error {
 	st := jobDiskState{LastScheduledUTC: lastScheduled.UTC().Format(time.RFC3339)}
 	data, err := json.MarshalIndent(st, "", "  ")
@@ -281,9 +305,11 @@ func WriteJobState(path string, lastScheduled time.Time) error {
 		cleanup()
 		return err
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		cleanup()
-		return err
+	if runtime.GOOS == "windows" {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			cleanup()
+			return err
+		}
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		cleanup()

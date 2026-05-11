@@ -217,6 +217,26 @@ func TestReadWriteJobStateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestReadSchedulerLockFireSlotUTC(t *testing.T) {
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "demo.lock")
+	want, err := time.Parse(time.RFC3339, "2026-05-12T00:02:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock, []byte(want.UTC().Format(time.RFC3339)+"\ntrailer\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := ReadSchedulerLockFireSlotUTC(lock)
+	if !ok || !got.Equal(want.UTC()) {
+		t.Fatalf("got %v ok=%v want %v", got, ok, want.UTC())
+	}
+	missing := filepath.Join(dir, "nope.lock")
+	if _, ok := ReadSchedulerLockFireSlotUTC(missing); ok {
+		t.Fatal("missing lock should return ok=false")
+	}
+}
+
 func TestWriteJobStateOverwritesExisting(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "job.state")

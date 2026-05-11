@@ -2448,8 +2448,8 @@ textarea#composer {
 
   .sessions.drawer,
   .scheduler-jobs.drawer {
-    left: 10px;
-    right: 10px;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
     width: auto;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: 14px;
@@ -2936,30 +2936,37 @@ textarea#composer {
 
 @media (max-width: 1199px) {
   .scheduler-dock-cluster {
-    left: 10px;
-    right: 10px;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
     width: auto;
     max-width: none;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: max(12px, env(safe-area-inset-bottom, 0px));
-    flex-direction: column;
+    /* Job editor above list; same horizontal inset as History (sessions.drawer). */
+    flex-direction: column-reverse;
+    align-items: stretch;
     gap: 6px;
     /* Above .backdrop (60) so list rows and footer stay clickable on phones. */
     z-index: 70;
   }
 
   .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
-    width: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
     flex: 0 0 auto;
-    max-height: min(44vh, 360px);
+    align-self: stretch;
+    max-height: min(40vh, 320px);
     min-height: 0;
   }
 
-  .scheduler-job-editor-dock {
+  .scheduler-dock-cluster .scheduler-job-editor-dock {
     flex: 1 1 auto;
-    width: auto;
+    width: 100%;
+    min-width: 0;
     max-width: none;
     min-height: 0;
+    align-self: stretch;
   }
 
   .md-line-editor {
