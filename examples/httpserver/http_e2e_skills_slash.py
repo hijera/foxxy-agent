@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """HTTP e2e: slash skills catalog and ephemeral /name skill body on agent turns.
 
+ACP twin: ``examples/acp/acp_e2e_skills_slash.py``.
+
 Needs a running ``coddy http`` built with **http** (and **scheduler** if you use the default examples binary), using ``examples/config.demo.yaml`` with ``skills.install_dir``
 and ``skills.dirs`` set to ``${CODDY_HOME}/skills_fixture``. The full HTTP harness copies ``examples/skills_fixture/`` there (``examples/httpserver/test_httpserver.sh``).
 
@@ -126,7 +128,7 @@ def main() -> int:
         )
         return 1
 
-    print("ok skills slash demo")
+    print("ok http e2e skills slash", flush=True)
     return 0
 
 

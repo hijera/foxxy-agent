@@ -11,7 +11,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`e2e_todo`** | **`httpserver/http_e2e_todo.py`** | **`acp/acp_e2e_todo.py`** |
 | **`e2e_memory`** | **`httpserver/http_e2e_memory.py`** | **`acp/acp_e2e_memory.py`** |
 | **`e2e_toolcalls_persist`** | **`httpserver/http_e2e_toolcalls_persist.py`** | **`acp/acp_e2e_toolcalls_persist.py`** |
-| **`e2e_skills_slash`** | **`httpserver/http_e2e_skills_slash.py`** | (no ACP counterpart) |
+| **`e2e_skills_slash`** | **`httpserver/http_e2e_skills_slash.py`** | **`acp/acp_e2e_skills_slash.py`** |
 | **`e2e_scheduler_api`** | **`httpserver/http_e2e_scheduler_api.py`** | (REST is HTTP-only) |
 | **`e2e_scheduler_agent`** | **`httpserver/http_e2e_scheduler_agent.py`** | **`acp/acp_e2e_scheduler_agent.py`** |
 
@@ -52,7 +52,7 @@ Docker-only smoke:
 ./examples/test_acp.sh
 ```
 
-Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_todo`**, **`acp_e2e_memory`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_scheduler_agent`** (model plus scheduler daemon tick).
+Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_memory`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_scheduler_agent`** (model plus scheduler daemon tick).
 
 Environment overrides: **`CODDY_BIN`**, **`CODDY_CONFIG`**, **`SESSION_ROOT`**, **`SESSION_ID`**, **`BASE_URL`**, **`MODEL`**, etc. (see each script docstring).
 

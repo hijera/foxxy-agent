@@ -21,6 +21,7 @@ fi
 python3 "$ACP_DIR/acp_smoke_gateway.py"
 python3 "$ACP_DIR/acp_e2e_models.py"
 python3 "$ACP_DIR/acp_e2e_todo.py"
+python3 "$ACP_DIR/acp_e2e_skills_slash.py"
 python3 "$ACP_DIR/acp_e2e_memory.py"
 python3 "$ACP_DIR/acp_e2e_toolcalls_persist.py"
 python3 "$ACP_DIR/acp_e2e_scheduler_agent.py"
