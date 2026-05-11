@@ -64,7 +64,9 @@ func jobIDFromMDPath(abs string) string {
 	return strings.TrimSuffix(filepath.Base(abs), ".md")
 }
 
-// RunJobFile executes one scheduler job (cron tick or manual). When updateLastScheduledState is true, fireSlot updates the .state checkpoint.
+// RunJobFile executes one scheduler job (cron tick or manual). When updateLastScheduledState is true, fireSlot updates the .state checkpoint
+// as soon as the run is committed (after initial session persist) so daemon poll ticks do not treat the same cron slot as still due while
+// the agent turn is in progress or if the final checkpoint write at shutdown were to fail.
 func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD, jobPath string, fireSlot time.Time, updateLastScheduledState bool, fm *storage.JobFrontmatter, instruction string) error {
 	if fm != nil && fm.Paused {
 		return nil
@@ -132,6 +134,13 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		return saveErr
 	}
 
+	if updateLastScheduledState {
+		if werr := storage.WriteJobState(stPath, fireSlot); werr != nil {
+			log.Warn("scheduler_run_state_write", "job_id", jobID, "path", stPath, "error", werr)
+			return werr
+		}
+	}
+
 	log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", sid)
 
 	timeout, err := time.ParseDuration(cfg.Scheduler.Timeout)
@@ -183,14 +192,6 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		log.Info("scheduler_run_finish", "job_id", jobID, "session_id", sid, "status", status, "error", errStr)
 	}
 
-	if updateLastScheduledState {
-		if werr := storage.WriteJobState(stPath, fireSlot); werr != nil {
-			log.Warn("scheduler_run_state_write", "job_id", jobID, "path", stPath, "error", werr)
-			if runErr == nil {
-				return werr
-			}
-		}
-	}
 	return runErr
 }
 

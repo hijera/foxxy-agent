@@ -46,8 +46,10 @@ test("no active row when selectedJobId is null", () => {
   expect(screen.getByTestId("scheduler-job-row-a")).not.toHaveClass("active");
 });
 
-test("drawer footer has Add job without Refresh", () => {
+test("drawer footer has Add job control without Refresh", () => {
   renderDrawer(null, [baseJob("a")]);
-  expect(screen.getByTestId("scheduler-add-job")).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Add job" }),
+  ).toBeInTheDocument();
   expect(screen.queryByTestId("scheduler-refresh")).toBeNull();
 });

@@ -15,6 +15,11 @@ import {
   setSchedulerListHash,
 } from "./hashRoute";
 import type { SchedulerJob, SchedulerJobCreate } from "./types";
+import {
+  SchedulerIconPause,
+  SchedulerIconPlay,
+  SchedulerIconTrash,
+} from "./schedulerToolbarIcons";
 
 type EditorMode = "create" | "edit";
 
@@ -241,7 +246,7 @@ export function SchedulerJobEditorSheet(props: {
   }, [collectFieldErrors]);
 
   useEffect(() => {
-    if (!props.open) {
+    if (!props.open || props.mode !== "create") {
       return;
     }
     lastCommittedRef.current = null;
@@ -249,22 +254,30 @@ export function SchedulerJobEditorSheet(props: {
     setSaveErr(null);
     setFieldErrs({});
     setLoadErr(null);
-    if (props.mode === "create") {
-      setJobIdField("");
-      setDescription("");
-      setSchedule("0 * * * *");
-      setCwd(props.currentCwd || "");
-      setModel(props.defaultModel || "");
-      setModeField("agent");
-      setBody("");
-      setPaused(false);
-      setLoading(false);
+    setJobIdField("");
+    setDescription("");
+    setSchedule("0 * * * *");
+    setCwd(props.currentCwd || "");
+    setModel(props.defaultModel || "");
+    setModeField("agent");
+    setBody("");
+    setPaused(false);
+    setLoading(false);
+  }, [props.open, props.mode]);
+
+  useEffect(() => {
+    if (!props.open || props.mode !== "edit") {
       return;
     }
     const jid = (props.jobId || "").trim();
     if (!jid) {
       return;
     }
+    lastCommittedRef.current = null;
+    createdOnceRef.current = false;
+    setSaveErr(null);
+    setFieldErrs({});
+    setLoadErr(null);
     let cancelled = false;
     setLoading(true);
     void (async () => {
@@ -302,7 +315,7 @@ export function SchedulerJobEditorSheet(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.open, props.mode, props.jobId, props.currentCwd, props.defaultModel]);
+  }, [props.open, props.mode, props.jobId]);
 
   useEffect(() => {
     if (!props.open || props.mode !== "edit" || loading || loadErr) {
@@ -470,7 +483,7 @@ export function SchedulerJobEditorSheet(props: {
                   .filter(Boolean)
                   .join(" ")}
                 value={jobIdField}
-                disabled={props.mode === "edit" || saving}
+                disabled={props.mode === "edit"}
                 onChange={(ev) => setJobIdField(ev.target.value)}
                 autoComplete="off"
                 spellCheck={false}
@@ -489,7 +502,6 @@ export function SchedulerJobEditorSheet(props: {
                   .filter(Boolean)
                   .join(" ")}
                 value={description}
-                disabled={saving}
                 onChange={(ev) => setDescription(ev.target.value)}
               />
               {fieldErrs.description ? (
@@ -511,7 +523,6 @@ export function SchedulerJobEditorSheet(props: {
                   .filter(Boolean)
                   .join(" ")}
                 value={schedule}
-                disabled={saving}
                 onChange={(ev) => setSchedule(ev.target.value)}
                 spellCheck={false}
                 placeholder="0 * * * *"
@@ -538,7 +549,6 @@ export function SchedulerJobEditorSheet(props: {
               <input
                 className="scheduler-field-input"
                 value={cwd}
-                disabled={saving}
                 onChange={(ev) => setCwd(ev.target.value)}
                 placeholder={props.currentCwd || ""}
               />
@@ -548,7 +558,6 @@ export function SchedulerJobEditorSheet(props: {
               <select
                 className="scheduler-field-input"
                 value={modeField}
-                disabled={saving}
                 onChange={(ev) => setModeField(ev.target.value)}
               >
                 <option value="agent">agent</option>
@@ -561,7 +570,6 @@ export function SchedulerJobEditorSheet(props: {
                 <select
                   className="scheduler-field-input"
                   value={model}
-                  disabled={saving}
                   onChange={(ev) => setModel(ev.target.value)}
                 >
                   {props.availableModels.map((m) => (
@@ -574,7 +582,6 @@ export function SchedulerJobEditorSheet(props: {
                 <input
                   className="scheduler-field-input"
                   value={model}
-                  disabled={saving}
                   onChange={(ev) => setModel(ev.target.value)}
                   spellCheck={false}
                   placeholder={props.defaultModel || ""}
@@ -593,7 +600,6 @@ export function SchedulerJobEditorSheet(props: {
               >
                 <MarkdownLineEditor
                   value={body}
-                  disabled={saving}
                   onChange={setBody}
                   aria-label="Job body markdown"
                   placeholder="Instruction for the scheduled run…"
@@ -619,23 +625,27 @@ export function SchedulerJobEditorSheet(props: {
         {props.mode === "edit" && !loading && !loadErr ? (
           <button
             type="button"
-            className="scheduler-btn"
+            className="scheduler-btn scheduler-btn-icon-only"
             disabled={saving}
             data-testid="scheduler-editor-pause-toggle"
+            title={paused ? "Resume" : "Pause"}
+            aria-label={paused ? "Resume" : "Pause"}
             onClick={() => void onPauseToggle()}
           >
-            {paused ? "Resume" : "Pause"}
+            {paused ? <SchedulerIconPlay /> : <SchedulerIconPause />}
           </button>
         ) : null}
         {props.mode === "edit" ? (
           <button
             type="button"
-            className="scheduler-btn scheduler-btn-danger"
+            className="scheduler-btn scheduler-btn-danger scheduler-btn-icon-only"
             disabled={saving || loading}
             data-testid="scheduler-editor-delete"
+            title="Delete"
+            aria-label="Delete"
             onClick={() => void onDelete()}
           >
-            Delete
+            <SchedulerIconTrash />
           </button>
         ) : null}
       </div>

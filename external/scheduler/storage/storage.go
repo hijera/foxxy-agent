@@ -250,6 +250,8 @@ func ReadJobState(path string) (time.Time, error) {
 }
 
 // WriteJobState persists the last executed cron slot (UTC).
+// It writes through a temp file in the same directory and renames into place so
+// concurrent daemon ticks never read a truncated JSON file as an empty checkpoint.
 func WriteJobState(path string, lastScheduled time.Time) error {
 	st := jobDiskState{LastScheduledUTC: lastScheduled.UTC().Format(time.RFC3339)}
 	data, err := json.MarshalIndent(st, "", "  ")
@@ -257,5 +259,35 @@ func WriteJobState(path string, lastScheduled time.Time) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o644)
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	_ = f.Chmod(0o644)
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		cleanup()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		cleanup()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		cleanup()
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		cleanup()
+		return err
+	}
+	return nil
 }

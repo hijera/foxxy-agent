@@ -39,6 +39,9 @@ import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 
 const HDR = "X-Coddy-Session-ID";
 
+/** Poll job list while scheduler UI is open (running, next_run_utc, paused). */
+const SCHEDULER_JOBS_POLL_MS = 12_000;
+
 type SchedulerEditorState =
   | null
   | { mode: "create" }
@@ -545,41 +548,62 @@ export function App() {
     [sessionId],
   );
 
-  const refreshSchedulerJobs = useCallback(async () => {
-    setSchedulerListLoading(true);
-    setSchedulerListError(null);
-    const res = await schedulerListJobs(false);
-    setSchedulerListLoading(false);
-    if (!res.ok) {
-      let msg = res.message;
-      if (res.status === 404) {
-        setSchedulerHttpLinked(false);
-        setSchedulerOpen(false);
-        setSchedulerEditor(null);
-        msg =
-          "Scheduler API is not available in this build (rebuild with http,scheduler).";
-        const sid = sessionId.trim();
-        if (sid) {
-          setSessionHashInLocation(sid);
-        } else if (window.location.hash) {
-          history.replaceState(
-            null,
-            "",
-            `${window.location.pathname}${window.location.search}`,
-          );
-        }
-      } else if (res.status === 503) {
-        msg =
-          "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).";
+  const refreshSchedulerJobs = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = !!opts?.silent;
+      if (!silent) {
+        setSchedulerListLoading(true);
+        setSchedulerListError(null);
       }
-      setSchedulerListError(msg);
-      setSchedulerJobs([]);
-      setSchedulerInfo(null);
-      return;
-    }
-    setSchedulerInfo(res.data.scheduler);
-    setSchedulerJobs(res.data.jobs || []);
-  }, [sessionId]);
+      const res = await schedulerListJobs(false);
+      if (!silent) {
+        setSchedulerListLoading(false);
+      }
+      if (!res.ok) {
+        let msg = res.message;
+        if (res.status === 404) {
+          setSchedulerHttpLinked(false);
+          setSchedulerOpen(false);
+          setSchedulerEditor(null);
+          msg =
+            "Scheduler API is not available in this build (rebuild with http,scheduler).";
+          const sid = sessionId.trim();
+          if (sid) {
+            setSessionHashInLocation(sid);
+          } else if (window.location.hash) {
+            history.replaceState(
+              null,
+              "",
+              `${window.location.pathname}${window.location.search}`,
+            );
+          }
+          setSchedulerListError(msg);
+          setSchedulerJobs([]);
+          setSchedulerInfo(null);
+          return;
+        }
+        if (res.status === 503) {
+          msg =
+            "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).";
+          if (!silent) {
+            setSchedulerListError(msg);
+            setSchedulerJobs([]);
+            setSchedulerInfo(null);
+          }
+          return;
+        }
+        if (!silent) {
+          setSchedulerListError(msg);
+          setSchedulerJobs([]);
+          setSchedulerInfo(null);
+        }
+        return;
+      }
+      setSchedulerInfo(res.data.scheduler);
+      setSchedulerJobs(res.data.jobs || []);
+    },
+    [sessionId],
+  );
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
@@ -717,6 +741,16 @@ export function App() {
       return;
     }
     void refreshSchedulerJobs();
+  }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
+
+  useEffect(() => {
+    if (!schedulerOpen || schedulerHttpLinked !== true) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      void refreshSchedulerJobs({ silent: true });
+    }, SCHEDULER_JOBS_POLL_MS);
+    return () => window.clearInterval(id);
   }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
 
   useEffect(() => {
@@ -2194,7 +2228,7 @@ export function App() {
         setSchedulerListError(r.message);
         return;
       }
-      void refreshSchedulerJobs();
+      void refreshSchedulerJobs({ silent: true });
     },
     [refreshSchedulerJobs],
   );
@@ -2206,7 +2240,7 @@ export function App() {
         setSchedulerListError(r.message);
         return;
       }
-      void refreshSchedulerJobs();
+      void refreshSchedulerJobs({ silent: true });
     },
     [refreshSchedulerJobs],
   );
@@ -2417,14 +2451,14 @@ export function App() {
                 setSchedulerListHash({ historySidebar: hist });
               }}
               onSaved={(createdId) => {
-                void refreshSchedulerJobs();
+                void refreshSchedulerJobs({ silent: true });
                 if (createdId) {
                   setSchedulerEditor({ mode: "edit", jobId: createdId });
                 }
               }}
               onDeleted={() => {
                 setSchedulerEditor(null);
-                void refreshSchedulerJobs();
+                void refreshSchedulerJobs({ silent: true });
               }}
             />
           </div>

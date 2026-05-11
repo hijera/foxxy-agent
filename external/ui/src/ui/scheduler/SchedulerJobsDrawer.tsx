@@ -1,4 +1,5 @@
 import type { SchedulerInfo, SchedulerJob } from "./types";
+import { SchedulerIconPlus } from "./schedulerToolbarIcons";
 
 function formatUtcHint(iso: string | undefined): string {
   if (!iso || !iso.trim()) {
@@ -189,11 +190,13 @@ export function SchedulerJobsDrawer(props: {
       <div className="scheduler-drawer-footer">
         <button
           type="button"
-          className="scheduler-btn scheduler-btn-primary"
+          className="scheduler-btn scheduler-btn-primary scheduler-btn-icon-only"
           data-testid="scheduler-add-job"
+          title="Add job"
+          aria-label="Add job"
           onClick={props.onAddJob}
         >
-          Add job
+          <SchedulerIconPlus />
         </button>
       </div>
     </aside>

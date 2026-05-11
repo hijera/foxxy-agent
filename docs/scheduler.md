@@ -36,7 +36,7 @@ Sidecars next to **`basename.md`**:
 - **`basename.lock`** while a run holds the exclusive lock (API **`running`** follows the in-process run tracker, not the lock file alone; stale locks are cleaned after a timeout-based grace window)
 - **`basename.state`** cron checkpoint (**`last_scheduled_utc`**)
 
-The daemon advances **`.state`** after each completed tick using the slot time that fired. With no checkpoint yet (or a stale pre-1980 timestamp left by older builds), the first run follows **vixie-style** timing from wall clock and the five-field expression, not a backlog from the Unix epoch.
+The daemon writes **`.state`** as soon as a cron run is committed (after the scheduler session is first persisted on disk), using the cron slot time that fired, so poll ticks do not re-trigger the same minute while the agent turn is still running. Checkpoints are written **atomically** (temp file plus rename in the same directory) so ticks never observe a half-written JSON file as a missing checkpoint. With no checkpoint yet (or a stale pre-1980 timestamp left by older builds), the first run follows **vixie-style** timing from wall clock and the five-field expression, not a backlog from the Unix epoch. Only **one** long-lived process should enable the scheduler against a given **`scheduler.dir`** - two daemons on the same directory can still double-fire regardless of checkpointing.
 
 Optional YAML frontmatter **`paused: true`** skips both cron ticks and **`POST …/run`** until resumed.
 

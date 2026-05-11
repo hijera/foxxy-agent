@@ -104,6 +104,29 @@ func TestDueFireSlotUTC_StaleEpochCheckpointUsesWallClock(t *testing.T) {
 	}
 }
 
+func TestDueFireSlotUTC_PerMinuteCronWithCheckpointSkipsSameWallMinute(t *testing.T) {
+	s, err := ParseCronUTC("* * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := time.Parse(time.RFC3339, "2026-05-11T23:32:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-11T23:32:30Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := DueFireSlotUTC(s, last, now)
+	if !slot.After(now) {
+		t.Fatalf("with last on this minute boundary, next slot must be after now; got slot=%s now=%s",
+			slot.Format(time.RFC3339), now.Format(time.RFC3339))
+	}
+	if want := "2026-05-11T23:33:00Z"; slot.Format(time.RFC3339) != want {
+		t.Fatalf("got %s want %s", slot.Format(time.RFC3339), want)
+	}
+}
+
 func TestDueFireSlotUTC_WithCheckpointUsesStrictlyAfterLast(t *testing.T) {
 	s, err := ParseCronUTC("0 * * * *")
 	if err != nil {
@@ -191,6 +214,32 @@ func TestReadWriteJobStateRoundTrip(t *testing.T) {
 	}
 	if !empty.IsZero() {
 		t.Fatalf("missing file should yield zero time, got %v", empty)
+	}
+}
+
+func TestWriteJobStateOverwritesExisting(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "job.state")
+	a, err := time.Parse(time.RFC3339, "2024-06-01T12:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := time.Parse(time.RFC3339, "2024-06-01T13:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteJobState(p, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteJobState(p, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadJobState(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(b.UTC()) {
+		t.Fatalf("ReadJobState got %v want %v", got, b.UTC())
 	}
 }
 

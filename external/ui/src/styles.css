@@ -2243,7 +2243,8 @@ textarea#composer {
   .backdrop {
     z-index: 60;
   }
-  .sessions.drawer {
+  .sessions.drawer,
+  .scheduler-jobs.drawer {
     z-index: 70;
   }
   .shell {
@@ -2519,6 +2520,19 @@ textarea#composer {
 .scheduler-btn:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.scheduler-btn-icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.scheduler-btn-icon-only svg {
+  flex-shrink: 0;
 }
 
 .scheduler-btn-primary {
@@ -2929,6 +2943,8 @@ textarea#composer {
     bottom: max(12px, env(safe-area-inset-bottom, 0px));
     flex-direction: column;
     gap: 6px;
+    /* Above .backdrop (60) so list rows and footer stay clickable on phones. */
+    z-index: 70;
   }
 
   .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
