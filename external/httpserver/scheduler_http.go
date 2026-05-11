@@ -494,11 +494,12 @@ func openAPISchedulerPaths() map[string]interface{} {
 		},
 		"/coddy/scheduler/jobs/{job_id}/cancel": map[string]interface{}{
 			"post": map[string]interface{}{
-				"summary":    "Cancel tracked in-flight scheduler run",
-				"parameters": jobIDParam,
+				"summary":     "Cancel tracked scheduler run or clear orphan lock",
+				"description": "**cancelled** is true when an in-process run received **context.Cancel**, or when a stale **basename.lock** was removed because no run is tracked (crash recovery).",
+				"parameters":  jobIDParam,
 				"responses": map[string]interface{}{
 					"200": map[string]interface{}{
-						"description": "Cancellation request issued",
+						"description": "Cancellation or lock cleanup result",
 						"content": map[string]interface{}{
 							"application/json": map[string]interface{}{
 								"schema": map[string]interface{}{
@@ -567,7 +568,10 @@ func openAPISchedulerSchemas() map[string]interface{} {
 				"body":                    map[string]string{"type": "string"},
 				"last_scheduled_slot_utc": map[string]string{"type": "string"},
 				"next_run_utc":            map[string]string{"type": "string"},
-				"running":                 map[string]string{"type": "boolean"},
+				"running": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True while this process tracks an in-flight agent run for the job (not merely presence of basename.lock).",
+				},
 			},
 		},
 		"SchedulerJobFull": map[string]interface{}{
@@ -583,7 +587,10 @@ func openAPISchedulerSchemas() map[string]interface{} {
 				"body":                    map[string]string{"type": "string"},
 				"last_scheduled_slot_utc": map[string]string{"type": "string"},
 				"next_run_utc":            map[string]string{"type": "string"},
-				"running":                 map[string]string{"type": "boolean"},
+				"running": map[string]interface{}{
+					"type":        "boolean",
+					"description": "True while this process tracks an in-flight agent run for the job (not merely presence of basename.lock).",
+				},
 			},
 		},
 		"SchedulerJobCreateDoc": map[string]interface{}{

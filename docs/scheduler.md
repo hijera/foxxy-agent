@@ -33,8 +33,10 @@ When **`scheduler.dir`** is empty, it defaults to **`${CODDY_HOME}/scheduler`**.
 
 Sidecars next to **`basename.md`**:
 
-- **`basename.lock`** while a run holds the exclusive lock
+- **`basename.lock`** while a run holds the exclusive lock (API **`running`** follows the in-process run tracker, not the lock file alone; stale locks are cleaned after a timeout-based grace window)
 - **`basename.state`** cron checkpoint (**`last_scheduled_utc`**)
+
+The daemon advances **`.state`** after each completed tick using the slot time that fired. With no checkpoint yet (or a stale pre-1980 timestamp left by older builds), the first run follows **vixie-style** timing from wall clock and the five-field expression, not a backlog from the Unix epoch.
 
 Optional YAML frontmatter **`paused: true`** skips both cron ticks and **`POST …/run`** until resumed.
 

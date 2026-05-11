@@ -49,6 +49,80 @@ func TestNextScheduledDisplayUTC_NoLastUsesNowNotEpoch(t *testing.T) {
 	}
 }
 
+func TestDueFireSlotUTC_NoCheckpointWaitsForNextSlot(t *testing.T) {
+	s, err := ParseCronUTC("0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-11T14:35:20Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := DueFireSlotUTC(s, time.Time{}, now)
+	if want := "2026-05-11T15:00:00Z"; slot.Format(time.RFC3339) != want {
+		t.Fatalf("got %s want %s", slot.Format(time.RFC3339), want)
+	}
+	if !slot.After(now) {
+		t.Fatalf("slot should be after now before the hour boundary")
+	}
+}
+
+func TestDueFireSlotUTC_NoCheckpointFiresSameHourBoundary(t *testing.T) {
+	s, err := ParseCronUTC("0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-11T15:00:30Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := DueFireSlotUTC(s, time.Time{}, now)
+	if want := "2026-05-11T15:00:00Z"; slot.Format(time.RFC3339) != want {
+		t.Fatalf("got %s want %s", slot.Format(time.RFC3339), want)
+	}
+	if slot.After(now) {
+		t.Fatalf("slot should be due on or before now")
+	}
+}
+
+func TestDueFireSlotUTC_StaleEpochCheckpointUsesWallClock(t *testing.T) {
+	s, err := ParseCronUTC("0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := time.Parse(time.RFC3339, "1970-01-01T01:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-11T14:35:20Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := DueFireSlotUTC(s, last, now)
+	if want := "2026-05-11T15:00:00Z"; slot.Format(time.RFC3339) != want {
+		t.Fatalf("got %s want %s", slot.Format(time.RFC3339), want)
+	}
+}
+
+func TestDueFireSlotUTC_WithCheckpointUsesStrictlyAfterLast(t *testing.T) {
+	s, err := ParseCronUTC("0 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := time.Parse(time.RFC3339, "2026-05-11T15:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-11T15:30:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := DueFireSlotUTC(s, last, now)
+	if want := "2026-05-11T16:00:00Z"; slot.Format(time.RFC3339) != want {
+		t.Fatalf("got %s want %s", slot.Format(time.RFC3339), want)
+	}
+}
+
 func TestNextScheduledDisplayUTC_StaleLastAdvancesToNow(t *testing.T) {
 	s, err := ParseCronUTC("0 * * * *")
 	if err != nil {

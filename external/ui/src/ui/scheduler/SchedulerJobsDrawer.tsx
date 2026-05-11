@@ -125,10 +125,6 @@ export function SchedulerJobsDrawer(props: {
                 </div>
               </div>
               <div className="scheduler-job-row-sub">
-                <span>Last slot {formatUtcHint(j.last_scheduled_slot_utc)}</span>
-                <span className="scheduler-job-row-dot" aria-hidden>
-                  ·
-                </span>
                 <span>Next {formatUtcHint(j.next_run_utc)}</span>
                 {j.paused ? (
                   <span className="scheduler-job-paused">paused</span>

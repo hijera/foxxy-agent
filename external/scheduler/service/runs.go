@@ -7,9 +7,31 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
+
+// orphanLockCancelMinAge avoids racing a brand-new lock created milliseconds ago on the same tick.
+const orphanLockCancelMinAge = 800 * time.Millisecond
+
+// tryRemoveOrphanSchedulerLock drops basename.lock when no tracked in-process run exists
+// and the lock is not brand new. Used so POST …/cancel clears zombie locks after crashes.
+func tryRemoveOrphanSchedulerLock(abs string) bool {
+	if IsTrackedJob(abs) {
+		return false
+	}
+	lp := storage.LockPath(abs)
+	fi, err := os.Stat(lp)
+	if err != nil {
+		return false
+	}
+	if time.Since(fi.ModTime()) < orphanLockCancelMinAge {
+		return false
+	}
+	return os.Remove(lp) == nil
+}
 
 // CancelJobRun asks the active run for this job path to cancel.
 func (o *Service) CancelJobRun(jobID string) (cancelled bool, err error) {
@@ -26,7 +48,13 @@ func (o *Service) CancelJobRun(jobID string) (cancelled bool, err error) {
 		}
 		return false, err
 	}
-	return CancelTrackedRun(abs), nil
+	if CancelTrackedRun(abs) {
+		return true, nil
+	}
+	if tryRemoveOrphanSchedulerLock(abs) {
+		return true, nil
+	}
+	return false, nil
 }
 
 // ListJobRuns returns persisted scheduler run sessions for jobID from sessions.dir.

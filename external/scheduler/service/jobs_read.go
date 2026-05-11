@@ -35,6 +35,7 @@ func (o *Service) jobFromPath(abs string, now time.Time, includeBody bool) (Sche
 	}
 	last, _ := storage.ReadJobState(storage.StatePath(abs))
 	next := storage.NextScheduledDisplayUTC(sch, last, now)
+	_ = CleanupStaleSchedulerLock(abs, StaleLockGraceFromConfig(o.Cfg))
 	out := SchedulerJob{
 		JobID:       jobIDFromMDPath(abs),
 		Description: strings.TrimSpace(fm.Description),
@@ -43,7 +44,7 @@ func (o *Service) jobFromPath(abs string, now time.Time, includeBody bool) (Sche
 		CWD:         strings.TrimSpace(fm.CWD),
 		Model:       strings.TrimSpace(fm.Model),
 		Mode:        strings.TrimSpace(fm.Mode),
-		Running:     lockOrTracked(abs),
+		Running:     IsTrackedJob(abs),
 	}
 	if includeBody {
 		out.Body = body

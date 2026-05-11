@@ -31,6 +31,7 @@ func CronEpoch() time.Time {
 }
 
 // NextScheduledUTC returns the first scheduled instant strictly after lastFiredSlot (RFC cron semantics).
+// When lastFiredSlot is zero, the anchor is CronEpoch (historical tests and callers that need that contract).
 func NextScheduledUTC(sched cron.Schedule, lastFiredSlot time.Time) time.Time {
 	t := lastFiredSlot
 	if t.IsZero() {
@@ -39,9 +40,27 @@ func NextScheduledUTC(sched cron.Schedule, lastFiredSlot time.Time) time.Time {
 	return sched.Next(t).UTC()
 }
 
+// staleCheckpointYear treats .state checkpoints before this as missing (epoch-era bug or corrupt file).
+const staleCheckpointYear = 1980
+
+// DueFireSlotUTC returns the cron instant the daemon should treat as due at wall-clock now.
+// With no durable checkpoint (zero last, or stale pre-1980 timestamps from old epoch anchoring), it behaves
+// like vixie crontab for a new line: the next fire follows the schedule from real time, not from Unix epoch.
+// With a normal last checkpoint, it is the first scheduled instant strictly after that last fire.
+func DueFireSlotUTC(sched cron.Schedule, lastFiredSlot time.Time, now time.Time) time.Time {
+	now = now.UTC()
+	last := lastFiredSlot.UTC()
+	if !last.IsZero() && last.Year() >= staleCheckpointYear {
+		return sched.Next(last).UTC()
+	}
+	// Anchor just before the current minute so robfig's strictly-after Next still lands on the current
+	// minute boundary when the tick falls later in the same minute (poll interval can be > 1s).
+	anchor := now.Truncate(time.Minute).Add(-time.Second)
+	return sched.Next(anchor).UTC()
+}
+
 // NextScheduledDisplayUTC returns the next cron instant strictly after max(lastFiredSlot, now) for UI lists.
 // When lastFiredSlot is zero (never recorded), anchors at now instead of CronEpoch so clients do not show 1970.
-// The daemon continues to use NextScheduledUTC for catch-up semantics.
 func NextScheduledDisplayUTC(sched cron.Schedule, lastFiredSlot time.Time, now time.Time) time.Time {
 	now = now.UTC()
 	anchor := lastFiredSlot.UTC()

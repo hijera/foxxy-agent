@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	schedservice "github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -48,7 +49,9 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 		return
 	}
 	now := time.Now().UTC()
+	grace := schedservice.StaleLockGraceFromConfig(cfg)
 	for _, path := range paths {
+		_ = schedservice.CleanupStaleSchedulerLock(path, grace)
 		fm, body, err := storage.ParseJobFile(path)
 		if err != nil {
 			log.Debug("scheduler skip file", "path", path, "error", err)
@@ -67,7 +70,7 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 			log.Warn("scheduler state read", "path", path, "error", err)
 			continue
 		}
-		slot := storage.NextScheduledUTC(sch, last)
+		slot := storage.DueFireSlotUTC(sch, last, now)
 		if slot.After(now) {
 			continue
 		}

@@ -2613,10 +2613,6 @@ textarea#composer {
   align-items: center;
 }
 
-.scheduler-job-row-dot {
-  opacity: 0.5;
-}
-
 .scheduler-job-paused {
   margin-left: 6px;
   font-size: 10px;
