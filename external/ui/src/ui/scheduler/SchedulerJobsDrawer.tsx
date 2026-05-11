@@ -21,12 +21,15 @@ function formatUtcHint(iso: string | undefined): string {
 
 export function SchedulerJobsDrawer(props: {
   open: boolean;
+  /** Job id shown in the editor; same row highlight as History `session-item.active`. */
+  selectedJobId: string | null;
+  /** Extra class for dock layout (e.g. scheduler-dock-drawer). */
+  className?: string;
   onClose: () => void;
   scheduler: SchedulerInfo | null;
   jobs: SchedulerJob[];
   listError: string | null;
   loading: boolean;
-  onRefresh: () => void;
   onAddJob: () => void;
   onOpenJob: (jobId: string) => void;
   onRunJob: (jobId: string) => void;
@@ -41,7 +44,9 @@ export function SchedulerJobsDrawer(props: {
 
   return (
     <aside
-      className="sessions scheduler-jobs drawer"
+      className={["sessions", "scheduler-jobs", "drawer", props.className || ""]
+        .filter(Boolean)
+        .join(" ")}
       aria-label="Scheduler jobs"
       data-testid="scheduler-drawer"
       data-variant="drawer"
@@ -98,20 +103,34 @@ export function SchedulerJobsDrawer(props: {
             Loading…
           </div>
         ) : null}
-        {props.jobs.map((j) => (
+        {props.jobs.map((j) => {
+          const selected = props.selectedJobId === j.job_id;
+          return (
           <div
             key={j.job_id}
-            className="session-item scheduler-job-row"
+            className={[
+              "session-item",
+              "scheduler-job-row",
+              selected ? "active" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             data-testid={`scheduler-job-row-${j.job_id}`}
           >
             <button
               type="button"
               className="scheduler-job-row-main"
+              aria-current={selected ? "true" : undefined}
               onClick={() => props.onOpenJob(j.job_id)}
             >
               <div className="scheduler-job-row-text-block">
-                <div className="scheduler-job-row-id" title={j.job_id}>
-                  {j.job_id}
+                <div className="scheduler-job-row-title-line">
+                  <div className="scheduler-job-row-id" title={j.job_id}>
+                    {j.job_id}
+                  </div>
+                  {j.paused ? (
+                    <span className="scheduler-job-paused">paused</span>
+                  ) : null}
                 </div>
                 <div
                   className="scheduler-job-row-desc"
@@ -126,9 +145,6 @@ export function SchedulerJobsDrawer(props: {
               </div>
               <div className="scheduler-job-row-sub">
                 <span>Next {formatUtcHint(j.next_run_utc)}</span>
-                {j.paused ? (
-                  <span className="scheduler-job-paused">paused</span>
-                ) : null}
               </div>
             </button>
             <div className="scheduler-job-row-actions">
@@ -166,7 +182,8 @@ export function SchedulerJobsDrawer(props: {
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="scheduler-drawer-footer">
@@ -177,15 +194,6 @@ export function SchedulerJobsDrawer(props: {
           onClick={props.onAddJob}
         >
           Add job
-        </button>
-        <button
-          type="button"
-          className="scheduler-btn"
-          data-testid="scheduler-refresh"
-          disabled={props.loading}
-          onClick={props.onRefresh}
-        >
-          Refresh
         </button>
       </div>
     </aside>

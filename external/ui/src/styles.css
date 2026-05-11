@@ -24,9 +24,7 @@
   --coddy-glass-panel-radius: 18px;
   /* Plain dim behind History / slash sheet — no fullscreen blur */
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.55);
-  /* Slash skills UI must stay below History (backdrop 40, drawer 50; mobile 60/70). Scheduler editor sheet stacks above the jobs drawer. */
-  --coddy-z-scheduler-editor-back: 56;
-  --coddy-z-scheduler-editor: 66;
+  /* Slash skills UI must stay below History (backdrop 40, drawer 50; mobile 60/70). */
   --coddy-z-slash-command: 38;
   /* Narrow nav column: outer edge = pill + trailing column padding before chat/drawer */
   --rail-column-pad-end: 8px;
@@ -579,17 +577,6 @@ body {
   overflow: hidden;
   z-index: 50;
   min-height: 0;
-}
-
-@media (min-width: 1200px) {
-  .scheduler-jobs.drawer {
-    width: min(
-      380px,
-      calc(
-        100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
-      )
-    );
-  }
 }
 
 .sessions.dock {
@@ -1716,6 +1703,7 @@ body {
 .composer-card,
 .sessions.drawer,
 .scheduler-jobs.drawer,
+.scheduler-job-editor-dock,
 .slash-menu-surface,
 .mode-menu {
   background: var(--coddy-glass-panel-bg);
@@ -2466,13 +2454,6 @@ textarea#composer {
     bottom: 14px;
   }
 
-  .scheduler-editor-backdrop {
-    z-index: 75 !important;
-  }
-
-  .scheduler-editor-panel {
-    z-index: 80 !important;
-  }
 }
 
 .scheduler-search-row {
@@ -2483,6 +2464,7 @@ textarea#composer {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   padding: 10px 12px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -2563,6 +2545,14 @@ textarea#composer {
   cursor: default;
 }
 
+/* Match History list chrome; inner button carries row padding. */
+.scheduler-job-list .session-item.scheduler-job-row {
+  padding: 0;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
 .scheduler-job-row-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -2583,6 +2573,28 @@ textarea#composer {
   flex-direction: column;
   gap: 2px;
   text-align: left;
+}
+
+.scheduler-job-row-title-line {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.scheduler-job-row-title-line .scheduler-job-row-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.scheduler-job-row-title-line .scheduler-job-paused {
+  flex-shrink: 0;
+  margin-left: 0;
 }
 
 .scheduler-job-row-id {
@@ -2614,7 +2626,6 @@ textarea#composer {
 }
 
 .scheduler-job-paused {
-  margin-left: 6px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2647,29 +2658,62 @@ textarea#composer {
   transform: translateY(-0.08em);
 }
 
-.scheduler-editor-backdrop {
+/* Scheduler list + job editor docked beside the rail (no fullscreen scrim). */
+.scheduler-dock-cluster {
   position: fixed;
-  inset: 0;
-  z-index: var(--coddy-z-scheduler-editor-back);
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: var(--coddy-overlay-scrim-bg);
-  cursor: default;
-}
-
-.scheduler-editor-panel {
-  position: fixed;
-  z-index: var(--coddy-z-scheduler-editor);
   top: 14px;
   bottom: 14px;
   left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
-  right: 14px;
-  width: auto;
-  max-width: min(
-    100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 28px,
-    920px
+  z-index: 50;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  max-width: calc(
+    100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
   );
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.scheduler-dock-cluster > * {
+  pointer-events: auto;
+}
+
+.scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+  position: relative;
+  left: auto;
+  top: auto;
+  bottom: auto;
+  flex: 0 0 auto;
+  height: 100%;
+  width: min(
+    320px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
+    )
+  );
+  max-height: none;
+}
+
+.scheduler-job-editor-dock {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: min(
+    480px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px -
+        min(
+          320px,
+          calc(
+            100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+              16px
+          )
+        ) - 8px
+    )
+  );
+  max-width: min(560px, 46vw);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2679,6 +2723,16 @@ textarea#composer {
   border: 1px solid var(--coddy-glass-panel-border);
   backdrop-filter: var(--coddy-glass-panel-backdrop);
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+}
+
+@media (min-width: 1200px) {
+  .shell-main.shell-history-beside-scheduler
+    .sessions.drawer.sessions-drawer-beside-scheduler {
+    left: calc(
+      var(--rail-shell-track-width) + var(--nav-floating-gutter) +
+        var(--sched-dock-cluster-width, 0px) + 8px
+    );
+  }
 }
 
 .scheduler-editor-head {
@@ -2777,9 +2831,16 @@ textarea#composer {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+  overflow: hidden;
+  min-width: 0;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+}
+
+.scheduler-job-editor-dock .scheduler-cron-hint {
+  hyphens: auto;
+  -webkit-hyphens: auto;
 }
 
 .scheduler-cron-hint-err {
@@ -2796,6 +2857,7 @@ textarea#composer {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
   padding: 10px 12px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -2858,12 +2920,29 @@ textarea#composer {
 }
 
 @media (max-width: 1199px) {
-  .scheduler-editor-panel {
+  .scheduler-dock-cluster {
     left: 10px;
     right: 10px;
-    max-width: calc(100vw - 20px);
+    width: auto;
+    max-width: none;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+    width: auto;
+    flex: 0 0 auto;
+    max-height: min(44vh, 360px);
+    min-height: 0;
+  }
+
+  .scheduler-job-editor-dock {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+    min-height: 0;
   }
 
   .md-line-editor {

@@ -52,8 +52,13 @@ The right insights rail is removed for the current milestone.
 
 ### Scheduler hash routes
 
-- **`#/scheduler`** opens the **Scheduler** jobs list drawer. **`#/scheduler/jobs/<job_id>`** opens that drawer with the **job editor** sheet (markdown body, cron hint, pause or resume, delete). Encode **`job_id`** in the path segment when it contains special characters.
-- The URL carries **either** a chat session **`#/s/...`** **or** a scheduler route, not both in one fragment. Navigating to History from a scheduler URL restores **`#/s/<currentSession>`** when a session id is already in app state, otherwise the hash is cleared.
+- The scheduler jobs drawer footer is **Add job** only, **right-aligned** in the drawer (no manual **Refresh** button, list still reloads when the drawer opens and after saves).
+- The job editor footer keeps **Resume** or **Pause** and **Delete** on the **left** for shorter pointer travel.
+- **`#/scheduler`** opens the **Scheduler** jobs list drawer. **`#/scheduler/jobs/<job_id>`** opens that drawer with the **job editor** docked **next to** the list on desktop (**no** fullscreen scrim over the list). Encode **`job_id`** in the path segment when it contains special characters. The job row open in the editor uses the same **`session-item active`** highlight as **History** for the current chat.
+- **`#/history`** opens the **History** drawer alone. On **`min-width: 1200px`**, opening **History** while **Scheduler** is already open keeps both drawers by adding **`?history=1`** to the scheduler hash (example **`#/scheduler/jobs/<job_id>?history=1`**). Choosing another chat from the list keeps the drawer open by using **`#/s/<sessionId>?history=1`** while **History** stays visible. The main chat shell still uses the shared dim **backdrop** when a drawer is open.
+- Deleting the **active** chat from **History** leaves the drawer open and moves the shell to the empty start state via **`#/history`** (same as opening **History** alone). Deleting other rows only refreshes the list.
+- Field edits in the job editor **auto-save** with a short debounce (no separate **Save** button) without a footer status line. **Pause**, **Resume**, and **Delete** stay explicit.
+- The URL still carries **one** primary route at a time for **`#/s/...`** vs **`#/scheduler...`** vs **`#/history`**; the optional **`history=1`** query only augments scheduler (or session) URLs for the dual-drawer desktop case.
 - **`404`** from **`GET /coddy/scheduler/jobs`** means the server build has no scheduler HTTP surface; **`503`** means **`scheduler.enabled`** is false for that process. The drawer shows a plain-language line instead of crashing.
 
 ### Responsive breakpoints
