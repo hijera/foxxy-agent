@@ -2397,7 +2397,12 @@ export function App() {
         {schedulerOpen && schedulerHttpLinked === true ? (
           <div
             ref={schedulerDockClusterRef}
-            className="scheduler-dock-cluster"
+            className={[
+              "scheduler-dock-cluster",
+              schedulerEditor ? "scheduler-dock-cluster-editor-active" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
           >
             <SchedulerJobsDrawer
               open={schedulerOpen}

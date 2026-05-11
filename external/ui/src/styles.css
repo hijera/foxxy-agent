@@ -2941,23 +2941,31 @@ textarea#composer {
     width: auto;
     max-width: none;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
-    bottom: max(12px, env(safe-area-inset-bottom, 0px));
-    /* Job editor above list; same horizontal inset as History (sessions.drawer). */
-    flex-direction: column-reverse;
+    /* Match History drawer vertical inset (sessions.drawer). */
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    flex-direction: column;
     align-items: stretch;
-    gap: 6px;
+    gap: 0;
     /* Above .backdrop (60) so list rows and footer stay clickable on phones. */
     z-index: 70;
   }
 
+  /* Jobs list alone uses the full cluster height like History. */
   .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
     width: 100%;
     min-width: 0;
     max-width: none;
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     align-self: stretch;
-    max-height: min(40vh, 320px);
     min-height: 0;
+    max-height: none;
+    height: 100%;
+  }
+
+  /* Editor opens as a full overlay on narrow screens (list hidden). */
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
+    .scheduler-jobs.drawer.scheduler-dock-drawer {
+    display: none;
   }
 
   .scheduler-dock-cluster .scheduler-job-editor-dock {
@@ -2969,8 +2977,51 @@ textarea#composer {
     align-self: stretch;
   }
 
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
+    .scheduler-job-editor-dock {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+  }
+
   .md-line-editor {
     max-height: min(360px, 38vh);
+  }
+
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active .md-line-editor {
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 140px;
+  }
+
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
+    .scheduler-editor-form {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
+    .scheduler-field-stack {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
+    .scheduler-body-editor-wrap {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
+    .scheduler-editor-scroll {
+    display: flex;
+    flex-direction: column;
   }
 }
 
