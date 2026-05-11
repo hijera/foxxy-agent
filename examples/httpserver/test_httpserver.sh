@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Full HTTP gateway e2e. Expects repo ./build/coddy from: make build TAGS="http scheduler" (examples/build_coddy.sh).
-# Optional LLM-heavy scheduler agent plus cron: SCHEDULER_AGENT_E2E=1.
 # Optional Docker smoke: examples/httpserver/docker.sh (from repo root).
 
 set -euo pipefail
@@ -36,6 +35,7 @@ LOG_F="$HOME_DIR/e2e.log"
 CFG="$HOME_DIR/config.resolved.yaml"
 sed "s|__E2E_LOG_PATH__|$LOG_F|g" "$CODDY_CFG_SRC" >"$CFG"
 export CODDY_CONFIG="$CFG"
+: >"$LOG_F"
 
 mkdir -p "$HOME_DIR/skills_fixture"
 cp -a "$ROOT/examples/skills_fixture/coddy_slash_demo" "$HOME_DIR/skills_fixture/"
@@ -51,21 +51,18 @@ for _ in $(seq 1 120); do
   if curl -sf -o /dev/null "http://127.0.0.1:${PORT}/v1/models"; then ready=1; break; fi
   sleep 0.25
 done
-if [[ "$ready" != 1 ]]; then
+if [[ "$ready" != "1" ]]; then
   echo "http server did not become ready on port ${PORT}" >&2
   exit 1
 fi
 
-python3 "$HTTP_DIR/http_smoke_basic.py"
-python3 "$HTTP_DIR/http_scheduler_rest_smoke.py"
-python3 "$HTTP_DIR/http_models_e2e_demo.py"
-python3 "$HTTP_DIR/http_agent_todo_e2e_demo.py"
-python3 "$HTTP_DIR/http_memory_copilot_e2e_demo.py"
-python3 "$HTTP_DIR/http_skills_slash_e2e_demo.py"
-python3 "$HTTP_DIR/http_toolcalls_persist_e2e_demo.py"
-
-if [[ "${SCHEDULER_AGENT_E2E:-}" == "1" ]]; then
-  python3 "$HTTP_DIR/http_scheduler_e2e_demo.py" --port "$PORT"
-fi
+python3 "$HTTP_DIR/http_smoke_gateway.py"
+python3 "$HTTP_DIR/http_e2e_scheduler_api.py"
+python3 "$HTTP_DIR/http_e2e_models.py"
+python3 "$HTTP_DIR/http_e2e_todo.py"
+python3 "$HTTP_DIR/http_e2e_memory.py"
+python3 "$HTTP_DIR/http_e2e_skills_slash.py"
+python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
+python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 
 echo "ok httpserver tests"

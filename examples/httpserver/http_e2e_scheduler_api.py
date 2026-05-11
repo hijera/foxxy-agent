@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""Scheduler HTTP REST smoke (no LLM).
+"""HTTP scheduler REST API plus on-disk job files (no LLM).
 
-Exercises /coddy/scheduler/jobs CRUD and pause or run conflict. Requires
-``coddy http`` built with ``-tags http,scheduler``, scheduler enabled in
-config, and the server started with ``--scheduler-enabled`` when the
-effective config would otherwise leave it off.
+Checks ``GET/POST/PATCH/DELETE /coddy/scheduler/jobs`` and that ``$CODDY_HOME/scheduler/<job_id>.md``
+appears with expected frontmatter or body, then disappears after delete.
 
-Environment: ``BASE_URL`` (default ``http://127.0.0.1:19876/v1``) - scheduler
-paths use the same host and port with ``/coddy/scheduler`` (not under ``/v1``).
+Environment: ``BASE_URL`` (default ``http://127.0.0.1:19876/v1``), ``CODDY_HOME`` (required, absolute).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 
@@ -54,7 +53,42 @@ def http_json(
         return e.code, out
 
 
+def job_md_path(home: Path, job_id: str) -> Path:
+    return home / "scheduler" / f"{job_id}.md"
+
+
+def assert_disk_job(
+    home: Path,
+    job_id: str,
+    *,
+    expect_description: str,
+    expect_schedule: str,
+    expect_body_substr: str,
+) -> None:
+    path = job_md_path(home, job_id)
+    if not path.is_file():
+        raise AssertionError(f"expected job file on disk: {path}")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if text.count("---") < 2:
+        raise AssertionError(f"job {path} missing YAML frontmatter fences")
+    if expect_schedule not in text:
+        raise AssertionError(f"job file missing schedule {expect_schedule!r}: {path}")
+    if expect_description not in text:
+        raise AssertionError(f"job file missing description {expect_description!r}: {path}")
+    if expect_body_substr not in text:
+        raise AssertionError(f"job file missing body fragment {expect_body_substr!r}: {path}")
+
+
 def main() -> int:
+    home_raw = os.environ.get("CODDY_HOME", "").strip()
+    if not home_raw:
+        print("CODDY_HOME must be set to the same home the server uses", file=sys.stderr)
+        return 10
+    home = Path(home_raw).expanduser().resolve()
+    if not home.is_dir():
+        print("CODDY_HOME is not a directory", home, file=sys.stderr)
+        return 11
+
     base_v1 = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     origin = coddy_origin(base_v1)
     list_url = f"{origin}/coddy/scheduler/jobs"
@@ -79,22 +113,30 @@ def main() -> int:
         print("GET /coddy/scheduler/jobs missing envelope keys", env, file=sys.stderr)
         return 1
 
-    job_id = f"py_rest_smoke_{os.getpid()}"
+    job_id = f"e2e_sched_api_{os.getpid()}"
+    description = "e2e scheduler api job"
+    schedule = "0 9 * * 1"
+    body_text = "noop body for API plus disk test"
     create_body = {
         "job_id": job_id,
-        "description": "REST smoke job",
-        "schedule": "0 9 * * 1",
-        "body": "noop body for API test",
+        "description": description,
+        "schedule": schedule,
+        "body": body_text,
     }
     code, created = http_json("POST", list_url, create_body, timeout=30.0)
     if code != 201:
         print("POST create job", code, created, file=sys.stderr)
         return 1
 
+    assert_disk_job(home, job_id, expect_description=description, expect_schedule=schedule, expect_body_substr=body_text)
+
     one = f"{origin}/coddy/scheduler/jobs/{urllib.parse.quote(job_id, safe='')}"
     code, job = http_json("GET", one, None, timeout=30.0)
     if code != 200 or (job.get("job_id") or "").strip() != job_id:
         print("GET job", code, job, file=sys.stderr)
+        return 1
+    if (job.get("schedule") or "").strip() != schedule:
+        print("GET job schedule mismatch", job.get("schedule"), file=sys.stderr)
         return 1
 
     runs_url = f"{one}/runs"
@@ -106,6 +148,10 @@ def main() -> int:
     code, _ = http_json("PATCH", one, {"paused": True}, timeout=30.0)
     if code != 200:
         print("PATCH pause", code, file=sys.stderr)
+        return 1
+    disk_after_pause = job_md_path(home, job_id).read_text(encoding="utf-8", errors="replace")
+    if not re.search(r"(?mi)^paused\s*:\s*true\s*$", disk_after_pause):
+        print("expected paused: true in on-disk job frontmatter", file=sys.stderr)
         return 1
 
     code, run_body = http_json("POST", f"{one}/run", None, timeout=30.0)
@@ -123,12 +169,16 @@ def main() -> int:
         print("DELETE job", code, file=sys.stderr)
         return 1
 
+    if job_md_path(home, job_id).exists():
+        print("job markdown file should be removed after DELETE", job_md_path(home, job_id), file=sys.stderr)
+        return 1
+
     code, gone = http_json("GET", runs_url, None, timeout=30.0)
     if code != 404:
         print("GET runs after delete want 404 got", code, gone, file=sys.stderr)
         return 1
 
-    print("ok http scheduler rest smoke", flush=True)
+    print("ok http e2e scheduler api", flush=True)
     return 0
 
 

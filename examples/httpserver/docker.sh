@@ -85,6 +85,6 @@ if [[ "$ready" != 1 ]]; then
 fi
 
 export BASE_URL="http://127.0.0.1:${PORT}/v1"
-python3 "$HTTP_DIR/http_smoke_basic.py"
+python3 "$HTTP_DIR/http_smoke_gateway.py"
 
 echo "ok docker httpserver tests"

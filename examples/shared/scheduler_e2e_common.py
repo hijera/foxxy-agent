@@ -348,7 +348,7 @@ STEP 3 - Reply single line OK when both steps succeeded.
             raise AssertionError(".state missing last_scheduled_utc")
 
         assert_no_stale_lock(job_md)
-        print("ok scheduler e2e (acp)", flush=True)
+        print("ok acp e2e scheduler agent", flush=True)
         return 0
     finally:
         proc.stdin.close()
@@ -362,6 +362,72 @@ def model_from_demo() -> str:
     raw = CONFIG_DEMO.read_text(encoding="utf-8")
     am = re.search(r"^\s*model:\s*\"([^\"]+)\"\s*$", raw, re.M)
     return am.group(1).strip() if am else os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
+
+
+def resolve_scheduler_global_log(home: Path, work: Path) -> Path:
+    """Prefer CODDY_HOME/e2e.log (examples harness); else workdir global log."""
+    for p in (home / "e2e.log", work / "coddy-e2e-global.log"):
+        if p.is_file():
+            return p
+    return home / "e2e.log"
+
+
+def run_http_scheduler_agent_e2e_existing(base_v1: str, home: Path, work: Path) -> int:
+    """Drive scheduler via HTTP chat against an already running coddy http (same home or cwd as process).
+
+    Expects BASE_URL-style ``base_v1`` ending in ``/v1``, scheduler dir under ``home/scheduler``,
+    and job side effects under ``work``.
+    """
+    base = base_v1.rstrip("/")
+    if not base.endswith("/v1"):
+        print("BASE_URL must end with /v1", flush=True)
+        return 12
+
+    model = os.environ.get("MODEL", "").strip() or model_from_demo()
+    create_json = jd(job_create_args())
+    compound_prompt = f"""Working directory MUST be: {work}
+STEP 1: run_command bash -lc 'echo {PHASE1_NEEDLE} > {PHASE1_MARKER}'
+STEP 2: coddy_scheduler_job_create JSON arguments exactly (one call): {create_json}
+STEP 3: reply OK
+"""
+
+    code, cc, _hdr = http_json(
+        "POST",
+        f"{base}/chat/completions",
+        {
+            "model": model,
+            "stream": False,
+            "messages": [{"role": "user", "content": compound_prompt}],
+        },
+    )
+    if code != 200:
+        print("chat failed", code, cc, flush=True)
+        return 14
+
+    scheduler_dir = home / "scheduler"
+
+    p1 = work / PHASE1_MARKER
+    if not p1.is_file():
+        wait_until(lambda: p1.is_file(), 240.0, what="phase1 marker http")
+
+    job_md = ensure_job_file_written(scheduler_dir, work)
+    verify_job_md(job_md)
+
+    result_path = work / RESULT_FILE
+    glo = resolve_scheduler_global_log(home, work)
+
+    wait_until(lambda: result_path.is_file(), 210.0, what="http scheduled result")
+
+    txt = result_path.read_text(encoding="utf-8", errors="replace")
+    if RESULT_NEEDLE not in txt:
+        raise AssertionError(f"missing RESULT_NEEDLE HTTP {txt!r}")
+
+    wait_log_patterns(glo.resolve(), ["scheduler job start", "scheduler job done", JOB_BASENAME], 90.0)
+    state_p = job_md.parent / (job_md.stem + ".state")
+    wait_until(lambda: state_p.is_file(), 120.0, what="basename.state http")
+    assert_no_stale_lock(job_md)
+    print("ok http scheduler agent e2e", flush=True)
+    return 0
 
 
 def run_http(binary: Path, cfg_path: Path, home: Path, work: Path, port: int) -> int:
@@ -404,48 +470,7 @@ def run_http(binary: Path, cfg_path: Path, home: Path, work: Path, port: int) ->
             print("HTTP server did not respond", flush=True)
             return 13
 
-        model = os.environ.get("MODEL", "").strip() or model_from_demo()
-        create_json = jd(job_create_args())
-        compound_prompt = f"""Working directory MUST be: {work}
-STEP 1: run_command bash -lc 'echo {PHASE1_NEEDLE} > {PHASE1_MARKER}'
-STEP 2: coddy_scheduler_job_create JSON arguments exactly (one call): {create_json}
-STEP 3: reply OK
-"""
-
-        code, cc, hdr = http_json(
-            "POST",
-            f"{base}/chat/completions",
-            {"model": model, "stream": False, "messages": [{"role": "user", "content": compound_prompt}]},
-        )
-        if code != 200:
-            print("chat failed", cc, flush=True)
-            return 14
-        _ = hdr
-
-        scheduler_dir = home / "scheduler"
-
-        p1 = work / PHASE1_MARKER
-        if not p1.is_file():
-            wait_until(lambda: p1.is_file(), 240.0, what="phase1 marker http")
-
-        job_md = ensure_job_file_written(scheduler_dir, work)
-        verify_job_md(job_md)
-
-        result_path = work / RESULT_FILE
-        glo = work / "coddy-e2e-global.log"
-
-        wait_until(lambda: result_path.is_file(), 210.0, what="http scheduled result")
-
-        txt = result_path.read_text(encoding="utf-8", errors="replace")
-        if RESULT_NEEDLE not in txt:
-            raise AssertionError(f"missing RESULT_NEEDLE HTTP {txt!r}")
-
-        wait_log_patterns(glo.resolve(), ["scheduler job start", "scheduler job done", JOB_BASENAME], 90.0)
-        state_p = job_md.parent / (job_md.stem + ".state")
-        wait_until(lambda: state_p.is_file(), 120.0, what="basename.state http")
-        assert_no_stale_lock(job_md)
-        print("ok scheduler e2e (http)", flush=True)
-        return 0
+        return run_http_scheduler_agent_e2e_existing(base, home, work)
     finally:
         proc.terminate()
         try:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scheduler E2E over coddy ACP (stdio JSON-RPC).
+"""ACP e2e: model drives scheduler tools, on-disk job markdown, and daemon runs a tick.
 
 Build: go build -tags=scheduler ./cmd/coddy
 Uses shared examples/config.demo.yaml (logger.file __E2E_LOG_PATH__ substituted at runtime).

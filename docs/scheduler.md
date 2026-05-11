@@ -93,4 +93,4 @@ In the session working directory run
 bash -lc 'date -u +%FT%TZ > tick.txt'
 ```
 
-See also **`docs/http-api.md`** (scheduler table) and **`docs/config.md`** (**`scheduler`** key).
+See also **`docs/http-api.md`** (scheduler table), **`docs/config.md`** (**`scheduler`** key), and **`examples/README.md`** (Python harnesses **`http_e2e_scheduler_api`**, **`http_e2e_scheduler_agent`**, **`acp_e2e_scheduler_agent`**).

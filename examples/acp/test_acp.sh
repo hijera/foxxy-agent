@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Full ACP stdio e2e. Expects ./build/coddy (examples/build_coddy.sh links scheduler with HTTP for one binary).
-# Optional LLM-heavy scheduler tools plus cron: SCHEDULER_AGENT_E2E=1.
 
 set -euo pipefail
 
@@ -19,14 +18,11 @@ if [[ ! -x "$CODDY_BIN" ]]; then
   exit 1
 fi
 
-python3 "$ACP_DIR/acp_smoke_basic.py"
-python3 "$ACP_DIR/acp_models_e2e_demo.py"
-python3 "$ACP_DIR/acp_agent_todo_e2e_demo.py"
-python3 "$ACP_DIR/acp_memory_copilot_e2e_demo.py"
-python3 "$ACP_DIR/acp_toolcalls_persist_e2e_demo.py"
-
-if [[ "${SCHEDULER_AGENT_E2E:-}" == "1" ]]; then
-  python3 "$ACP_DIR/acp_scheduler_e2e_demo.py"
-fi
+python3 "$ACP_DIR/acp_smoke_gateway.py"
+python3 "$ACP_DIR/acp_e2e_models.py"
+python3 "$ACP_DIR/acp_e2e_todo.py"
+python3 "$ACP_DIR/acp_e2e_memory.py"
+python3 "$ACP_DIR/acp_e2e_toolcalls_persist.py"
+python3 "$ACP_DIR/acp_e2e_scheduler_agent.py"
 
 echo "ok acp tests"

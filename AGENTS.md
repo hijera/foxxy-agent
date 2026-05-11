@@ -49,6 +49,6 @@ See **`examples/README.md`** for layout (**`examples/httpserver/`**, **`examples
 
 - **`examples/build_coddy.sh`** - runs **`make build TAGS="http scheduler"`** and prints **`coddy -v`**. Pass **`TAGS="http ui"`** or adjust tags as needed for your **`./build/coddy`**.
 - **`examples/test_acp.sh`** - wrapper that runs **`examples/acp/test_acp.sh`** (all ACP **`acp_*.py`** demos in one pass).
-- **`examples/test_httpserver.sh`** - wrapper that runs **`examples/httpserver/test_httpserver.sh`** (temp **`coddy http`**, all HTTP **`http_*.py`** demos including skills slash and scheduler REST smoke).
+- **`examples/test_httpserver.sh`** - wrapper that runs **`examples/httpserver/test_httpserver.sh`** (temp **`coddy http`**, all HTTP harnesses including **`http_e2e_scheduler_api`** and **`http_e2e_scheduler_agent`**).
 
 Example HTTP scripts that call completion endpoints expect a reachable provider and return non-zero on HTTP errors.
