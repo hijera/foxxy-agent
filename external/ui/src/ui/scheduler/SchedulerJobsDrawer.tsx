@@ -1,12 +1,13 @@
 import type { SchedulerInfo, SchedulerJob } from "./types";
 import { SchedulerIconPlus } from "./schedulerToolbarIcons";
 
-function formatUtcHint(iso: string | undefined): string {
+/** Renders next fire as YYYY-MM-DD HH:MM (UTC) for list rows (scheduler uses UTC five-field cron). */
+function formatNextRunUtc(iso: string | undefined): string {
   if (!iso || !iso.trim()) {
     return "—";
   }
   try {
-    const d = new Date(iso);
+    const d = new Date(iso.trim());
     if (Number.isNaN(d.getTime())) {
       return iso;
     }
@@ -14,7 +15,12 @@ function formatUtcHint(iso: string | undefined): string {
     if (d.getUTCFullYear() < 1980) {
       return "—";
     }
-    return `${iso} (UTC)`;
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const h = String(d.getUTCHours()).padStart(2, "0");
+    const min = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${y}-${mo}-${day} ${h}:${min} (UTC)`;
   } catch {
     return iso;
   }
@@ -136,11 +142,11 @@ export function SchedulerJobsDrawer(props: {
                       className="scheduler-job-row-next"
                       title={
                         j.next_run_utc && j.next_run_utc.trim()
-                          ? `${j.next_run_utc.trim()} (UTC)`
+                          ? j.next_run_utc.trim()
                           : undefined
                       }
                     >
-                      Next {formatUtcHint(j.next_run_utc)}
+                      {formatNextRunUtc(j.next_run_utc)}
                     </span>
                   )}
                 </div>

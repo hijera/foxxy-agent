@@ -53,3 +53,29 @@ test("drawer footer has Add job control without Refresh", () => {
   ).toBeInTheDocument();
   expect(screen.queryByTestId("scheduler-refresh")).toBeNull();
 });
+
+test("job row shows formatted next run without Next prefix", () => {
+  renderDrawer(null, [
+    {
+      ...baseJob("demo"),
+      next_run_utc: "2026-05-11T22:37:00Z",
+    },
+  ]);
+  const row = screen.getByTestId("scheduler-job-row-demo");
+  expect(row.textContent).toContain("2026-05-11 22:37 (UTC)");
+  expect(row.textContent).not.toContain("Next ");
+});
+
+test("paused row shows only badge, no next run time", () => {
+  renderDrawer(null, [
+    {
+      ...baseJob("demo"),
+      paused: true,
+      next_run_utc: "2026-05-11T22:37:00Z",
+    },
+  ]);
+  const row = screen.getByTestId("scheduler-job-row-demo");
+  expect(row.querySelector(".scheduler-job-paused")).toBeTruthy();
+  expect(row.textContent).not.toContain("2026-05-11");
+  expect(row.textContent).not.toContain("(UTC)");
+});
