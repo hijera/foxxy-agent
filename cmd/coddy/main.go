@@ -161,7 +161,9 @@ func runACP(args []string) error {
 
 	log.Info("starting ACP server", "version", version.Get())
 
-	scheduler.Start(context.Background(), cfg, log, paths.CWD)
+	if cfg.SchedulerEffectiveEnabled() {
+		scheduler.Start(context.Background(), cfg, log, paths.CWD)
+	}
 
 	store, err := openSessionStore(*sessionsRoot, cfg)
 	if err != nil {

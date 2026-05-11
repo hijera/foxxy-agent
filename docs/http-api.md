@@ -53,7 +53,7 @@ No authentication is enforced. Run behind appropriate network controls.
 
 ### Scheduler REST (**`-tags=http,scheduler`**)
 
-Paths are **missing** from a plain **`http`** build and from OpenAPI when **scheduler** is not linked (client **404**). When linked, responses use the same **`ErrorEnvelope`** JSON as other **`/coddy`** routes. **`503`** when **`scheduler.enabled`** is false for that process.
+Paths are **missing** from a plain **`http`** build and from OpenAPI when **scheduler** is not linked (client **404**). When linked, responses use the same **`ErrorEnvelope`** JSON as other **`/coddy`** routes. **`503`** when **`scheduler.enabled`** is false for that process. Handlers plus merged scheduler OpenAPI fragments live in **`external/httpserver/scheduler_http.go`** (**`http`**,**`scheduler`**); **`scheduler_http_stub.go`** registers nothing when **scheduler** is omitted.
 
 | Method | Path | Notes |
 |--------|------|-------|
