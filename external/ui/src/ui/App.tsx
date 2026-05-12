@@ -8,6 +8,10 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import {
+  HERO_ACCENT_VERBS,
+  pickHeroAccentVerb,
+} from "./chat/heroTitleWords";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
@@ -448,6 +452,10 @@ function reasoningDurationCacheKey(text: string): string {
 
 export function App() {
   const [sessionId, setSessionId] = useState("");
+  /** Increments on each explicit "new chat" home transition so the hero verb rotates. */
+  const [heroHomeGeneration, setHeroHomeGeneration] = useState(() =>
+    Math.floor(Math.random() * HERO_ACCENT_VERBS.length),
+  );
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
   const sessionsCursorRef = useRef<string | null>(null);
@@ -505,6 +513,11 @@ export function App() {
     sessionId: string;
     title: string;
   } | null>(null);
+  const heroAccentVerb = useMemo(
+    () => pickHeroAccentVerb(sessionId, heroHomeGeneration),
+    [sessionId, heroHomeGeneration],
+  );
+
   const currentTitle = useMemo(() => {
     if (!sessionId) {
       return "New chat";
@@ -705,6 +718,16 @@ export function App() {
       );
     }
   }, [sessionId]);
+
+  const prevSessionsOpenRef = useRef(false);
+  useEffect(() => {
+    if (prevSessionsOpenRef.current && !sessionsOpen) {
+      requestAnimationFrame(() => {
+        document.getElementById("composer")?.focus();
+      });
+    }
+    prevSessionsOpenRef.current = sessionsOpen;
+  }, [sessionsOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1207,6 +1230,7 @@ export function App() {
 
   function goHome() {
     clearSessionRoute();
+    setHeroHomeGeneration((g) => g + 1);
     setItems([]);
     setDraft("");
     setTokenUsage(null);
@@ -1228,6 +1252,7 @@ export function App() {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setSessionId("");
+      setHeroHomeGeneration((g) => g + 1);
       setItems([]);
       setDraft("");
       setTokenUsage(null);
@@ -2472,6 +2497,8 @@ export function App() {
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          heroAccentVerb={heroAccentVerb}
+          heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
           items={items}
           draft={draft}

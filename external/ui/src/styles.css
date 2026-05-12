@@ -175,7 +175,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
   min-height: 0;
   flex: 1;
   /* Visible so .rail-tip (positioned right of icons) is not clipped. */
@@ -902,7 +901,67 @@ body {
   font-size: clamp(26px, 5vw, 44px);
   font-weight: 700;
   letter-spacing: -0.02em;
-  opacity: 0.92;
+  line-height: 1.18;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* One gradient across "What … ?" so the question mark continues the phrase tone. */
+.hero-title-muted {
+  background: linear-gradient(
+    118deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(226, 232, 240, 0.82) 42%,
+    rgba(148, 163, 184, 0.62) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero-title-muted .hero-title-accent {
+  background: none !important;
+  background-image: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  -webkit-text-fill-color: currentColor;
+}
+
+.hero-title-accent {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #a585c9;
+  text-shadow: 0 0 22px rgba(130, 105, 165, 0.22);
+  animation: hero-accent-cycle 44s ease-in-out infinite;
+}
+
+@keyframes hero-accent-cycle {
+  0%,
+  100% {
+    color: #a585c9;
+    text-shadow: 0 0 22px rgba(130, 105, 165, 0.22);
+  }
+  20% {
+    color: #6d94a3;
+    text-shadow: 0 0 20px rgba(85, 115, 128, 0.2);
+  }
+  45% {
+    color: #b0809c;
+    text-shadow: 0 0 20px rgba(145, 105, 125, 0.2);
+  }
+  70% {
+    color: #9389b8;
+    text-shadow: 0 0 22px rgba(115, 105, 155, 0.21);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-title-accent {
+    animation: none;
+    color: var(--accent);
+    text-shadow: none;
+  }
 }
 
 .chat-stack {

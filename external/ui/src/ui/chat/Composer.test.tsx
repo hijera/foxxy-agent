@@ -61,6 +61,37 @@ test("mode menu opens up in active chat composer", () => {
   expect(menu).toHaveClass("opens-up");
 });
 
+test("switching session refocuses textarea in active chat", () => {
+  const { rerender } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      sessionId="sess-a"
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  expect(ta).toHaveFocus();
+  ta.blur();
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      sessionId="sess-b"
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(ta).toHaveFocus();
+});
+
 test("yaml model menu opens down on start screen when backends exist", () => {
   renderComposerWithLlm({ isEmpty: true });
 

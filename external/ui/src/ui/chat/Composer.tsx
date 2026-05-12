@@ -63,6 +63,8 @@ type PickerFloatRect = {
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
+  /** Empty-state composer refocuses when this increments (e.g. each New Chat). */
+  focusEpoch?: number;
   /** When set, slash command requests send X-Coddy-Session-ID for cwd-scoped skills. */
   sessionId?: string;
   mode: string;
@@ -141,6 +143,42 @@ export function Composer(props: {
     }
     return window.matchMedia(shellStackMaxWidthMediaQuery).matches;
   });
+
+  const focusEpoch = props.focusEpoch ?? 0;
+  /** Tracks session id for docked composer so switching chats in History refocuses input. */
+  const sessionFocusRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    if (!props.isEmpty) {
+      return;
+    }
+    const el = taRef.current;
+    if (!el) {
+      return;
+    }
+    el.focus();
+  }, [props.isEmpty, focusEpoch, props.sessionId]);
+
+  useLayoutEffect(() => {
+    if (props.isEmpty) {
+      sessionFocusRef.current = null;
+      return;
+    }
+    const sid = (props.sessionId || "").trim();
+    if (!sid) {
+      return;
+    }
+    const prev = sessionFocusRef.current;
+    if (prev === sid) {
+      return;
+    }
+    sessionFocusRef.current = sid;
+    const el = taRef.current;
+    if (!el) {
+      return;
+    }
+    el.focus();
+  }, [props.isEmpty, props.sessionId]);
 
   const pickerOpen = slashOpen || atOpen;
   const measurePickerFloat = useCallback(() => {
@@ -915,7 +953,7 @@ export function Composer(props: {
                 className={maskComposerText ? "composer-ta-masked" : undefined}
                 rows={props.isEmpty ? 5 : 2}
                 placeholder={
-                  props.isEmpty ? "Ask anything..." : "Message Coddy"
+                  props.isEmpty ? "Plan, Build, / for skills, @ for files" : "Add a follow-up"
                 }
                 autoComplete="off"
                 value={props.value}

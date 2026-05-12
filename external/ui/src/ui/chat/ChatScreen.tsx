@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { HeroAccentVerb } from "./heroTitleWords";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
@@ -35,6 +36,10 @@ function serverSnapshotMobileDocScroll() {
 export function ChatScreen(props: {
   title: string;
   sessionId: string;
+  /** Accent verb for "What do you want to …?" on the empty hero (session-stable or home rotation). */
+  heroAccentVerb: HeroAccentVerb;
+  /** Bumps when the user starts a fresh home chat so the composer can refocus. */
+  heroComposerFocusEpoch: number;
   onTitleSave: (title: string) => void;
   items: TranscriptItem[];
   draft: string;
@@ -126,11 +131,23 @@ export function ChatScreen(props: {
     <main className={`main ${isEmpty ? "is-empty" : ""}`}>
       {isEmpty ? (
         <div className="hero" id="hero">
-          <h1 className="hero-title">What do you want to know?</h1>
+          <h1 className="hero-title">
+            <span className="hero-title-muted">
+              What do you want to{" "}
+              <span
+                className="hero-title-accent"
+                data-testid="hero-title-accent"
+              >
+                {props.heroAccentVerb}
+              </span>
+              ?
+            </span>
+          </h1>
           <div className="hero-composer">
             <Composer
               value={props.draft}
               isEmpty={true}
+              focusEpoch={props.heroComposerFocusEpoch}
               sessionId={props.sessionId}
               contextIdle={!props.sessionId}
               mode={props.mode}
