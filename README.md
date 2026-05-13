@@ -8,6 +8,26 @@ and MCP tools, **which makes Coddy behave as a coding agent** inside Cursor, Zed
 The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or
 drive it from automation instead of an IDE.
 
+## Contents
+
+- [Features](#features)
+- [Quick start](#quick-start)
+  - [Installation](#installation)
+  - [Build tags](#build-tags)
+  - [Docker](#docker)
+  - [Paths (`CODDY_HOME`, `CODDY_CWD`)](#paths-coddy_home-coddy_cwd)
+  - [Configuration](#configuration)
+- [Operating modes](#operating-modes)
+- [Cursor rules and skills](#cursor-rules-and-skills)
+- [MCP server integration](#mcp-server-integration)
+- [Configuration (reference)](#configuration-1)
+- [Architecture](#architecture)
+- [Documentation](#documentation)
+- [Examples (ACP over stdio)](#examples-acp-over-stdio)
+- [Persistent sessions](#persistent-sessions)
+- [Development](#development)
+- [License](#license)
+
 ## Features
 
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
@@ -22,39 +42,88 @@ drive it from automation instead of an IDE.
 
 ### Installation
 
+**Prerequisites**
+
+- **Go** - same minor version as [`go.mod`](go.mod) (currently **1.25**).
+- **Git** - used by the Makefile for the embedded version string.
+- **Node.js / npm** - only if you build with **`http`** and **`ui`** (the Makefile runs **`ui-build`** for embedded assets).
+
+**Install with Go (quick, default upstream tags)**
+
 ```bash
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-Or build and install manually from source:
+That builds whatever the module ships **without** custom `-tags`. For **`coddy http`**, the bundled SPA, and scheduler tools together, **build from source** with the tags below (same defaults as [`Dockerfile`](Dockerfile) / [`docker-compose.yml`](docker-compose.yml)).
+
+**Recommended full binary from source (HTTP + UI + scheduler + memory)**
+
+Long-term memory is **always linked**; optional HTTP, SPA, and scheduler use build tags (see [Build tags](#build-tags)).
 
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
-make install
+make build TAGS="http ui scheduler"
 ```
 
-`make install` builds the binary and copies it to the appropriate location:
-- root - `/usr/local/bin/coddy`
-- regular user - `~/.local/bin/coddy`
+The CLI is written to **`build/coddy`** (not the repo root).
 
-To only build without installing:
+**Install `build/coddy` onto your PATH**
+
+```bash
+make install TAGS="http ui scheduler"
+```
+
+- **root** - **`/usr/local/bin/coddy`**
+- **regular user** - **`~/.local/bin/coddy`** (put that directory on **`PATH`** if needed)
+
+**Build without installing**
+
+```bash
+make build TAGS="http ui scheduler"
+```
+
+**Manual `go build` (same as Makefile)**
+
+When **`TAGS`** includes **`http`** and **`ui`**, run **`make ui-build`** first (or rely on **`make build`**, which triggers it).
+
+```bash
+make ui-build   # required before go build when using -tags=...,ui,... with http
+VERSION="$(make -s print-version)"
+go build -tags=http,ui,scheduler \
+  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
+  -o build/coddy \
+  ./cmd/coddy/
+```
+
+Lean **ACP-only** binary (no **`coddy http`**, no embedded UI, no scheduler packages):
 
 ```bash
 make build
-# or manually:
-go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" -o coddy ./cmd/coddy/
 ```
 
-**Long-term memory** copilot lives in `external/memory/` and is always linked into `build/coddy`. Turn it on or off at runtime with `memory.enabled` in `config.yaml` (see `external/memory/README.md`).
+After any local build, prefer **`./build/coddy`** or **`make install`** so you do not accidentally run another **`coddy`** already on **`PATH`**. Check with **`which coddy`** and **`coddy -v`**.
 
-**Optional OpenAI HTTP API** lives in `external/httpserver/` and is linked only when you build with **`-tags http`** (for example `make build TAGS=http`). It adds the `coddy http` subcommand (`-H` / `--host`, `-P` / `--port`, same session and log flags as `coddy acp`). **`GET /v1/models`** exposes session modes **agent** and **plan**; OpenAPI lives at **`/openapi.yaml`** and Swagger UI at **`/docs`**. Add **`-tags ui`** together with **http** (for example `make build TAGS="http ui"`) when you want the embedded SPA served from **`/`** (**`/`** responds with **404** without **`ui`**). See **`docs/http-api.md`**.
+Full detail, **`LDFLAGS`**, and **`make print-version`** - **[docs/build.md](docs/build.md)**.
 
-**Optional cron scheduler** lives under **`external/scheduler/`** (see **`external/scheduler/README.md`** and **`docs/scheduler.md`**). **`external/scheduler`** exposes **`Start`** (delegates to **`daemon/`**); job execution and the manual-launch hook live in **`daemon/`**; flat job files and cron helpers live in **`storage/`**; shared CRUD and run tracking live in **`service/`** (**`schedservice`**); **`coddy_scheduler_*`** tools are registered from **`tools/`** (**`schedtools`**, one `*.go` file per tool). Linked only with **`-tags scheduler`** (combine with **`http`** for **`/coddy/scheduler`** REST). Enable **`scheduler.enabled`** or **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`**. Jobs are flat **`*.md`** files under **`~/.coddy/scheduler`** (default) with YAML frontmatter (**`paused`** optional) and UTC five-field **`schedule`**.
+The agent speaks ACP over stdio. Editors launch **`coddy`** once it is configured. **`coddy -v`** or **`coddy --version`** prints the embedded build version (**`dev`** if not set at link time). Flags for ACP live on the subcommand, for example **`coddy acp --help`** (**`--log-level`**, **`--home`**, **`--cwd`**, **`--config`**, etc.).
 
-After `make build` the binary is `build/coddy`. If another `coddy` is already on your `PATH`, a plain `coddy acp` runs that older install. Use `./build/coddy acp`, run `make install`, or compare with `which coddy` and `coddy -v`.
+### Build tags
 
-The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--log-output`, `--log-file`, `--log-format`, `--home`, `--cwd`, and `--config`.
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler`**).
+
+| Tag | Enables | Docs |
+|-----|---------|------|
+| *(always linked)* | Memory copilot (**`memory.enabled`** in YAML) | [`external/memory/README.md`](external/memory/README.md) |
+| **`http`** | **`coddy http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
+| **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui/README.md`](docs/ui/README.md), [`DESIGN.md`](DESIGN.md) |
+| **`scheduler`** | Scheduler daemon and **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
+
+Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
+
+### Docker
+
+**[docs/docker.md](docs/docker.md)** describes **`docker compose`** (image build args, volumes, smoke script **`examples/httpserver/docker.sh`**). Default image tags match the recommended full binary (**`http`**, **`scheduler`**, **`ui`**).
 
 ### Paths (`CODDY_HOME`, `CODDY_CWD`)
 
@@ -63,14 +132,15 @@ The agent speaks ACP over stdio. Editors launch `coddy` for you once it is confi
 
 ### Configuration
 
-Copy the example config and edit it (either layout works):
+**`CODDY_HOME`** defaults to **`~/.coddy`**. Unless you set **`CODDY_CONFIG`** or pass **`--config`**, the primary config file is **`config.yaml`** at **`$CODDY_HOME/config.yaml`**.
+
+Copy the example and edit it:
 
 ```bash
 mkdir -p ~/.coddy && cp config.example.yaml ~/.coddy/config.yaml
-# legacy location still searched if ~/.coddy/config.yaml is missing
-mkdir -p ~/.config/coddy-agent
-cp config.example.yaml ~/.config/coddy-agent/config.yaml
 ```
+
+If **`$CODDY_HOME/config.yaml`** is absent, the loader may use **`config.yaml`** in the process working directory (useful when running from a repository clone). See **`docs/config.md`**.
 
 Set your API keys:
 
@@ -110,9 +180,6 @@ Use your editor session mode selector (or **`session/set_config_option`**).
 By default the agent reads skill files and rules from (see **`skills`** in **`docs/config.md`**):
 
 1. **`$CODDY_HOME/skills/`** (installed skills)
-2. **`${CWD}/.skills/`** (session working directory)
-3. **`~/.cursor/skills/`**
-4. **`~/.claude/skills/`**
 
 Rules support the standard Cursor frontmatter format:
 
@@ -194,12 +261,14 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Documentation
 
+- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**
+- [Docker](docs/docker.md) - **`Dockerfile`** and **`docker compose`**
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
 - [Configuration](docs/config.md) - full config file reference
-- [HTTP API](docs/http-api.md) - REST gateway (`TAGS=http`) and optional embedded UI (`TAGS="http ui"`)
-- [Embedded UI](docs/ui/README.md) - Vite SPA, dev workflow, build tags (**`TAGS=http`** vs **`TAGS="http ui"`**, same as **`-tags=http,ui`** for embed)
+- [HTTP API](docs/http-api.md) - REST gateway (**`-tags=http`**) and embedded UI (**`-tags=http,ui`**)
+- [Embedded UI](docs/ui/README.md) - Vite SPA, dev workflow, build tags
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Skills & Rules](docs/skills.md) - cursor rules and skills guide
@@ -232,10 +301,10 @@ make test
 
 # Example harnesses (see examples/README.md): ./examples/build_coddy.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
-# Build binary (with git version embedded)
-make build
+# Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
+make build TAGS="http ui scheduler"
 
-coddy -v    # same as --version
+./build/coddy -v    # same as --version
 
 # Run with debug logging (ACP mode); optional --log-output, --log-file, --log-format
 coddy acp --log-level debug

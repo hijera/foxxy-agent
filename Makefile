@@ -2,12 +2,14 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
+#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler"
 #     http     OpenAI-compatible gateway (coddy http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler   cron scheduler daemon and tools (see external/scheduler/)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
+#             make build TAGS="http ui scheduler"
 #   Long-term memory lives in external/memory and is always linked into coddy. Turn it on or off at
 #   runtime with memory.enabled in config.yaml (no separate memory binary).
 #   VERSION / LDFLAGS   embedded version string (see print-version).

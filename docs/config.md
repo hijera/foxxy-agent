@@ -8,7 +8,7 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 
-If no **`--config`** is given, the loader reads **`$CODDY_HOME/config.yaml`** when that file exists. Otherwise it falls back in order to **`~/.coddy/config.yaml`**, **`~/.config/coddy-agent/config.yaml`**, then **`./config.yaml`**. If none exist, built-in defaults apply (no error).
+If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
 The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
 

@@ -147,6 +147,43 @@ logger:
 	}
 }
 
+func TestLoadFromCLIUsesCwdConfigWhenHomeConfigMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+	cwdDir := t.TempDir()
+	t.Chdir(cwdDir)
+
+	content := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "openai/gpt-4o"
+`
+	path := filepath.Join(cwdDir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		t.Fatalf("LoadFromCLI: %v", err)
+	}
+	if got := filepath.Clean(cfg.Paths.ConfigPath); got != filepath.Clean(path) {
+		t.Fatalf("ConfigPath %q want %q", got, path)
+	}
+	if cfg.Agent.Model != "openai/gpt-4o" {
+		t.Fatalf("model %q", cfg.Agent.Model)
+	}
+}
+
 func TestLoadFromCLIWhenConfigMissing_AppliesDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvCODDYHome, home)

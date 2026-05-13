@@ -10,14 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultSearchPaths are legacy fallbacks when <Home>/config.yaml is missing.
-var DefaultSearchPaths = []string{
-	"~/.coddy/config.yaml",
-	"~/.config/coddy-agent/config.yaml",
-	"./config.yaml",
-}
-
-// LoadFromCLI resolves paths, searches legacy config locations when needed, and loads YAML.
+// LoadFromCLI resolves paths, optionally falls back to $CWD/config.yaml when $CODDY_HOME/config.yaml is missing, and loads YAML.
 func LoadFromCLI(cli CLIPaths) (*Config, error) {
 	paths, err := Resolve(cli)
 	if err != nil {
@@ -26,20 +19,17 @@ func LoadFromCLI(cli CLIPaths) (*Config, error) {
 	explicitConfig := strings.TrimSpace(cli.Config) != ""
 	if !explicitConfig {
 		if _, err := os.Stat(paths.ConfigPath); errors.Is(err, os.ErrNotExist) {
-			for _, try := range DefaultSearchPaths {
-				candidate := filepath.Clean(ExpandPathVars(strings.TrimSpace(try), paths))
-				if _, err := os.Stat(candidate); err == nil {
-					paths.ConfigPath = candidate
-					break
-				}
+			cwdCfg := filepath.Join(paths.CWD, defaultConfigName)
+			if _, err := os.Stat(cwdCfg); err == nil {
+				paths.ConfigPath = cwdCfg
 			}
 		}
 	}
 	return readConfigFile(paths, explicitConfig)
 }
 
-// Load reads config from the given path, or searches default locations.
-// If path is non-empty, that file must exist. If path is empty, resolution uses env and ~/.coddy/config.yaml.
+// Load reads config from the given path, or resolves $CODDY_HOME/config.yaml (and optional $CWD/config.yaml).
+// If path is non-empty, that file must exist. If path is empty, resolution uses env and $CODDY_HOME/config.yaml.
 func Load(path string) (*Config, error) {
 	return LoadFromCLI(CLIPaths{Config: strings.TrimSpace(path)})
 }
