@@ -1,10 +1,13 @@
 # Coddy Agent
 
-**Coddy is a distroless-friendly harness** for running an [Agent Client Protocol (ACP)](https://agentclientprotocol.com/)
+Is a distroless-friendly **harness** for running an [Agent Client Protocol (ACP)](https://agentclientprotocol.com/)
 agent over stdio. It ships as a single static-friendly Go binary, so you can drop it into
 minimal container images (`scratch`, `distroless`, read-only workspaces) without a full OS shell
-inside the image. The bundled default is a **ReAct** loop with filesystem, shell (when exposed), todo,
+inside the image.
+
+The bundled default is a **ReAct** loop with filesystem, shell (when exposed), todo,
 and MCP tools, **which makes Coddy behave as a coding agent** inside Cursor, Zed, or any other ACP client.
+
 The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or
 drive it from automation instead of an IDE.
 
