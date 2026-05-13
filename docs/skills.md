@@ -2,7 +2,7 @@
 
 ## Overview
 
-The agent can read skills and cursor rules from the filesystem, exactly like Cursor IDE does.
+The agent can read skills and Cursor rules from the filesystem using the same on-disk conventions as Cursor (for example `~/.cursor/skills` when those paths are listed in `skills.dirs`).
 These files provide context, instructions, and domain knowledge that are injected into the
 system prompt when relevant.
 

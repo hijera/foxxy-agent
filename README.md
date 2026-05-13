@@ -7,7 +7,7 @@ inside the image.
 
 The bundled default is a **ReAct** loop with filesystem, shell (when exposed), todo,
 web search and page extraction (**`search_web`**, **`extract_page_content`**), and MCP tools,
-**which makes Coddy behave as a coding agent** inside Cursor, Zed, or any other ACP client.
+**which makes Coddy a coding agent over ACP stdio** for any compatible ACP client or harness script.
 
 The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or
 drive it from automation instead of an IDE.
@@ -22,6 +22,7 @@ drive it from automation instead of an IDE.
   - [Paths (`CODDY_HOME`, `CODDY_CWD`)](#paths-coddy_home-coddy_cwd)
   - [Configuration](#configuration)
 - [Operating modes](#operating-modes)
+- [Editor and IDE integration](#editor-and-ide-integration)
 - [Cursor rules and skills](#cursor-rules-and-skills)
 - [MCP server integration](#mcp-server-integration)
 - [Configuration (reference)](#configuration-1)
@@ -37,10 +38,18 @@ drive it from automation instead of an IDE.
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
 - **Two operating modes** - `agent` (full tool access) and `plan` (planning + text files only)
-- **Cursor rules support** - reads `.cursor/rules/` and skills just like Cursor IDE
+- **Cursor rules support** - reads `.cursor/rules/` and skills from the same on-disk layout Cursor uses when those paths appear in **`skills.dirs`**
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
-- **ACP protocol** - works with Cursor, Zed, and other ACP-compatible editors
+- **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
+
+## Editor and IDE integration
+
+Coddy speaks **ACP as the server** over stdin/stdout. A compatible **client** must spawn `coddy acp` and exchange JSON-RPC messages (see **`docs/acp-protocol.md`** and **`examples/acp/`**).
+
+- **Zed** and other products that support **external ACP agents** can point their agent command at **`coddy acp`** (exact settings depend on that product; see its ACP or external-agent docs).
+- **Cursor Desktop** (in-app Agent or Composer) does **not** document a supported way to replace the built-in agent with a custom **`coddy acp`** binary. Cursor's published ACP guide describes **`agent acp`**, where **Cursor's own agent** runs as the ACP **server** for third-party **clients** (for example Neovim or JetBrains integrations that connect **to** Cursor). That is the opposite wiring from running Coddy as your local agent process.
+- **Cursor-style paths on disk** - Coddy can still load rules and skills from **`.cursor/rules/`**, **`~/.cursor/skills`**, and other **`skills.dirs`** entries in **`config.yaml`**. That is file-layout compatibility with Cursor, not Cursor acting as the Coddy runtime host.
 
 ## Quick Start
 
@@ -110,7 +119,7 @@ After any local build, prefer **`./build/coddy`** or **`make install`** so you d
 
 Full detail, **`LDFLAGS`**, and **`make print-version`** - **[docs/build.md](docs/build.md)**.
 
-The agent speaks ACP over stdio. Editors launch **`coddy`** once it is configured. **`coddy -v`** or **`coddy --version`** prints the embedded build version (**`dev`** if not set at link time). Flags for ACP live on the subcommand, for example **`coddy acp --help`** (**`--log-level`**, **`--home`**, **`--cwd`**, **`--config`**, etc.).
+The agent speaks ACP over stdio. An **ACP client** (your editor integration or harness) launches **`coddy`** once it is configured to spawn **`coddy acp`**. **`coddy -v`** or **`coddy --version`** prints the embedded build version (**`dev`** if not set at link time). Flags for ACP live on the subcommand, for example **`coddy acp --help`** (**`--log-level`**, **`--home`**, **`--cwd`**, **`--config`**, etc.).
 
 ### Build tags
 
@@ -273,7 +282,7 @@ tools:
 ## Architecture
 
 ```
-ACP Client (Cursor/Zed)
+ACP client (editor / script / CI)
         |
     JSON-RPC 2.0 over stdio
         |

@@ -8,47 +8,47 @@ by pluggable LLM providers. Ship it as one binary suitable for scratch or distro
 sidecars, CI sandboxes, or local installs.
 
 The default toolset and prompts are tuned so the harness presents as an **interactive coding agent**
-(editors spawn `coddy acp`; users get filesystem, commands, MCP, Cursor rules/skills).
+(ACP clients spawn `coddy acp`; users get filesystem, commands, MCP, and optional Cursor-style rules/skills from configured paths).
 That coding-agent surface is **a productized profile on top of the harness**, not the only way to run Coddy.
 
 ## High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ACP Client (editor)                       │
-│                 (Cursor / Zed / CLI / other)                     │
+│                        ACP client (editor)                      │
+│              (Zed external agent / scripts / CI / other)        │
 └──────────────────────────┬──────────────────────────────────────┘
                            │  JSON-RPC 2.0 over stdio
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ACP Server Layer                          │
+│                        ACP Server Layer                         │
 │  - initialize / session/new / session/prompt / session/cancel   │
-│  - session/update notifications                                  │
-│  - session/request_permission                                    │
+│  - session/update notifications                                 │
+│  - session/request_permission                                   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Session Manager                             │
+│                      Session Manager                            │
 │  - maintains per-session state (history, mode, context)         │
 │  - routes messages to the right ReAct loop                      │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      ReAct Agent Loop                            │
-│                                                                  │
-│   User Prompt                                                    │
-│       │                                                          │
-│       ▼                                                          │
+│                      ReAct Agent Loop                           │
+│                                                                 │
+│   User Prompt                                                   │
+│       │                                                         │
+│       ▼                                                         │
 │   [THINK] LLM generates Thought + Action                        │
-│       │                                                          │
-│       ▼                                                          │
+│       │                                                         │
+│       ▼                                                         │
 │   [ACT]  Execute tool / write file / call MCP                   │
-│       │                                                          │
-│       ▼                                                          │
+│       │                                                         │
+│       ▼                                                         │
 │   [OBSERVE] Collect result, send session/update                 │
-│       │                                                          │
+│       │                                                         │
 │       └── loop back or [ANSWER] final response                  │
 └──────────────────────────┬──────────────────────────────────────┘
                            │

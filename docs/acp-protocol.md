@@ -108,8 +108,8 @@ Negotiate protocol version and exchange capabilities.
     "terminal": true
   },
   "clientInfo": {
-    "name": "cursor",
-    "title": "Cursor",
+    "name": "example-acp-client",
+    "title": "Example ACP Client",
     "version": "1.0.0"
   }
 }
