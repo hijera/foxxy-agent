@@ -85,7 +85,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 	toolSet := ToolSetForMode(mode)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if toolSet.Unrestricted() {
+	if toolSet.Unrestricted() || mode == "plan" {
 		for _, mcpClient := range a.state.GetMCPClients() {
 			for _, t := range mcpClient.Tools() {
 				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))

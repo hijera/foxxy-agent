@@ -8,8 +8,7 @@ additional tools and resources. MCP servers can be configured at two levels:
 1. **Global** - defined in `config.yaml`, always connected for every session
 2. **Per-session** - provided by the ACP client in `session/new` parameters
 
-Tools from all connected MCP servers are merged into the agent's tool registry and made
-available to the LLM during the ReAct loop.
+Tools from all connected MCP servers are merged into the tool list passed to the LLM during the ReAct loop (in **`agent`** and **`plan`** modes).
 
 ## Supported Transports
 

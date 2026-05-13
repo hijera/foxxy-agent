@@ -8,6 +8,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 |------|------|-----|
 | **`smoke_gateway`** | **`httpserver/http_smoke_gateway.py`** | **`acp/acp_smoke_gateway.py`** |
 | **`e2e_models`** | **`httpserver/http_e2e_models.py`** | **`acp/acp_e2e_models.py`** |
+| **`e2e_web`** | **`httpserver/http_e2e_web.py`** | **`acp/acp_e2e_web.py`** |
 | **`e2e_todo`** | **`httpserver/http_e2e_todo.py`** | **`acp/acp_e2e_todo.py`** |
 | **`e2e_memory`** | **`httpserver/http_e2e_memory.py`** | **`acp/acp_e2e_memory.py`** |
 | **`e2e_toolcalls_persist`** | **`httpserver/http_e2e_toolcalls_persist.py`** | **`acp/acp_e2e_toolcalls_persist.py`** |
@@ -37,7 +38,7 @@ From the repository root:
 
 Optional port: **`./examples/test_httpserver.sh 19900`**.
 
-**`test_httpserver.sh`** order: **`http_smoke_gateway`**, **`http_e2e_scheduler_api`** (REST CRUD plus on-disk **`$CODDY_HOME/scheduler/*.md`**), **`http_e2e_models`**, **`http_e2e_todo`**, **`http_e2e_memory`**, **`http_e2e_skills_slash`**, **`http_e2e_toolcalls_persist`**, **`http_e2e_scheduler_agent`** (model uses scheduler tools, waits for daemon tick and session side effects). All steps run every time and need a working models backend where the LLM is called.
+**`test_httpserver.sh`** order: **`http_smoke_gateway`**, **`http_e2e_scheduler_api`** (REST CRUD plus on-disk **`$CODDY_HOME/scheduler/*.md`**), **`http_e2e_models`**, **`http_e2e_web`**, **`http_e2e_todo`**, **`http_e2e_memory`**, **`http_e2e_skills_slash`**, **`http_e2e_toolcalls_persist`**, **`http_e2e_scheduler_agent`** (model uses scheduler tools, waits for daemon tick and session side effects). All steps run every time and need a working models backend where the LLM is called.
 
 Docker-only smoke:
 
@@ -52,7 +53,7 @@ Docker-only smoke:
 ./examples/test_acp.sh
 ```
 
-Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_memory`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_scheduler_agent`** (model plus scheduler daemon tick).
+Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_memory`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_scheduler_agent`** (model plus scheduler daemon tick).
 
 Environment overrides: **`CODDY_BIN`**, **`CODDY_CONFIG`**, **`SESSION_ROOT`**, **`SESSION_ID`**, **`BASE_URL`**, **`MODEL`**, etc. (see each script docstring).
 

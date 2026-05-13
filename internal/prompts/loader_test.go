@@ -62,6 +62,12 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "search_web") {
 		t.Error("plan prompt should mention search_web for external research")
 	}
+	if !strings.Contains(result, "run_command") {
+		t.Error("plan prompt should mention run_command for shell inspection")
+	}
+	if !strings.Contains(result, "MCP") {
+		t.Error("plan prompt should mention MCP servers")
+	}
 	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
 		t.Error("plan prompt should end with Current UTC time section")
 	}

@@ -138,14 +138,15 @@ Representative builtins (excluding MCP-namespaced tools):
 
 ### Plan Mode
 
-Embedded **`plan.md`** restricts execution (no shell, no workspace writes, no todo tools, no MCP tools).
+Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no built-in writes or **coddy** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
 
-Representative builtins exposed to the LLM:
+Representative builtins exposed to the LLM (registry allowlist):
 
 - `read_file`, `list_dir`, `search_files`
 - `search_web`, `extract_page_content`
+- `run_command`
 
-When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
+Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
 
 ## Built-in Tools Specification
 

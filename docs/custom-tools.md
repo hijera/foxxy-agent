@@ -25,7 +25,7 @@ ReAct loop (internal/agent/react.go)
     │
     ├── FilterToolDefinitions(..., ToolSetForMode(mode))  ← internal/agent/toolsets.go
     │
-    ├── (agent mode only) append MCP tool definitions
+    ├── (agent or plan mode) append MCP tool definitions
     │
     ├── passes tool definitions to LLM via provider.Stream()
     │
@@ -216,7 +216,7 @@ Mode-specific visibility is **not** configured on the `Tool` struct. Instead, `i
 defines a `ToolSet` allowlist:
 
 - **`agent`** mode uses an **empty** `ToolSet`, which means **no filtering** - every tool in the registry is advertised, and MCP tools are appended.
-- **`plan`** mode uses a **fixed allowlist** (`read_file`, `list_dir`, `search_files`, `search_web`, `extract_page_content`). Everything else (writes, shell, todo tools, scheduler, memory, MCP) stays registered for execution consistency but is **hidden** from the LLM.
+- **`plan`** mode filters **registry** builtins to a **fixed allowlist** (`read_file`, `list_dir`, `search_files`, `search_web`, `extract_page_content`, `run_command`). Other builtins (writes, todo tools, scheduler, memory, etc.) stay registered for execution consistency but are **hidden** from the LLM. **MCP** tool definitions from connected servers are **still appended** after that filter, same wiring as agent mode.
 
 When you add a new built-in that should be plan-safe, append its name to `planToolNames` in `internal/agent/toolsets.go` and extend tests in `internal/agent/toolsets_test.go`.
 
