@@ -30,11 +30,11 @@ func (s *Server) registerMemoryRoutes() {
 }
 
 func (s *Server) coddyPaths() pathsForMemoryAPI {
-	dir := strings.TrimSpace(s.cfg.Memory.Dir)
+	dir := strings.TrimSpace(s.activeCfg().Memory.Dir)
 	var globalRoot string
 	if dir != "" {
 		globalRoot = filepath.Clean(dir)
-	} else if h := strings.TrimSpace(s.cfg.Paths.Home); h != "" {
+	} else if h := strings.TrimSpace(s.activeCfg().Paths.Home); h != "" {
 		globalRoot = filepath.Join(h, "memory")
 	}
 	return pathsForMemoryAPI{globalMemoryRoot: globalRoot}

@@ -23,8 +23,18 @@ import (
 
 // serverRef breaks the cyclic dependency between acp.Server and session.Manager.
 type serverRef struct {
-	p   **acp.Server
-	cfg *config.Config
+	p    **acp.Server
+	cfg  *config.Config
+	live func() *config.Config // optional; when set, overrides cfg for permission checks (HTTP hot reload)
+}
+
+func (r *serverRef) liveCfg() *config.Config {
+	if r.live != nil {
+		if c := r.live(); c != nil {
+			return c
+		}
+	}
+	return r.cfg
 }
 
 func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) error {
@@ -36,7 +46,7 @@ func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) erro
 }
 
 func (r *serverRef) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if permission.MasterKeyActive(r.cfg) {
+	if permission.MasterKeyActive(r.liveCfg()) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	s := *r.p

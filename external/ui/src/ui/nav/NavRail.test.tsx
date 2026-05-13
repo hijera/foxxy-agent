@@ -13,6 +13,8 @@ test("nav brand uses Coddy agent label (compact rail)", () => {
       historyOpen={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
       canWidenRail={false}
       railLabelsWide={false}
       onToggleRailLabels={() => {}}
@@ -33,6 +35,8 @@ test("nav brand uses Coddy agent label (wide header row)", () => {
       historyOpen={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
       canWidenRail
       railLabelsWide
       onToggleRailLabels={() => {}}
@@ -54,6 +58,8 @@ test("nav hides Scheduler when showScheduler is false", () => {
       showScheduler={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
       canWidenRail={false}
       railLabelsWide={false}
       onToggleRailLabels={() => {}}

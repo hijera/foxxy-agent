@@ -24,10 +24,10 @@ type slashListCacheEntry struct {
 func (s *Server) skillDirsSignature(cwd string) string {
 	var parts []string
 	home := ""
-	if s.cfg != nil {
-		home = strings.TrimSpace(s.cfg.Paths.Home)
+	if s.activeCfg() != nil {
+		home = strings.TrimSpace(s.activeCfg().Paths.Home)
 	}
-	for _, d := range s.cfg.Skills.Dirs {
+	for _, d := range s.activeCfg().Skills.Dirs {
 		exp := filepath.Clean(skills.ExpandConfiguredPath(d, cwd, home))
 		st, err := os.Stat(exp)
 		if err != nil {
@@ -51,8 +51,8 @@ func (s *Server) listSkillSummariesCached(cwdAbs string) ([]skills.SkillSummary,
 	}
 	s.slashMu.Unlock()
 
-	loader := skills.NewLoader(s.cfg.Skills.Dirs)
-	loaded, err := loader.LoadAll(cleanCWD, s.cfg.Paths.Home)
+	loader := skills.NewLoader(s.activeCfg().Skills.Dirs)
+	loaded, err := loader.LoadAll(cleanCWD, s.activeCfg().Paths.Home)
 	if err != nil {
 		return nil, err
 	}

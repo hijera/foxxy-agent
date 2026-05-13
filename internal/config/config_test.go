@@ -396,6 +396,50 @@ memory:
 	}
 }
 
+func TestRecoverFromLastGoodRestoresPrimary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvCODDYConfig, "")
+
+	lastGood := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "openai/gpt-4o"
+`
+	if err := os.WriteFile(filepath.Join(home, "config.lastgood.yaml"), []byte(lastGood), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	badPrimary := "[unclosed\n"
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(badPrimary), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		t.Fatalf("LoadFromCLI: %v", err)
+	}
+	if cfg.Agent.Model != "openai/gpt-4o" {
+		t.Fatalf("model %q", cfg.Agent.Model)
+	}
+	got, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != strings.TrimSpace(lastGood) {
+		t.Fatalf("primary not restored from last good\ngot:\n%s", string(got))
+	}
+}
+
 func TestSchedulerEffectiveEnabledAndDefaults(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvCODDYHome, home)

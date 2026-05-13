@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -25,7 +26,7 @@ type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlo
 
 // Manager handles all active sessions and implements acp.Handler.
 type Manager struct {
-	cfg        *config.Config
+	cfgAt      atomic.Pointer[config.Config]
 	server     acp.UpdateSender
 	skillsLoad *skills.Loader
 	runner     AgentRunner
@@ -48,8 +49,7 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 	skillsDirs := make([]string, len(cfg.Skills.Dirs))
 	copy(skillsDirs, cfg.Skills.Dirs)
 
-	return &Manager{
-		cfg:        cfg,
+	m := &Manager{
 		server:     server,
 		runner:     runner,
 		skillsLoad: skills.NewLoader(skillsDirs),
@@ -58,6 +58,30 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 		store:      store,
 		sessions:   make(map[string]*State),
 	}
+	m.cfgAt.Store(cfg)
+	return m
+}
+
+// Cfg returns the current configuration (same pointer as used by the session manager).
+func (m *Manager) Cfg() *config.Config {
+	return m.activeCfg()
+}
+
+// activeCfg returns the current process configuration (never nil after NewManager).
+func (m *Manager) activeCfg() *config.Config {
+	return m.cfgAt.Load()
+}
+
+// ReplaceConfig swaps the live configuration and rebuilds the skills loader. MCP clients on
+// existing sessions are not recreated.
+func (m *Manager) ReplaceConfig(next *config.Config) {
+	if next == nil {
+		return
+	}
+	skillsDirs := make([]string, len(next.Skills.Dirs))
+	copy(skillsDirs, next.Skills.Dirs)
+	m.skillsLoad = skills.NewLoader(skillsDirs)
+	m.cfgAt.Store(next)
 }
 
 // SetPreferredSessionID pins the identifier used for the next session/new invocation (typically from --session-id).
@@ -160,7 +184,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 			st := m.getSession(id)
 			return &acp.SessionNewResult{
 				SessionID:     id,
-				ConfigOptions: BuildACPConfigOptions(m.cfg, st),
+				ConfigOptions: BuildACPConfigOptions(m.activeCfg(), st),
 				Modes:         m.sessionResultModes(st),
 			}, nil
 		}
@@ -200,13 +224,13 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	return &acp.SessionNewResult{
 		SessionID:     id,
-		ConfigOptions: BuildACPConfigOptions(m.cfg, state),
+		ConfigOptions: BuildACPConfigOptions(m.activeCfg(), state),
 		Modes:         m.sessionResultModes(state),
 	}, nil
 }
 
 func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir string, mcpServers []acp.MCPServer) (*State, error) {
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.cfg.Paths.Home)
+	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home)
 	if err != nil {
 		m.log.Warn("failed to load skills", "error", err)
 	}
@@ -221,7 +245,7 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 
 	state.SetPersistHook(m.makePersist(state))
 
-	for _, srv := range m.cfg.MCPServers {
+	for _, srv := range m.activeCfg().MCPServers {
 		if err := m.connectMCPServer(ctx, state, srv); err != nil {
 			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
 		}
@@ -293,7 +317,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys)
 	st.RestoreUILogWithoutPersist(snap.UILog)
 
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.cfg.Paths.Home)
+	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home)
 	if err != nil {
 		m.log.Warn("failed to load skills on session load", "error", err)
 	}
@@ -301,7 +325,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	st.SetPersistHook(m.makePersist(st))
 
-	for _, srv := range m.cfg.MCPServers {
+	for _, srv := range m.activeCfg().MCPServers {
 		if err := m.connectMCPServer(ctx, st, srv); err != nil {
 			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
 		}
@@ -344,7 +368,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	return &acp.SessionLoadResult{
 		Modes:         m.sessionResultModes(st),
-		ConfigOptions: BuildACPConfigOptions(m.cfg, st),
+		ConfigOptions: BuildACPConfigOptions(m.activeCfg(), st),
 	}, nil
 }
 
@@ -523,12 +547,12 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 			m.log.Warn("failed to send mode update", "error", err)
 		}
 	case "model":
-		if len(m.cfg.Models) == 0 {
+		if len(m.activeCfg().Models) == 0 {
 			return nil, fmt.Errorf("no models configured")
 		}
 		found := false
-		for i := range m.cfg.Models {
-			if m.cfg.Models[i].Model == params.Value {
+		for i := range m.activeCfg().Models {
+			if m.activeCfg().Models[i].Model == params.Value {
 				found = true
 				break
 			}
@@ -541,14 +565,14 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
 	}
 
-	opts := BuildACPConfigOptions(m.cfg, state)
+	opts := BuildACPConfigOptions(m.activeCfg(), state)
 	m.sendConfigOptionUpdate(params.SessionID, state)
 
 	return &acp.SessionSetConfigOptionResult{ConfigOptions: opts}, nil
 }
 
 func (m *Manager) sendConfigOptionUpdate(sessionID string, state *State) {
-	opts := BuildACPConfigOptions(m.cfg, state)
+	opts := BuildACPConfigOptions(m.activeCfg(), state)
 	if err := m.server.SendSessionUpdate(sessionID, acp.ConfigOptionUpdate{
 		SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
 		ConfigOptions: opts,

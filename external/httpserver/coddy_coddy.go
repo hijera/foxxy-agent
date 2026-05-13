@@ -200,7 +200,7 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, err := s.providerFactory(s.cfg)
+	provider, err := s.providerFactory(s.activeCfg())
 	if err != nil {
 		s.log.Error("describe provider", "error", err)
 		http.Error(w, `{"error":{"message":"LLM unavailable"}}`, http.StatusServiceUnavailable)

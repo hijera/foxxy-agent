@@ -1,0 +1,72 @@
+package config
+
+// SchemaExampleConfigJSON returns representative defaults for JSON Schema "default"
+// and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
+// and field semantics where possible.
+func SchemaExampleConfigJSON() *ConfigJSON {
+	return &ConfigJSON{
+		Providers: []ProviderJSON{
+			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
+		},
+		Models: []ModelJSON{
+			{
+				Model:            "openai/gpt-4o",
+				MaxTokens:        4096,
+				Temperature:      0.2,
+				MaxContextTokens: 0,
+			},
+		},
+		Agent: AgentJSON{
+			Model:            "openai/gpt-4o",
+			MaxTurns:         AgentDefaultMaxTurns,
+			MaxTokensPerTurn: AgentDefaultMaxTokensPerTurn,
+		},
+		Prompts: PromptsJSON{
+			Dir:         "",
+			AgentPrompt: "agent.md",
+			PlanPrompt:  "plan.md",
+		},
+		Skills: SkillsJSON{
+			Dirs: []string{
+				"${CODDY_HOME}/skills",
+				"${CWD}/.skills",
+				"~/.cursor/skills",
+				"~/.claude/skills",
+			},
+			InstallDir: "${CODDY_HOME}/skills",
+		},
+		MCPServers: []MCPServerJSON{},
+		Tools: ToolsJSON{
+			RequirePermissionForCommands: false,
+			RequirePermissionForWrites:   false,
+			RestrictToCWD:                false,
+			CommandAllowlist:             nil,
+			PermissionMasterKey:          "",
+		},
+		Logger: LoggerJSON{
+			Level:    LogLevelInfo,
+			Outputs:  []string{LogOutputStderr},
+			File:     "",
+			Format:   "text",
+			Rotation: LoggerRotationJSON{MaxSizeMB: 0, MaxFiles: 0},
+		},
+		Sessions: SessionsJSON{Dir: ""},
+		Memory: MemoryJSON{
+			Enabled:          false,
+			Model:            "",
+			Dir:              "",
+			RecallMaxTurns:   6,
+			PersistMaxTurns:  12,
+			CopilotMaxTokens: 4096,
+			MaxSearchHits:    8,
+		},
+		Scheduler: SchedulerJSON{
+			Enabled:        false,
+			Dir:            "${CODDY_HOME}/scheduler",
+			MaxQueue:       10,
+			Timeout:        "30m",
+			RetainSessions: 5,
+		},
+	}
+}
+

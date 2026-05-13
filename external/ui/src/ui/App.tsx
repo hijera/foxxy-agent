@@ -35,11 +35,13 @@ import {
   setSessionHashInLocation,
   setSchedulerJobHash,
   setSchedulerListHash,
+  setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
+import { Settings } from "./settings/Settings";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -483,6 +485,7 @@ export function App() {
     boolean | null
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const [settingsRoute, setSettingsRoute] = useState(false);
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -621,6 +624,7 @@ export function App() {
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
     if (p.branch === "session") {
+      setSettingsRoute(false);
       setSessionId(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
@@ -628,12 +632,21 @@ export function App() {
       return;
     }
     if (p.branch === "history") {
+      setSettingsRoute(false);
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       return;
     }
+    if (p.branch === "settings") {
+      setSettingsRoute(true);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSessionsOpen(!!p.historyOpen);
+      return;
+    }
     if (p.branch === "scheduler") {
+      setSettingsRoute(false);
       if (schedulerHttpLinked === false) {
         setSchedulerOpen(false);
         setSchedulerEditor(null);
@@ -662,6 +675,7 @@ export function App() {
       return;
     }
     setSessionId("");
+    setSettingsRoute(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSessionsOpen(!!p.historyOpen);
@@ -707,6 +721,15 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    if (parseAppHash().branch === "settings") {
+      const sid = sessionId.trim();
+      if (sid) {
+        setSessionHashInLocation(sid);
+      } else {
+        clearSessionRoute();
+      }
+      return;
+    }
     const sid = sessionId.trim();
     if (sid) {
       setSessionHashInLocation(sid);
@@ -717,7 +740,7 @@ export function App() {
         `${window.location.pathname}${window.location.search}`,
       );
     }
-  }, [sessionId]);
+  }, [sessionId, clearSessionRoute]);
 
   const prevSessionsOpenRef = useRef(false);
   useEffect(() => {
@@ -2283,8 +2306,35 @@ export function App() {
     setSchedulerListHash({ historySidebar: hist });
   }, [schedulerHttpLinked, drawersWide, sessionsOpen]);
 
+  const openSettingsFromNav = useCallback(() => {
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    if (!drawersWide) {
+      setSessionsOpen(false);
+    }
+    const hist = drawersWide && sessionsOpen;
+    setSettingsHash({ historySidebar: hist });
+  }, [drawersWide, sessionsOpen]);
+
+  const onCloseSettings = useCallback(() => {
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else {
+      clearSessionRoute();
+    }
+  }, [sessionId, clearSessionRoute]);
+
   const onOpenHistoryFromNav = useCallback(() => {
     setSessionsOpen(true);
+    if (parseAppHash().branch === "settings") {
+      if (drawersWide) {
+        setSettingsHash({ historySidebar: true });
+      } else {
+        setHistoryHash();
+      }
+      return;
+    }
     if (drawersWide && schedulerOpen && schedulerHttpLinked === true) {
       if (schedulerEditor?.mode === "edit") {
         setSchedulerJobHash(schedulerEditor.jobId, { historySidebar: true });
@@ -2306,7 +2356,9 @@ export function App() {
   ]);
 
   const shellBackdropOpen =
-    sessionsOpen || (schedulerOpen && schedulerHttpLinked === true);
+    sessionsOpen ||
+    (schedulerOpen && schedulerHttpLinked === true) ||
+    settingsRoute;
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -2387,6 +2439,8 @@ export function App() {
         showScheduler={schedulerHttpLinked === true}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
+        settingsOpen={settingsRoute}
+        onOpenSettings={openSettingsFromNav}
         canWidenRail={viewportXL}
         railLabelsWide={railLabelsWide}
         onToggleRailLabels={toggleRailWidth}
@@ -2494,6 +2548,8 @@ export function App() {
           </div>
         ) : null}
 
+        {settingsRoute ? <Settings onClose={onCloseSettings} /> : null}
+        {!settingsRoute ? (
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
@@ -2541,6 +2597,7 @@ export function App() {
             upsertToolCall(patch as any);
           }}
         />
+        ) : null}
       </div>
     </div>
   );

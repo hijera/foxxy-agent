@@ -48,7 +48,7 @@ func (s *Server) coddySchedulerWriteErr(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) schedulerService() *schedservice.Service {
-	return schedservice.NewService(s.cfg, s.log, s.defaultCWD)
+	return schedservice.NewService(s.activeCfg(), s.log, s.defaultCWD)
 }
 
 func (s *Server) coddySchedulerJobsList(w http.ResponseWriter, r *http.Request) {

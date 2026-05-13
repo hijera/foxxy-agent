@@ -22,7 +22,7 @@ import (
 
 // CommandDeps wires coddy main helpers into the http subcommand without an import cycle.
 type CommandDeps struct {
-	NewServerRef func(**acp.Server, *config.Config) acp.UpdateSender
+	NewServerRef func(**acp.Server, *config.Config, func() *config.Config) acp.UpdateSender
 	EnsureHome   func(string) error
 	OpenStore    func(string, *config.Config) (*session.FileStore, error)
 }
@@ -110,12 +110,20 @@ func Run(args []string, deps CommandDeps) error {
 	log.Info("session persistence enabled", "root", store.Root)
 
 	var srv *acp.Server
-	ref := deps.NewServerRef(&srv, cfg)
+	var mgr *session.Manager
+	live := func() *config.Config {
+		if mgr != nil {
+			return mgr.Cfg()
+		}
+		return cfg
+	}
+	ref := deps.NewServerRef(&srv, cfg, live)
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
+		c := live()
+		loop := agent.NewAgent(c, st, snd, log)
 		return loop.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)

@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // LoadFromCLI resolves paths, optionally falls back to $CWD/config.yaml when $CODDY_HOME/config.yaml is missing, and loads YAML.
@@ -56,19 +54,19 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 		return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
 	}
 
+	originalData := append([]byte(nil), data...)
 	expanded := os.ExpandEnv(ExpandPathVars(string(data), paths))
 
-	var cfg Config
-	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", paths.ConfigPath, err)
+	cfg, err := parseValidateYAMLBytes(expanded, paths)
+	if err != nil {
+		rec, rerr := tryRecoverFromLastGood(paths)
+		if rerr == nil && rec != nil {
+			return rec, nil
+		}
+		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
-	cfg.Paths = paths
-
-	applyDefaults(&cfg)
-	if err := validateSubconfigs(&cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+	_ = WriteLastGoodAtomic(paths.ConfigPath, originalData)
+	return cfg, nil
 }
 
 func validateSubconfigs(cfg *Config) error {

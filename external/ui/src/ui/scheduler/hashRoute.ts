@@ -7,7 +7,8 @@ export type ParsedAppHash =
   | { branch: "none"; historyOpen: boolean }
   | { branch: "session"; sessionId: string; historyOpen: boolean }
   | { branch: "history" }
-  | { branch: "scheduler"; jobId: string | null; historyOpen: boolean };
+  | { branch: "scheduler"; jobId: string | null; historyOpen: boolean }
+  | { branch: "settings"; historyOpen: boolean };
 
 function splitHashFragment(): { path: string; search: string } {
   const raw = window.location.hash.replace(/^#\/?/, "").trim();
@@ -27,6 +28,17 @@ function historyOpenFromSearch(search: string): boolean {
   return params.get("history") === "1";
 }
 
+/** `history.replaceState` does not fire `hashchange`; App syncs route from hash in that listener. */
+function notifyHashAfterReplaceState() {
+  queueMicrotask(() => {
+    const ev =
+      typeof HashChangeEvent !== "undefined"
+        ? new HashChangeEvent("hashchange")
+        : new Event("hashchange");
+    window.dispatchEvent(ev);
+  });
+}
+
 export function parseAppHash(): ParsedAppHash {
   const { path: h, search } = splitHashFragment();
   const historyOpen = historyOpenFromSearch(search);
@@ -35,6 +47,9 @@ export function parseAppHash(): ParsedAppHash {
   }
   if (h === "history") {
     return { branch: "history" };
+  }
+  if (h === "settings") {
+    return { branch: "settings", historyOpen };
   }
   const schedJob = /^scheduler\/jobs\/(.+)$/.exec(h);
   if (schedJob && schedJob[1]) {
@@ -69,6 +84,7 @@ export function setSessionHashInLocation(
         "",
         `${window.location.pathname}${window.location.search}`,
       );
+      notifyHashAfterReplaceState();
     }
     return;
   }
@@ -80,6 +96,7 @@ export function setSessionHashInLocation(
       "",
       `${window.location.pathname}${window.location.search}${next}`,
     );
+    notifyHashAfterReplaceState();
   }
 }
 
@@ -100,6 +117,21 @@ export function setSchedulerListHash(opts?: {
       "",
       `${window.location.pathname}${window.location.search}${next}`,
     );
+    notifyHashAfterReplaceState();
+  }
+}
+
+export function setSettingsHash(opts?: {
+  historySidebar?: boolean;
+}): void {
+  const next = withHistoryQuery("#/settings", !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
   }
 }
 
@@ -111,6 +143,7 @@ export function setHistoryHash(): void {
       "",
       `${window.location.pathname}${window.location.search}${next}`,
     );
+    notifyHashAfterReplaceState();
   }
 }
 
@@ -126,6 +159,7 @@ export function setSchedulerJobHash(
       "",
       `${window.location.pathname}${window.location.search}${next}`,
     );
+    notifyHashAfterReplaceState();
   }
 }
 
@@ -142,5 +176,9 @@ export function stripHistorySidebarFromHash(): void {
   }
   if (p.branch === "session" && p.historyOpen) {
     setSessionHashInLocation(p.sessionId);
+    return;
+  }
+  if (p.branch === "settings" && p.historyOpen) {
+    setSettingsHash();
   }
 }

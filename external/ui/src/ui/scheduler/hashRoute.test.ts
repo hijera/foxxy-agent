@@ -5,6 +5,7 @@ import {
   setSchedulerJobHash,
   setSchedulerListHash,
   setSessionHashInLocation,
+  setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./hashRoute";
 
@@ -44,6 +45,14 @@ describe("parseAppHash", () => {
       historyOpen: true,
     });
   });
+
+  test("parses settings with history sidebar flag", () => {
+    setHash("#/settings?history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: true,
+    });
+  });
 });
 
 describe("hash writers", () => {
@@ -75,6 +84,32 @@ describe("hash writers", () => {
     setHash("#/s/sess_abc?history=1");
     stripHistorySidebarFromHash();
     expect(window.location.hash).toBe("#/s/sess_abc");
+  });
+
+  test("setSettingsHash can add history=1", () => {
+    setHash("");
+    setSettingsHash({ historySidebar: true });
+    expect(window.location.hash).toBe("#/settings?history=1");
+  });
+
+  test("setSettingsHash dispatches hashchange for replaceState sync", async () => {
+    setHash("");
+    let hits = 0;
+    const fn = () => {
+      hits++;
+    };
+    window.addEventListener("hashchange", fn);
+    setSettingsHash();
+    expect(window.location.hash).toBe("#/settings");
+    await Promise.resolve();
+    expect(hits).toBe(1);
+    window.removeEventListener("hashchange", fn);
+  });
+
+  test("stripHistorySidebarFromHash removes query from settings URL", () => {
+    setHash("#/settings?history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe("#/settings");
   });
 
   test("setSessionHashInLocation can add history=1", () => {

@@ -18,7 +18,7 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 	if mk == nil {
 		mk = defaultMakeLLMFromYAML
 	}
-	provider, err := mk(s.cfg, yamlSel)
+	provider, err := mk(s.activeCfg(), yamlSel)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +75,8 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 
 func maxContextDefault(s *Server) int {
 	maxCtx := 128000
-	if s.cfg != nil {
-		if ent := s.cfg.FindModelEntry(strings.TrimSpace(s.cfg.Agent.Model)); ent != nil {
+	if s.activeCfg() != nil {
+		if ent := s.activeCfg().FindModelEntry(strings.TrimSpace(s.activeCfg().Agent.Model)); ent != nil {
 			if ent.MaxContextTokens > 0 {
 				maxCtx = ent.MaxContextTokens
 			}

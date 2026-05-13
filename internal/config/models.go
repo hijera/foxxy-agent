@@ -9,10 +9,10 @@ import (
 // Model must be "provider_name/api_model_id" where provider_name matches providers[].name
 // and api_model_id is sent to the LLM API (may contain additional slashes).
 type ModelEntry struct {
-	Model       string  `yaml:"model"`
-	MaxTokens   int     `yaml:"max_tokens"`
-	Temperature float64 `yaml:"temperature"`
-	MaxContextTokens int `yaml:"max_context_tokens"`
+	Model            string  `yaml:"model"`
+	MaxTokens        int     `yaml:"max_tokens"`
+	Temperature      float64 `yaml:"temperature"`
+	MaxContextTokens int     `yaml:"max_context_tokens"`
 }
 
 // SplitModelRef parses model into provider name and API model id.

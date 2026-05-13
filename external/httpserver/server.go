@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -29,7 +30,7 @@ var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
-	cfg             *config.Config
+	cfgAt           atomic.Pointer[config.Config]
 	mgr             *session.Manager
 	log             *slog.Logger
 	defaultCWD      string
@@ -45,7 +46,6 @@ type Server struct {
 // New creates an HTTP server wrapper (handlers registered on mux).
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
-		cfg:             cfg,
 		mgr:             mgr,
 		log:             log,
 		defaultCWD:      defaultCWD,
@@ -54,11 +54,13 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		makeLLMFromYAML: defaultMakeLLMFromYAML,
 		slashCache:      make(map[string]slashListCacheEntry),
 	}
+	s.cfgAt.Store(cfg)
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
 	s.registerCoddyRoutes()
+	s.registerConfigRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPIJSON)
 	s.mux.HandleFunc("GET /docs", s.redirectDocsTrailingSlash)
@@ -70,6 +72,17 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	}
 	mountEmbeddedSPARoot(s.mux)
 	return s
+}
+
+func (s *Server) activeCfg() *config.Config {
+	return s.cfgAt.Load()
+}
+
+// ReplaceConfig updates the in-memory config used by HTTP handlers.
+func (s *Server) ReplaceConfig(c *config.Config) {
+	if c != nil {
+		s.cfgAt.Store(c)
+	}
 }
 
 func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
@@ -143,8 +156,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   nil,
 	}
-	if s.cfg != nil {
-		if dm := strings.TrimSpace(s.cfg.Agent.Model); dm != "" {
+	if s.activeCfg() != nil {
+		if dm := strings.TrimSpace(s.activeCfg().Agent.Model); dm != "" {
 			out.DefaultAgentModel = dm
 		}
 	}
@@ -158,9 +171,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			MaxContextTokens: maxCtx,
 		})
 	}
-	if s.cfg != nil {
-		for i := range s.cfg.Models {
-			ent := &s.cfg.Models[i]
+	if s.activeCfg() != nil {
+		for i := range s.activeCfg().Models {
+			ent := &s.activeCfg().Models[i]
 			mid := strings.TrimSpace(ent.Model)
 			if mid == "" {
 				continue
@@ -213,7 +226,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"model is required"}}`, http.StatusBadRequest)
 		return
 	}
-	if !httpModelListed(s.cfg, model) {
+	if !httpModelListed(s.activeCfg(), model) {
 		http.Error(w, `{"error":{"message":"unknown model"}}`, http.StatusBadRequest)
 		return
 	}
@@ -257,7 +270,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if httpModelIsCoddyProfile(model) {
 		st.SetMode(model)
-		if _, err := profileMetadataPatch(s.cfg, st, req.Metadata); err != nil {
+		if _, err := profileMetadataPatch(s.activeCfg(), st, req.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 				return
@@ -275,9 +288,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		bridge = NewSender(s.cfg, w, true, model)
+		bridge = NewSender(s.activeCfg(), w, true, model)
 	} else {
-		bridge = NewSender(s.cfg, nil, false, model)
+		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
 
 	if httpModelIsCoddyProfile(model) {
@@ -295,7 +308,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		meta := metadataResponse(s.cfg, effectiveYAMLModel(s.cfg, st))
+		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if req.Stream {
 			_ = bridge.FinishStreamWithMetadata(meta)
 			return
@@ -332,7 +345,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	defer cancelTurn()
 	if _, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge); err != nil {
 		if errors.Is(err, context.Canceled) && req.Stream {
-			meta := metadataResponse(s.cfg, model)
+			meta := metadataResponse(s.activeCfg(), model)
 			_ = bridge.FinishStreamWithMetadata(meta)
 			return
 		}
@@ -347,7 +360,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	meta := metadataResponse(s.cfg, model)
+	meta := metadataResponse(s.activeCfg(), model)
 	if req.Stream {
 		_ = bridge.FinishStreamWithMetadata(meta)
 		return
@@ -481,7 +494,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"unknown or missing model"}}`, http.StatusBadRequest)
 		return
 	}
-	if !httpModelListed(s.cfg, model) {
+	if !httpModelListed(s.activeCfg(), model) {
 		http.Error(w, `{"error":{"message":"unknown or missing model"}}`, http.StatusBadRequest)
 		return
 	}
@@ -509,7 +522,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 
 	if httpModelIsCoddyProfile(model) {
 		st.SetMode(model)
-		if _, err := profileMetadataPatch(s.cfg, st, body.Metadata); err != nil {
+		if _, err := profileMetadataPatch(s.activeCfg(), st, body.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 				return
@@ -531,9 +544,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		bridge = NewSender(s.cfg, w, true, model)
+		bridge = NewSender(s.activeCfg(), w, true, model)
 	} else {
-		bridge = NewSender(s.cfg, nil, false, model)
+		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
 
 	if httpModelIsCoddyProfile(model) {
@@ -577,7 +590,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		meta := metadataResponse(s.cfg, effectiveYAMLModel(s.cfg, st))
+		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if body.Stream {
 			_ = bridge.FinishStreamWithMetadata(meta)
 			return
@@ -606,7 +619,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	defer respCancelTurn()
 	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge); err != nil {
 		if errors.Is(err, context.Canceled) && body.Stream {
-			meta := metadataResponse(s.cfg, model)
+			meta := metadataResponse(s.activeCfg(), model)
 			_ = bridge.FinishStreamWithMetadata(meta)
 			return
 		}
@@ -621,7 +634,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	meta := metadataResponse(s.cfg, model)
+	meta := metadataResponse(s.activeCfg(), model)
 	if body.Stream {
 		_ = bridge.FinishStreamWithMetadata(meta)
 		return

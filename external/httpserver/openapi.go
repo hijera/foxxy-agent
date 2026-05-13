@@ -340,6 +340,100 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/config/schema": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "JSON Schema for Coddy YAML configuration (UI)",
+					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/coddy/config` and returned by **GET** `/coddy/config`. Exposes **api_key** and other secrets when combined with **GET** - use only on trusted networks.",
+					"operationId": "coddyConfigSchemaGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "JSON Schema (draft 2020-12)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"type": "object"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/config": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get current configuration as JSON",
+					"description": "Returns the active process configuration (including **api_key** fields).",
+					"operationId": "coddyConfigGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Configuration JSON (ConfigJSON)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigJSON"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+				"put": map[string]interface{}{
+					"summary":     "Replace configuration from JSON",
+					"description": "Validates the body, writes **config.yaml** atomically, updates **config.lastgood.yaml**, rotates **config.prev.yaml**, reloads in-process config. On reload failure after write, restores **config.prev.yaml** to the primary path.",
+					"operationId": "coddyConfigPut",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigJSON"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "`{\"ok\":true}` on success",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigValidateResponse"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/config/validate": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Validate configuration JSON without writing",
+					"description": "Runs the same validation as **PUT** `/coddy/config` without persisting.",
+					"operationId": "coddyConfigValidatePost",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigJSON"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "`{\"ok\":true}`",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigValidateResponse"},
+								},
+							},
+						},
+						"400": map[string]interface{}{
+							"description": "`{\"ok\":false,\"error\":\"...\"}`",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigValidateResponse"},
+								},
+							},
+						},
+					},
+				},
+			},
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
@@ -389,6 +483,17 @@ func openAPISpec() map[string]interface{} {
 								"message": map[string]string{"type": "string"},
 							},
 						},
+					},
+				},
+				"CoddyConfigJSON": map[string]interface{}{
+					"type":        "object",
+					"description": "Coddy configuration as JSON (same logical fields as **config.yaml**). See **GET** `/coddy/config/schema` for the machine-readable JSON Schema.",
+				},
+				"CoddyConfigValidateResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":    map[string]string{"type": "boolean"},
+						"error": map[string]string{"type": "string"},
 					},
 				},
 				"ModelList": map[string]interface{}{

@@ -109,7 +109,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -1140,6 +1140,84 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 	if blocks[0].Type != "text" || blocks[1].Type != "resource" || blocks[1].Resource == nil || blocks[1].Resource.Text != "inside" {
 		t.Fatalf("blocks %+v", blocks)
+	}
+}
+
+func TestCoddyConfigSchemaValidateAndPut(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "openai/gpt-4o"
+`
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/coddy/config/schema")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("schema status %d body %s", res.StatusCode, string(b))
+	}
+	var sch map[string]interface{}
+	if err := json.Unmarshal(b, &sch); err != nil {
+		t.Fatal(err)
+	}
+	if sch["type"] != "object" {
+		t.Fatalf("schema root type %v", sch["type"])
+	}
+
+	jbody := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],"agent":{"model":"openai/gpt-4o","max_turns":12}}`
+	vreq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/config/validate", strings.NewReader(jbody))
+	vreq.Header.Set("Content-Type", "application/json")
+	vres, err := http.DefaultClient.Do(vreq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vb, _ := ioReadAllClose(vres.Body)
+	if vres.StatusCode != http.StatusOK {
+		t.Fatalf("validate status %d %s", vres.StatusCode, string(vb))
+	}
+
+	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(jbody))
+	putReq.Header.Set("Content-Type", "application/json")
+	putRes, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := ioReadAllClose(putRes.Body)
+	if putRes.StatusCode != http.StatusOK {
+		t.Fatalf("put status %d %s", putRes.StatusCode, string(pb))
+	}
+	if srv.activeCfg().Agent.MaxTurns != 12 {
+		t.Fatalf("hot reload max_turns %d", srv.activeCfg().Agent.MaxTurns)
+	}
+	if mgr.Cfg().Agent.MaxTurns != 12 {
+		t.Fatalf("mgr max_turns %d", mgr.Cfg().Agent.MaxTurns)
 	}
 }
 
