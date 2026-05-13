@@ -16,6 +16,48 @@ async function readJSON<T>(path: string): Promise<{ ok: boolean; data?: T; error
   }
 }
 
+function IconSave(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+      <polyline points="17 21 17 13 7 13 7 21" />
+      <polyline points="7 3 7 8 15 8" />
+    </svg>
+  );
+}
+
+function IconRefresh(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  );
+}
+
 export function Settings(props: { onClose: () => void }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
@@ -131,32 +173,29 @@ export function Settings(props: { onClose: () => void }) {
         <div className="scheduler-drawer-footer settings-footer-actions">
           <button
             type="button"
-            className="settings-btn"
-            data-testid="settings-close"
-            onClick={props.onClose}
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            className="settings-btn"
+            className="settings-btn settings-btn-icon"
             data-testid="settings-reload"
             disabled={busy}
+            title="Reload from server"
+            aria-label="Reload configuration from server"
             onClick={() => void load()}
           >
-            Reload
+            <IconRefresh className="settings-footer-icon-svg" />
           </button>
           <button
             type="button"
-            className="settings-btn settings-btn-primary"
+            className="settings-btn settings-btn-primary settings-btn-icon"
             data-testid="settings-save"
             disabled={busy || !schema}
+            title="Save"
+            aria-label="Save configuration"
             onClick={() => void onSave()}
           >
-            Save
+            <IconSave className="settings-footer-icon-svg" />
           </button>
         </div>
       </div>
     </aside>
   );
 }
+

@@ -2549,7 +2549,6 @@ export function App() {
         ) : null}
 
         {settingsRoute ? <Settings onClose={onCloseSettings} /> : null}
-        {!settingsRoute ? (
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
@@ -2597,7 +2596,6 @@ export function App() {
             upsertToolCall(patch as any);
           }}
         />
-        ) : null}
       </div>
     </div>
   );

@@ -3215,6 +3215,18 @@ textarea#composer {
   background: rgba(147, 51, 234, 0.22);
 }
 
+.settings-btn-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.settings-footer-icon-svg {
+  display: block;
+}
+
 .settings-btn-danger {
   border-color: rgba(248, 113, 113, 0.45);
   color: #fecaca;
