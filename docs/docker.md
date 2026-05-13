@@ -87,6 +87,8 @@ export CODDY_HOME="$PWD/coddy-state"
 docker compose up -d coddy
 ```
 
+The sample Compose file sets **`CODDY_CONFIG`** inside the container to a **mounted file** path (**`/home/user/.coddy.yaml`**). That file can live anywhere on the host; it does not have to be named **`config.yaml`** or sit next to **`$CODDY_HOME`**. On a normal host install without **`CODDY_CONFIG`**, the loader prefers **`$CODDY_HOME/config.yaml`** (see **`docs/config.md`**).
+
 Optional provider keys can be passed as environment variables (see **`docker-compose.yml`** **`environment`**). Prefer **mounted config** or your secret manager for production; **do not** commit real keys.
 
 ## How the Dockerfile stages work

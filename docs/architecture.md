@@ -68,7 +68,7 @@ Implements the JSON-RPC 2.0 server that speaks the ACP protocol over stdio.
 Handles:
 - `initialize` - version negotiation, capability exchange
 - `session/new` - create session, connect MCP servers, return modes and Session Config Options (model + mode selectors)
-- `session/load` - restore a persisted bundle from disk (`$HOME/coddy-agent/sessions` by default), replay history via `session/update`
+- `session/load` - restore a persisted bundle from disk (**`$CODDY_HOME/sessions`** by default, usually **`~/.coddy/sessions`**), replay history via `session/update`
 - `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
@@ -100,11 +100,10 @@ The core reasoning engine (**`react.go`**):
 ### LLM Provider (`internal/llm`)
 
 Abstracted interface for LLM backends. Configured via `config.yaml`.
-Supported providers:
-- OpenAI (GPT-4o, GPT-4-turbo, o1, o3)
-- Anthropic (Claude 3.5, Claude 3)
-- Ollama (local models)
-- Any OpenAI-compatible API
+Supported backends (see **`docs/config.md`** for shapes):
+- OpenAI and OpenAI-compatible HTTP APIs (**`type: openai`**)
+- Anthropic (**`type: anthropic`**)
+- Ollama and other local OpenAI-compatible stacks (**`api_base`**)
 
 ### Tools Registry (`internal/tools`)
 
@@ -151,7 +150,7 @@ Each file is parsed as Markdown and injected into the system prompt when relevan
 
 ### Config (`internal/config`)
 
-YAML-based configuration. Resolution uses **`CODDY_HOME`**, **`CODDY_CWD`**, **`CODDY_CONFIG`**, and CLI flags (see `docs/config.md` and `README.md`).
+YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`**), **`CODDY_CWD`**, **`CODDY_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$CODDY_HOME/config.yaml`** is absent, and CLI flags (see **`docs/config.md`** and **`README.md`**).
 
 ## Session Modes
 
@@ -173,29 +172,25 @@ Mode switching:
 
 ## Directory Structure
 
+Top level after **`git clone`** (folder name is arbitrary; **`coddy-agent`** is common):
+
 ```
-coddy-agent/
-├── cmd/coddy/
-│   └── main.go                  # CLI entry (acp, sessions, skills)
-├── internal/
-│   ├── acp/                     # JSON-RPC ACP server (stdio)
-│   ├── session/                 # lifecycle, persistence, state
-│   ├── agent/
-│   │   └── react.go             # ReAct loop (system prompt + tools + MCP)
-│   ├── prompts/
-│   │   ├── loader.go             # TemplateData, Render, embedded agent.md / plan.md
-│   │   ├── agent.md
-│   │   └── plan.md
-│   ├── config/
-│   ├── llm/
-│   ├── tooling/                 # Tool, Registry, ToolsForMode, Env
-│   ├── tools/                   # builtins (fs/, shell/, todo/), NewRegistry
-│   ├── mcp/
-│   └── skills/
-├── examples/                    # ACP and HTTP Python harnesses (acp/, httpserver/, shared/, README.md)
-├── docs/                        # this tree and guides
+.
+├── cmd/coddy/                   # CLI entry (acp, http, sessions, skills)
+├── internal/                    # core harness (acp, session, agent, config, tools, …)
+├── external/
+│   ├── memory/                  # long-term memory copilot (always linked into coddy)
+│   ├── httpserver/              # optional REST gateway (build tag http)
+│   ├── ui/                      # Vite SPA sources (embedded when built with http+ui)
+│   └── scheduler/               # optional cron runner (build tag scheduler)
+├── examples/                    # ACP and HTTP Python harnesses
+├── docs/                        # guides (see docs/README.md)
+├── Dockerfile
+├── docker-compose.yml
 ├── config.example.yaml
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
+
+Optional layers **`external/httpserver`**, **`external/ui`**, and **`external/scheduler`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/build.md`** and **`README.md`**. **`external/memory`** is linked by default and is toggled at runtime with **`memory.enabled`**.

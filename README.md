@@ -145,13 +145,38 @@ mkdir -p ~/.coddy && cp config.example.yaml ~/.coddy/config.yaml
 
 If **`$CODDY_HOME/config.yaml`** is absent, the loader may use **`config.yaml`** in the process working directory (useful when running from a repository clone). See **`docs/config.md`**.
 
-Set your API keys:
+**Providers and models**
+
+- **`providers`** - named backends (**`type`**: **`openai`** for OpenAI and OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic). Each row has **`name`** (used as the first segment of model ids), **`api_key`**, and optionally **`api_base`** when the API is not the vendor default.
+- **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
+- **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn.
+
+Example (**`openai`** provider and **`gpt-5.4-mini`**; store secrets in the environment, not in git):
+
+```yaml
+providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
+
+models:
+  - model: "openai/gpt-5.4-mini"
+    max_tokens: 16384
+    temperature: 0.2
+
+agent:
+  model: "openai/gpt-5.4-mini"
+  max_turns: 35
+  max_tokens_per_turn: 128000
+```
+
+Then export the key the YAML references:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
-# or
-export ANTHROPIC_API_KEY="sk-ant-..."
 ```
+
+Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based defaults) are covered in **`config.example.yaml`** and **[docs/config.md](docs/config.md)**.
 
 ## Operating Modes
 
