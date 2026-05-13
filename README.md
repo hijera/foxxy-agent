@@ -161,7 +161,7 @@ providers:
 
 models:
   - model: "openai/gpt-5.4-mini"
-    max_tokens: 16384
+    max_tokens: 400000
     temperature: 0.2
 
 agent:
