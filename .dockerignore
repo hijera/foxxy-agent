@@ -2,6 +2,7 @@
 /workspace
 /coddy_home
 /config.yaml
+/config.*.yaml
 
 # Binaries
 build/

@@ -141,6 +141,7 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 	s.ReplaceConfig(reloaded)
 	s.mgr.ReplaceConfig(reloaded)
+	s.log.Info("config updated", "path", cfgPath)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }

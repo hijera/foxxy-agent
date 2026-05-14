@@ -1,4 +1,4 @@
-# api_key must be the provider secret string (often starts with sk-...), never a web page URL.
+# api_key must be the provider secret string (often starts with sk-...), a "${ENV}" reference, or empty to use NAME_API_KEY at runtime; never a web page URL.
 providers:
   - name: openai
     type: openai

@@ -1,5 +1,9 @@
 import type { ChangeEvent } from "react";
 
+import {
+  providerApiKeyFieldPlaceholder,
+} from "./providerApiKeyPlaceholder";
+
 export type JsonSchema = {
   type?: string;
   title?: string;
@@ -10,7 +14,9 @@ export type JsonSchema = {
   enum?: unknown[];
   minimum?: number;
   maximum?: number;
+  pattern?: string;
   "x-coddy-property-order"?: string[];
+  "x-coddy-provider-api-key-env-placeholder"?: boolean;
 };
 
 function entriesInSchemaOrder(
@@ -99,11 +105,22 @@ function SchemaField(props: {
   schema: JsonSchema;
   value: unknown;
   onChange: (v: unknown) => void;
+  parentObj?: Record<string, unknown>;
 }) {
-  const { name, schema, value, onChange } = props;
+  const { name, schema, value, onChange, parentObj } = props;
   const label = schema.title || name;
   const t = schema.type;
-  const ph = placeholderFromDefault(schema);
+  let ph = placeholderFromDefault(schema);
+  if (
+    schema["x-coddy-provider-api-key-env-placeholder"] === true &&
+    parentObj
+  ) {
+    const pname =
+      parentObj["name"] === undefined || parentObj["name"] === null
+        ? ""
+        : String(parentObj["name"]);
+    ph = providerApiKeyFieldPlaceholder(pname);
+  }
 
   if (t === "object" && schema.properties) {
     const obj =
@@ -126,6 +143,7 @@ function SchemaField(props: {
               name={k}
               schema={sub}
               value={obj[k]}
+              parentObj={obj}
               onChange={(nv) => onChange({ ...obj, [k]: nv })}
             />
           ))}
@@ -150,6 +168,14 @@ function SchemaField(props: {
                 name={`${name}[${i}]`}
                 schema={itemSchema}
                 value={row}
+                parentObj={
+                  row !== null &&
+                  row !== undefined &&
+                  typeof row === "object" &&
+                  !Array.isArray(row)
+                    ? (row as Record<string, unknown>)
+                    : undefined
+                }
                 onChange={(nv) => {
                   const next = [...arr];
                   next[i] = nv;
@@ -295,6 +321,7 @@ function SchemaField(props: {
         type="text"
         value={s}
         placeholder={ph}
+        pattern={schema.pattern}
         title={schema.description}
         aria-label={label}
         onChange={(e: ChangeEvent<HTMLInputElement>) =>

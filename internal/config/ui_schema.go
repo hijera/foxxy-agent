@@ -178,8 +178,14 @@ func ensureObjectMatchesSchema(obj map[string]interface{}, schemaProps map[strin
 
 // UISchemaMap builds the JSON Schema as a generic map (for tests and handlers).
 func UISchemaMap() map[string]interface{} {
+	providerName := strProp("Provider name",
+		"Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).")
+	providerName["pattern"] = `^[a-zA-Z][a-zA-Z0-9_-]*$`
+	providerAPIKey := strProp("API key",
+		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
+	providerAPIKey["x-coddy-provider-api-key-env-placeholder"] = true
 	providerProps := map[string]interface{}{
-		"name": strProp("Provider name", "Logical id used in model ids (provider/model-id)."),
+		"name": providerName,
 		"type": map[string]interface{}{
 			"type":        "string",
 			"title":       "Provider type",
@@ -187,7 +193,7 @@ func UISchemaMap() map[string]interface{} {
 			"enum":        []string{"openai", "anthropic"},
 		},
 		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider."),
-		"api_key":  strProp("API key", "Secret API key. Prefer env-based injection outside untrusted networks."),
+		"api_key":  providerAPIKey,
 		"proxy": strProp("HTTP or SOCKS proxy",
 			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection."),
 	}

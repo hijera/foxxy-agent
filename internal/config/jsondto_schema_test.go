@@ -31,6 +31,21 @@ func TestUISchemaRootPropertyOrder(t *testing.T) {
 	}
 }
 
+func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {
+	doc := config.UISchemaMap()
+	providers := doc["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	items := providers["items"].(map[string]interface{})
+	pprops := items["properties"].(map[string]interface{})
+	name := pprops["name"].(map[string]interface{})
+	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_-]*$`; got != want {
+		t.Fatalf("provider name pattern: got %v want %v", got, want)
+	}
+	apiKey := pprops["api_key"].(map[string]interface{})
+	if apiKey["x-coddy-provider-api-key-env-placeholder"] != true {
+		t.Fatal("expected x-coddy-provider-api-key-env-placeholder on api_key")
+	}
+}
+
 func TestUISchemaAgentFieldHasDescription(t *testing.T) {
 	doc := config.UISchemaMap()
 	props := doc["properties"].(map[string]interface{})

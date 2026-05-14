@@ -56,7 +56,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 	return &ResolvedLLM{
 		ProviderType: prov.Type,
 		Model:        entry.APIModel(),
-		APIKey:       prov.APIKey,
+		APIKey:       prov.EffectiveAPIKey(),
 		BaseURL:      prov.APIBase,
 		ProxyURL:     prov.Proxy,
 		MaxTokens:    entry.MaxTokens,

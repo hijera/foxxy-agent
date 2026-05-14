@@ -20,6 +20,9 @@ Agent name, title, and build version are not configurable here. They are fixed i
 
 ```yaml
 # LLM backends (Go: []config.ProviderConfig, internal/config/providers.go)
+# Each providers[].name must match ^[a-zA-Z][a-zA-Z0-9_-]*$ (ASCII letter first, then letters, digits, hyphen, underscore).
+# api_key may be a literal, "${ENV}" expanded when the file loads, or empty to read NAME_API_KEY at LLM call time
+# (NAME is the provider name in uppercase with hyphens mapped to underscores, for example rpa -> RPA_API_KEY).
 providers:
   - name: "openai"
     type: "openai"
