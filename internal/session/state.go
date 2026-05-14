@@ -77,6 +77,11 @@ type State struct {
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
 	PermissionWriteGrants []string
 
+	// activitySeq increments when an agent turn finishes (persisted in session.json).
+	// readActivitySeq is advanced when the user marks the session read (PATCH markActivityRead).
+	activitySeq     uint64
+	readActivitySeq uint64
+
 	// persist is invoked after persisted fields change (set by Manager; may be nil).
 	persist func()
 
@@ -391,6 +396,44 @@ func (s *State) RestorePermissionGrantsWithoutPersist(commands, writes []string)
 	s.PermissionCommandGrants = append([]string(nil), commands...)
 	s.PermissionWriteGrants = append([]string(nil), writes...)
 	s.mu.Unlock()
+}
+
+// RestoreActivityFromSnapshot restores activitySeq/readActivitySeq from disk (session/load).
+func (s *State) RestoreActivityFromSnapshot(activitySeq, readActivitySeq uint64) {
+	s.mu.Lock()
+	s.activitySeq = activitySeq
+	s.readActivitySeq = readActivitySeq
+	s.mu.Unlock()
+}
+
+// GetActivitySeq returns the persisted activity generation counter.
+func (s *State) GetActivitySeq() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.activitySeq
+}
+
+// GetReadActivitySeq returns the last read activity generation.
+func (s *State) GetReadActivitySeq() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.readActivitySeq
+}
+
+// BumpActivitySeq increments the activity counter after a completed agent turn and persists.
+func (s *State) BumpActivitySeq() {
+	s.mu.Lock()
+	s.activitySeq++
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// MarkActivityReadSynced sets readActivitySeq to the current activitySeq and persists.
+func (s *State) MarkActivityReadSynced() {
+	s.mu.Lock()
+	s.readActivitySeq = s.activitySeq
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // GetPermissionCommandGrants returns a copy of session command grants.

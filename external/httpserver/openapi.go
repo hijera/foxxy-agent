@@ -100,6 +100,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -147,6 +148,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -189,6 +191,11 @@ func openAPISpec() map[string]interface{} {
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include scheduler-run session directories in the list.",
+					}, map[string]interface{}{
+						"name":        "include_activity",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, and **unreadComplete** for composer UI.",
 					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},
@@ -434,6 +441,56 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/activity": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Composer activity for a session",
+					"description": "Returns **turnActive** (exclusive turn lock held), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Activity payload"},
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}": map[string]interface{}{
+				"patch": map[string]interface{}{
+					"summary":     "Patch session composer metadata",
+					"description": "Set **title** (pinned title) and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"title":            map[string]string{"type": "string"},
+										"markActivityRead": map[string]string{"type": "boolean"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Patched session"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
@@ -454,7 +511,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",
-					"description": "Best-effort cancellation of the current ReAct or direct completion turn (ACP **session/cancel** semantics). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",

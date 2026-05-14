@@ -109,6 +109,10 @@ type SessionMeta struct {
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
 	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
 	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
+	// ActivitySeq increments when an agent turn completes (multi-surface unread indicator).
+	ActivitySeq uint64 `json:"activitySeq,omitempty"`
+	// ReadActivitySeq tracks the last activity generation the user marked as read.
+	ReadActivitySeq uint64 `json:"readActivitySeq,omitempty"`
 }
 
 // ExcludedFromComposerSessionList reports whether this session should not appear on default composer UI lists (GET /coddy/sessions).
@@ -205,6 +209,23 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		PermissionCommands:  permCmds,
 		PermissionWriteKeys: permWrites,
 	}, nil
+}
+
+// ReadDiskActivity returns activitySeq and readActivitySeq from session.json only.
+func (f *FileStore) ReadDiskActivity(sessionID string) (activitySeq, readActivitySeq uint64, err error) {
+	if f == nil || f.Root == "" {
+		return 0, 0, nil
+	}
+	metaPath := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
+	b, err := os.ReadFile(metaPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return 0, 0, err
+	}
+	return meta.ActivitySeq, meta.ReadActivitySeq, nil
 }
 
 // SessionListEntry describes one row for CLI or session/list (subset of ACP SessionInfo).
@@ -349,6 +370,8 @@ func (f *FileStore) Save(state *State) error {
 		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
 		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
 	}
+	meta.ActivitySeq = state.GetActivitySeq()
+	meta.ReadActivitySeq = state.GetReadActivitySeq()
 	if err := writeJSONAtomic(filepath.Join(dir, sessionMetaFile), meta); err != nil {
 		return err
 	}

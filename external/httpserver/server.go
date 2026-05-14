@@ -300,27 +300,49 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var bridge *Sender
-	if req.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		bridge = NewSender(s.activeCfg(), w, true, model)
-	} else {
-		bridge = NewSender(s.activeCfg(), nil, false, model)
-	}
-
 	if httpModelIsCoddyProfile(model) {
 		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
+		if req.Stream {
+			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sessionID, st)
+			if lockErr != nil {
+				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
+					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+					return
+				}
+				s.log.Error("session turn lock", "error", lockErr)
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+				return
+			}
+			defer unlock()
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			bridge = NewSender(s.activeCfg(), w, true, model)
+		} else {
+			bridge = NewSender(s.activeCfg(), nil, false, model)
+		}
+		var promptOpts *session.PromptRunOpts
+		if req.Stream {
+			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
+		}
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    prompt,
-		}, bridge); err != nil {
+		}, bridge, promptOpts); err != nil {
 			s.log.Error("session prompt", "error", err)
+			if errors.Is(err, session.ErrSessionTurnBusy) && !req.Stream {
+				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+				return
+			}
 			if req.Stream {
 				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 			} else {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+				code := http.StatusInternalServerError
+				if errors.Is(err, session.ErrSessionTurnBusy) {
+					code = http.StatusConflict
+				}
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
 			}
 			return
 		}
@@ -350,6 +372,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		bridge = NewSender(s.activeCfg(), w, true, model)
+	} else {
+		bridge = NewSender(s.activeCfg(), nil, false, model)
+	}
 	st.ReplaceMessagesWithoutPersist(prefix)
 	st.AddMessage(llm.Message{
 		Role:      llm.RoleUser,
@@ -555,16 +585,6 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var bridge *Sender
-	if body.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		bridge = NewSender(s.activeCfg(), w, true, model)
-	} else {
-		bridge = NewSender(s.activeCfg(), nil, false, model)
-	}
-
 	if httpModelIsCoddyProfile(model) {
 		cwdAbs, err := filepath.Abs(st.GetCWD())
 		if err != nil {
@@ -588,21 +608,56 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.Stream {
 				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("Connection", "keep-alive")
 				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 			} else {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
 			}
 			return
 		}
+
+		var bridge *Sender
+		if body.Stream {
+			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sid, st)
+			if lockErr != nil {
+				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
+					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+					return
+				}
+				s.log.Error("session turn lock", "error", lockErr)
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+				return
+			}
+			defer unlock()
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			bridge = NewSender(s.activeCfg(), w, true, model)
+		} else {
+			bridge = NewSender(s.activeCfg(), nil, false, model)
+		}
+		var promptOpts *session.PromptRunOpts
+		if body.Stream {
+			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
+		}
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
-		}, bridge); err != nil {
+		}, bridge, promptOpts); err != nil {
 			s.log.Error("responses prompt", "error", err)
+			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {
+				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+				return
+			}
 			if body.Stream {
 				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 			} else {
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
+				code := http.StatusInternalServerError
+				if errors.Is(err, session.ErrSessionTurnBusy) {
+					code = http.StatusConflict
+				}
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
 			}
 			return
 		}
@@ -625,6 +680,15 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var bridge *Sender
+	if body.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		bridge = NewSender(s.activeCfg(), w, true, model)
+	} else {
+		bridge = NewSender(s.activeCfg(), nil, false, model)
+	}
 	st.AddMessage(llm.Message{
 		Role:      llm.RoleUser,
 		Content:   strings.TrimSpace(body.Input),

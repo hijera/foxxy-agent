@@ -46,6 +46,25 @@ import { Settings } from "./settings/Settings";
 
 const HDR = "X-Coddy-Session-ID";
 
+async function markCoddySessionActivityRead(id: string): Promise<void> {
+  const t = id.trim();
+  if (!t) {
+    return;
+  }
+  try {
+    await fetch(`/coddy/sessions/${encodeURIComponent(t)}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        [HDR]: t,
+      },
+      body: JSON.stringify({ markActivityRead: true }),
+    });
+  } catch {
+    // ignore
+  }
+}
+
 /** Poll job list while scheduler UI is open (running, next_run_utc, paused). */
 const SCHEDULER_JOBS_POLL_MS = 12_000;
 
@@ -474,6 +493,8 @@ export function App() {
   const inFlightRef = useRef(false);
   const generationAbortRef = useRef<AbortController | null>(null);
   const activeStreamSidRef = useRef("");
+  /** Session id currently shown in the transcript (updated synchronously on navigation). */
+  const viewedSessionIdRef = useRef("");
   const streamingAssistantIdRef = useRef("");
   const [generating, setGenerating] = useState(false);
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
@@ -626,7 +647,9 @@ export function App() {
     const p = parseAppHash();
     if (p.branch === "session") {
       setSettingsRoute(false);
+      viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
+      void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setSessionsOpen(!!p.historyOpen);
@@ -675,6 +698,7 @@ export function App() {
       }
       return;
     }
+    viewedSessionIdRef.current = "";
     setSessionId("");
     setSettingsRoute(false);
     setSchedulerOpen(false);
@@ -686,8 +710,10 @@ export function App() {
     (id: string, opts?: { historySidebar?: boolean }) => {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
+      void markCoddySessionActivityRead(id);
     },
     [],
   );
@@ -695,6 +721,7 @@ export function App() {
   const clearSessionRoute = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
   }, []);
@@ -981,6 +1008,7 @@ export function App() {
       if (sessionFilterQ) {
         ps.set("q", sessionFilterQ);
       }
+      ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
         nextCursor?: string | null;
@@ -1015,6 +1043,19 @@ export function App() {
     },
     [sessionFilterQ, headers],
   );
+
+  useEffect(() => {
+    const hasBackgroundTurn = sessions.some(
+      (s) => !!s.turnActive && s.id !== sessionId,
+    );
+    if (!generating && !hasBackgroundTurn) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void loadSessionsList(true);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [generating, sessions, sessionId, loadSessionsList]);
 
   useEffect(() => {
     if (!sessionsOpen) {
@@ -1275,6 +1316,7 @@ export function App() {
     if (id === sessionId) {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      viewedSessionIdRef.current = "";
       setSessionId("");
       setHeroHomeGeneration((g) => g + 1);
       setItems([]);
@@ -1296,9 +1338,6 @@ export function App() {
     if (!sessionId) {
       setItems([]);
       void loadSessionsList(true);
-      return;
-    }
-    if (inFlightRef.current) {
       return;
     }
     setTokenUsage(null);
@@ -1336,6 +1375,13 @@ export function App() {
       toolCallId: string;
     },
   ) {
+    const streamSid = activeStreamSidRef.current.trim();
+    if (
+      streamSid &&
+      viewedSessionIdRef.current.trim() !== streamSid
+    ) {
+      return;
+    }
     setItems((prev) => {
       const idx = prev.findIndex(
         (x) => x.type === "tool_call" && x.toolCallId === update.toolCallId,
@@ -1417,6 +1463,16 @@ export function App() {
 
     let sidEffective = "";
     try {
+      const applyStreamItems = (
+        fn: (prev: TranscriptItem[]) => TranscriptItem[],
+      ) => {
+        setItems((prev) => {
+          if (viewedSessionIdRef.current !== activeStreamSidRef.current) {
+            return prev;
+          }
+          return fn(prev);
+        });
+      };
       let sid = sessionId;
       if (!sid) {
         sid = randomSessionId();
@@ -1465,7 +1521,7 @@ export function App() {
       assistantStreamId = assistantId;
       streamingAssistantIdRef.current = assistantId;
       activeStreamSidRef.current = sid;
-      setItems((prev) => [...prev, userItem]);
+      applyStreamItems((prev) => [...prev, userItem]);
       setTokenUsage(null);
 
       const reqBody: Record<string, unknown> = {
@@ -1493,6 +1549,33 @@ export function App() {
         signal: abortCtl.signal,
       });
 
+      if (res.status === 409) {
+        let msg =
+          "This chat is busy in another client. Try again in a moment.";
+        try {
+          const body = (await res.json()) as {
+            error?: { message?: string };
+          };
+          const m = body?.error?.message;
+          if (typeof m === "string" && m.trim()) {
+            msg = m.trim();
+          }
+        } catch {
+          // ignore
+        }
+        applyStreamItems((prev) => [
+          ...prev,
+          {
+            id: newId("s"),
+            type: "system_notice",
+            level: "error" as const,
+            message: msg,
+          },
+        ]);
+        completedNormally = true;
+        return;
+      }
+
       const sidHdr = res.headers.get(HDR);
       if (sidHdr && sidHdr !== sid) {
         migrateWorkspaceAtRecents(sid, sidHdr);
@@ -1513,7 +1596,7 @@ export function App() {
         const msg = !res.body
           ? "Empty response body"
           : `Request failed (${res.status})`;
-        setItems((prev) => [
+        applyStreamItems((prev) => [
           ...prev,
           {
             id: newId("s"),
@@ -1540,7 +1623,7 @@ export function App() {
         raf = 0;
         if (toolQueue.length === 0) return;
         const pending = toolQueue.splice(0, toolQueue.length);
-        setItems((prev) => {
+        applyStreamItems((prev) => {
           let next = prev;
           for (const upd of pending) {
             const idx = next.findIndex(
@@ -1628,7 +1711,7 @@ export function App() {
       const ensureAssistant = (
         patch?: Partial<Extract<TranscriptItem, { type: "assistant_message" }>>,
       ) => {
-        setItems((prev) => {
+        applyStreamItems((prev) => {
           const idx = prev.findIndex(
             (x) => x.type === "assistant_message" && x.id === assistantId,
           );
@@ -1662,7 +1745,7 @@ export function App() {
           activeThinkingStarted = freezeAt;
         }
         const id = activeThinkingId;
-        setItems((prev) => {
+        applyStreamItems((prev) => {
           const known = prev.some(
             (it) => it.type === "thinking" && it.id === id,
           );
@@ -1692,7 +1775,7 @@ export function App() {
         if (!activeThinkingId) return;
         const id = activeThinkingId;
         const dur = Math.max(0, Date.now() - activeThinkingStarted);
-        setItems((prev) =>
+        applyStreamItems((prev) =>
           prev.map((it) => {
             if (it.type !== "thinking" || it.id !== id) {
               return it;
@@ -1731,7 +1814,7 @@ export function App() {
           }
           if (!last) return false;
           ensureAssistant();
-          setItems((prev) =>
+          applyStreamItems((prev) =>
             prev.map((it) =>
               it.type === "assistant_message" && it.id === assistantId
                 ? {
@@ -1802,7 +1885,7 @@ export function App() {
                   finishThinking();
                 }
                 ensureAssistant();
-                setItems((prev) =>
+                applyStreamItems((prev) =>
                   prev.map((it) =>
                     it.type === "assistant_message" && it.id === assistantId
                       ? { ...it, content: it.content + c }
@@ -1837,7 +1920,7 @@ export function App() {
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
-              setItems((prev) =>
+              applyStreamItems((prev) =>
                 applyMemoryPhaseToItems(prev, {
                   memoryRowId: String(raw.memoryRowId || ""),
                   phase: String(raw.phase || ""),
@@ -1875,7 +1958,7 @@ export function App() {
           if (ev.event === "memory_chunk") {
             try {
               const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              setItems((prev) =>
+              applyStreamItems((prev) =>
                 applyMemoryChunkToItems(prev, {
                   memoryRowId: String(raw.memoryRowId || ""),
                   phase: String(raw.phase || ""),
@@ -2015,7 +2098,7 @@ export function App() {
                   finishThinking();
                 }
                 ensureAssistant();
-                setItems((prev) =>
+                applyStreamItems((prev) =>
                   prev.map((it) =>
                     it.type === "assistant_message" && it.id === assistantId
                       ? { ...it, content: it.content + c }
@@ -2031,7 +2114,7 @@ export function App() {
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
-              setItems((prev) =>
+              applyStreamItems((prev) =>
                 applyMemoryPhaseToItems(prev, {
                   memoryRowId: String(raw.memoryRowId || ""),
                   phase: String(raw.phase || ""),
@@ -2068,7 +2151,7 @@ export function App() {
           if (ev.event === "memory_chunk") {
             try {
               const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              setItems((prev) =>
+              applyStreamItems((prev) =>
                 applyMemoryChunkToItems(prev, {
                   memoryRowId: String(raw.memoryRowId || ""),
                   phase: String(raw.phase || ""),
@@ -2163,7 +2246,7 @@ export function App() {
         flushToolQueue();
         finishThinking();
         const errText = streamErrorMessage;
-        setItems((prev) => {
+        applyStreamItems((prev) => {
           const withoutEmptyAssistant = prev.filter(
             (it) =>
               !(
@@ -2206,6 +2289,7 @@ export function App() {
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
     } finally {
+      const cleanupStreamSid = activeStreamSidRef.current;
       streamingAssistantIdRef.current = "";
       activeStreamSidRef.current = "";
       generationAbortRef.current = null;
@@ -2213,8 +2297,11 @@ export function App() {
       if (!completedNormally && assistantStreamId) {
         const aid = assistantStreamId;
         const now = Date.now();
-        setItems((prev) =>
-          prev.map((it) => {
+        setItems((prev) => {
+          if (viewedSessionIdRef.current.trim() !== cleanupStreamSid.trim()) {
+            return prev;
+          }
+          return prev.map((it) => {
             if (it.type === "thinking" && it.status === "in_progress") {
               const dur = Math.max(0, now - (it.startedAtMs || now));
               const nextIt = {
@@ -2231,8 +2318,8 @@ export function App() {
               return { ...it, streaming: false };
             }
             return it;
-          }),
-        );
+          });
+        });
         void loadMessages(sidEffective);
         void loadSessionsList(true);
       }

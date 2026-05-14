@@ -250,7 +250,7 @@ Lists persisted sessions found under the configured sessions root (see README). 
 
 When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
 
-- `session.json` - id, cwd, mode, model override, agent memory, derived or pinned title (`titlePinned`), timestamps
+- `session.json` - id, cwd, mode, model override, agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
 - `messages.json` - LLM message history (roles user, assistant, tool)
 - `assets/` - reserved for future session-scoped files
 - `todos/active.md` - current todo checklist synced from plan tools
@@ -297,6 +297,8 @@ Cancel an ongoing prompt turn (notification).
   }
 }
 ```
+
+For a writable session bundle, Coddy also writes a small on-disk cancel signal so another **`coddy`** process (for example **`coddy http`** while **`coddy acp`** runs the turn) can observe cooperative cancellation between poll ticks during the turn. The in-process turn still ends via the same **`TurnCtx`** cancel hook when the session is loaded in this process.
 
 ### `session/set_mode`
 

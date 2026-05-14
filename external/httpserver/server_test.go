@@ -529,6 +529,162 @@ func TestCoddySessionsList(t *testing.T) {
 	}
 }
 
+func TestCoddySessionActivityGet(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resHTTP, err := http.Get(ts.URL + "/coddy/sessions/" + url.PathEscape(sid) + "/activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("status %d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		Object           string `json:"object"`
+		SessionID        string `json:"sessionId"`
+		TurnActive       bool   `json:"turnActive"`
+		ActivitySeq      uint64 `json:"activitySeq"`
+		ReadActivitySeq  uint64 `json:"readActivitySeq"`
+		UnreadComplete   bool   `json:"unreadComplete"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Object != "coddy.session_activity" || parsed.SessionID != sid {
+		t.Fatalf("unexpected %+v", parsed)
+	}
+	if parsed.TurnActive {
+		t.Fatal("expected turnActive false when idle")
+	}
+	if parsed.ActivitySeq < 1 {
+		t.Fatalf("want activitySeq>=1 got %d", parsed.ActivitySeq)
+	}
+	if !parsed.UnreadComplete {
+		t.Fatal("expected unreadComplete true after a completed turn with read cursor at zero")
+	}
+}
+
+func TestCoddySessionPatchMarkActivityRead(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := strings.NewReader(`{"markActivityRead":true}`)
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	resHTTP, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("status %d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		Object          string `json:"object"`
+		ActivitySeq     uint64 `json:"activitySeq"`
+		ReadActivitySeq uint64 `json:"readActivitySeq"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.ActivitySeq != parsed.ReadActivitySeq {
+		t.Fatalf("want read synced got act=%d read=%d", parsed.ActivitySeq, parsed.ReadActivitySeq)
+	}
+}
+
+func TestCoddySessionsListIncludeActivity(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resHTTP, err := http.Get(ts.URL + "/coddy/sessions?include_activity=true&limit=50")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		Sessions []map[string]interface{} `json:"sessions"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	var hit map[string]interface{}
+	for _, row := range parsed.Sessions {
+		if row["id"] == sid {
+			hit = row
+			break
+		}
+	}
+	if hit == nil {
+		t.Fatalf("session not in list %s", string(b))
+	}
+	if _, ok := hit["turnActive"]; !ok {
+		t.Fatalf("missing turnActive in %+v", hit)
+	}
+	if _, ok := hit["activitySeq"]; !ok {
+		t.Fatalf("missing activitySeq")
+	}
+}
+
 func TestCoddySessionsListFilterByQUserMessage(t *testing.T) {
 	_, srv, sessRoot := testHTTPServerPersist(t)
 	fs := &session.FileStore{Root: sessRoot}

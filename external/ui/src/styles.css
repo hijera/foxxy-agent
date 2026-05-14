@@ -700,17 +700,43 @@ body {
   gap: 8px;
 }
 
+.session-row-leading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-activity-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(147, 51, 234, 0.85);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: session-spin 0.7s linear infinite;
+}
+
+@keyframes session-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.session-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(167, 139, 250, 0.95);
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.25);
+  flex-shrink: 0;
+}
+
 .sessions-empty {
   padding: 12px 12px;
   color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
-}
-
-.session-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .session-title-btn {
@@ -747,6 +773,7 @@ body {
 
 .session-title {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
