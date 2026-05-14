@@ -1,4 +1,8 @@
 import { useEffect, useRef } from "react";
+import {
+  sessionRowShowsSpinner,
+  sessionRowShowsUnreadDot,
+} from "./sessionRowActivity";
 import type { SessionRow } from "./types";
 
 export function SessionsSidebar(props: {
@@ -117,9 +121,25 @@ export function SessionsSidebar(props: {
             }}
           >
             <div className="session-row">
-              <span className="session-title" title={s.title || "New chat"}>
-                {s.title || "New chat"}
-              </span>
+              <div className="session-row-leading">
+                {sessionRowShowsSpinner(s, props.sessionId) ? (
+                  <span
+                    className="session-activity-spinner"
+                    aria-hidden
+                    data-testid={`session-spinner-${s.id}`}
+                  />
+                ) : null}
+                {sessionRowShowsUnreadDot(s, props.sessionId) ? (
+                  <span
+                    className="session-unread-dot"
+                    aria-label="Unread completion"
+                    data-testid={`session-unread-${s.id}`}
+                  />
+                ) : null}
+                <span className="session-title" title={s.title || "New chat"}>
+                  {s.title || "New chat"}
+                </span>
+              </div>
               <button
                 className="session-trash"
                 type="button"

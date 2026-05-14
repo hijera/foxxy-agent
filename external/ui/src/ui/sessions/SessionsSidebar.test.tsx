@@ -34,3 +34,33 @@ test("delete click does not bubble to row pick", async () => {
   expect(onDelete).toHaveBeenCalledWith("other");
   expect(onPick).not.toHaveBeenCalled();
 });
+
+test("shows spinner and unread dot for other sessions", () => {
+  render(
+    <SessionsSidebar
+      sessionId="current"
+      sessions={[
+        { id: "current", title: "A" },
+        {
+          id: "busy",
+          title: "B",
+          turnActive: true,
+          unreadComplete: true,
+        },
+      ]}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("session-spinner-busy")).toBeInTheDocument();
+  expect(screen.getByTestId("session-unread-busy")).toBeInTheDocument();
+  expect(screen.queryByTestId("session-spinner-current")).toBeNull();
+});
+

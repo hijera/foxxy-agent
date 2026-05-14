@@ -41,7 +41,7 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 
 **`DESIGN.md`** is the contract for layout, tokens, and SPA component behavior. After changing **`external/ui/src/`**, rebuild embedded assets with **`make build TAGS="http ui"`** before relying on **`go:embed`**.
 
-The composer exposes **`Mode`** (**`agent`** / **`plan`**) and a separate **`Model`** YAML backend selector (**`metadata.model`**; list rows with **`owned_by`** other than **`coddy`** from **`GET /v1/models`**). Default YAML id comes from **`default_agent_model`**; persisted preference uses cookie **`coddy_llm_model`**.
+The composer exposes **`Mode`** (**`agent`** / **`plan`**) and a separate **`Model`** YAML backend selector (**`metadata.model`**; list rows with **`owned_by`** other than **`coddy`** from **`GET /v1/models`**). Default YAML id comes from **`default_agent_model`**; persisted preference uses cookie **`coddy_llm_model`**. Parallel **`POST /v1/responses`** per session, **Stop** (**cancel** + partial assistant persistence), and transcript merge after **`GET .../messages`** are specified in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/ui/spec.md`**.
 
 ## Python samples (`examples/`)
 

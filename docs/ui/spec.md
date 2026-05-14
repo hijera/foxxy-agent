@@ -52,6 +52,11 @@ Narrow-rail tooltips (desktop)
   - `tool_calls/` tool call history
   - `stats.json` token usage totals
 
+### Parallel sessions and generation cancel
+
+- Several sessions may **stream at once**, each with its own **`POST /v1/responses`** and **`X-Coddy-Session-ID`**. The app keeps a **per-session shadow** transcript so rapid hash switches do not mis-route SSE updates; see **`pickStreamMutationBase`** in **`external/ui/src/ui/chat/streamMutationBase.ts`**.
+- **Stop** uses **`POST /coddy/sessions/{id}/cancel`** and **`AbortSignal`** on the streaming **`fetch`**. The server persists **partial** assistant **`content`** for that turn when tokens had already arrived. **`GET /coddy/sessions/{id}/messages`** may return an older snapshot briefly; the UI **merges** with local shadow or visible rows when the response is only a prefix (**`mergeTranscriptPreferLocalSuffix`**, **`keepLocalTranscriptIfServerEmpty`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). The transcript is cleared on fetch failure **only** when the failed load targets the **currently viewed** session so Stop does not wipe the chat.
+
 Session title
 
 - UI shows the session title in the chat header.
@@ -112,7 +117,7 @@ Shape and glyphs
 Behavior (unchanged summary)
 
 - **Enter** submits when idle and not generating; **`Shift+Enter`** newline. No submit while **`generating`**.
-- **Stop**: **`POST /coddy/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. Details in **`DESIGN.md`** and **`docs/http-api.md`** (**cancelling** section).
+- **Stop**: **`POST /coddy/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. The server may append a **partial** assistant message for that turn. **`GET /coddy/sessions/{id}/messages`** can lag; the bundled UI merges server rows with local shadow or on-screen items (**`transcriptServerSnapshot.ts`**). Details in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/http-api.md`**.
 
 Regression
 

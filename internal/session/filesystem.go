@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -109,6 +110,10 @@ type SessionMeta struct {
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
 	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
 	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
+	// ActivitySeq increments when an agent turn completes (multi-surface unread indicator).
+	ActivitySeq uint64 `json:"activitySeq,omitempty"`
+	// ReadActivitySeq tracks the last activity generation the user marked as read.
+	ReadActivitySeq uint64 `json:"readActivitySeq,omitempty"`
 }
 
 // ExcludedFromComposerSessionList reports whether this session should not appear on default composer UI lists (GET /coddy/sessions).
@@ -205,6 +210,23 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		PermissionCommands:  permCmds,
 		PermissionWriteKeys: permWrites,
 	}, nil
+}
+
+// ReadDiskActivity returns activitySeq and readActivitySeq from session.json only.
+func (f *FileStore) ReadDiskActivity(sessionID string) (activitySeq, readActivitySeq uint64, err error) {
+	if f == nil || f.Root == "" {
+		return 0, 0, nil
+	}
+	metaPath := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
+	b, err := os.ReadFile(metaPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return 0, 0, err
+	}
+	return meta.ActivitySeq, meta.ReadActivitySeq, nil
 }
 
 // SessionListEntry describes one row for CLI or session/list (subset of ACP SessionInfo).
@@ -331,6 +353,32 @@ func (f *FileStore) Save(state *State) error {
 	}
 	msgs := state.GetMessages()
 	title := persistedConversationTitle(state)
+	metaPath := filepath.Join(dir, sessionMetaFile)
+	msgPath := filepath.Join(dir, messagesFile)
+
+	var prevMeta SessionMeta
+	if prevMetaBytes, err := os.ReadFile(metaPath); err == nil {
+		_ = json.Unmarshal(prevMetaBytes, &prevMeta)
+	}
+
+	newActivitySeq := state.GetActivitySeq()
+	newReadSeq := state.GetReadActivitySeq()
+
+	wrapPreview := messagesFileData{
+		Version:  messagesLayout,
+		Messages: msgs,
+	}
+	newMsgBytes, encErr := json.Marshal(wrapPreview)
+	oldMsgBytes, oldMsgErr := os.ReadFile(msgPath)
+	preserveUpdatedAt := encErr == nil && oldMsgErr == nil &&
+		bytes.Equal(oldMsgBytes, newMsgBytes) &&
+		newActivitySeq == prevMeta.ActivitySeq
+
+	updatedAt := time.Now().UTC().Format(time.RFC3339)
+	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
+		updatedAt = prevMeta.UpdatedAt
+	}
+
 	meta := SessionMeta{
 		Version:         sessionFileLayout,
 		ID:              state.ID,
@@ -340,7 +388,7 @@ func (f *FileStore) Save(state *State) error {
 		AgentMemory:     state.GetAgentMemory(),
 		Title:           title,
 		TitlePinned:     strings.TrimSpace(state.GetTitlePinned()),
-		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+		UpdatedAt:       updatedAt,
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true
@@ -349,14 +397,16 @@ func (f *FileStore) Save(state *State) error {
 		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
 		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
 	}
-	if err := writeJSONAtomic(filepath.Join(dir, sessionMetaFile), meta); err != nil {
+	meta.ActivitySeq = newActivitySeq
+	meta.ReadActivitySeq = newReadSeq
+	if err := writeJSONAtomic(metaPath, meta); err != nil {
 		return err
 	}
 	wrap := messagesFileData{
 		Version:  messagesLayout,
 		Messages: msgs,
 	}
-	if err := writeJSONAtomic(filepath.Join(dir, messagesFile), wrap); err != nil {
+	if err := writeJSONAtomic(msgPath, wrap); err != nil {
 		return err
 	}
 	uiWrap := uiLogFileData{
@@ -375,6 +425,30 @@ func (f *FileStore) Save(state *State) error {
 		return err
 	}
 	return SyncActiveTodoFile(dir, state.GetPlan())
+}
+
+// PatchSessionMetaActivitySync writes only activitySeq and readActivitySeq into session.json,
+// preserving updatedAt and all other meta fields. It does not write messages.json.
+func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
+	if f == nil || st == nil {
+		return nil
+	}
+	dir := strings.TrimSpace(st.SessionDir)
+	if dir == "" {
+		return fmt.Errorf("session has no SessionDir")
+	}
+	path := filepath.Join(dir, sessionMetaFile)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return fmt.Errorf("session.json: %w", err)
+	}
+	meta.ActivitySeq = st.GetActivitySeq()
+	meta.ReadActivitySeq = st.GetReadActivitySeq()
+	return writeJSONAtomic(path, meta)
 }
 
 func deriveSessionTitle(s *State) string {
@@ -402,17 +476,54 @@ func truncateRunes(s string, max int) string {
 	return string(rs[:max]) + "..."
 }
 
+// writeBytesAtomic writes data to path using a unique temp file in the same directory
+// and renames it into place. A fixed ".tmp" suffix races when multiple goroutines patch
+// the same session (e.g. markActivityRead from parallel UI tabs).
+func writeBytesAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	base := filepath.Base(path)
+	f, err := os.CreateTemp(dir, base+".tmp.")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func writeJSONAtomic(path string, v interface{}) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeBytesAtomic(path, data)
 }
 
 // SyncActiveTodoFile writes todos/active.md from the current plan (empty file if no items).
@@ -427,11 +538,7 @@ func SyncActiveTodoFile(sessionDir string, plan []acp.PlanEntry) error {
 	if text != "" {
 		data = []byte(text + "\n")
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeBytesAtomic(path, data)
 }
 
 // WritePlanArchivedMarkdown saves markdown to todos/archive/plan_<unix_seconds>.md.
@@ -464,11 +571,7 @@ func WritePlanArchivedMarkdown(sessionDir, markdown string) (writtenPath string,
 				data = append(data, '\n')
 			}
 		}
-		tmp := dest + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o644); err != nil {
-			return "", err
-		}
-		if err := os.Rename(tmp, dest); err != nil {
+		if err := writeBytesAtomic(dest, data); err != nil {
 			return "", err
 		}
 		return dest, nil

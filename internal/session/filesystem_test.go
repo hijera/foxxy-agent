@@ -1,6 +1,8 @@
 package session
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -334,5 +336,115 @@ func TestFilterSnapshotFirstUserAfterSystemIgnoredForSecondUser(t *testing.T) {
 	}
 	if len(got2) != 1 {
 		t.Fatalf("first user hello: %+v", got2)
+	}
+}
+
+func TestSavePreservesUpdatedAtWhenMessagesAndActivitySeqUnchanged(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_preserve_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{
+		ID:         id,
+		CWD:        "/tmp",
+		Mode:       ModeAgent,
+		SessionDir: dir,
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	st.RestoreActivityFromSnapshot(1, 0)
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap1, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ut1 := snap1.Meta.UpdatedAt
+	if ut1 == "" {
+		t.Fatal("expected updatedAt after first save")
+	}
+	if snap1.Meta.ActivitySeq != 1 || snap1.Meta.ReadActivitySeq != 0 {
+		t.Fatalf("meta %+v", snap1.Meta)
+	}
+	st.MarkActivityReadSynced()
+	if err := fs.PatchSessionMetaActivitySync(st); err != nil {
+		t.Fatal(err)
+	}
+	snap2, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap2.Meta.ReadActivitySeq != 1 {
+		t.Fatalf("read seq %+v", snap2.Meta)
+	}
+	if snap2.Meta.UpdatedAt != ut1 {
+		t.Fatalf("mark read only: updatedAt changed from %q to %q", ut1, snap2.Meta.UpdatedAt)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "bye"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap3, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap3.Meta.UpdatedAt == ut1 {
+		t.Fatal("expected updatedAt to change after new user message")
+	}
+}
+
+func TestConcurrentPatchSessionMetaActivitySync(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_concur_meta"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{
+		ID:         id,
+		CWD:        "/tmp",
+		Mode:       ModeAgent,
+		SessionDir: dir,
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	st.RestoreActivityFromSnapshot(10, 0)
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	const n = 64
+	var wg sync.WaitGroup
+	wg.Add(n)
+	errCh := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(k int) {
+			defer wg.Done()
+			stLocal := &State{
+				ID:         id,
+				CWD:        "/tmp",
+				Mode:       ModeAgent,
+				SessionDir: dir,
+			}
+			stLocal.RestoreActivityFromSnapshot(uint64(10+k), uint64(k))
+			if err := fs.PatchSessionMetaActivitySync(stLocal); err != nil {
+				errCh <- fmt.Errorf("k=%d: %w", k, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq < 10 {
+		t.Fatalf("activitySeq=%d", snap.Meta.ActivitySeq)
 	}
 }

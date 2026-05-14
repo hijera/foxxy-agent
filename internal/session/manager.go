@@ -40,6 +40,9 @@ type Manager struct {
 
 	sessions map[string]*State
 	mu       sync.RWMutex
+
+	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
+	stubTurnMu sync.Map // sessionID -> *sync.Mutex
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -316,6 +319,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.SetPlanWithoutPersist(snap.Plan)
 	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys)
 	st.RestoreUILogWithoutPersist(snap.UILog)
+	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
 
 	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home)
 	if err != nil {
@@ -465,11 +469,32 @@ func (m *Manager) HandleSessionList(_ context.Context, params acp.SessionListPar
 }
 
 func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPromptParams) (*acp.SessionPromptResult, error) {
-	return m.HandleSessionPromptWithSender(ctx, params, m.server)
+	return m.HandleSessionPromptWithSender(ctx, params, m.server, nil)
+}
+
+// PromptRunOpts configures HandleSessionPromptWithSender for HTTP streaming paths that
+// acquire the turn lock before committing SSE headers.
+type PromptRunOpts struct {
+	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy http SSE).
+	SkipTurnLock bool
+}
+
+// AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
+func (m *Manager) AcquireComposerTurnLock(sessionID string, st *State) (unlock func(), err error) {
+	return m.acquirePromptTurnLock(sessionID, st)
+}
+
+// WriteCrossProcessCancelRequest writes the on-disk cancel signal for a persisted session bundle.
+func (m *Manager) WriteCrossProcessCancelRequest(sessionID string) error {
+	fs := m.FileStore()
+	if fs == nil || !fs.HasPersistedSnapshot(sessionID) {
+		return nil
+	}
+	return WriteCancelRequest(fs.SessionPath(sessionID))
 }
 
 // HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).
-func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
+func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *PromptRunOpts) (*acp.SessionPromptResult, error) {
 	if sender == nil {
 		sender = m.server
 	}
@@ -478,10 +503,31 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
-	// Create a cancellable context for this prompt turn.
-	turnCtx, cancel := context.WithCancel(ctx)
+	var unlock func()
+	var err error
+	if opts != nil && opts.SkipTurnLock {
+		unlock = func() {}
+	} else {
+		unlock, err = m.acquirePromptTurnLock(params.SessionID, state)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer unlock()
+
+	turnBase := ctx
+	if opts != nil && opts.SkipTurnLock {
+		turnBase = context.WithoutCancel(ctx)
+	}
+	turnCtx, cancel := context.WithCancel(turnBase)
 	state.SetCancel(cancel)
 	defer cancel()
+
+	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())
+	if sessionDir != "" {
+		_ = ClearCancelRequest(sessionDir)
+		go m.runCrossProcessCancelPoll(turnCtx, state, sessionDir)
+	}
 
 	cwdAbs, err := filepath.Abs(state.GetCWD())
 	if err != nil {
@@ -491,6 +537,15 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
+
+	var ranRunner bool
+	defer func() {
+		if ranRunner {
+			state.BumpActivitySeq()
+		}
+	}()
+
+	ranRunner = true
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -582,11 +637,11 @@ func (m *Manager) sendConfigOptionUpdate(sessionID string, state *State) {
 }
 
 func (m *Manager) HandleSessionCancel(params acp.SessionCancelParams) {
+	_ = m.WriteCrossProcessCancelRequest(params.SessionID)
 	state := m.getSession(params.SessionID)
-	if state == nil {
-		return
+	if state != nil {
+		state.Cancel()
 	}
-	state.Cancel()
 	m.log.Info("session cancelled", "id", params.SessionID)
 }
 

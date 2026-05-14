@@ -118,7 +118,9 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/slash-commands", s.coddySlashCommandsGet)
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/composer-stream", s.coddySessionComposerStream)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
@@ -147,6 +149,7 @@ func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Req
 		http.Error(w, `{"error":{"message":"X-Coddy-Session-ID does not match path id"}}`, http.StatusBadRequest)
 		return
 	}
+	_ = s.mgr.WriteCrossProcessCancelRequest(id)
 	if s.mgr.SessionByID(id) == nil {
 		fs := s.mgr.FileStore()
 		if fs == nil || !fs.HasPersistedSnapshot(id) {
@@ -602,9 +605,10 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		end = len(rows)
 	}
 	slice := rows[start:end]
-	sessions := make([]map[string]string, 0, len(slice))
+	includeActivity := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_activity")), "true")
+	sessions := make([]map[string]interface{}, 0, len(slice))
 	for _, row := range slice {
-		ent := map[string]string{
+		ent := map[string]interface{}{
 			"id": row.SessionID,
 		}
 		if row.Title != "" {
@@ -615,6 +619,15 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		}
 		if row.CWD != "" {
 			ent["cwd"] = row.CWD
+		}
+		if includeActivity {
+			dir := fs.SessionPath(row.SessionID)
+			turnActive := session.TurnLockHeld(dir)
+			actSeq, readSeq, _ := fs.ReadDiskActivity(row.SessionID)
+			ent["turnActive"] = turnActive
+			ent["activitySeq"] = actSeq
+			ent["readActivitySeq"] = readSeq
+			ent["unreadComplete"] = actSeq > readSeq && !turnActive
 		}
 		sessions = append(sessions, ent)
 	}
@@ -627,6 +640,44 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		"sessions":   sessions,
 		"nextCursor": nextCursor,
 		"hasMore":    end < len(rows),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := session.ValidateFolderSessionID(id); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	fs := s.coddyRequireStore(w)
+	if fs == nil {
+		return
+	}
+	if !fs.HasPersistedSnapshot(id) {
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+		return
+	}
+	dir := fs.SessionPath(id)
+	turnActive := session.TurnLockHeld(dir)
+	actSeq, readSeq, err := fs.ReadDiskActivity(id)
+	if err != nil {
+		s.log.Error("coddy session activity", "error", err)
+		http.Error(w, `{"error":{"message":"read failed"}}`, http.StatusInternalServerError)
+		return
+	}
+	out := map[string]interface{}{
+		"object":           "coddy.session_activity",
+		"sessionId":        id,
+		"turnActive":       turnActive,
+		"activitySeq":      actSeq,
+		"readActivitySeq":  readSeq,
+		"unreadComplete":   actSeq > readSeq && !turnActive,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
@@ -717,28 +768,46 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	var body struct {
-		Title string `json:"title"`
+		Title            string `json:"title"`
+		MarkActivityRead bool   `json:"markActivityRead"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
-		return
-	}
-	t := strings.TrimSpace(body.Title)
-	if t == "" {
-		http.Error(w, `{"error":{"message":"title is required"}}`, http.StatusBadRequest)
 		return
 	}
 	st := s.coddyEnsureLoaded(w, r, id)
 	if st == nil {
 		return
 	}
-	st.SetTitlePinned(t)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	fs := s.mgr.FileStore()
+	resp := map[string]interface{}{
 		"object": "coddy.session_patched",
 		"id":     id,
-		"title":  t,
-	})
+	}
+	did := false
+	if body.MarkActivityRead {
+		st.MarkActivityReadSynced()
+		did = true
+		resp["activitySeq"] = st.GetActivitySeq()
+		resp["readActivitySeq"] = st.GetReadActivitySeq()
+		if fs != nil {
+			if err := fs.PatchSessionMetaActivitySync(st); err != nil {
+				s.log.Warn("patch session meta activity", "id", id, "error", err)
+			}
+		}
+	}
+	t := strings.TrimSpace(body.Title)
+	if t != "" {
+		st.SetTitlePinned(t)
+		did = true
+		resp["title"] = t
+	}
+	if !did {
+		http.Error(w, `{"error":{"message":"title or markActivityRead required"}}`, http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {

@@ -15,6 +15,13 @@ import {
 import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
+import { consumeComposerSseReader } from "./chat/consumeComposerSse";
+import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import {
+  keepLocalTranscriptIfServerEmpty,
+  mergeTranscriptPreferLocalSuffix,
+} from "./chat/transcriptServerSnapshot";
+import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import { NavRail } from "./nav/NavRail";
@@ -45,6 +52,25 @@ import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 
 const HDR = "X-Coddy-Session-ID";
+
+async function markCoddySessionActivityRead(id: string): Promise<void> {
+  const t = id.trim();
+  if (!t) {
+    return;
+  }
+  try {
+    await fetch(`/coddy/sessions/${encodeURIComponent(t)}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        [HDR]: t,
+      },
+      body: JSON.stringify({ markActivityRead: true }),
+    });
+  } catch {
+    // ignore
+  }
+}
 
 /** Poll job list while scheduler UI is open (running, next_run_utc, paused). */
 const SCHEDULER_JOBS_POLL_MS = 12_000;
@@ -464,6 +490,8 @@ export function App() {
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [items, setItems] = useState<TranscriptItem[]>([]);
+  const itemsRef = useRef<TranscriptItem[]>([]);
+  itemsRef.current = items;
   const [draft, setDraft] = useState("");
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const tokenBaselineRef = useRef<{
@@ -471,11 +499,72 @@ export function App() {
     output: number;
     total: number;
   }>({ input: 0, output: 0, total: 0 });
-  const inFlightRef = useRef(false);
-  const generationAbortRef = useRef<AbortController | null>(null);
-  const activeStreamSidRef = useRef("");
-  const streamingAssistantIdRef = useRef("");
-  const [generating, setGenerating] = useState(false);
+  /** Per-session shadow transcript while that session streams in the background. */
+  const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
+  const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
+  /** Session ids with an active client-side composer POST or GET relay. */
+  const activeComposerSidRef = useRef<Set<string>>(new Set());
+  const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
+  /** Session id currently shown in the transcript (updated synchronously on navigation). */
+  const viewedSessionIdRef = useRef("");
+  const bumpComposerActivity = () =>
+    setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
+
+  function addActiveComposer(sid: string) {
+    const k = sid.trim();
+    if (!k) return;
+    if (activeComposerSidRef.current.has(k)) return;
+    activeComposerSidRef.current.add(k);
+    bumpComposerActivity();
+  }
+
+  function removeActiveComposer(sid: string) {
+    const k = sid.trim();
+    if (!k) return;
+    if (!activeComposerSidRef.current.delete(k)) return;
+    bumpComposerActivity();
+  }
+
+  function applyStreamItemsForSession(
+    streamSid: string,
+    fn: (prev: TranscriptItem[]) => TranscriptItem[],
+  ) {
+    const key = streamSid.trim();
+    if (!key) return;
+    const viewing = viewedSessionIdRef.current.trim();
+    const base = pickStreamMutationBase({
+      mutationSessionId: key,
+      viewingSid: viewing,
+      shadow: streamShadowBySidRef.current.get(key),
+      hasActiveComposer: activeComposerSidRef.current.has(key),
+      itemsWhenViewingMatches: itemsRef.current,
+    });
+    const prevShadowLen = streamShadowBySidRef.current.get(key)?.length ?? 0;
+    const next = fn(base);
+    if (next.length === 0 && prevShadowLen > 0 && base.length === 0) {
+      return;
+    }
+    streamShadowBySidRef.current.set(key, next);
+    if (viewing === key) {
+      itemsRef.current = next;
+    }
+    setItems((prev) => {
+      const v = viewedSessionIdRef.current.trim();
+      if (v === key) {
+        return next;
+      }
+      return prev;
+    });
+  }
+
+  const generating = useMemo(() => {
+    const sid = sessionId.trim();
+    if (!sid) return false;
+    return activeComposerSidRef.current.has(sid);
+  }, [sessionId, composerActivityEpoch]);
+
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -626,7 +715,9 @@ export function App() {
     const p = parseAppHash();
     if (p.branch === "session") {
       setSettingsRoute(false);
+      viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
+      void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setSessionsOpen(!!p.historyOpen);
@@ -675,6 +766,7 @@ export function App() {
       }
       return;
     }
+    viewedSessionIdRef.current = "";
     setSessionId("");
     setSettingsRoute(false);
     setSchedulerOpen(false);
@@ -686,8 +778,10 @@ export function App() {
     (id: string, opts?: { historySidebar?: boolean }) => {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
+      void markCoddySessionActivityRead(id);
     },
     [],
   );
@@ -695,6 +789,7 @@ export function App() {
   const clearSessionRoute = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
   }, []);
@@ -981,6 +1076,7 @@ export function App() {
       if (sessionFilterQ) {
         ps.set("q", sessionFilterQ);
       }
+      ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
         nextCursor?: string | null;
@@ -1017,17 +1113,34 @@ export function App() {
   );
 
   useEffect(() => {
+    const hasBackgroundTurn = sessions.some(
+      (s) => !!s.turnActive && s.id !== sessionId,
+    );
+    const anyLocalComposer = activeComposerSidRef.current.size > 0;
+    if (!anyLocalComposer && !hasBackgroundTurn) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void loadSessionsList(true);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
+
+  useEffect(() => {
     if (!sessionsOpen) {
       return;
     }
     void loadSessionsList(true);
   }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
 
-  async function loadMessages(idOverride?: string): Promise<boolean> {
+  async function loadMessages(
+    idOverride?: string,
+    opts?: { skipSetItems?: boolean; preserveOnError?: boolean },
+  ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
     if (!sid) {
       setItems([]);
-      return false;
+      return null;
     }
     const res = await fetchJSON<{
       messages: Array<any>;
@@ -1043,8 +1156,13 @@ export function App() {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
     if (!res.ok || !res.data) {
-      setItems([]);
-      return false;
+      if (!opts?.preserveOnError) {
+        const viewingTrim = viewedSessionIdRef.current.trim();
+        if (viewingTrim === sid) {
+          setItems([]);
+        }
+      }
+      return null;
     }
     type UILogRow = {
       id: string;
@@ -1241,12 +1359,35 @@ export function App() {
         next[idx] = merged;
       }
     }
-    setItems(next);
-    return next.some((it) => it.type === "assistant_message");
+    const viewingTrim = viewedSessionIdRef.current.trim();
+    const prevShadow = streamShadowBySidRef.current.get(sid);
+    const localForMerge =
+      prevShadow && prevShadow.length > 0
+        ? prevShadow
+        : viewingTrim === sid
+          ? itemsRef.current
+          : undefined;
+    const merged = mergeTranscriptPreferLocalSuffix(next, localForMerge);
+    const applied =
+      keepLocalTranscriptIfServerEmpty({
+        serverNext: merged,
+        sid,
+        viewingSid: viewingTrim,
+        prevShadow,
+        prevItems: itemsRef.current,
+      }) ?? merged;
+    if (opts?.skipSetItems) {
+      streamShadowBySidRef.current.set(sid, applied);
+      return applied;
+    }
+    streamShadowBySidRef.current.set(sid, applied);
+    setItems(applied);
+    return applied;
   }
 
   function pickSession(id: string) {
     reasoningDurationMsByContentRef.current = new Map();
+    setItems([]);
     openSessionFromRoute(id, {
       historySidebar: sessionsOpen,
     });
@@ -1275,6 +1416,7 @@ export function App() {
     if (id === sessionId) {
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      viewedSessionIdRef.current = "";
       setSessionId("");
       setHeroHomeGeneration((g) => g + 1);
       setItems([]);
@@ -1298,19 +1440,24 @@ export function App() {
       void loadSessionsList(true);
       return;
     }
-    if (inFlightRef.current) {
-      return;
-    }
     setTokenUsage(null);
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
+    const lifecycle = new AbortController();
     void (async () => {
       const list = await loadSessionsList(true);
+      if (lifecycle.signal.aborted) {
+        return;
+      }
       const exists = !!list?.some((s) => s.id === sessionId);
       if (exists) {
+        const sess = list?.find((s) => s.id === sessionId);
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
           `/coddy/sessions/${encodeURIComponent(sessionId)}/stats`,
           { headers },
         );
+        if (lifecycle.signal.aborted) {
+          return;
+        }
         if (statsRes.ok && statsRes.data?.stats?.tokenUsageTotal) {
           const t = statsRes.data.stats.tokenUsageTotal;
           tokenBaselineRef.current = {
@@ -1324,11 +1471,50 @@ export function App() {
             totalTokens: tokenBaselineRef.current.total,
           });
         }
-        await loadMessages();
+        const shadowSnap = streamShadowBySidRef.current.get(sessionId);
+        if (
+          activeComposerSidRef.current.has(sessionId) &&
+          shadowSnap &&
+          shadowSnap.length > 0
+        ) {
+          setItems([...shadowSnap]);
+        } else {
+          const loaded = await loadMessages();
+          if (lifecycle.signal.aborted) {
+            return;
+          }
+          if (activeComposerSidRef.current.has(sessionId)) {
+            const sh = streamShadowBySidRef.current.get(sessionId);
+            if (sh && sh.length > 0) {
+              setItems([...sh]);
+            }
+          }
+          if (
+            loaded &&
+            sess?.turnActive &&
+            !activeComposerSidRef.current.has(sessionId)
+          ) {
+            void rejoinComposerLiveStream(sessionId, loaded);
+          }
+        }
       } else {
-        setItems([]);
+        const shElse = streamShadowBySidRef.current.get(sessionId);
+        if (
+          activeComposerSidRef.current.has(sessionId) ||
+          (shElse && shElse.length > 0)
+        ) {
+          if (shElse && shElse.length > 0) {
+            setItems([...shElse]);
+          }
+        } else {
+          setItems([]);
+        }
       }
     })();
+    return () => {
+      lifecycle.abort();
+    };
+    // Intentionally sessionId only for loadMessages coalescing; rejoin runs detached.
   }, [sessionId]);
 
   function upsertToolCall(
@@ -1336,7 +1522,9 @@ export function App() {
       toolCallId: string;
     },
   ) {
-    setItems((prev) => {
+    const targetSid = sessionId.trim();
+    if (!targetSid) return;
+    applyStreamItemsForSession(targetSid, (prev) => {
       const idx = prev.findIndex(
         (x) => x.type === "tool_call" && x.toolCallId === update.toolCallId,
       );
@@ -1400,11 +1588,162 @@ export function App() {
     });
   }
 
+  async function rejoinComposerLiveStream(
+    sid: string,
+    baseline: TranscriptItem[],
+  ): Promise<void> {
+    const key = sid.trim();
+    if (!key) return;
+
+    relayAbortBySidRef.current.get(key)?.abort();
+    const fetchCtl = new AbortController();
+    relayAbortBySidRef.current.set(key, fetchCtl);
+
+    addActiveComposer(key);
+    const assistantId = newId("a");
+    streamingAssistantBySidRef.current.set(key, assistantId);
+    streamShadowBySidRef.current.set(key, [...baseline]);
+    if (viewedSessionIdRef.current.trim() === key) {
+      setItems([...baseline]);
+    }
+
+    const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
+      applyStreamItemsForSession(key, fn);
+
+    const branchTokenUsage = (u: TokenUsage | null) => {
+      if (u === null) return;
+      if (viewedSessionIdRef.current.trim() === key) {
+        setTokenUsage(u);
+      }
+    };
+
+    try {
+      const res = await fetch(
+        `/coddy/sessions/${encodeURIComponent(key)}/composer-stream`,
+        { headers: { [HDR]: key }, signal: fetchCtl.signal },
+      );
+      if (!res.ok || !res.body) {
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      const carry = { buf: "" };
+      const {
+        streamErrorMessage,
+        flushToolQueue,
+        finishThinking,
+        ensureAssistant,
+      } = await consumeComposerSseReader({
+        reader,
+        dec,
+        carry,
+        assistantId,
+        applyStreamItems,
+        setTokenUsage: branchTokenUsage,
+        tokenBaselineRef,
+        reasoningDurationMsByContentRef,
+        newId,
+        applyMemoryPhaseToItems,
+        applyMemoryChunkToItems,
+      });
+
+      const syncAssistantFromServer = async () => {
+        try {
+          const res2 = await fetchJSON<{ messages: Array<any> }>(
+            `/coddy/sessions/${encodeURIComponent(key)}/messages`,
+            { headers: { [HDR]: key } },
+          );
+          if (!res2.ok || !res2.data?.messages) return false;
+          let last = "";
+          let lastCreated: string | undefined;
+          for (const m of res2.data.messages) {
+            if ((m.role || "").trim() !== "assistant") continue;
+            const c = (m.content || "").trim();
+            if (c) {
+              last = c;
+              lastCreated = readMessageCreatedAtUTC(m as Record<string, unknown>);
+            }
+          }
+          if (!last) return false;
+          ensureAssistant();
+          applyStreamItems((prev) =>
+            prev.map((it) =>
+              it.type === "assistant_message" && it.id === assistantId
+                ? {
+                    ...it,
+                    content: last,
+                    ...(lastCreated ? { createdAtUtc: lastCreated } : {}),
+                  }
+                : it,
+            ),
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      if (streamErrorMessage) {
+        flushToolQueue();
+        finishThinking();
+        const errText = streamErrorMessage;
+        applyStreamItems((prev) => {
+          const withoutEmptyAssistant = prev.filter(
+            (it) =>
+              !(
+                it.type === "assistant_message" &&
+                it.id === assistantId &&
+                !it.content.trim()
+              ),
+          );
+          return [
+            ...withoutEmptyAssistant,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "error" as const,
+              message: errText,
+            },
+          ];
+        });
+        void loadSessionsList(true);
+        return;
+      }
+
+      flushToolQueue();
+      finishThinking();
+      ensureAssistant({
+        streaming: false,
+        createdAtUtc: new Date().toISOString(),
+      });
+
+      void loadSessionsList(true);
+      let ok = await syncAssistantFromServer();
+      for (let i = 0; i < 10 && !ok; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        ok = await syncAssistantFromServer();
+      }
+      const viewing = viewedSessionIdRef.current.trim();
+      await loadMessages(key, {
+        skipSetItems: viewing !== key,
+      });
+    } catch {
+      // AbortError when relay superseded or fetch aborted
+    } finally {
+      if (relayAbortBySidRef.current.get(key) === fetchCtl) {
+        relayAbortBySidRef.current.delete(key);
+      }
+      streamingAssistantBySidRef.current.delete(key);
+      removeActiveComposer(key);
+      void loadSessionsList(true);
+      const viewing = viewedSessionIdRef.current.trim();
+      void loadMessages(key, { skipSetItems: viewing !== key });
+    }
+  }
+
   async function streamResponses(text: string) {
-    inFlightRef.current = true;
     const abortCtl = new AbortController();
-    generationAbortRef.current = abortCtl;
-    setGenerating(true);
+    let postSessionKey = "";
     let completedNormally = false;
     let assistantStreamId = "";
     const isNewChatFirstSend = !sessionId.trim();
@@ -1416,6 +1755,7 @@ export function App() {
       : null;
 
     let sidEffective = "";
+
     try {
       let sid = sessionId;
       if (!sid) {
@@ -1425,6 +1765,21 @@ export function App() {
       }
       sidEffective = sid;
       let latestPreviewSid = sid;
+      postSessionKey = sid.trim();
+      postAbortBySidRef.current.set(postSessionKey, abortCtl);
+      relayAbortBySidRef.current.get(postSessionKey)?.abort();
+      relayAbortBySidRef.current.delete(postSessionKey);
+
+      let streamKey = postSessionKey;
+      const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
+        applyStreamItemsForSession(streamKey, fn);
+
+      const branchTokenUsage = (u: TokenUsage | null) => {
+        if (u === null) return;
+        if (viewedSessionIdRef.current.trim() === streamKey) {
+          setTokenUsage(u);
+        }
+      };
 
       if (isNewChatFirstSend && sessionIdWhenKnown) {
         startSuggestSessionTitle({
@@ -1463,10 +1818,24 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
-      streamingAssistantIdRef.current = assistantId;
-      activeStreamSidRef.current = sid;
-      setItems((prev) => [...prev, userItem]);
-      setTokenUsage(null);
+      streamingAssistantBySidRef.current.set(streamKey, assistantId);
+      const viewingNow = viewedSessionIdRef.current.trim();
+      const baseItems = pickStreamMutationBase({
+        mutationSessionId: streamKey,
+        viewingSid: viewingNow,
+        shadow: streamShadowBySidRef.current.get(streamKey),
+        hasActiveComposer: activeComposerSidRef.current.has(streamKey),
+        itemsWhenViewingMatches: itemsRef.current,
+        assumeActiveForBase: true,
+      });
+      const nextShadow = [...baseItems, userItem];
+      streamShadowBySidRef.current.set(streamKey, nextShadow);
+      if (viewingNow === streamKey) {
+        setItems(nextShadow);
+      }
+      if (viewingNow === streamKey) {
+        setTokenUsage(null);
+      }
 
       const reqBody: Record<string, unknown> = {
         model: mode || "agent",
@@ -1486,6 +1855,8 @@ export function App() {
       if (yamlSel) {
         reqBody.metadata = { model: yamlSel };
       }
+      // Mark this session busy before awaiting fetch so hung POST still blocks same-session resend.
+      addActiveComposer(postSessionKey);
       const res = await fetch("/v1/responses", {
         method: "POST",
         headers: { ...hdrs, "Content-Type": "application/json" },
@@ -1493,27 +1864,21 @@ export function App() {
         signal: abortCtl.signal,
       });
 
-      const sidHdr = res.headers.get(HDR);
-      if (sidHdr && sidHdr !== sid) {
-        migrateWorkspaceAtRecents(sid, sidHdr);
-        sidEffective = sidHdr;
-        openSessionFromRoute(sidHdr);
-        setDescribePreview((p) =>
-          p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
-        );
-        setSessions((prev) =>
-          prev.map((s) => (s.id === sid ? { ...s, id: sidHdr } : s)),
-        );
-      }
-      latestPreviewSid = sidEffective;
-      activeStreamSidRef.current = sidEffective;
-      releaseSessionId?.(sidEffective);
-
-      if (!res.ok || !res.body) {
-        const msg = !res.body
-          ? "Empty response body"
-          : `Request failed (${res.status})`;
-        setItems((prev) => [
+      if (res.status === 409) {
+        let msg =
+          "This chat is busy in another client. Try again in a moment.";
+        try {
+          const body = (await res.json()) as {
+            error?: { message?: string };
+          };
+          const m = body?.error?.message;
+          if (typeof m === "string" && m.trim()) {
+            msg = m.trim();
+          }
+        } catch {
+          // ignore
+        }
+        applyStreamItems((prev) => [
           ...prev,
           {
             id: newId("s"),
@@ -1522,6 +1887,58 @@ export function App() {
             message: msg,
           },
         ]);
+        postAbortBySidRef.current.delete(postSessionKey);
+        streamingAssistantBySidRef.current.delete(postSessionKey);
+        completedNormally = true;
+        return;
+      }
+
+      const sidHdr = res.headers.get(HDR);
+      if (sidHdr && sidHdr !== sid) {
+        const oldKey = postSessionKey;
+        migrateWorkspaceAtRecents(sid, sidHdr);
+        sidEffective = sidHdr;
+        postSessionKey = sidHdr.trim();
+        streamKey = postSessionKey;
+        postAbortBySidRef.current.delete(oldKey);
+        postAbortBySidRef.current.set(postSessionKey, abortCtl);
+        relayAbortBySidRef.current.get(oldKey)?.abort();
+        relayAbortBySidRef.current.delete(oldKey);
+        const sh = streamShadowBySidRef.current.get(oldKey);
+        streamShadowBySidRef.current.delete(oldKey);
+        if (sh) {
+          streamShadowBySidRef.current.set(postSessionKey, sh);
+        }
+        streamingAssistantBySidRef.current.delete(oldKey);
+        streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
+        openSessionFromRoute(sidHdr);
+        setDescribePreview((p) =>
+          p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
+        );
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sid ? { ...s, id: sidHdr } : s)),
+        );
+        removeActiveComposer(oldKey);
+        addActiveComposer(postSessionKey);
+      }
+      latestPreviewSid = sidEffective;
+      releaseSessionId?.(sidEffective);
+
+      if (!res.ok || !res.body) {
+        const msg = !res.body
+          ? "Empty response body"
+          : `Request failed (${res.status})`;
+        applyStreamItems((prev) => [
+          ...prev,
+          {
+            id: newId("s"),
+            type: "system_notice",
+            level: "error" as const,
+            message: msg,
+          },
+        ]);
+        postAbortBySidRef.current.delete(postSessionKey);
+        streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
         return;
       }
@@ -1530,198 +1947,35 @@ export function App() {
       const dec = new TextDecoder();
       const carry = { buf: "" };
 
-      const toolQueue: Array<
-        Partial<Extract<TranscriptItem, { type: "tool_call" }>> & {
-          toolCallId: string;
-        }
-      > = [];
-      let raf = 0;
-      const flushToolQueue = () => {
-        raf = 0;
-        if (toolQueue.length === 0) return;
-        const pending = toolQueue.splice(0, toolQueue.length);
-        setItems((prev) => {
-          let next = prev;
-          for (const upd of pending) {
-            const idx = next.findIndex(
-              (x) => x.type === "tool_call" && x.toolCallId === upd.toolCallId,
-            );
-            if (idx < 0) {
-              const itBase: Extract<TranscriptItem, { type: "tool_call" }> = {
-                id: newId("t"),
-                type: "tool_call",
-                toolCallId: upd.toolCallId,
-                status: (upd.status as any) || "pending",
-              };
-              const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-                ...itBase,
-              };
-              if (upd.title !== undefined) it.title = upd.title;
-              if (upd.kind !== undefined) it.kind = upd.kind;
-              if (upd.argsText !== undefined) it.argsText = upd.argsText;
-              if (upd.resultText !== undefined) it.resultText = upd.resultText;
-              if (upd.resultWasTruncated !== undefined)
-                it.resultWasTruncated = upd.resultWasTruncated;
-              if (upd.fullResultText !== undefined)
-                it.fullResultText = upd.fullResultText;
-              if (upd.startedAtMs !== undefined)
-                it.startedAtMs = upd.startedAtMs;
-              if (upd.finishedAtMs !== undefined)
-                it.finishedAtMs = upd.finishedAtMs;
-              if (upd.durationMs !== undefined) it.durationMs = upd.durationMs;
-              const aIdx = next.findIndex(
-                (x) => x.type === "assistant_message" && x.id === assistantId,
-              );
-              if (aIdx >= 0) {
-                const arr = next === prev ? [...next] : next;
-                arr.splice(aIdx, 0, it);
-                next = arr;
-              } else {
-                next = [...next, it];
-              }
-              continue;
-            }
-            const arr = next === prev ? [...next] : next;
-            const cur = arr[idx] as Extract<
-              TranscriptItem,
-              { type: "tool_call" }
-            >;
-            const nextStarted =
-              upd.startedAtMs !== undefined ? upd.startedAtMs : cur.startedAtMs;
-            const nextFinished =
-              upd.finishedAtMs !== undefined
-                ? upd.finishedAtMs
-                : cur.finishedAtMs;
-            const nextDuration =
-              upd.durationMs !== undefined
-                ? upd.durationMs
-                : nextStarted && nextFinished
-                  ? Math.max(0, nextFinished - nextStarted)
-                  : cur.durationMs;
-            const merged: Extract<TranscriptItem, { type: "tool_call" }> = {
-              ...cur,
-              status: (upd.status as any) || cur.status,
-            };
-            if (nextStarted !== undefined) merged.startedAtMs = nextStarted;
-            if (nextFinished !== undefined) merged.finishedAtMs = nextFinished;
-            if (nextDuration !== undefined) merged.durationMs = nextDuration;
-            if (upd.title !== undefined) merged.title = upd.title;
-            if (upd.kind !== undefined) merged.kind = upd.kind;
-            if (upd.argsText !== undefined) merged.argsText = upd.argsText;
-            if (upd.resultText !== undefined)
-              merged.resultText = upd.resultText;
-            if (upd.resultWasTruncated !== undefined)
-              merged.resultWasTruncated = upd.resultWasTruncated;
-            if (upd.fullResultText !== undefined)
-              merged.fullResultText = upd.fullResultText;
-            arr[idx] = merged;
-            next = arr;
-          }
-          return next;
-        });
-      };
-      const scheduleToolFlush = () => {
-        if (raf) return;
-        raf = window.requestAnimationFrame(flushToolQueue);
-      };
-
-      const ensureAssistant = (
-        patch?: Partial<Extract<TranscriptItem, { type: "assistant_message" }>>,
-      ) => {
-        setItems((prev) => {
-          const idx = prev.findIndex(
-            (x) => x.type === "assistant_message" && x.id === assistantId,
-          );
-          if (idx < 0) {
-            const base: Extract<TranscriptItem, { type: "assistant_message" }> =
-              {
-                id: assistantId,
-                type: "assistant_message",
-                content: "",
-                streaming: true,
-              };
-            return [...prev, { ...base, ...(patch || {}) }];
-          }
-          if (!patch) return prev;
-          const next = [...prev];
-          const cur = next[idx] as Extract<
-            TranscriptItem,
-            { type: "assistant_message" }
-          >;
-          next[idx] = { ...cur, ...patch };
-          return next;
-        });
-      };
-
-      let activeThinkingId: string | null = null;
-      let activeThinkingStarted = 0;
-      const appendThinking = (delta: string) => {
-        const freezeAt = Date.now();
-        if (!activeThinkingId) {
-          activeThinkingId = newId("r");
-          activeThinkingStarted = freezeAt;
-        }
-        const id = activeThinkingId;
-        setItems((prev) => {
-          const known = prev.some(
-            (it) => it.type === "thinking" && it.id === id,
-          );
-          const newRow: Extract<TranscriptItem, { type: "thinking" }> = {
-            id,
-            type: "thinking",
-            status: "in_progress",
-            content: "",
-            startedAtMs: freezeAt,
-          };
-          let next = known
-            ? prev
-            : insertNewThinkingBeforeStreamingAssistant(
-                prev,
-                assistantId,
-                newRow,
-              );
-          next = next.map((it) =>
-            it.type === "thinking" && it.id === id
-              ? { ...it, content: it.content + delta }
-              : it,
-          );
-          return freezeMemoryWallWhenThinkingAfterRecall(next, freezeAt);
-        });
-      };
-      const finishThinking = () => {
-        if (!activeThinkingId) return;
-        const id = activeThinkingId;
-        const dur = Math.max(0, Date.now() - activeThinkingStarted);
-        setItems((prev) =>
-          prev.map((it) => {
-            if (it.type !== "thinking" || it.id !== id) {
-              return it;
-            }
-            const nextIt = {
-              ...it,
-              status: "completed" as const,
-              durationMs: dur,
-            };
-            const dk = reasoningDurationCacheKey(nextIt.content);
-            if (dk.length > 0) {
-              reasoningDurationMsByContentRef.current.set(dk, dur);
-            }
-            return nextIt;
-          }),
-        );
-        activeThinkingId = null;
-      };
+      const {
+        streamErrorMessage,
+        flushToolQueue,
+        finishThinking,
+        ensureAssistant,
+      } = await consumeComposerSseReader({
+        reader,
+        dec,
+        carry,
+        assistantId,
+        applyStreamItems,
+        setTokenUsage: branchTokenUsage,
+        tokenBaselineRef,
+        reasoningDurationMsByContentRef,
+        newId,
+        applyMemoryPhaseToItems,
+        applyMemoryChunkToItems,
+      });
 
       const syncAssistantFromServer = async () => {
         try {
-          const res = await fetchJSON<{ messages: Array<any> }>(
+          const res2 = await fetchJSON<{ messages: Array<any> }>(
             `/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!res.ok || !res.data?.messages) return false;
+          if (!res2.ok || !res2.data?.messages) return false;
           let last = "";
           let lastCreated: string | undefined;
-          for (const m of res.data.messages) {
+          for (const m of res2.data.messages) {
             if ((m.role || "").trim() !== "assistant") continue;
             const c = (m.content || "").trim();
             if (c) {
@@ -1731,7 +1985,7 @@ export function App() {
           }
           if (!last) return false;
           ensureAssistant();
-          setItems((prev) =>
+          applyStreamItems((prev) =>
             prev.map((it) =>
               it.type === "assistant_message" && it.id === assistantId
                 ? {
@@ -1748,422 +2002,11 @@ export function App() {
         }
       };
 
-      let sawDone = false;
-      let streamErrorMessage: string | null = null;
-      let streamHalted = false;
-      while (true) {
-        const step = await reader.read();
-        if (step.done) {
-          break;
-        }
-        const events = parseSSEBlocks(
-          dec.decode(step.value, { stream: true }),
-          carry,
-        );
-        for (const ev of events) {
-          if (ev.data === "[DONE]") {
-            sawDone = true;
-            break;
-          }
-
-          if (!ev.event) {
-            let delta: unknown;
-            try {
-              delta = JSON.parse(ev.data);
-            } catch {
-              continue;
-            }
-            const sseErr = openAIStreamErrorMessage(delta);
-            if (sseErr) {
-              streamErrorMessage = sseErr;
-              streamHalted = true;
-              try {
-                await reader.cancel();
-              } catch {
-                // ignore
-              }
-              break;
-            }
-            const d = delta as {
-              choices?: Array<{
-                delta?: { content?: unknown; reasoning_content?: unknown };
-              }>;
-            };
-            try {
-              const contentDelta = d.choices?.[0]?.delta?.content;
-              const c = typeof contentDelta === "string" ? contentDelta : "";
-              const rRaw = d.choices?.[0]?.delta?.reasoning_content || "";
-              const r = typeof rRaw === "string" ? rRaw : "";
-              if (r) {
-                appendThinking(r);
-              }
-              if (c) {
-                if (/\S/.test(c)) {
-                  finishThinking();
-                }
-                ensureAssistant();
-                setItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "token_usage") {
-            try {
-              const u = JSON.parse(ev.data) as TokenUsage;
-              const merged: TokenUsage = {
-                inputTokens:
-                  tokenBaselineRef.current.input + (u.inputTokens || 0),
-                outputTokens:
-                  tokenBaselineRef.current.output + (u.outputTokens || 0),
-                totalTokens:
-                  tokenBaselineRef.current.total + (u.totalTokens || 0),
-              };
-              setTokenUsage(merged);
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "memory_phase") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
-              setItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
-                    : {}),
-                  ...(typeof raw.durationMs === "number"
-                    ? { durationMs: raw.durationMs }
-                    : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
-                    : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "memory_chunk") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              setItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "tool_call") {
-            try {
-              finishThinking();
-              const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
-              const patch: Partial<
-                Extract<TranscriptItem, { type: "tool_call" }>
-              > & { toolCallId: string } = {
-                toolCallId: t.toolCallId,
-                status: (t.status as any) || "pending",
-                startedAtMs: now,
-              };
-              if (t.title !== undefined) patch.title = t.title;
-              if (t.kind !== undefined) patch.kind = t.kind;
-              toolQueue.push(patch);
-              scheduleToolFlush();
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "tool_call_update") {
-            try {
-              const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
-              const status = (u.status as any) || "in_progress";
-              const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
-              if (status === "in_progress" && text0) {
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  argsText: text0,
-                  startedAtMs: now,
-                });
-                scheduleToolFlush();
-              } else if (
-                (status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled") &&
-                text0
-              ) {
-                const trunc = toolSseShowsTruncatedPreview(u);
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  resultText: text0,
-                  finishedAtMs: now,
-                  ...(trunc ? { resultWasTruncated: true as const } : {}),
-                });
-                scheduleToolFlush();
-              } else {
-                if (
-                  status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled"
-                ) {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    finishedAtMs: now,
-                  });
-                } else {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    startedAtMs: now,
-                  });
-                }
-                scheduleToolFlush();
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-        }
-        if (streamHalted) {
-          break;
-        }
-        if (sawDone) {
-          break;
-        }
-      }
-      if (sawDone) {
-        try {
-          await reader.cancel();
-        } catch {
-          // ignore
-        }
-      }
-
-      if (carry.buf.trim()) {
-        const tailEvents = parseSSEBlocks("\n\n", carry);
-        for (const ev of tailEvents) {
-          if (ev.data === "[DONE]") continue;
-          if (!ev.event) {
-            let delta: unknown;
-            try {
-              delta = JSON.parse(ev.data);
-            } catch {
-              continue;
-            }
-            const sseErr = openAIStreamErrorMessage(delta);
-            if (sseErr) {
-              streamErrorMessage = sseErr;
-              break;
-            }
-            const d = delta as {
-              choices?: Array<{
-                delta?: { content?: unknown; reasoning_content?: unknown };
-              }>;
-            };
-            try {
-              const contentDelta = d.choices?.[0]?.delta?.content;
-              const c = typeof contentDelta === "string" ? contentDelta : "";
-              const rRaw = d.choices?.[0]?.delta?.reasoning_content || "";
-              const r = typeof rRaw === "string" ? rRaw : "";
-              if (r) {
-                appendThinking(r);
-              }
-              if (c) {
-                if (/\S/.test(c)) {
-                  finishThinking();
-                }
-                ensureAssistant();
-                setItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "memory_phase") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
-              setItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
-                    : {}),
-                  ...(typeof raw.durationMs === "number"
-                    ? { durationMs: raw.durationMs }
-                    : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
-                    : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "memory_chunk") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              setItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "tool_call") {
-            try {
-              finishThinking();
-              const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
-              const patch: Partial<
-                Extract<TranscriptItem, { type: "tool_call" }>
-              > & { toolCallId: string } = {
-                toolCallId: t.toolCallId,
-                status: (t.status as any) || "pending",
-                startedAtMs: now,
-              };
-              if (t.title !== undefined) patch.title = t.title;
-              if (t.kind !== undefined) patch.kind = t.kind;
-              toolQueue.push(patch);
-              scheduleToolFlush();
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "tool_call_update") {
-            try {
-              const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
-              const status = (u.status as any) || "in_progress";
-              const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
-              if (status === "in_progress" && text0) {
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  argsText: text0,
-                  startedAtMs: now,
-                });
-                scheduleToolFlush();
-              } else if (
-                (status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled") &&
-                text0
-              ) {
-                const trunc = toolSseShowsTruncatedPreview(u);
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  resultText: text0,
-                  finishedAtMs: now,
-                  ...(trunc ? { resultWasTruncated: true as const } : {}),
-                });
-                scheduleToolFlush();
-              } else {
-                if (
-                  status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled"
-                ) {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    finishedAtMs: now,
-                  });
-                } else {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    startedAtMs: now,
-                  });
-                }
-                scheduleToolFlush();
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-        }
-      }
-
       if (streamErrorMessage) {
         flushToolQueue();
         finishThinking();
         const errText = streamErrorMessage;
-        setItems((prev) => {
+        applyStreamItems((prev) => {
           const withoutEmptyAssistant = prev.filter(
             (it) =>
               !(
@@ -2196,24 +2039,48 @@ export function App() {
       });
 
       void loadSessionsList(true);
-      let ok = await syncAssistantFromServer();
-      for (let i = 0; i < 10 && !ok; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        ok = await syncAssistantFromServer();
+      const kProbe = postSessionKey.trim();
+      let mergedForSyncProbe: TranscriptItem[] = [];
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const sh = streamShadowBySidRef.current.get(kProbe);
+        if (sh && sh.length > 0) {
+          mergedForSyncProbe = sh;
+        } else if (viewedSessionIdRef.current.trim() === kProbe) {
+          mergedForSyncProbe = itemsRef.current;
+        } else {
+          mergedForSyncProbe = sh ?? [];
+        }
+        if (transcriptHasFilledAssistant(mergedForSyncProbe, assistantId)) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 16));
       }
-      await loadMessages(sidEffective);
+      const localStreamingAssistantReady = transcriptHasFilledAssistant(
+        mergedForSyncProbe,
+        assistantId,
+      );
+      let ok = localStreamingAssistantReady;
+      if (!ok) {
+        ok = await syncAssistantFromServer();
+        for (let i = 0; i < 10 && !ok; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          ok = await syncAssistantFromServer();
+        }
+      }
+      const viewingEnd = viewedSessionIdRef.current.trim();
+      await loadMessages(sidEffective, {
+        skipSetItems: viewingEnd !== postSessionKey,
+        preserveOnError: true,
+      });
       completedNormally = true;
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
     } finally {
-      streamingAssistantIdRef.current = "";
-      activeStreamSidRef.current = "";
-      generationAbortRef.current = null;
-      setGenerating(false);
+      postAbortBySidRef.current.delete(postSessionKey);
       if (!completedNormally && assistantStreamId) {
         const aid = assistantStreamId;
         const now = Date.now();
-        setItems((prev) =>
+        const patchIncomplete = (prev: TranscriptItem[]) =>
           prev.map((it) => {
             if (it.type === "thinking" && it.status === "in_progress") {
               const dur = Math.max(0, now - (it.startedAtMs || now));
@@ -2231,26 +2098,32 @@ export function App() {
               return { ...it, streaming: false };
             }
             return it;
-          }),
-        );
-        void loadMessages(sidEffective);
+          });
+        if (postSessionKey.trim() !== "") {
+          applyStreamItemsForSession(postSessionKey, patchIncomplete);
+        }
+        const viewingFin = viewedSessionIdRef.current.trim();
+        void loadMessages(sidEffective, {
+          skipSetItems: viewingFin !== postSessionKey.trim(),
+          preserveOnError: true,
+        });
         void loadSessionsList(true);
       }
+      removeActiveComposer(postSessionKey);
+      streamingAssistantBySidRef.current.delete(postSessionKey);
       releaseSessionId?.(sidEffective);
-      inFlightRef.current = false;
     }
   }
 
   function stopActiveGeneration(): void {
-    const sid = activeStreamSidRef.current;
-    const ctl = generationAbortRef.current;
+    const sid = sessionId.trim();
+    if (!sid) return;
+    const ctl = postAbortBySidRef.current.get(sid);
     if (!ctl) return;
-    if (sid.trim()) {
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
-        method: "POST",
-        headers: { [HDR]: sid },
-      });
-    }
+    void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
+      method: "POST",
+      headers: { [HDR]: sid },
+    });
     ctl.abort();
   }
 
@@ -2573,7 +2446,12 @@ export function App() {
           generating={generating}
           onStop={() => stopActiveGeneration()}
           onSend={(text: string) => {
-            if (generating) return;
+            if (
+              sessionId.trim() &&
+              activeComposerSidRef.current.has(sessionId.trim())
+            ) {
+              return;
+            }
             setDraft("");
             void streamResponses(text);
           }}
