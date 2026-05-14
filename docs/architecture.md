@@ -96,6 +96,7 @@ The core reasoning engine (**`react.go`**):
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
 6. Loops until there are no tool calls, **`max_turns`** is exceeded, or cancellation.
+7. On **`session/cancel`** (or HTTP **`POST /coddy/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /coddy/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
 
 ### LLM Provider (`internal/llm`)
 

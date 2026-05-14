@@ -50,6 +50,12 @@ The right insights rail is removed for the current milestone.
 
 `#/s/<sessionId>` survives reload/share as long as the browser hits the **same Coddy http instance** backing the **`sessions`** root hash. SPA keeps **`X-Coddy-Session-ID`** synced with whichever id anchors the fragment.
 
+### Multi-session streaming and Stop
+
+- The SPA may run **more than one** **`POST /v1/responses`** at a time, each with its own **`X-Coddy-Session-ID`**, while the user switches **`#/s/...`** quickly. Each session keeps a **shadow transcript** in memory so streamed rows from session **A** are never appended to session **B**. Routing uses **`pickStreamMutationBase`** in **`external/ui/src/ui/chat/streamMutationBase.ts`**.
+- **Stop** (**`#btn-send`** as stop) calls **`POST /coddy/sessions/{id}/cancel`** then aborts the streaming **`fetch`**. The server **persists** assistant tokens already received for that turn when cancel lands mid-stream (**`internal/llm`** stream implementations return a partial **`Response`** with **`context.Canceled`** wrapped, then **`internal/agent`** **`Run`** appends **`RoleAssistant`** before surfacing **`StopReasonCancelled`**).
+- Right after Stop, **`GET /coddy/sessions/{id}/messages`** can briefly omit or shorten the in-progress assistant row versus what is already on screen. **`loadMessages`** merges the server snapshot with the **local shadow** or **visible items** when the server list is a strict prefix of local (or the last **`assistant_message`** is a shorter prefix of local); see **`mergeTranscriptPreferLocalSuffix`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**. A full page reload still converges once persistence matches **`messages.json`**.
+
 ### Scheduler hash routes
 
 - The scheduler jobs drawer footer is a single **Add job** control (**plus icon**, native **`title`** tooltip), **right-aligned** in the drawer (no manual **Refresh** button, list still reloads when the drawer opens and after saves). The job editor uses the same **`sessions-head`** / **`sessions-close`** chrome as **History** and the scheduler list. The job editor footer uses **pause or resume**, **delete** as icon buttons with the same **`title` / `aria-label`** pattern; on **`max-width: 1199px`** those actions are **end-aligned** for reach. While the drawer stays open, the client **polls `GET /coddy/scheduler/jobs` about every 12 seconds** (silent, no list loading chrome) so **running**, **next_run_utc**, and **paused** stay in sync with the server.
@@ -154,7 +160,7 @@ Current block types:
   - Summary row matches **thinking** (**chevron**, **tool name**, **duration** beside the label). Details show args and tool **result**. Results are **raw plain text** in a monospace, muted grey panel (**no Markdown**). When **`resultWasTruncated`** is false (output fits the preview cap), the result block grows with content only (no fixed tall viewport, no **Load more results**). When truncated, the capped viewport and **Load more results** / **Hide** match the tool timeline above (REST fetch only on first **Load more results**).
   - Duration label is computed from persisted `tool_calls/<id>/meta.json` `startedAt` and `finishedAt` when available, with live **`startedAtMs`** updates while **`in_progress`**.
 - `assistant_message`
-  - Final assistant output for the turn. UI keeps it last and backfills it from `/coddy/sessions/{id}/messages` when streaming ends.
+  - Final assistant output for the turn. UI keeps it last and reconciles it from **`GET /coddy/sessions/{id}/messages`** when streaming ends or after a refetch. After **Stop** mid-stream, that **`GET`** can lag the partial row already on screen; **`mergeTranscriptPreferLocalSuffix`** (see **Multi-session streaming and Stop** above) preserves visible text until the server catches up.
 
 Ordering rules:
 

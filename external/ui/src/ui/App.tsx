@@ -17,7 +17,10 @@ import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { consumeComposerSseReader } from "./chat/consumeComposerSse";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
-import { keepLocalTranscriptIfServerEmpty } from "./chat/transcriptServerSnapshot";
+import {
+  keepLocalTranscriptIfServerEmpty,
+  mergeTranscriptPreferLocalSuffix,
+} from "./chat/transcriptServerSnapshot";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
@@ -1357,14 +1360,22 @@ export function App() {
       }
     }
     const viewingTrim = viewedSessionIdRef.current.trim();
+    const prevShadow = streamShadowBySidRef.current.get(sid);
+    const localForMerge =
+      prevShadow && prevShadow.length > 0
+        ? prevShadow
+        : viewingTrim === sid
+          ? itemsRef.current
+          : undefined;
+    const merged = mergeTranscriptPreferLocalSuffix(next, localForMerge);
     const applied =
       keepLocalTranscriptIfServerEmpty({
-        serverNext: next,
+        serverNext: merged,
         sid,
         viewingSid: viewingTrim,
-        prevShadow: streamShadowBySidRef.current.get(sid),
+        prevShadow,
         prevItems: itemsRef.current,
-      }) ?? next;
+      }) ?? merged;
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
       return applied;
