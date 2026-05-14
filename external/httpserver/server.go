@@ -41,6 +41,9 @@ type Server struct {
 
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
+
+	composerRelayMu sync.Mutex
+	composerRelays  map[string]*composerStreamRelay
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).
@@ -318,7 +321,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			bridge = NewSender(s.activeCfg(), w, true, model)
+			rel := s.beginComposerRelay(sessionID)
+			defer s.endComposerRelay(sessionID, rel)
+			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
 		} else {
 			bridge = NewSender(s.activeCfg(), nil, false, model)
 		}
@@ -633,7 +638,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
-			bridge = NewSender(s.activeCfg(), w, true, model)
+			rel := s.beginComposerRelay(sid)
+			defer s.endComposerRelay(sid, rel)
+			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
 		} else {
 			bridge = NewSender(s.activeCfg(), nil, false, model)
 		}

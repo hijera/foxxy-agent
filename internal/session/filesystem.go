@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -352,6 +353,32 @@ func (f *FileStore) Save(state *State) error {
 	}
 	msgs := state.GetMessages()
 	title := persistedConversationTitle(state)
+	metaPath := filepath.Join(dir, sessionMetaFile)
+	msgPath := filepath.Join(dir, messagesFile)
+
+	var prevMeta SessionMeta
+	if prevMetaBytes, err := os.ReadFile(metaPath); err == nil {
+		_ = json.Unmarshal(prevMetaBytes, &prevMeta)
+	}
+
+	newActivitySeq := state.GetActivitySeq()
+	newReadSeq := state.GetReadActivitySeq()
+
+	wrapPreview := messagesFileData{
+		Version:  messagesLayout,
+		Messages: msgs,
+	}
+	newMsgBytes, encErr := json.Marshal(wrapPreview)
+	oldMsgBytes, oldMsgErr := os.ReadFile(msgPath)
+	preserveUpdatedAt := encErr == nil && oldMsgErr == nil &&
+		bytes.Equal(oldMsgBytes, newMsgBytes) &&
+		newActivitySeq == prevMeta.ActivitySeq
+
+	updatedAt := time.Now().UTC().Format(time.RFC3339)
+	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
+		updatedAt = prevMeta.UpdatedAt
+	}
+
 	meta := SessionMeta{
 		Version:         sessionFileLayout,
 		ID:              state.ID,
@@ -361,7 +388,7 @@ func (f *FileStore) Save(state *State) error {
 		AgentMemory:     state.GetAgentMemory(),
 		Title:           title,
 		TitlePinned:     strings.TrimSpace(state.GetTitlePinned()),
-		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+		UpdatedAt:       updatedAt,
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true
@@ -370,16 +397,16 @@ func (f *FileStore) Save(state *State) error {
 		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
 		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
 	}
-	meta.ActivitySeq = state.GetActivitySeq()
-	meta.ReadActivitySeq = state.GetReadActivitySeq()
-	if err := writeJSONAtomic(filepath.Join(dir, sessionMetaFile), meta); err != nil {
+	meta.ActivitySeq = newActivitySeq
+	meta.ReadActivitySeq = newReadSeq
+	if err := writeJSONAtomic(metaPath, meta); err != nil {
 		return err
 	}
 	wrap := messagesFileData{
 		Version:  messagesLayout,
 		Messages: msgs,
 	}
-	if err := writeJSONAtomic(filepath.Join(dir, messagesFile), wrap); err != nil {
+	if err := writeJSONAtomic(msgPath, wrap); err != nil {
 		return err
 	}
 	uiWrap := uiLogFileData{
@@ -398,6 +425,30 @@ func (f *FileStore) Save(state *State) error {
 		return err
 	}
 	return SyncActiveTodoFile(dir, state.GetPlan())
+}
+
+// PatchSessionMetaActivitySync writes only activitySeq and readActivitySeq into session.json,
+// preserving updatedAt and all other meta fields. It does not write messages.json.
+func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
+	if f == nil || st == nil {
+		return nil
+	}
+	dir := strings.TrimSpace(st.SessionDir)
+	if dir == "" {
+		return fmt.Errorf("session has no SessionDir")
+	}
+	path := filepath.Join(dir, sessionMetaFile)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return fmt.Errorf("session.json: %w", err)
+	}
+	meta.ActivitySeq = st.GetActivitySeq()
+	meta.ReadActivitySeq = st.GetReadActivitySeq()
+	return writeJSONAtomic(path, meta)
 }
 
 func deriveSessionTitle(s *State) string {

@@ -109,7 +109,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -584,7 +584,8 @@ func TestCoddySessionActivityGet(t *testing.T) {
 }
 
 func TestCoddySessionPatchMarkActivityRead(t *testing.T) {
-	mgr, srv, _ := testHTTPServerPersist(t)
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
 	ctx := context.Background()
 	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -596,6 +597,15 @@ func TestCoddySessionPatchMarkActivityRead(t *testing.T) {
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
 	}); err != nil {
 		t.Fatal(err)
+	}
+
+	snapBefore, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	utBefore := snapBefore.Meta.UpdatedAt
+	if utBefore == "" {
+		t.Fatal("expected updatedAt on disk before PATCH")
 	}
 
 	ts := httptest.NewServer(srv.Handler())
@@ -629,6 +639,13 @@ func TestCoddySessionPatchMarkActivityRead(t *testing.T) {
 	}
 	if parsed.ActivitySeq != parsed.ReadActivitySeq {
 		t.Fatalf("want read synced got act=%d read=%d", parsed.ActivitySeq, parsed.ReadActivitySeq)
+	}
+	snapAfter, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapAfter.Meta.UpdatedAt != utBefore {
+		t.Fatalf("mark read must not bump updatedAt: before %q after %q", utBefore, snapAfter.Meta.UpdatedAt)
 	}
 }
 

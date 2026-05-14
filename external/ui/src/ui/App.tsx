@@ -15,6 +15,7 @@ import {
 import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
+import { consumeComposerSseReader } from "./chat/consumeComposerSse";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import { NavRail } from "./nav/NavRail";
@@ -483,6 +484,8 @@ export function App() {
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [items, setItems] = useState<TranscriptItem[]>([]);
+  const itemsRef = useRef<TranscriptItem[]>([]);
+  itemsRef.current = items;
   const [draft, setDraft] = useState("");
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const tokenBaselineRef = useRef<{
@@ -492,9 +495,12 @@ export function App() {
   }>({ input: 0, output: 0, total: 0 });
   const inFlightRef = useRef(false);
   const generationAbortRef = useRef<AbortController | null>(null);
+  const liveRelayAbortRef = useRef<AbortController | null>(null);
   const activeStreamSidRef = useRef("");
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
+  /** Live transcript for the in-flight HTTP stream (kept when user switches to another session). */
+  const streamShadowRef = useRef<TranscriptItem[] | null>(null);
   const streamingAssistantIdRef = useRef("");
   const [generating, setGenerating] = useState(false);
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
@@ -1064,11 +1070,13 @@ export function App() {
     void loadSessionsList(true);
   }, [sessionsOpen, sessionFilterQ, loadSessionsList]);
 
-  async function loadMessages(idOverride?: string): Promise<boolean> {
+  async function loadMessages(
+    idOverride?: string,
+  ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
     if (!sid) {
       setItems([]);
-      return false;
+      return null;
     }
     const res = await fetchJSON<{
       messages: Array<any>;
@@ -1085,7 +1093,7 @@ export function App() {
     });
     if (!res.ok || !res.data) {
       setItems([]);
-      return false;
+      return null;
     }
     type UILogRow = {
       id: string;
@@ -1283,7 +1291,7 @@ export function App() {
       }
     }
     setItems(next);
-    return next.some((it) => it.type === "assistant_message");
+    return next;
   }
 
   function pickSession(id: string) {
@@ -1342,14 +1350,22 @@ export function App() {
     }
     setTokenUsage(null);
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
+    const lifecycle = new AbortController();
     void (async () => {
       const list = await loadSessionsList(true);
+      if (lifecycle.signal.aborted) {
+        return;
+      }
       const exists = !!list?.some((s) => s.id === sessionId);
       if (exists) {
+        const sess = list?.find((s) => s.id === sessionId);
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
           `/coddy/sessions/${encodeURIComponent(sessionId)}/stats`,
           { headers },
         );
+        if (lifecycle.signal.aborted) {
+          return;
+        }
         if (statsRes.ok && statsRes.data?.stats?.tokenUsageTotal) {
           const t = statsRes.data.stats.tokenUsageTotal;
           tokenBaselineRef.current = {
@@ -1363,12 +1379,41 @@ export function App() {
             totalTokens: tokenBaselineRef.current.total,
           });
         }
-        await loadMessages();
+        const streamSid = activeStreamSidRef.current.trim();
+        const shadowSnap = streamShadowRef.current;
+        const rejoiningLiveStream =
+          generating &&
+          sessionId.trim() === streamSid &&
+          streamSid !== "" &&
+          shadowSnap != null &&
+          shadowSnap.length > 0;
+        if (rejoiningLiveStream && shadowSnap) {
+          setItems([...shadowSnap]);
+        } else {
+          const loaded = await loadMessages();
+          if (lifecycle.signal.aborted) {
+            return;
+          }
+          if (
+            loaded &&
+            sess?.turnActive &&
+            !rejoiningLiveStream
+          ) {
+            await rejoinComposerLiveStream(
+              sessionId,
+              loaded,
+              lifecycle.signal,
+            );
+          }
+        }
       } else {
         setItems([]);
       }
     })();
-  }, [sessionId]);
+    return () => {
+      lifecycle.abort();
+    };
+  }, [sessionId, generating]);
 
   function upsertToolCall(
     update: Partial<Extract<TranscriptItem, { type: "tool_call" }>> & {
@@ -1446,7 +1491,180 @@ export function App() {
     });
   }
 
+  async function rejoinComposerLiveStream(
+    sid: string,
+    baseline: TranscriptItem[],
+    lifecycleSignal: AbortSignal,
+  ): Promise<void> {
+    if (inFlightRef.current) {
+      return;
+    }
+    inFlightRef.current = true;
+    liveRelayAbortRef.current?.abort();
+    const fetchCtl = new AbortController();
+    liveRelayAbortRef.current = fetchCtl;
+    const onLifecycle = () => {
+      fetchCtl.abort();
+    };
+    if (lifecycleSignal.aborted) {
+      fetchCtl.abort();
+    } else {
+      lifecycleSignal.addEventListener("abort", onLifecycle, { once: true });
+    }
+
+    setGenerating(true);
+    const assistantId = newId("a");
+    streamingAssistantIdRef.current = assistantId;
+    activeStreamSidRef.current = sid;
+    streamShadowRef.current = [...baseline];
+    if (viewedSessionIdRef.current.trim() === sid.trim()) {
+      setItems([...baseline]);
+    }
+
+    const applyStreamItems = (
+      fn: (prev: TranscriptItem[]) => TranscriptItem[],
+    ) => {
+      setItems((prev) => {
+        const streamSid = activeStreamSidRef.current.trim();
+        const viewing = viewedSessionIdRef.current.trim();
+        const base =
+          viewing === streamSid ? prev : (streamShadowRef.current ?? []);
+        const next = fn(base);
+        streamShadowRef.current = next;
+        if (viewing === streamSid) {
+          return next;
+        }
+        return prev;
+      });
+    };
+
+    try {
+      const res = await fetch(
+        `/coddy/sessions/${encodeURIComponent(sid)}/composer-stream`,
+        { headers: { [HDR]: sid }, signal: fetchCtl.signal },
+      );
+      if (!res.ok || !res.body) {
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      const carry = { buf: "" };
+      const {
+        streamErrorMessage,
+        flushToolQueue,
+        finishThinking,
+        ensureAssistant,
+      } = await consumeComposerSseReader({
+        reader,
+        dec,
+        carry,
+        assistantId,
+        applyStreamItems,
+        setTokenUsage,
+        tokenBaselineRef,
+        reasoningDurationMsByContentRef,
+        newId,
+        applyMemoryPhaseToItems,
+        applyMemoryChunkToItems,
+      });
+
+      const syncAssistantFromServer = async () => {
+        try {
+          const res2 = await fetchJSON<{ messages: Array<any> }>(
+            `/coddy/sessions/${encodeURIComponent(sid)}/messages`,
+            { headers: { [HDR]: sid } },
+          );
+          if (!res2.ok || !res2.data?.messages) return false;
+          let last = "";
+          let lastCreated: string | undefined;
+          for (const m of res2.data.messages) {
+            if ((m.role || "").trim() !== "assistant") continue;
+            const c = (m.content || "").trim();
+            if (c) {
+              last = c;
+              lastCreated = readMessageCreatedAtUTC(m as Record<string, unknown>);
+            }
+          }
+          if (!last) return false;
+          ensureAssistant();
+          applyStreamItems((prev) =>
+            prev.map((it) =>
+              it.type === "assistant_message" && it.id === assistantId
+                ? {
+                    ...it,
+                    content: last,
+                    ...(lastCreated ? { createdAtUtc: lastCreated } : {}),
+                  }
+                : it,
+            ),
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      if (streamErrorMessage) {
+        flushToolQueue();
+        finishThinking();
+        const errText = streamErrorMessage;
+        applyStreamItems((prev) => {
+          const withoutEmptyAssistant = prev.filter(
+            (it) =>
+              !(
+                it.type === "assistant_message" &&
+                it.id === assistantId &&
+                !it.content.trim()
+              ),
+          );
+          return [
+            ...withoutEmptyAssistant,
+            {
+              id: newId("s"),
+              type: "system_notice",
+              level: "error" as const,
+              message: errText,
+            },
+          ];
+        });
+        void loadSessionsList(true);
+        return;
+      }
+
+      flushToolQueue();
+      finishThinking();
+      ensureAssistant({
+        streaming: false,
+        createdAtUtc: new Date().toISOString(),
+      });
+
+      void loadSessionsList(true);
+      let ok = await syncAssistantFromServer();
+      for (let i = 0; i < 10 && !ok; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        ok = await syncAssistantFromServer();
+      }
+      await loadMessages(sid);
+    } catch {
+      // AbortError when user leaves session or stops generation
+    } finally {
+      lifecycleSignal.removeEventListener("abort", onLifecycle);
+      if (liveRelayAbortRef.current === fetchCtl) {
+        liveRelayAbortRef.current = null;
+      }
+      streamingAssistantIdRef.current = "";
+      activeStreamSidRef.current = "";
+      streamShadowRef.current = null;
+      setGenerating(false);
+      inFlightRef.current = false;
+      void loadSessionsList(true);
+      void loadMessages(sid);
+    }
+  }
+
   async function streamResponses(text: string) {
+    liveRelayAbortRef.current?.abort();
+    liveRelayAbortRef.current = null;
     inFlightRef.current = true;
     const abortCtl = new AbortController();
     generationAbortRef.current = abortCtl;
@@ -1467,10 +1685,15 @@ export function App() {
         fn: (prev: TranscriptItem[]) => TranscriptItem[],
       ) => {
         setItems((prev) => {
-          if (viewedSessionIdRef.current !== activeStreamSidRef.current) {
-            return prev;
+          const streamSid = activeStreamSidRef.current.trim();
+          const viewing = viewedSessionIdRef.current.trim();
+          const base = viewing === streamSid ? prev : (streamShadowRef.current ?? []);
+          const next = fn(base);
+          streamShadowRef.current = next;
+          if (viewing === streamSid) {
+            return next;
           }
-          return fn(prev);
+          return prev;
         });
       };
       let sid = sessionId;
@@ -1521,7 +1744,10 @@ export function App() {
       assistantStreamId = assistantId;
       streamingAssistantIdRef.current = assistantId;
       activeStreamSidRef.current = sid;
-      applyStreamItems((prev) => [...prev, userItem]);
+      streamShadowRef.current = [...itemsRef.current, userItem];
+      if (viewedSessionIdRef.current.trim() === sid.trim()) {
+        setItems(streamShadowRef.current);
+      }
       setTokenUsage(null);
 
       const reqBody: Record<string, unknown> = {
@@ -1613,187 +1839,24 @@ export function App() {
       const dec = new TextDecoder();
       const carry = { buf: "" };
 
-      const toolQueue: Array<
-        Partial<Extract<TranscriptItem, { type: "tool_call" }>> & {
-          toolCallId: string;
-        }
-      > = [];
-      let raf = 0;
-      const flushToolQueue = () => {
-        raf = 0;
-        if (toolQueue.length === 0) return;
-        const pending = toolQueue.splice(0, toolQueue.length);
-        applyStreamItems((prev) => {
-          let next = prev;
-          for (const upd of pending) {
-            const idx = next.findIndex(
-              (x) => x.type === "tool_call" && x.toolCallId === upd.toolCallId,
-            );
-            if (idx < 0) {
-              const itBase: Extract<TranscriptItem, { type: "tool_call" }> = {
-                id: newId("t"),
-                type: "tool_call",
-                toolCallId: upd.toolCallId,
-                status: (upd.status as any) || "pending",
-              };
-              const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-                ...itBase,
-              };
-              if (upd.title !== undefined) it.title = upd.title;
-              if (upd.kind !== undefined) it.kind = upd.kind;
-              if (upd.argsText !== undefined) it.argsText = upd.argsText;
-              if (upd.resultText !== undefined) it.resultText = upd.resultText;
-              if (upd.resultWasTruncated !== undefined)
-                it.resultWasTruncated = upd.resultWasTruncated;
-              if (upd.fullResultText !== undefined)
-                it.fullResultText = upd.fullResultText;
-              if (upd.startedAtMs !== undefined)
-                it.startedAtMs = upd.startedAtMs;
-              if (upd.finishedAtMs !== undefined)
-                it.finishedAtMs = upd.finishedAtMs;
-              if (upd.durationMs !== undefined) it.durationMs = upd.durationMs;
-              const aIdx = next.findIndex(
-                (x) => x.type === "assistant_message" && x.id === assistantId,
-              );
-              if (aIdx >= 0) {
-                const arr = next === prev ? [...next] : next;
-                arr.splice(aIdx, 0, it);
-                next = arr;
-              } else {
-                next = [...next, it];
-              }
-              continue;
-            }
-            const arr = next === prev ? [...next] : next;
-            const cur = arr[idx] as Extract<
-              TranscriptItem,
-              { type: "tool_call" }
-            >;
-            const nextStarted =
-              upd.startedAtMs !== undefined ? upd.startedAtMs : cur.startedAtMs;
-            const nextFinished =
-              upd.finishedAtMs !== undefined
-                ? upd.finishedAtMs
-                : cur.finishedAtMs;
-            const nextDuration =
-              upd.durationMs !== undefined
-                ? upd.durationMs
-                : nextStarted && nextFinished
-                  ? Math.max(0, nextFinished - nextStarted)
-                  : cur.durationMs;
-            const merged: Extract<TranscriptItem, { type: "tool_call" }> = {
-              ...cur,
-              status: (upd.status as any) || cur.status,
-            };
-            if (nextStarted !== undefined) merged.startedAtMs = nextStarted;
-            if (nextFinished !== undefined) merged.finishedAtMs = nextFinished;
-            if (nextDuration !== undefined) merged.durationMs = nextDuration;
-            if (upd.title !== undefined) merged.title = upd.title;
-            if (upd.kind !== undefined) merged.kind = upd.kind;
-            if (upd.argsText !== undefined) merged.argsText = upd.argsText;
-            if (upd.resultText !== undefined)
-              merged.resultText = upd.resultText;
-            if (upd.resultWasTruncated !== undefined)
-              merged.resultWasTruncated = upd.resultWasTruncated;
-            if (upd.fullResultText !== undefined)
-              merged.fullResultText = upd.fullResultText;
-            arr[idx] = merged;
-            next = arr;
-          }
-          return next;
-        });
-      };
-      const scheduleToolFlush = () => {
-        if (raf) return;
-        raf = window.requestAnimationFrame(flushToolQueue);
-      };
-
-      const ensureAssistant = (
-        patch?: Partial<Extract<TranscriptItem, { type: "assistant_message" }>>,
-      ) => {
-        applyStreamItems((prev) => {
-          const idx = prev.findIndex(
-            (x) => x.type === "assistant_message" && x.id === assistantId,
-          );
-          if (idx < 0) {
-            const base: Extract<TranscriptItem, { type: "assistant_message" }> =
-              {
-                id: assistantId,
-                type: "assistant_message",
-                content: "",
-                streaming: true,
-              };
-            return [...prev, { ...base, ...(patch || {}) }];
-          }
-          if (!patch) return prev;
-          const next = [...prev];
-          const cur = next[idx] as Extract<
-            TranscriptItem,
-            { type: "assistant_message" }
-          >;
-          next[idx] = { ...cur, ...patch };
-          return next;
-        });
-      };
-
-      let activeThinkingId: string | null = null;
-      let activeThinkingStarted = 0;
-      const appendThinking = (delta: string) => {
-        const freezeAt = Date.now();
-        if (!activeThinkingId) {
-          activeThinkingId = newId("r");
-          activeThinkingStarted = freezeAt;
-        }
-        const id = activeThinkingId;
-        applyStreamItems((prev) => {
-          const known = prev.some(
-            (it) => it.type === "thinking" && it.id === id,
-          );
-          const newRow: Extract<TranscriptItem, { type: "thinking" }> = {
-            id,
-            type: "thinking",
-            status: "in_progress",
-            content: "",
-            startedAtMs: freezeAt,
-          };
-          let next = known
-            ? prev
-            : insertNewThinkingBeforeStreamingAssistant(
-                prev,
-                assistantId,
-                newRow,
-              );
-          next = next.map((it) =>
-            it.type === "thinking" && it.id === id
-              ? { ...it, content: it.content + delta }
-              : it,
-          );
-          return freezeMemoryWallWhenThinkingAfterRecall(next, freezeAt);
-        });
-      };
-      const finishThinking = () => {
-        if (!activeThinkingId) return;
-        const id = activeThinkingId;
-        const dur = Math.max(0, Date.now() - activeThinkingStarted);
-        applyStreamItems((prev) =>
-          prev.map((it) => {
-            if (it.type !== "thinking" || it.id !== id) {
-              return it;
-            }
-            const nextIt = {
-              ...it,
-              status: "completed" as const,
-              durationMs: dur,
-            };
-            const dk = reasoningDurationCacheKey(nextIt.content);
-            if (dk.length > 0) {
-              reasoningDurationMsByContentRef.current.set(dk, dur);
-            }
-            return nextIt;
-          }),
-        );
-        activeThinkingId = null;
-      };
+      const {
+        streamErrorMessage,
+        flushToolQueue,
+        finishThinking,
+        ensureAssistant,
+      } = await consumeComposerSseReader({
+        reader,
+        dec,
+        carry,
+        assistantId,
+        applyStreamItems,
+        setTokenUsage,
+        tokenBaselineRef,
+        reasoningDurationMsByContentRef,
+        newId,
+        applyMemoryPhaseToItems,
+        applyMemoryChunkToItems,
+      });
 
       const syncAssistantFromServer = async () => {
         try {
@@ -1831,416 +1894,6 @@ export function App() {
         }
       };
 
-      let sawDone = false;
-      let streamErrorMessage: string | null = null;
-      let streamHalted = false;
-      while (true) {
-        const step = await reader.read();
-        if (step.done) {
-          break;
-        }
-        const events = parseSSEBlocks(
-          dec.decode(step.value, { stream: true }),
-          carry,
-        );
-        for (const ev of events) {
-          if (ev.data === "[DONE]") {
-            sawDone = true;
-            break;
-          }
-
-          if (!ev.event) {
-            let delta: unknown;
-            try {
-              delta = JSON.parse(ev.data);
-            } catch {
-              continue;
-            }
-            const sseErr = openAIStreamErrorMessage(delta);
-            if (sseErr) {
-              streamErrorMessage = sseErr;
-              streamHalted = true;
-              try {
-                await reader.cancel();
-              } catch {
-                // ignore
-              }
-              break;
-            }
-            const d = delta as {
-              choices?: Array<{
-                delta?: { content?: unknown; reasoning_content?: unknown };
-              }>;
-            };
-            try {
-              const contentDelta = d.choices?.[0]?.delta?.content;
-              const c = typeof contentDelta === "string" ? contentDelta : "";
-              const rRaw = d.choices?.[0]?.delta?.reasoning_content || "";
-              const r = typeof rRaw === "string" ? rRaw : "";
-              if (r) {
-                appendThinking(r);
-              }
-              if (c) {
-                if (/\S/.test(c)) {
-                  finishThinking();
-                }
-                ensureAssistant();
-                applyStreamItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "token_usage") {
-            try {
-              const u = JSON.parse(ev.data) as TokenUsage;
-              const merged: TokenUsage = {
-                inputTokens:
-                  tokenBaselineRef.current.input + (u.inputTokens || 0),
-                outputTokens:
-                  tokenBaselineRef.current.output + (u.outputTokens || 0),
-                totalTokens:
-                  tokenBaselineRef.current.total + (u.totalTokens || 0),
-              };
-              setTokenUsage(merged);
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "memory_phase") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
-              applyStreamItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
-                    : {}),
-                  ...(typeof raw.durationMs === "number"
-                    ? { durationMs: raw.durationMs }
-                    : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
-                    : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "memory_chunk") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              applyStreamItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "tool_call") {
-            try {
-              finishThinking();
-              const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
-              const patch: Partial<
-                Extract<TranscriptItem, { type: "tool_call" }>
-              > & { toolCallId: string } = {
-                toolCallId: t.toolCallId,
-                status: (t.status as any) || "pending",
-                startedAtMs: now,
-              };
-              if (t.title !== undefined) patch.title = t.title;
-              if (t.kind !== undefined) patch.kind = t.kind;
-              toolQueue.push(patch);
-              scheduleToolFlush();
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-
-          if (ev.event === "tool_call_update") {
-            try {
-              const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
-              const status = (u.status as any) || "in_progress";
-              const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
-              if (status === "in_progress" && text0) {
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  argsText: text0,
-                  startedAtMs: now,
-                });
-                scheduleToolFlush();
-              } else if (
-                (status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled") &&
-                text0
-              ) {
-                const trunc = toolSseShowsTruncatedPreview(u);
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  resultText: text0,
-                  finishedAtMs: now,
-                  ...(trunc ? { resultWasTruncated: true as const } : {}),
-                });
-                scheduleToolFlush();
-              } else {
-                if (
-                  status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled"
-                ) {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    finishedAtMs: now,
-                  });
-                } else {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    startedAtMs: now,
-                  });
-                }
-                scheduleToolFlush();
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-        }
-        if (streamHalted) {
-          break;
-        }
-        if (sawDone) {
-          break;
-        }
-      }
-      if (sawDone) {
-        try {
-          await reader.cancel();
-        } catch {
-          // ignore
-        }
-      }
-
-      if (carry.buf.trim()) {
-        const tailEvents = parseSSEBlocks("\n\n", carry);
-        for (const ev of tailEvents) {
-          if (ev.data === "[DONE]") continue;
-          if (!ev.event) {
-            let delta: unknown;
-            try {
-              delta = JSON.parse(ev.data);
-            } catch {
-              continue;
-            }
-            const sseErr = openAIStreamErrorMessage(delta);
-            if (sseErr) {
-              streamErrorMessage = sseErr;
-              break;
-            }
-            const d = delta as {
-              choices?: Array<{
-                delta?: { content?: unknown; reasoning_content?: unknown };
-              }>;
-            };
-            try {
-              const contentDelta = d.choices?.[0]?.delta?.content;
-              const c = typeof contentDelta === "string" ? contentDelta : "";
-              const rRaw = d.choices?.[0]?.delta?.reasoning_content || "";
-              const r = typeof rRaw === "string" ? rRaw : "";
-              if (r) {
-                appendThinking(r);
-              }
-              if (c) {
-                if (/\S/.test(c)) {
-                  finishThinking();
-                }
-                ensureAssistant();
-                applyStreamItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "memory_phase") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
-              applyStreamItems((prev) =>
-                applyMemoryPhaseToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  status: String(raw.status || ""),
-                  ...(typeof raw.userTurnIndex === "number"
-                    ? { userTurnIndex: raw.userTurnIndex }
-                    : {}),
-                  ...(typeof raw.durationMs === "number"
-                    ? { durationMs: raw.durationMs }
-                    : {}),
-                  ...(typeof raw.persistSaved === "boolean"
-                    ? { persistSaved: raw.persistSaved }
-                    : {}),
-                  ...(raw.persistRelativePath
-                    ? { persistRelativePath: raw.persistRelativePath }
-                    : {}),
-                  ...(raw.persistTitle
-                    ? { persistTitle: raw.persistTitle }
-                    : {}),
-                  ...(raw.persistSavedBody
-                    ? { persistSavedBody: raw.persistSavedBody }
-                    : {}),
-                  ...(Array.isArray(raw.recallReadPaths) &&
-                  raw.recallReadPaths.length > 0
-                    ? { recallReadPaths: raw.recallReadPaths }
-                    : {}),
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "memory_chunk") {
-            try {
-              const raw = JSON.parse(ev.data) as MemoryChunkEvt;
-              applyStreamItems((prev) =>
-                applyMemoryChunkToItems(prev, {
-                  memoryRowId: String(raw.memoryRowId || ""),
-                  phase: String(raw.phase || ""),
-                  kind: String(raw.kind || ""),
-                  delta: typeof raw.delta === "string" ? raw.delta : "",
-                }),
-              );
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "tool_call") {
-            try {
-              finishThinking();
-              const t = JSON.parse(ev.data) as ToolCallUpdate;
-              const now = Date.now();
-              const patch: Partial<
-                Extract<TranscriptItem, { type: "tool_call" }>
-              > & { toolCallId: string } = {
-                toolCallId: t.toolCallId,
-                status: (t.status as any) || "pending",
-                startedAtMs: now,
-              };
-              if (t.title !== undefined) patch.title = t.title;
-              if (t.kind !== undefined) patch.kind = t.kind;
-              toolQueue.push(patch);
-              scheduleToolFlush();
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-          if (ev.event === "tool_call_update") {
-            try {
-              const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
-              const status = (u.status as any) || "in_progress";
-              const text0 = u.content?.[0]?.content?.text || "";
-              const now = Date.now();
-              if (status === "in_progress" && text0) {
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  argsText: text0,
-                  startedAtMs: now,
-                });
-                scheduleToolFlush();
-              } else if (
-                (status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled") &&
-                text0
-              ) {
-                const trunc = toolSseShowsTruncatedPreview(u);
-                toolQueue.push({
-                  toolCallId: u.toolCallId,
-                  status,
-                  resultText: text0,
-                  finishedAtMs: now,
-                  ...(trunc ? { resultWasTruncated: true as const } : {}),
-                });
-                scheduleToolFlush();
-              } else {
-                if (
-                  status === "completed" ||
-                  status === "failed" ||
-                  status === "cancelled"
-                ) {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    finishedAtMs: now,
-                  });
-                } else {
-                  toolQueue.push({
-                    toolCallId: u.toolCallId,
-                    status,
-                    startedAtMs: now,
-                  });
-                }
-                scheduleToolFlush();
-              }
-            } catch {
-              // ignore
-            }
-            continue;
-          }
-        }
-      }
 
       if (streamErrorMessage) {
         flushToolQueue();
@@ -2297,11 +1950,8 @@ export function App() {
       if (!completedNormally && assistantStreamId) {
         const aid = assistantStreamId;
         const now = Date.now();
-        setItems((prev) => {
-          if (viewedSessionIdRef.current.trim() !== cleanupStreamSid.trim()) {
-            return prev;
-          }
-          return prev.map((it) => {
+        const patchIncomplete = (prev: TranscriptItem[]) =>
+          prev.map((it) => {
             if (it.type === "thinking" && it.status === "in_progress") {
               const dur = Math.max(0, now - (it.startedAtMs || now));
               const nextIt = {
@@ -2319,10 +1969,19 @@ export function App() {
             }
             return it;
           });
+        setItems((prev) => {
+          if (viewedSessionIdRef.current.trim() !== cleanupStreamSid.trim()) {
+            return prev;
+          }
+          return patchIncomplete(prev);
         });
+        if (streamShadowRef.current && cleanupStreamSid.trim() !== "") {
+          streamShadowRef.current = patchIncomplete(streamShadowRef.current);
+        }
         void loadMessages(sidEffective);
         void loadSessionsList(true);
       }
+      streamShadowRef.current = null;
       releaseSessionId?.(sidEffective);
       inFlightRef.current = false;
     }

@@ -462,7 +462,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title) and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**.",
+					"description": "Set **title** (pinned title) and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -505,6 +505,21 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "OpenAI-shaped messages payload"},
 						"404": errorResponseRef(),
 						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/composer-stream": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Subscribe to live composer SSE for an in-flight turn",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "text/event-stream composer relay"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},

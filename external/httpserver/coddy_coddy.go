@@ -120,6 +120,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/composer-stream", s.coddySessionComposerStream)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
@@ -778,6 +779,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
+	fs := s.mgr.FileStore()
 	resp := map[string]interface{}{
 		"object": "coddy.session_patched",
 		"id":     id,
@@ -788,6 +790,11 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		did = true
 		resp["activitySeq"] = st.GetActivitySeq()
 		resp["readActivitySeq"] = st.GetReadActivitySeq()
+		if fs != nil {
+			if err := fs.PatchSessionMetaActivitySync(st); err != nil {
+				s.log.Warn("patch session meta activity", "id", id, "error", err)
+			}
+		}
 	}
 	t := strings.TrimSpace(body.Title)
 	if t != "" {

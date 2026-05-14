@@ -428,12 +428,12 @@ func (s *State) BumpActivitySeq() {
 	s.touchPersist()
 }
 
-// MarkActivityReadSynced sets readActivitySeq to the current activitySeq and persists.
+// MarkActivityReadSynced sets readActivitySeq to the current activitySeq in memory.
+// Persist to disk via FileStore.PatchSessionMetaActivitySync (HTTP) so updatedAt is not bumped.
 func (s *State) MarkActivityReadSynced() {
 	s.mu.Lock()
 	s.readActivitySeq = s.activitySeq
 	s.mu.Unlock()
-	s.touchPersist()
 }
 
 // GetPermissionCommandGrants returns a copy of session command grants.

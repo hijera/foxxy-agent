@@ -515,7 +515,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}
 	defer unlock()
 
-	turnCtx, cancel := context.WithCancel(ctx)
+	turnBase := ctx
+	if opts != nil && opts.SkipTurnLock {
+		turnBase = context.WithoutCancel(ctx)
+	}
+	turnCtx, cancel := context.WithCancel(turnBase)
 	state.SetCancel(cancel)
 	defer cancel()
 

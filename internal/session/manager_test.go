@@ -416,6 +416,47 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 }
 
+func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testing.T) {
+	runBlock := make(chan struct{})
+	cont := make(chan struct{})
+	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(runBlock)
+		<-cont
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var res *acp.SessionPromptResult
+	var perr error
+	go func() {
+		defer wg.Done()
+		res, perr = m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+			SessionID: sn.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
+		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+	}()
+	<-runBlock
+	cancel()
+	close(cont)
+	wg.Wait()
+	if perr != nil {
+		t.Fatalf("prompt: %v", perr)
+	}
+	if res == nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("unexpected %+v err=%v", res, perr)
+	}
+}
+
 func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	skRoot := t.TempDir()
 	skillDir := filepath.Join(skRoot, "probe")
