@@ -503,6 +503,8 @@ export function App() {
   const streamShadowRef = useRef<TranscriptItem[] | null>(null);
   const streamingAssistantIdRef = useRef("");
   const [generating, setGenerating] = useState(false);
+  const generatingRef = useRef(false);
+  generatingRef.current = generating;
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -1382,7 +1384,7 @@ export function App() {
         const streamSid = activeStreamSidRef.current.trim();
         const shadowSnap = streamShadowRef.current;
         const rejoiningLiveStream =
-          generating &&
+          generatingRef.current &&
           sessionId.trim() === streamSid &&
           streamSid !== "" &&
           shadowSnap != null &&
@@ -1413,7 +1415,9 @@ export function App() {
     return () => {
       lifecycle.abort();
     };
-  }, [sessionId, generating]);
+    // Intentionally sessionId only: rejoinComposerLiveStream calls setGenerating(true);
+    // including generating here would abort the relay fetch on the same render cycle.
+  }, [sessionId]);
 
   function upsertToolCall(
     update: Partial<Extract<TranscriptItem, { type: "tool_call" }>> & {
