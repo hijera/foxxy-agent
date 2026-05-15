@@ -475,6 +475,11 @@ body {
   color: rgba(255, 255, 255, 0.9);
 }
 
+a.rail-brand {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
 .rail-brand-header {
   flex: 1 1 auto;
   flex-shrink: 1;
@@ -682,6 +687,13 @@ body {
   font-size: 14px;
   margin-bottom: 6px;
   border: 1px solid transparent;
+}
+
+a.session-item {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  box-sizing: border-box;
 }
 
 .session-item:hover {
@@ -2677,6 +2689,9 @@ textarea#composer {
   padding: 10px 8px 10px 12px;
   cursor: pointer;
   border-radius: 0;
+  text-decoration: none;
+  display: block;
+  box-sizing: border-box;
 }
 
 .scheduler-job-row-text-block {

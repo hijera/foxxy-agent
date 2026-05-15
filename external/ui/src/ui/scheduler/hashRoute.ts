@@ -182,3 +182,38 @@ export function stripHistorySidebarFromHash(): void {
     setSettingsHash();
   }
 }
+
+/** Hash for home / new chat (no session). Middle-click opens a parallel tab. */
+export function appNavHrefHome(): string {
+  return "#/";
+}
+
+export function appNavHrefHistory(): string {
+  return "#/history";
+}
+
+export function appNavHrefSettings(): string {
+  return "#/settings";
+}
+
+export function appNavHrefScheduler(): string {
+  return "#/scheduler";
+}
+
+/** Hash to open a chat session (middle-click or Ctrl/Cmd-click in a new tab). */
+export function appNavHrefSession(sessionId: string): string {
+  const id = (sessionId || "").trim();
+  if (!id) {
+    return appNavHrefHome();
+  }
+  return `#/s/${encodeURIComponent(id)}`;
+}
+
+/** Hash to open a scheduler job editor (middle-click opens a new tab). */
+export function appNavHrefSchedulerJob(jobId: string): string {
+  const id = (jobId || "").trim();
+  if (!id) {
+    return appNavHrefScheduler();
+  }
+  return `#/scheduler/jobs/${encodeURIComponent(id)}`;
+}

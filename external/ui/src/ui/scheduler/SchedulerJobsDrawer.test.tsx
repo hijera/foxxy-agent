@@ -79,3 +79,12 @@ test("paused row shows only badge, no next run time", () => {
   expect(row.textContent).not.toContain("2026-05-11");
   expect(row.textContent).not.toContain("(UTC)");
 });
+
+test("job row main control exposes scheduler hash href", () => {
+  renderDrawer(null, [baseJob("my-job")]);
+  const main = screen
+    .getByTestId("scheduler-job-row-my-job")
+    .querySelector("a.scheduler-job-row-main");
+  expect(main).toBeTruthy();
+  expect(main).toHaveAttribute("href", "#/scheduler/jobs/my-job");
+});

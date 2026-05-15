@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { appNavHrefSession } from "../scheduler/hashRoute";
+import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
 import {
   sessionRowShowsSpinner,
   sessionRowShowsUnreadDot,
@@ -113,12 +115,15 @@ export function SessionsSidebar(props: {
           </div>
         ) : null}
         {props.sessions.map((s) => (
-          <div
+          <a
             key={s.id}
+            href={appNavHrefSession(s.id)}
             className={`session-item ${s.id === props.sessionId ? "active" : ""}`}
-            onClick={() => {
-              props.onPick(s.id);
-            }}
+            onClick={(ev) =>
+              sameTabInAppNavClick(ev, () => {
+                props.onPick(s.id);
+              })
+            }
           >
             <div className="session-row">
               <div className="session-row-leading">
@@ -155,7 +160,7 @@ export function SessionsSidebar(props: {
                 🗑
               </button>
             </div>
-          </div>
+          </a>
         ))}
         <div
           ref={sentinelRef}

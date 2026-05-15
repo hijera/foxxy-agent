@@ -28,6 +28,10 @@ import { NavRail } from "./nav/NavRail";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
+import {
+  armSessionDeleteBackdropSuppressUntil,
+  shouldSuppressShellBackdropClose,
+} from "./sessions/sessionDeleteBackdropSuppress";
 import type { SessionRow } from "./sessions/types";
 import { startSuggestSessionTitle } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
@@ -509,6 +513,8 @@ export function App() {
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
+  /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
+  const sessionDeleteBackdropSuppressUntilRef = useRef(0);
   const bumpComposerActivity = () =>
     setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
 
@@ -1408,27 +1414,15 @@ export function App() {
     if (!ok) {
       return;
     }
+    armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
     await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers,
     });
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (id === sessionId) {
-      setSchedulerOpen(false);
-      setSchedulerEditor(null);
-      viewedSessionIdRef.current = "";
-      setSessionId("");
-      setHeroHomeGeneration((g) => g + 1);
-      setItems([]);
-      setDraft("");
-      setTokenUsage(null);
-      setDescribePreview(null);
-      reasoningDurationMsByContentRef.current = new Map();
-      if (sessionsOpen) {
-        setHistoryHash();
-      } else {
-        setSessionHashInLocation("");
-      }
+      setSessionsOpen(false);
+      goHome();
       return;
     }
     await loadSessionsList(true);
@@ -2340,6 +2334,13 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
+            if (
+              shouldSuppressShellBackdropClose(
+                sessionDeleteBackdropSuppressUntilRef,
+              )
+            ) {
+              return;
+            }
             if (shellBackdropOpen) {
               closeAllShellDrawers();
             }

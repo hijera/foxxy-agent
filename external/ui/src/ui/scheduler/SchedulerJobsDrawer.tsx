@@ -1,5 +1,7 @@
 import type { SchedulerInfo, SchedulerJob } from "./types";
 import { SchedulerIconPlus } from "./schedulerToolbarIcons";
+import { appNavHrefSchedulerJob } from "./hashRoute";
+import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
 
 /** Renders next fire as YYYY-MM-DD HH:MM (UTC) for list rows (scheduler uses UTC five-field cron). */
 function formatNextRunUtc(iso: string | undefined): string {
@@ -124,11 +126,13 @@ export function SchedulerJobsDrawer(props: {
               .join(" ")}
             data-testid={`scheduler-job-row-${j.job_id}`}
           >
-            <button
-              type="button"
+            <a
+              href={appNavHrefSchedulerJob(j.job_id)}
               className="scheduler-job-row-main"
               aria-current={selected ? "true" : undefined}
-              onClick={() => props.onOpenJob(j.job_id)}
+              onClick={(ev) =>
+                sameTabInAppNavClick(ev, () => props.onOpenJob(j.job_id))
+              }
             >
               <div className="scheduler-job-row-text-block">
                 <div className="scheduler-job-row-title-line">
@@ -161,7 +165,7 @@ export function SchedulerJobsDrawer(props: {
                   {(j.description || "").trim() || "—"}
                 </div>
               </div>
-            </button>
+            </a>
             <div className="scheduler-job-row-actions">
               {j.running ? (
                 <button

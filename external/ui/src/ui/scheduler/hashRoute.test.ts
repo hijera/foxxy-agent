@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
+  appNavHrefHome,
+  appNavHrefHistory,
+  appNavHrefScheduler,
+  appNavHrefSchedulerJob,
+  appNavHrefSession,
+  appNavHrefSettings,
   parseAppHash,
   setHistoryHash,
   setSchedulerJobHash,
@@ -116,5 +122,27 @@ describe("hash writers", () => {
     setHash("");
     setSessionHashInLocation("demo", { historySidebar: true });
     expect(window.location.hash).toBe("#/s/demo?history=1");
+  });
+});
+
+describe("appNavHref helpers", () => {
+  test("home history and settings paths", () => {
+    expect(appNavHrefHome()).toBe("#/");
+    expect(appNavHrefHistory()).toBe("#/history");
+    expect(appNavHrefSettings()).toBe("#/settings");
+    expect(appNavHrefScheduler()).toBe("#/scheduler");
+  });
+
+  test("session path encodes id and falls back to home when empty", () => {
+    expect(appNavHrefSession("abc")).toBe("#/s/abc");
+    expect(appNavHrefSession("a/b")).toBe("#/s/a%2Fb");
+    expect(appNavHrefSession("")).toBe("#/");
+    expect(appNavHrefSession("  ")).toBe("#/");
+  });
+
+  test("scheduler job path encodes id", () => {
+    expect(appNavHrefSchedulerJob("demo")).toBe("#/scheduler/jobs/demo");
+    expect(appNavHrefSchedulerJob("a/b")).toBe("#/scheduler/jobs/a%2Fb");
+    expect(appNavHrefSchedulerJob("")).toBe("#/scheduler");
   });
 });

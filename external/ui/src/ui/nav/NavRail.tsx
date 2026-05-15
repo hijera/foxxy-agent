@@ -1,4 +1,11 @@
 import { useLayoutEffect, useRef } from "react";
+import {
+  appNavHrefHistory,
+  appNavHrefHome,
+  appNavHrefScheduler,
+  appNavHrefSettings,
+} from "../scheduler/hashRoute";
+import { sameTabInAppNavClick } from "./sameTabInAppNav";
 
 /** Octicon-style mark, integer geometry (reads clearly at 18px). */
 function IconGitHub(props: { className?: string }) {
@@ -212,17 +219,19 @@ export function NavRail(props: {
               >
                 <IconSidebarCollapse className="rail-toggle-svg" />
               </button>
-              <button
-                type="button"
+              <a
+                href={appNavHrefHome()}
                 className="rail-brand rail-brand-header"
                 aria-label="Coddy agent home"
                 data-testid="nav-home"
-                onClick={props.onNewChat}
+                onClick={(ev) =>
+                  sameTabInAppNavClick(ev, props.onNewChat)
+                }
               >
                 <span className="rail-brand-text-header-single">
                   Coddy <span className="rail-brand-header-agent">agent</span>
                 </span>
-              </button>
+              </a>
             </div>
           ) : (
             <>
@@ -240,18 +249,20 @@ export function NavRail(props: {
                 </span>
               </div>
               <div className="rail-tip-host rail-brand-tip-host">
-                <button
-                  type="button"
+                <a
+                  href={appNavHrefHome()}
                   className="rail-brand"
                   aria-label="Coddy agent home"
                   data-testid="nav-home"
-                  onClick={props.onNewChat}
+                  onClick={(ev) =>
+                    sameTabInAppNavClick(ev, props.onNewChat)
+                  }
                 >
                   <span className="rail-brand-text">
                     <span className="rail-brand-title">Coddy</span>
                     <span className="rail-brand-sub">agent</span>
                   </span>
-                </button>
+                </a>
                 <span className="rail-tip" role="tooltip">
                   New Chat
                 </span>
@@ -260,18 +271,20 @@ export function NavRail(props: {
           )
         ) : (
           <div className="rail-tip-host rail-brand-tip-host">
-            <button
-              type="button"
+            <a
+              href={appNavHrefHome()}
               className="rail-brand"
               aria-label="Coddy agent home"
               data-testid="nav-home"
-              onClick={props.onNewChat}
+              onClick={(ev) =>
+                sameTabInAppNavClick(ev, props.onNewChat)
+              }
             >
               <span className="rail-brand-text">
                 <span className="rail-brand-title">Coddy</span>
                 <span className="rail-brand-sub">agent</span>
               </span>
-            </button>
+            </a>
             <span className="rail-tip" role="tooltip">
               New Chat
             </span>
@@ -280,19 +293,21 @@ export function NavRail(props: {
 
         <div className="rail-middle">
           <div className="rail-tip-host">
-            <button
-              type="button"
+            <a
+              href={appNavHrefHistory()}
               className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
               aria-label="History"
               aria-pressed={props.historyOpen}
               data-testid="nav-history"
-              onClick={props.onOpenHistory}
+              onClick={(ev) =>
+                sameTabInAppNavClick(ev, props.onOpenHistory)
+              }
             >
               <IconBook className="rail-svg rail-nav-hit-svg" />
               {pillWide ? (
                 <span className="rail-nav-label">History</span>
               ) : null}
-            </button>
+            </a>
             {!pillWide && !props.historyOpen ? (
               <span className="rail-tip" role="tooltip">
                 History
@@ -302,19 +317,21 @@ export function NavRail(props: {
 
           {showScheduler ? (
             <div className="rail-tip-host">
-              <button
-                type="button"
+              <a
+                href={appNavHrefScheduler()}
                 className={`${navBtnCls} ${props.schedulerOpen ? "is-active" : ""}`}
                 aria-label="Scheduler jobs"
                 aria-pressed={props.schedulerOpen}
                 data-testid="nav-scheduler"
-                onClick={props.onOpenScheduler}
+                onClick={(ev) =>
+                  sameTabInAppNavClick(ev, props.onOpenScheduler)
+                }
               >
                 <IconScheduler className="rail-svg rail-nav-hit-svg" />
                 {pillWide ? (
                   <span className="rail-nav-label">Scheduler</span>
                 ) : null}
-              </button>
+              </a>
               {!pillWide && !props.schedulerOpen ? (
                 <span className="rail-tip" role="tooltip">
                   Scheduler
@@ -370,19 +387,21 @@ export function NavRail(props: {
           </div>
 
           <div className="rail-tip-host">
-            <button
-              type="button"
+            <a
+              href={appNavHrefSettings()}
               className={`${navBtnCls} ${props.settingsOpen ? "is-active" : ""}`}
               aria-label="Settings"
               aria-pressed={props.settingsOpen}
               data-testid="nav-settings"
-              onClick={props.onOpenSettings}
+              onClick={(ev) =>
+                sameTabInAppNavClick(ev, props.onOpenSettings)
+              }
             >
               <IconSettings className="rail-svg rail-nav-hit-svg" />
               {pillWide ? (
                 <span className="rail-nav-label">Settings</span>
               ) : null}
-            </button>
+            </a>
             {!pillWide && !props.settingsOpen ? (
               <span className="rail-tip" role="tooltip">
                 Settings

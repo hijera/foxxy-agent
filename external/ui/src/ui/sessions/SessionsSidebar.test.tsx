@@ -35,6 +35,26 @@ test("delete click does not bubble to row pick", async () => {
   expect(onPick).not.toHaveBeenCalled();
 });
 
+test("session row is a link with session hash href", () => {
+  render(
+    <SessionsSidebar
+      sessionId="current"
+      sessions={[row("sess-one", "Alpha")]}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  const link = screen.getByRole("link", { name: /Alpha/i });
+  expect(link).toHaveAttribute("href", "#/s/sess-one");
+});
+
 test("shows spinner and unread dot for other sessions", () => {
   render(
     <SessionsSidebar
