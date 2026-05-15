@@ -59,13 +59,22 @@ function buildAnswerRows(
     }
     const cells: string[] = [];
     if (q.multiple) {
-      cells.push(...(multiSel[qi] || []));
+      const sel = multiSel[qi] || [];
+      const wantsFree = sel.includes(OTHER_SENTINEL);
+      for (const lab of sel) {
+        if (lab !== OTHER_SENTINEL) cells.push(lab);
+      }
+      const ex = String(extraText[qi] ?? "").trim();
+      if (wantsFree && ex.length > 0) cells.push(ex);
     } else {
       const sel = String(singleSel[qi] ?? "").trim();
-      if (sel && sel !== OTHER_SENTINEL) cells.push(sel);
+      const ex = String(extraText[qi] ?? "").trim();
+      if (sel === OTHER_SENTINEL) {
+        if (ex.length > 0) cells.push(ex);
+      } else if (sel) {
+        cells.push(sel);
+      }
     }
-    const ex = String(extraText[qi] ?? "").trim();
-    if (ex.length > 0) cells.push(ex);
     out.push(cells);
   }
   return out;
@@ -101,7 +110,17 @@ function readyToSubmit(args: {
   for (let qi = 0; qi < n; qi++) {
     const q = args.questions[qi];
     if (!q) return false;
-    if (!q.multiple) {
+
+    if (q.multiple) {
+      const sel = args.multiSel[qi] || [];
+      const wantsFree = sel.includes(OTHER_SENTINEL);
+      const picks = sel.filter((l) => l !== OTHER_SENTINEL);
+      const ex = String(args.extraText[qi] ?? "").trim();
+      if (wantsFree && ex.length === 0) return false;
+      const ok =
+        picks.length > 0 || (wantsFree && ex.length > 0);
+      if (!ok) return false;
+    } else {
       const pick = String(args.singleSel[qi] ?? "").trim();
       if (pick === OTHER_SENTINEL) {
         if (String(args.extraText[qi] ?? "").trim().length === 0) {
@@ -141,7 +160,7 @@ function formatResolvedSummaryLine(
 
 function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
   const opts = Math.max(q.options?.length ?? 0, 0);
-  const total = opts + (!q.multiple && q.custom ? 1 : 0);
+  const total = opts + (q.custom ? 1 : 0);
   const list: string[] = [];
   for (let i = 0; i < Math.min(total, 26); i++) list.push(letterForOptionIndex(i));
   return list;
@@ -436,8 +455,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                           autoComplete="off"
                           spellCheck={false}
                           disabled={submitting}
-                          placeholder="Other"
-                          aria-label="Other"
+                          placeholder="Other…"
+                          aria-label="Other, type your answer"
                           data-testid={`question-other-${qi}`}
                           onFocus={() => {
                             setSingleSel((prev) => {
@@ -463,40 +482,76 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                       </label>
                     </li>
                   ) : null}
-                </ul>
 
-                {(q.multiple || !q.custom) ? (
-                  <label className="question-prompt-subhead" style={{ display: "block" }}>
-                    <span>Additional reply (optional)</span>
-                    <input
-                      type="text"
-                      value={extraText[qi] || ""}
-                      autoComplete="off"
-                      spellCheck={false}
-                      disabled={submitting}
-                      placeholder="Notes or clarification"
-                      data-testid={`question-extra-${qi}`}
-                      style={{
-                        marginTop: 8,
-                        width: "100%",
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        background: "rgba(0,0,0,0.25)",
-                        color: "inherit",
-                        font: "inherit",
-                      }}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setExtraText((prev) => {
-                          const nx = [...prev];
-                          nx[qi] = v;
-                          return nx;
-                        });
-                      }}
-                    />
-                  </label>
-                ) : null}
+                  {q.multiple && q.custom ? (
+                    <li className="question-prompt-li">
+                      <label
+                        className={
+                          "question-prompt-row question-prompt-row--other" +
+                          ((multiSel[qi] || []).includes(OTHER_SENTINEL)
+                            ? " question-prompt-row--active"
+                            : "")
+                        }
+                      >
+                        <input
+                          className="sr-only"
+                          type="checkbox"
+                          checked={(multiSel[qi] || []).includes(
+                            OTHER_SENTINEL,
+                          )}
+                          disabled={submitting}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setMultiSel((prev) => {
+                              const next = [...prev];
+                              const set = new Set(next[qi] || []);
+                              if (on) set.add(OTHER_SENTINEL);
+                              else set.delete(OTHER_SENTINEL);
+                              next[qi] = Array.from(set);
+                              return next;
+                            });
+                          }}
+                        />
+                        <span className="question-prompt-bubble">
+                          {letters[q.options.length] ?? "?"}
+                        </span>
+                        <input
+                          className="question-prompt-other-input"
+                          type="text"
+                          value={extraText[qi] || ""}
+                          autoComplete="off"
+                          spellCheck={false}
+                          disabled={submitting}
+                          placeholder="Other…"
+                          aria-label="Other, type your answer"
+                          data-testid={`question-other-multi-${qi}`}
+                          onFocus={() => {
+                            setMultiSel((prev) => {
+                              const next = [...prev];
+                              const set = new Set(next[qi] || []);
+                              set.add(OTHER_SENTINEL);
+                              next[qi] = Array.from(set);
+                              return next;
+                            });
+                          }}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setExtraText((prev) => {
+                              const nx = [...prev];
+                              nx[qi] = v;
+                              return nx;
+                            });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                            }
+                          }}
+                        />
+                      </label>
+                    </li>
+                  ) : null}
+                </ul>
               </div>
             );
           })}
