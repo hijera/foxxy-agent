@@ -1,17 +1,17 @@
 # Build distroless image (Dockerfile scratch) and push to GitHub Container Registry.
-# Always tags: ghcr.io/<owner>/<repo>:<major>.<minor>.<patch>
-# Also tags major.minor, major, and latest when that git tag is highest in scope.
+# Git release tags: X.Y.Z (e.g. 0.2.0).
+# Image tags: ghcr.io/<owner>/<repo>:<major>.<minor>.<patch> plus floating aliases when highest.
 #
 # Triggers:
-#   - push tag v* (commit must be on main)
-#   - workflow_dispatch: uses latest SemVer git tag, checks out that commit, rebuilds and overwrites GHCR tags
+#   - push SemVer tag (commit must be on main)
+#   - workflow_dispatch: latest SemVer git tag, checkout, rebuild, overwrite GHCR tags
 
 name: Docker build and push
 
 on:
   push:
     tags:
-      - "v*"
+      - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
 defaults:
@@ -43,13 +43,13 @@ jobs:
           git fetch --tags origin
 
           latest_semver_tag() {
-            { git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1
+            { git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1
           }
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="$(latest_semver_tag)"
             if [ -z "$TAG" ]; then
-              echo "No SemVer git tags (vX.Y.Z) on origin. Merge a PR (tag-on-merge) or push a tag first." >&2
+              echo "No SemVer git tags (X.Y.Z) on origin. Merge a PR (tag-on-merge) or push a tag first." >&2
               echo "Tags visible after fetch:" >&2
               git tag -l >&2 || true
               exit 1
@@ -59,8 +59,8 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
 
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag must match v<major>.<minor>.<patch> (got ${TAG})." >&2
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match X.Y.Z (got ${TAG})." >&2
             exit 1
           fi
 
@@ -113,47 +113,53 @@ jobs:
           GIT_TAG="${{ steps.git_tag.outputs.tag }}"
           IMAGE="${REGISTRY}/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
 
-          VERSION="${GIT_TAG#v}"
+          VERSION="${GIT_TAG}"
           MAJOR="${VERSION%%.*}"
           REST="${VERSION#*.}"
           MINOR="${REST%%.*}"
 
-          mapfile -t ALL_TAGS < <({ git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V)
-          if [ "${#ALL_TAGS[@]}" -eq 0 ]; then
+          mapfile -t ALL_VERS < <(
+            { git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V
+          )
+          if [ "${#ALL_VERS[@]}" -eq 0 ]; then
             echo "No SemVer tags found." >&2
             exit 1
           fi
 
-          MAX_ALL="${ALL_TAGS[$((${#ALL_TAGS[@]} - 1))]}"
+          MAX_ALL_VER="${ALL_VERS[$((${#ALL_VERS[@]} - 1))]}"
 
-          mapfile -t MM_TAGS < <(printf '%s\n' "${ALL_TAGS[@]}" | grep -E "^v${MAJOR}\\.${MINOR}\\.[0-9]+$" | sort -V)
-          MAX_MM="${MM_TAGS[$((${#MM_TAGS[@]} - 1))]}"
+          mapfile -t MM_VERS < <(
+            printf '%s\n' "${ALL_VERS[@]}" | { grep -E "^${MAJOR}\\.${MINOR}\\.[0-9]+$" || true; } | sort -V
+          )
+          MAX_MM_VER="${MM_VERS[$((${#MM_VERS[@]} - 1))]}"
 
-          mapfile -t MAJ_TAGS < <(printf '%s\n' "${ALL_TAGS[@]}" | grep -E "^v${MAJOR}\\.[0-9]+\\.[0-9]+$" | sort -V)
-          MAX_MAJ="${MAJ_TAGS[$((${#MAJ_TAGS[@]} - 1))]}"
+          mapfile -t MAJ_VERS < <(
+            printf '%s\n' "${ALL_VERS[@]}" | { grep -E "^${MAJOR}\\.[0-9]+\\.[0-9]+$" || true; } | sort -V
+          )
+          MAX_MAJ_VER="${MAJ_VERS[$((${#MAJ_VERS[@]} - 1))]}"
 
           TAGS="${IMAGE}:${VERSION}"
           echo "Always push (overwrite): ${IMAGE}:${VERSION}"
 
-          if [ "$GIT_TAG" = "$MAX_MM" ]; then
+          if [ "$VERSION" = "$MAX_MM_VER" ]; then
             TAGS+=$'\n'"${IMAGE}:${MAJOR}.${MINOR}"
             echo "Also push (overwrite): ${IMAGE}:${MAJOR}.${MINOR}"
           else
-            echo "Skip ${IMAGE}:${MAJOR}.${MINOR} (max is ${MAX_MM})."
+            echo "Skip ${IMAGE}:${MAJOR}.${MINOR} (max is ${MAX_MM_VER})."
           fi
 
-          if [ "$GIT_TAG" = "$MAX_MAJ" ]; then
+          if [ "$VERSION" = "$MAX_MAJ_VER" ]; then
             TAGS+=$'\n'"${IMAGE}:${MAJOR}"
             echo "Also push (overwrite): ${IMAGE}:${MAJOR}"
           else
-            echo "Skip ${IMAGE}:${MAJOR} (max is ${MAX_MAJ})."
+            echo "Skip ${IMAGE}:${MAJOR} (max is ${MAX_MAJ_VER})."
           fi
 
-          if [ "$GIT_TAG" = "$MAX_ALL" ]; then
+          if [ "$VERSION" = "$MAX_ALL_VER" ]; then
             TAGS+=$'\n'"${IMAGE}:latest"
             echo "Also push (overwrite): ${IMAGE}:latest"
           else
-            echo "Skip latest (global max is ${MAX_ALL})."
+            echo "Skip latest (global max is ${MAX_ALL_VER})."
           fi
 
           {

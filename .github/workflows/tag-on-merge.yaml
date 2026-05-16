@@ -1,5 +1,5 @@
 # Bump the highest SemVer tag (patch) when a PR is merged into main.
-# Pushing the new v* tag triggers docker-build-push.yaml (GitHub Packages).
+# Pushes tag X.Y.Z. Push triggers docker-build-push.yaml (GitHub Packages).
 
 name: Tag release on merge
 
@@ -47,16 +47,15 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          LATEST="$({ git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
+          LATEST="$({ git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
           if [ -z "$LATEST" ]; then
-            LATEST="v0.1.0"
+            LATEST="0.1.0"
           fi
-          VERSION="${LATEST#v}"
-          NEW_VERSION="$(echo "$VERSION" | awk -F. '{$3=$3+1; OFS="."; print $1,$2,$3}')"
+          NEW_VERSION="$(echo "$LATEST" | awk -F. '{$3=$3+1; OFS="."; print $1,$2,$3}')"
           echo "previous=${LATEST}" >> "$GITHUB_OUTPUT"
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Bumping ${LATEST} -> v${NEW_VERSION}"
+          echo "tag=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Bumping ${LATEST} -> ${NEW_VERSION}"
 
       - name: Create and push tag
         if: steps.check.outputs.skip != 'true'
