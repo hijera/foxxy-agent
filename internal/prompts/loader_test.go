@@ -56,8 +56,8 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "Mode: Plan") {
 		t.Error("plan prompt should mention Mode: Plan")
 	}
-	if !strings.Contains(result, "switch the session") && !strings.Contains(result, "plan_exit") {
-		t.Error("plan prompt should mention switching to agent mode or plan_exit")
+	if !strings.Contains(result, "plan_write") {
+		t.Error("plan prompt should mention plan_write")
 	}
 	if !strings.Contains(result, "websearch") {
 		t.Error("plan prompt should mention websearch for external research")
@@ -127,8 +127,8 @@ func TestRenderTodoListWhenNonempty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render plan: %v", err)
 	}
-	if !strings.Contains(p, "### Current todo checklist") || !strings.Contains(p, todoMd) {
-		t.Errorf("expected injected todo markdown in plan prompt, got excerpt: %.200s", p)
+	if strings.Contains(p, "### Current todo checklist") {
+		t.Error("plan prompt should not include session todo checklist section")
 	}
 }
 

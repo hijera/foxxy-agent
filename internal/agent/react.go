@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
+	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
@@ -42,6 +43,8 @@ type SessionState interface {
 	GetPlan() []acp.PlanEntry
 	SetPlan([]acp.PlanEntry)
 	GetPersistedSessionDir() string
+	AppendPlanDocument(plans.Document)
+	TakePendingPlanContext() string
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -144,6 +147,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			a.state.SetMode(strings.TrimSpace(mode))
 			return nil
 		},
+		PersistPlanDocument: func(doc plans.Document) {
+			a.state.AppendPlanDocument(doc)
+		},
+	}
+	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
+		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
 
 	var totalInputTokens, totalOutputTokens int
@@ -538,8 +547,19 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	history := a.state.GetMessages()
 	msgs := make([]llm.Message, 0, len(history)+1)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
-	msgs = append(msgs, history...)
+	for _, m := range history {
+		if isLLMHistoryMessage(m) {
+			msgs = append(msgs, m)
+		}
+	}
 	return msgs
+}
+
+func isLLMHistoryMessage(m llm.Message) bool {
+	if m.PlanDocument != nil && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 && strings.TrimSpace(m.Reasoning) == "" {
+		return false
+	}
+	return true
 }
 
 // sendPlan sends the plan update to the client.

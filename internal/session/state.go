@@ -5,11 +5,13 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
@@ -61,6 +63,9 @@ type State struct {
 
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
+
+	// pendingPlanContext is injected into the next agent system prompt (Run plan); not persisted.
+	pendingPlanContext string
 
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
@@ -314,6 +319,44 @@ func (s *State) ClearMemoryCopilotBlock() {
 	s.mu.Lock()
 	s.MemoryCopilotBlock = ""
 	s.mu.Unlock()
+}
+
+// SetPendingPlanContext sets design plan text for the next agent turn system prompt.
+func (s *State) SetPendingPlanContext(text string) {
+	s.mu.Lock()
+	s.pendingPlanContext = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
+// TakePendingPlanContext returns and clears pending plan context.
+func (s *State) TakePendingPlanContext() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.pendingPlanContext
+	s.pendingPlanContext = ""
+	return out
+}
+
+// AppendPlanDocument adds a UI transcript row for a design plan file.
+func (s *State) AppendPlanDocument(doc plans.Document) {
+	s.mu.Lock()
+	updated := ""
+	if !doc.UpdatedAt.IsZero() {
+		updated = doc.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	s.Messages = append(s.Messages, llm.Message{
+		Role: llm.RoleAssistant,
+		PlanDocument: &llm.PlanDocumentSnapshot{
+			Slug:      doc.Slug,
+			Name:      doc.Name,
+			Overview:  doc.Overview,
+			Content:   doc.Content,
+			UpdatedAt: updated,
+		},
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // GetPlan returns a copy of the current plan entries.

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 )
 
 // Env provides environmental context to tool execution.
@@ -55,6 +56,12 @@ type Env struct {
 
 	// SetSessionMode switches the session operating mode (e.g. plan to agent). Optional.
 	SetSessionMode func(mode string) error
+
+	// PersistPlanDocument appends a plan_document transcript row after plan_write. Optional.
+	PersistPlanDocument func(doc plans.Document)
+
+	// SendDesignPlanUpdate publishes a design plan preview via session/update plan. Optional.
+	SendDesignPlanUpdate func(doc plans.Document)
 }
 
 // CommandAllowed returns true if the given shell command matches an entry

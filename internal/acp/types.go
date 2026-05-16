@@ -234,8 +234,9 @@ type SessionListResult struct {
 
 // SessionPromptParams are the parameters for session/prompt.
 type SessionPromptParams struct {
-	SessionID string         `json:"sessionId"`
-	Prompt    []ContentBlock `json:"prompt"`
+	SessionID string                 `json:"sessionId"`
+	Prompt    []ContentBlock         `json:"prompt"`
+	Meta      map[string]interface{} `json:"_meta,omitempty"`
 }
 
 // SessionPromptResult is the response to session/prompt.
@@ -328,8 +329,9 @@ type AvailableCommandsUpdate struct {
 
 // PlanUpdate sends the agent's execution plan to the client.
 type PlanUpdate struct {
-	SessionUpdate string      `json:"sessionUpdate"`
-	Entries       []PlanEntry `json:"entries"`
+	SessionUpdate string                 `json:"sessionUpdate"`
+	Entries       []PlanEntry            `json:"entries"`
+	Meta          map[string]interface{} `json:"_meta,omitempty"`
 }
 
 // PlanEntry is a single item in the agent's plan.

@@ -1,3 +1,4 @@
+import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
 import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
@@ -29,6 +30,10 @@ export function MessageList(props: {
     itemId: string,
     resolved: QuestionResolvedState,
   ) => void;
+  sessionId?: string;
+  onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
+  onPlanDocumentRun?: (slug: string) => void;
+  onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
 }) {
   return (
     <>
@@ -126,6 +131,27 @@ export function MessageList(props: {
               key={it.id}
               level={it.level}
               message={it.message}
+            />
+          );
+        }
+        if (it.type === "plan_document") {
+          const sid = (props.sessionId || "").trim();
+          return (
+            <PlanDocumentSection
+              key={it.id}
+              sessionId={sid}
+              slug={it.slug}
+              name={it.name}
+              overview={it.overview}
+              content={it.content}
+              expanded={it.expanded}
+              onExpandedChange={(ex) =>
+                props.onPlanDocumentExpanded?.(it.id, ex)
+              }
+              onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
+              onDiscard={() =>
+                props.onPlanDocumentDiscard?.(it.id, it.slug)
+              }
             />
           );
         }

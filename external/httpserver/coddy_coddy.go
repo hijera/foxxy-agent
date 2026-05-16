@@ -131,6 +131,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/plan", s.coddyPlanGet)
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/plan", s.coddyPlanPut)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/plan/archive", s.coddyPlanArchivePost)
+	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
 	s.registerSchedulerRoutes()
 }
@@ -759,6 +760,15 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 		}
 		if cat := strings.TrimSpace(m.CreatedAt); cat != "" {
 			item["created_at"] = cat
+		}
+		if m.PlanDocument != nil {
+			item["plan_document"] = map[string]interface{}{
+				"slug":      m.PlanDocument.Slug,
+				"name":      m.PlanDocument.Name,
+				"overview":  m.PlanDocument.Overview,
+				"content":   m.PlanDocument.Content,
+				"updatedAt": m.PlanDocument.UpdatedAt,
+			}
 		}
 		out = append(out, item)
 	}

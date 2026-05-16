@@ -47,6 +47,9 @@ type TemplateData struct {
 	// TodoList is the current session checklist as markdown lines (may be empty).
 	TodoList string
 
+	// PlanContext is design plan text injected when the user runs a saved plan (may be empty).
+	PlanContext string
+
 	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model grounding.
 	UTCNow string
 }

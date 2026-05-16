@@ -334,6 +334,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    prompt,
+			Meta:      sessionPromptMetaFromHTTP(req.Metadata),
 		}, bridge, promptOpts); err != nil {
 			s.log.Error("session prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !req.Stream {
@@ -651,6 +652,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
+			Meta:      sessionPromptMetaFromHTTP(body.Metadata),
 		}, bridge, promptOpts); err != nil {
 			s.log.Error("responses prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {

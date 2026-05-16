@@ -66,13 +66,18 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	promptTodoMD := checklistMarkdownFromPlan(a.state.GetPlan())
 	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), strings.TrimSpace(a.state.GetMemoryCopilotBlock()))
+	planCtx := ""
+	if mode == "agent" {
+		planCtx = a.state.TakePendingPlanContext()
+	}
 	return prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
-		CWD:      a.state.GetCWD(),
-		Skills:   buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, userText),
-		Tools:    tools.FormatDefinitionsForPrompt(toolDefs),
-		Memory:   mem,
-		TodoList: promptTodoMD,
-		UTCNow:   time.Now().UTC().Format(time.RFC3339),
+		CWD:         a.state.GetCWD(),
+		Skills:      buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, userText),
+		Tools:       tools.FormatDefinitionsForPrompt(toolDefs),
+		Memory:      mem,
+		TodoList:    promptTodoMD,
+		PlanContext: planCtx,
+		UTCNow:      time.Now().UTC().Format(time.RFC3339),
 	})
 }
 

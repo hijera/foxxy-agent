@@ -72,6 +72,9 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	if err := os.MkdirAll(filepath.Join(dir, toolCallsDirName), 0o755); err != nil {
 		return "", err
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "plans"), 0o755); err != nil {
+		return "", err
+	}
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	if _, statErr := os.Stat(metaPath); os.IsNotExist(statErr) {
 		m := SessionMeta{

@@ -529,6 +529,10 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		go m.runCrossProcessCancelPoll(turnCtx, state, sessionDir)
 	}
 
+	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" {
+		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
+	}
+
 	cwdAbs, err := filepath.Abs(state.GetCWD())
 	if err != nil {
 		return nil, fmt.Errorf("session cwd: %w", err)
@@ -536,6 +540,15 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	hydrated, err := HydratePromptContentBlocks(cwdAbs, params.Prompt)
 	if err != nil {
 		return nil, err
+	}
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" {
+		hydrated, err = HydrateSessionPlanMentions(sd, hydrated)
+		if err != nil {
+			return nil, err
+		}
+		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
+			return m.RunPlan(turnCtx, params.SessionID, mentionSlug, sender)
+		}
 	}
 
 	var ranRunner bool

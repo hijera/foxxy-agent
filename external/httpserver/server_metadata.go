@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -91,4 +92,29 @@ func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 		return ""
 	}
 	return st.EffectiveModelID(cfg)
+}
+
+// sessionPromptMetaFromHTTP maps HTTP metadata extensions to ACP session/prompt _meta.
+func sessionPromptMetaFromHTTP(raw json.RawMessage) map[string]interface{} {
+	if len(raw) == 0 {
+		return nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return nil
+	}
+	out := make(map[string]interface{})
+	if v, ok := m["runPlanSlug"]; ok {
+		var slug string
+		if err := json.Unmarshal(v, &slug); err == nil {
+			slug = strings.TrimSpace(slug)
+			if slug != "" {
+				out[plans.MetaRunPlanSlug] = slug
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

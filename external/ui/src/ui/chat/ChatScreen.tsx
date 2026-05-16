@@ -64,6 +64,9 @@ export function ChatScreen(props: {
     itemId: string,
     resolved: QuestionResolvedState,
   ) => void;
+  onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
+  onPlanDocumentRun?: (slug: string) => void;
+  onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
@@ -210,11 +213,21 @@ export function ChatScreen(props: {
             <div className="messages-inner">
               <MessageList
                 items={props.items}
+                sessionId={props.sessionId}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
                   : {})}
                 {...(props.onQuestionPromptResolved
                   ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
+                  : {})}
+                {...(props.onPlanDocumentExpanded
+                  ? { onPlanDocumentExpanded: props.onPlanDocumentExpanded }
+                  : {})}
+                {...(props.onPlanDocumentRun
+                  ? { onPlanDocumentRun: props.onPlanDocumentRun }
+                  : {})}
+                {...(props.onPlanDocumentDiscard
+                  ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
                   : {})}
               />
             </div>

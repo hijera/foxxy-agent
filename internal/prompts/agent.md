@@ -59,6 +59,10 @@ Statuses are **`pending`** (not started), **`in_progress`** (you are executing t
 {{.Skills}}
 
 {{end}}
+{{if .PlanContext}}
+{{.PlanContext}}
+
+{{end}}
 {{if .TodoList}}
 ### Current todo checklist
 

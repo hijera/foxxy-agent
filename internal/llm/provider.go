@@ -27,6 +27,17 @@ type Message struct {
 	Model string `json:"model,omitempty"`
 	// CreatedAt is RFC3339 timestamp in UTC when the message was appended to history (UI and Coddy REST).
 	CreatedAt string `json:"created_at,omitempty"`
+	// PlanDocument holds a persisted design plan snapshot for the bundled UI (excluded from LLM prompts).
+	PlanDocument *PlanDocumentSnapshot `json:"plan_document,omitempty"`
+}
+
+// PlanDocumentSnapshot is a persisted design plan row in the session transcript.
+type PlanDocumentSnapshot struct {
+	Slug      string `json:"slug"`
+	Name      string `json:"name,omitempty"`
+	Overview  string `json:"overview,omitempty"`
+	Content   string `json:"content"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 
 // ToolCall represents a tool invocation requested by the LLM.

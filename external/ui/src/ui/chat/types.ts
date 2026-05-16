@@ -15,6 +15,16 @@ export type TranscriptItem =
     }
   | {
       id: string;
+      type: "plan_document";
+      slug: string;
+      name: string;
+      overview: string;
+      content: string;
+      expanded: boolean;
+      updatedAtUtc?: string;
+    }
+  | {
+      id: string;
       type: "user_message";
       content: string;
       /** RFC3339 UTC from server created_at or client clock when sending. */
