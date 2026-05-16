@@ -1,0 +1,188 @@
+# Build distroless image (Dockerfile scratch) and push to GitHub Container Registry.
+# Always tags: ghcr.io/<owner>/coddy-agent:<major>.<minor>.<patch>
+# Also tags major.minor, major, and latest only when the pushed tag is the highest
+# SemVer in that scope (see "Compute image tags" step).
+#
+# Auth: GITHUB_TOKEN (packages: write). Trigger: push tag v* on main, or workflow_dispatch.
+
+name: Docker build and push
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to simulate (e.g. v1.2.3). Use dev for a single :dev image."
+        required: false
+        default: "dev"
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  REGISTRY: ghcr.io
+  BUILD_TAGS: "http,scheduler,ui,memory"
+
+jobs:
+  test-and-publish:
+    name: Test, build distroless image, push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Resolve git tag
+        id: git_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag || 'dev' }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure tag is on main
+        id: gate
+        if: github.event_name == 'push'
+        run: |
+          TAG="${{ steps.git_tag.outputs.tag }}"
+          git fetch origin main --tags
+          TAG_SHA="$(git rev-parse "${TAG}^{commit}")"
+          if git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+            echo "Tag ${TAG} is on main."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${TAG} (${TAG_SHA}) is not on branch main; skipping build."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run tests
+        if: github.event_name != 'push' || steps.gate.outputs.skip != 'true'
+        run: make test
+
+      - name: Compute image tags
+        id: meta
+        if: github.event_name != 'push' || steps.gate.outputs.skip != 'true'
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+        run: |
+          set -euo pipefail
+          GIT_TAG="${{ steps.git_tag.outputs.tag }}"
+          IMAGE="${REGISTRY}/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+
+          # Manual / smoke: single :dev tag, no floating aliases.
+          if [ "$GIT_TAG" = "dev" ]; then
+            {
+              echo "version=dev"
+              echo "push=true"
+              echo "tags<<EOF"
+              echo "${IMAGE}:dev"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ ! "$GIT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match v<major>.<minor>.<patch> (got ${GIT_TAG})." >&2
+            exit 1
+          fi
+
+          VERSION="${GIT_TAG#v}"
+          MAJOR="${VERSION%%.*}"
+          REST="${VERSION#*.}"
+          MINOR="${REST%%.*}"
+
+          git fetch --tags origin
+
+          mapfile -t ALL_TAGS < <(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
+          if [ "${#ALL_TAGS[@]}" -eq 0 ]; then
+            echo "No SemVer tags found after fetch." >&2
+            exit 1
+          fi
+
+          MAX_ALL="${ALL_TAGS[$((${#ALL_TAGS[@]} - 1))]}"
+
+          mapfile -t MM_TAGS < <(printf '%s\n' "${ALL_TAGS[@]}" | grep -E "^v${MAJOR}\\.${MINOR}\\.[0-9]+$" | sort -V)
+          MAX_MM="${MM_TAGS[$((${#MM_TAGS[@]} - 1))]}"
+
+          mapfile -t MAJ_TAGS < <(printf '%s\n' "${ALL_TAGS[@]}" | grep -E "^v${MAJOR}\\.[0-9]+\\.[0-9]+$" | sort -V)
+          MAX_MAJ="${MAJ_TAGS[$((${#MAJ_TAGS[@]} - 1))]}"
+
+          TAGS="${IMAGE}:${VERSION}"
+          echo "Always push: ${IMAGE}:${VERSION}"
+
+          if [ "$GIT_TAG" = "$MAX_MM" ]; then
+            TAGS+=$'\n'"${IMAGE}:${MAJOR}.${MINOR}"
+            echo "Also push (highest v${MAJOR}.${MINOR}.*): ${IMAGE}:${MAJOR}.${MINOR}"
+          else
+            echo "Skip ${IMAGE}:${MAJOR}.${MINOR} (max is ${MAX_MM})."
+          fi
+
+          if [ "$GIT_TAG" = "$MAX_MAJ" ]; then
+            TAGS+=$'\n'"${IMAGE}:${MAJOR}"
+            echo "Also push (highest v${MAJOR}.*.*): ${IMAGE}:${MAJOR}"
+          else
+            echo "Skip ${IMAGE}:${MAJOR} (max is ${MAX_MAJ})."
+          fi
+
+          if [ "$GIT_TAG" = "$MAX_ALL" ]; then
+            TAGS+=$'\n'"${IMAGE}:latest"
+            echo "Also push latest (global max ${MAX_ALL})."
+          else
+            echo "Skip latest (global max is ${MAX_ALL})."
+          fi
+
+          {
+            echo "version=${VERSION}"
+            echo "push=true"
+            echo "tags<<EOF"
+            printf '%s\n' "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.meta.outputs.push == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: steps.meta.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push distroless image
+        if: steps.meta.outputs.push == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            BUILD_TAGS=${{ env.BUILD_TAGS }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
