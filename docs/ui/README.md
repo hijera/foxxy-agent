@@ -60,3 +60,10 @@ Canonical SVG logos live in [`assets/coddy-logo-*.svg`](assets/) for the repo RE
 npm --prefix external/ui run dev -- --host 127.0.0.1 --port 5173
 # open http://127.0.0.1:5173/logo-preview.html
 ```
+
+**GitHub social preview** (Settings → General → Social preview): upload [`assets/coddy-logo-social-1280x640.png`](assets/coddy-logo-social-1280x640.png) (or the 640×320 export). Source SVG: [`assets/coddy-logo-social.svg`](assets/coddy-logo-social.svg).
+
+```bash
+rsvg-convert -w 1280 -h 640 -o docs/ui/assets/coddy-logo-social-1280x640.png docs/ui/assets/coddy-logo-social.svg
+rsvg-convert -w 640 -h 320 -o docs/ui/assets/coddy-logo-social-640x320.png docs/ui/assets/coddy-logo-social.svg
+```

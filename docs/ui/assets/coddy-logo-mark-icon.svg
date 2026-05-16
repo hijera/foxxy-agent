@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Coddy">
+  <defs>
+    <linearGradient id="cmi-plate" x1="4" y1="4" x2="60" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1c1c22"/>
+      <stop offset="1" stop-color="#101014"/>
+    </linearGradient>
+    <linearGradient id="cmi-stroke" x1="12" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5f3ff"/>
+      <stop offset="0.5" stop-color="#ddd6fe"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="cmi-stroke-inner" x1="16" y1="16" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c4b5fd" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0.35"/>
+    </linearGradient>
+    <radialGradient id="cmi-plate-glow" cx="50%" cy="38%" r="72%">
+      <stop offset="0" stop-color="#9333ea" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" fill="url(#cmi-plate)"/>
+  <rect width="64" height="64" fill="url(#cmi-plate-glow)"/>
+  <g transform="translate(32 32) rotate(90)">
+    <circle
+      r="11"
+      fill="none"
+      stroke="url(#cmi-stroke)"
+      stroke-width="3"
+      stroke-linecap="round"
+      stroke-dasharray="52 16"
+      stroke-dashoffset="8"
+    />
+    <circle
+      r="6.5"
+      fill="none"
+      stroke="url(#cmi-stroke-inner)"
+      stroke-width="2.1"
+    />
+  </g>
+</svg>
