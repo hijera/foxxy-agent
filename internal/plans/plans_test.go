@@ -76,6 +76,49 @@ todos:
 	}
 }
 
+func TestParsePlanFileWithIndentedTodos(t *testing.T) {
+	raw := "---\nname: Meta title\noverview: Short overview\ntodos:\n  - content: Step A\n---\n# New body\n\nDone.\n"
+	doc, err := plans.Parse("x", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Body != "# New body\n\nDone." {
+		t.Fatalf("body: %q", doc.Body)
+	}
+}
+
+func TestWriteBodyPreservesFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	slug := "keep-meta"
+	initial := `---
+name: Meta title
+overview: Short overview
+todos:
+  - content: Step A
+---
+# Old body
+`
+	if _, err := plans.Write(dir, slug, initial); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := plans.WriteBody(dir, slug, "# New body\n\nDone.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Body != "# New body\n\nDone." {
+		t.Fatalf("body: %q content:\n%s", updated.Body, updated.Content)
+	}
+	if updated.Name != "Meta title" || updated.Overview != "Short overview" {
+		t.Fatalf("meta changed: %+v", updated)
+	}
+	if len(updated.Todos) != 1 || updated.Todos[0].Content != "Step A" {
+		t.Fatalf("todos: %+v", updated.Todos)
+	}
+	if !strings.Contains(updated.Content, "name: Meta title") {
+		t.Fatal("frontmatter missing from stored file")
+	}
+}
+
 func TestWriteRejectsInvalidFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	slug := "bad-plan"

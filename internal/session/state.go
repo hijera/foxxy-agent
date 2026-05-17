@@ -344,6 +344,12 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 	if !doc.UpdatedAt.IsZero() {
 		updated = doc.UpdatedAt.UTC().Format(time.RFC3339)
 	}
+	path := ""
+	if sd := strings.TrimSpace(s.SessionDir); sd != "" {
+		if p, err := plans.FilePath(sd, doc.Slug); err == nil {
+			path = p
+		}
+	}
 	s.Messages = append(s.Messages, llm.Message{
 		Role: llm.RoleAssistant,
 		PlanDocument: &llm.PlanDocumentSnapshot{
@@ -351,12 +357,56 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 			Name:      doc.Name,
 			Overview:  doc.Overview,
 			Content:   doc.Content,
+			Body:      doc.Body,
+			Path:      path,
 			UpdatedAt: updated,
 		},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// MarkPlanDocumentDiscarded flags transcript rows for slug as discarded (UI + plan-mode prompt).
+func (s *State) MarkPlanDocumentDiscarded(slug string) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return
+	}
+	s.mu.Lock()
+	for i := range s.Messages {
+		pd := s.Messages[i].PlanDocument
+		if pd == nil || pd.Slug != slug {
+			continue
+		}
+		s.Messages[i].PlanDocument.Discarded = true
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// DiscardedPlanSlugs returns unique slugs from discarded plan_document transcript rows.
+func (s *State) DiscardedPlanSlugs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := make(map[string]struct{})
+	var out []string
+	for _, m := range s.Messages {
+		pd := m.PlanDocument
+		if pd == nil || !pd.Discarded {
+			continue
+		}
+		slug := strings.TrimSpace(pd.Slug)
+		if slug == "" {
+			continue
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		seen[slug] = struct{}{}
+		out = append(out, slug)
+	}
+	return out
 }
 
 // GetPlan returns a copy of the current plan entries.

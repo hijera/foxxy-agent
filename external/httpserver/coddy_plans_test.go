@@ -64,6 +64,26 @@ func TestDesignPlansCRUD(t *testing.T) {
 		t.Fatalf("get: %d", rec.Code)
 	}
 
+	putBody, _ := json.Marshal(map[string]string{"body": "# Updated\n\nOnly body changed."})
+	req = httptest.NewRequest(http.MethodPut, "/coddy/sessions/"+id+"/plans/demo", bytes.NewReader(putBody))
+	req.SetPathValue("id", id)
+	req.SetPathValue("slug", "demo")
+	rec = httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put body: %d %s", rec.Code, rec.Body.String())
+	}
+	got, err := plans.Read(filepath.Join(root, "sessions", id), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Body != "# Updated\n\nOnly body changed." {
+		t.Fatalf("body: %q", got.Body)
+	}
+	if got.Name != "Demo" {
+		t.Fatalf("name should be preserved: %q", got.Name)
+	}
+
 	req = httptest.NewRequest(http.MethodDelete, "/coddy/sessions/"+id+"/plans/demo", nil)
 	req.SetPathValue("id", id)
 	req.SetPathValue("slug", "demo")

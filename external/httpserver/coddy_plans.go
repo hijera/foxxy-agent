@@ -127,10 +127,11 @@ func (s *Server) coddyDesignPlanPut(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	slug := strings.TrimSpace(r.PathValue("slug"))
-	var body struct {
-		Content string `json:"content"`
+	var reqBody struct {
+		Content *string `json:"content,omitempty"`
+		Body    *string `json:"body,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
@@ -143,7 +144,17 @@ func (s *Server) coddyDesignPlanPut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"session not persisted"}}`, http.StatusBadRequest)
 		return
 	}
-	doc, err := plans.Write(sd, slug, body.Content)
+	var doc *plans.Document
+	var err error
+	switch {
+	case reqBody.Content != nil && strings.TrimSpace(*reqBody.Content) != "":
+		doc, err = plans.Write(sd, slug, *reqBody.Content)
+	case reqBody.Body != nil:
+		doc, err = plans.WriteBody(sd, slug, *reqBody.Body)
+	default:
+		http.Error(w, `{"error":{"message":"content or body required"}}`, http.StatusBadRequest)
+		return
+	}
 	if err != nil {
 		s.coddyPlanHTTPError(w, err)
 		return
@@ -209,6 +220,7 @@ func (s *Server) coddyDesignPlanDelete(w http.ResponseWriter, r *http.Request) {
 		s.coddyPlanHTTPError(w, err)
 		return
 	}
+	st.MarkPlanDocumentDiscarded(slug)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"object": "coddy.design_plan_deleted",
@@ -221,6 +233,7 @@ func designPlanResponse(doc *plans.Document) map[string]interface{} {
 		"slug":    doc.Slug,
 		"name":    doc.Name,
 		"content": doc.Content,
+		"body":    doc.Body,
 	}
 	if o := strings.TrimSpace(doc.Overview); o != "" {
 		out["overview"] = o

@@ -59,6 +59,9 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "plan_write") {
 		t.Error("plan prompt should mention plan_write")
 	}
+	if !strings.Contains(result, "plan_read") {
+		t.Error("plan prompt should mention plan_read")
+	}
 	if !strings.Contains(result, "websearch") {
 		t.Error("plan prompt should mention websearch for external research")
 	}

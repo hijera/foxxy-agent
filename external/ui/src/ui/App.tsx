@@ -1334,7 +1334,10 @@ export function App() {
               name: String(pd.name ?? ""),
               overview: String(pd.overview ?? ""),
               content: String(pd.content ?? ""),
+              body: String(pd.body ?? ""),
               expanded: false,
+              ...(pd.path ? { path: String(pd.path) } : {}),
+              ...(pd.discarded === true ? { discarded: true } : {}),
               ...(pd.updatedAt
                 ? { updatedAtUtc: String(pd.updatedAt) }
                 : {}),
@@ -2603,7 +2606,13 @@ export function App() {
             } catch {
               return;
             }
-            setItems((prev) => prev.filter((x) => x.id !== itemId));
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === itemId && x.type === "plan_document"
+                  ? { ...x, discarded: true }
+                  : x,
+              ),
+            );
           }}
           onSend={(text: string) => {
             if (

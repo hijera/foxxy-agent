@@ -8,7 +8,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const frontmatterDelim = "---"
+const (
+	frontmatterDelim  = "---"
+	frontmatterClose  = "\n" + frontmatterDelim
+)
 
 // Parse reads a .plan.md file into a Document.
 func Parse(slug, raw string) (*Document, error) {
@@ -79,11 +82,11 @@ func splitFrontmatter(raw string) (yamlPart, body string, err error) {
 	}
 	rest := strings.TrimPrefix(s, frontmatterDelim)
 	rest = strings.TrimLeft(rest, "\r\n")
-	idx := strings.Index(rest, "\n"+frontmatterDelim)
+	idx := strings.Index(rest, frontmatterClose)
 	if idx < 0 {
 		return "", "", fmt.Errorf("plan frontmatter: missing closing %s", frontmatterDelim)
 	}
 	yamlPart = strings.TrimSpace(rest[:idx])
-	body = strings.TrimLeft(rest[idx+len(frontmatterDelim):], "\r\n")
+	body = strings.TrimLeft(rest[idx+len(frontmatterClose):], "\r\n")
 	return yamlPart, body, nil
 }

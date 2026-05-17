@@ -20,6 +20,7 @@ var planToolNames = []string{
 	"question",
 	"plan_write",
 	"plan_list",
+	"plan_read",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

@@ -44,6 +44,7 @@ type SessionState interface {
 	SetPlan([]acp.PlanEntry)
 	GetPersistedSessionDir() string
 	AppendPlanDocument(plans.Document)
+	DiscardedPlanSlugs() []string
 	TakePendingPlanContext() string
 }
 

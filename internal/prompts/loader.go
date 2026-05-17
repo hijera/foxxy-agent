@@ -50,6 +50,9 @@ type TemplateData struct {
 	// PlanContext is design plan text injected when the user runs a saved plan (may be empty).
 	PlanContext string
 
+	// DiscardedPlans is plan-mode guidance when the user discarded design plan slugs (may be empty).
+	DiscardedPlans string
+
 	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model grounding.
 	UTCNow string
 }

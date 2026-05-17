@@ -767,6 +767,9 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 				"name":      m.PlanDocument.Name,
 				"overview":  m.PlanDocument.Overview,
 				"content":   m.PlanDocument.Content,
+				"body":      m.PlanDocument.Body,
+				"path":      m.PlanDocument.Path,
+				"discarded": m.PlanDocument.Discarded,
 				"updatedAt": m.PlanDocument.UpdatedAt,
 			}
 		}

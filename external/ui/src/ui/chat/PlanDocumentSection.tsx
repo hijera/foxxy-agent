@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Markdown } from "../markdown/Markdown";
+import { planEditorBody } from "./planContent";
+
+type PlanBodyView = "markdown" | "preview";
+
 const HDR = "X-Coddy-Session-ID";
 
 export type PlanDocumentSectionProps = {
@@ -8,33 +13,123 @@ export type PlanDocumentSectionProps = {
   name: string;
   overview: string;
   content: string;
+  body?: string;
+  path?: string;
+  discarded?: boolean;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   onDiscard: () => void;
   onRunPlan: () => void;
 };
 
-function previewLine(overview: string, content: string): string {
+function descriptionLine(overview: string, body: string): string {
   const o = overview.trim();
   if (o) return o;
-  const first = content.split("\n").find((l) => l.trim().length > 0);
+  const first = body.split("\n").find((l) => l.trim().length > 0);
   return first?.trim() || "";
 }
 
+function planFilePath(slug: string, path?: string): string {
+  const p = (path ?? "").trim();
+  if (p) return p;
+  const s = slug.trim();
+  return s ? `plans/${s}.plan.md` : "";
+}
+
+function PlanPreviewEyeToggle(p: {
+  previewOn: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={
+        p.previewOn ? "plan-document-eye is-on" : "plan-document-eye"
+      }
+      title="Toggle preview"
+      aria-label="Toggle preview"
+      aria-pressed={p.previewOn}
+      data-test="plan_document_preview_toggle"
+      onClick={() => p.onToggle()}
+    >
+      <svg
+        className="plan-document-eye-svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden
+      >
+        <path
+          d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12s-3.75 6.75-9.75 6.75S2.25 12 2.25 12Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
+        {!p.previewOn ? (
+          <path
+            d="M4 4l16 16"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        ) : null}
+      </svg>
+    </button>
+  );
+}
+
+function PlanDocumentActions(p: {
+  discarded: boolean;
+  onRunPlan: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        className="plan-document-discard"
+        data-test="plan_document_discard"
+        disabled={p.discarded}
+        onClick={() => p.onDiscard()}
+      >
+        Discard
+      </button>
+      <button
+        type="button"
+        className="plan-document-run"
+        data-test="plan_document_run"
+        disabled={p.discarded}
+        onClick={() => p.onRunPlan()}
+      >
+        <span className="plan-document-run-ic" aria-hidden>
+          ▶
+        </span>
+        Run plan
+      </button>
+    </>
+  );
+}
+
 export function PlanDocumentSection(props: PlanDocumentSectionProps) {
-  const [draft, setDraft] = useState(props.content);
+  const editorSeed = planEditorBody(props.content, props.body);
+  const [draft, setDraft] = useState(editorSeed);
+  const [bodyView, setBodyView] = useState<PlanBodyView>("preview");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const discarded = props.discarded === true;
+  const previewOn = bodyView === "preview";
 
   useEffect(() => {
-    setDraft(props.content);
-  }, [props.content]);
+    setDraft(planEditorBody(props.content, props.body));
+  }, [props.content, props.body]);
 
   const persist = useCallback(
     async (text: string) => {
       const sid = props.sessionId.trim();
-      if (!sid) return;
+      if (!sid || discarded) return;
       setSaving(true);
       setSaveError("");
       try {
@@ -46,7 +141,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
               "Content-Type": "application/json",
               [HDR]: sid,
             },
-            body: JSON.stringify({ content: text }),
+            body: JSON.stringify({ body: text }),
           },
         );
         if (!res.ok) {
@@ -58,22 +153,31 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         setSaving(false);
       }
     },
-    [props.sessionId, props.slug],
+    [props.sessionId, props.slug, discarded],
   );
 
   const scheduleSave = useCallback(
     (text: string) => {
+      if (discarded) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         void persist(text);
       }, 600);
     },
-    [persist],
+    [persist, discarded],
   );
 
   const title = props.name.trim() || props.slug;
-  const preview = previewLine(props.overview, props.content);
-  const slugLabel = props.slug.trim();
+  const description = descriptionLine(props.overview, editorSeed);
+  const filePath = planFilePath(props.slug, props.path);
+
+  const cardClass = [
+    "plan-document-card",
+    props.expanded ? "plan-document-card--expanded" : "",
+    discarded ? "plan-document-card--discarded" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <section
@@ -82,13 +186,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         props.expanded ? "plan_document_section" : "plan_document_collapsed"
       }
     >
-      <div
-        className={
-          props.expanded
-            ? "plan-document-card plan-document-card--expanded"
-            : "plan-document-card"
-        }
-      >
+      <div className={cardClass}>
         <header className="plan-document-head">
           <button
             type="button"
@@ -96,30 +194,15 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
             onClick={() => props.onExpandedChange(!props.expanded)}
             aria-expanded={props.expanded}
           >
-            <span
-              className={
-                props.expanded
-                  ? "plan-document-chevron plan-document-chevron--open"
-                  : "plan-document-chevron"
-              }
-              aria-hidden
-            />
-            <span className="plan-document-icon" aria-hidden />
-            <span className="plan-document-head-copy">
-              <span className="plan-document-kicker">Design plan</span>
-              <span className="plan-document-title">{title}</span>
-              {!props.expanded && preview ? (
-                <span className="plan-document-preview">{preview}</span>
-              ) : null}
+            <span className="plan-document-title" title={filePath}>
+              {title}
             </span>
-            {slugLabel ? (
-              <span className="plan-document-slug" title={slugLabel}>
-                {slugLabel}
-              </span>
+            {!props.expanded && description ? (
+              <span className="plan-document-desc">{description}</span>
             ) : null}
           </button>
-          {props.expanded ? (
-            <div className="plan-document-head-meta">
+          {props.expanded && (saving || saveError) ? (
+            <div className="plan-document-head-status">
               {saving ? (
                 <span className="plan-document-save-hint">Saving…</span>
               ) : null}
@@ -132,55 +215,61 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
 
         {props.expanded ? (
           <div className="plan-document-body">
-            <textarea
-              className="plan-document-editor"
-              value={draft}
-              onChange={(e) => {
-                const v = e.target.value;
-                setDraft(v);
-                scheduleSave(v);
-              }}
-              rows={14}
-              spellCheck
-              aria-label="Plan markdown"
-            />
+            <div className="plan-document-pane">
+              <PlanPreviewEyeToggle
+                previewOn={previewOn}
+                onToggle={() =>
+                  setBodyView((v) => (v === "preview" ? "markdown" : "preview"))
+                }
+              />
+              <div className="plan-document-pane-scroll">
+                {previewOn ? (
+                  <div
+                    className="plan-document-preview-pane"
+                    data-test="plan_document_preview_pane"
+                  >
+                    {draft.trim() ? (
+                      <Markdown text={draft} />
+                    ) : (
+                      <p className="plan-document-preview-empty">
+                        Nothing to preview yet.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <textarea
+                    className="plan-document-editor"
+                    value={draft}
+                    readOnly={discarded}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDraft(v);
+                      scheduleSave(v);
+                    }}
+                    spellCheck
+                    aria-label="Plan body (markdown)"
+                    placeholder="Plan steps and notes…"
+                  />
+                )}
+              </div>
+              <PlanPreviewEyeToggle
+                previewOn={previewOn}
+                onToggle={() =>
+                  setBodyView((v) => (v === "preview" ? "markdown" : "preview"))
+                }
+              />
+            </div>
           </div>
         ) : null}
 
-        <PlanDocumentActions
-          onRunPlan={props.onRunPlan}
-          onDiscard={props.onDiscard}
-        />
+        <footer className="plan-document-foot">
+          <PlanDocumentActions
+            discarded={discarded}
+            onRunPlan={props.onRunPlan}
+            onDiscard={props.onDiscard}
+          />
+        </footer>
       </div>
     </section>
-  );
-}
-
-function PlanDocumentActions(p: {
-  onRunPlan: () => void;
-  onDiscard: () => void;
-}) {
-  return (
-    <footer className="plan-document-foot">
-      <button
-        type="button"
-        className="plan-document-discard"
-        data-test="plan_document_discard"
-        onClick={() => p.onDiscard()}
-      >
-        Discard
-      </button>
-      <button
-        type="button"
-        className="plan-document-run"
-        data-test="plan_document_run"
-        onClick={() => p.onRunPlan()}
-      >
-        <span className="plan-document-run-ic" aria-hidden>
-          ▶
-        </span>
-        Run plan
-      </button>
-    </footer>
   );
 }

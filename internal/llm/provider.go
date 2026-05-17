@@ -37,6 +37,9 @@ type PlanDocumentSnapshot struct {
 	Name      string `json:"name,omitempty"`
 	Overview  string `json:"overview,omitempty"`
 	Content   string `json:"content"`
+	Body      string `json:"body,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Discarded bool   `json:"discarded,omitempty"`
 	UpdatedAt string `json:"updatedAt,omitempty"`
 }
 

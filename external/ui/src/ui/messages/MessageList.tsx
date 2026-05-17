@@ -144,6 +144,9 @@ export function MessageList(props: {
                 name={it.name}
                 overview={it.overview}
                 content={it.content}
+                {...it.body !== undefined ? { body: it.body } : {}}
+                {...it.path ? { path: it.path } : {}}
+                discarded={it.discarded === true}
                 expanded={it.expanded}
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)

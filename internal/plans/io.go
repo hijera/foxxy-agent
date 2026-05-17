@@ -71,6 +71,20 @@ func Write(sessionDir, slug, content string) (*Document, error) {
 	return doc, nil
 }
 
+// WriteBody replaces the markdown body while preserving existing YAML frontmatter.
+func WriteBody(sessionDir, slug, body string) (*Document, error) {
+	doc, err := Read(sessionDir, slug)
+	if err != nil {
+		return nil, err
+	}
+	content := Format(Frontmatter{
+		Name:     doc.Name,
+		Overview: doc.Overview,
+		Todos:    todoList(doc.Todos),
+	}, body)
+	return Write(sessionDir, slug, content)
+}
+
 // Create writes a new plan file; returns ErrExists if the file is already present.
 func Create(sessionDir, slug, content string) (*Document, error) {
 	path, err := FilePath(sessionDir, slug)

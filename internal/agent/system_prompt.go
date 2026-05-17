@@ -70,15 +70,36 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	if mode == "agent" {
 		planCtx = a.state.TakePendingPlanContext()
 	}
+	discardedPlans := ""
+	if mode == "plan" {
+		discardedPlans = discardedPlansPromptBlock(a.state.DiscardedPlanSlugs())
+	}
 	return prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
-		CWD:         a.state.GetCWD(),
-		Skills:      buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, userText),
-		Tools:       tools.FormatDefinitionsForPrompt(toolDefs),
-		Memory:      mem,
-		TodoList:    promptTodoMD,
-		PlanContext: planCtx,
-		UTCNow:      time.Now().UTC().Format(time.RFC3339),
+		CWD:             a.state.GetCWD(),
+		Skills:          buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, userText),
+		Tools:           tools.FormatDefinitionsForPrompt(toolDefs),
+		Memory:          mem,
+		TodoList:        promptTodoMD,
+		PlanContext:     planCtx,
+		DiscardedPlans:  discardedPlans,
+		UTCNow:          time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+func discardedPlansPromptBlock(slugs []string) string {
+	if len(slugs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Discarded design plans\n\n")
+	b.WriteString("The user discarded these plan files in the UI. Do **not** reuse their slugs or recycle their plan titles. ")
+	b.WriteString("When you write a new design plan, pick a **fresh slug** and a **new name** until the user leaves plan mode.\n\n")
+	for _, slug := range slugs {
+		b.WriteString("- `")
+		b.WriteString(slug)
+		b.WriteString("`\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // checklistMarkdownFromPlan renders the session plan for embedding in prompts (trimmed checklist text).

@@ -20,7 +20,13 @@ export type TranscriptItem =
       name: string;
       overview: string;
       content: string;
+      /** Markdown body only (no YAML frontmatter). */
+      body?: string;
+      /** Absolute path to plans/<slug>.plan.md in the session bundle. */
+      path?: string;
       expanded: boolean;
+      /** User discarded the plan in UI; card stays visible but inactive. */
+      discarded?: boolean;
       updatedAtUtc?: string;
     }
   | {
