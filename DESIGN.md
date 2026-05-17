@@ -67,6 +67,81 @@ The right insights rail is removed for the current milestone.
 - Field edits in the job editor **auto-save** with a short debounce (no separate **Save** button) without a footer status line. **Pause**, **Resume**, and **Delete** stay explicit.
 - The URL still carries **one** primary route at a time for **`#/s/...`** vs **`#/scheduler...`** vs **`#/history`**; the optional **`history=1`** query only augments scheduler (or session) URLs for the dual-drawer desktop case.
 - **`404`** from **`GET /coddy/scheduler/jobs`** means the server build has no scheduler HTTP surface; **`503`** means **`scheduler.enabled`** is false for that process. The drawer shows a plain-language line instead of crashing.
+- The job **`body (markdown)`** field uses the shared **`MarkdownLineEditor`** (see **Markdown line editor** below). Gutter, active-line highlight, wrap-aware numbering, and content-driven height match the plan card markdown pane.
+
+### Markdown line editor (shared)
+
+Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdown/MarkdownLineEditor.tsx`**. Gutter math lives in **`external/ui/src/ui/markdown/markdownLineGutter.ts`**. Scheduler imports the same module via **`external/ui/src/ui/scheduler/MarkdownLineEditor.tsx`** (re-export only). Styles: **`.md-line-editor`** and **`.md-line-editor--plan`** in **`external/ui/src/styles.css`**.
+
+**Consumers**
+
+- Plan document card, markdown mode (**`PlanDocumentSection`**).
+- Scheduler job editor **`body (markdown)`** (**`SchedulerJobEditorSheet`**).
+
+**Layout**
+
+- Horizontal flex: **gutter** (line numbers) + **stack** (highlight backdrop + **`textarea`**).
+- Uses the **full width** of the parent. The **`textarea`** has **no vertical or horizontal scrollbar** (**`overflow: hidden`**, **`overflow-wrap: anywhere`**). **Height grows with content** (plus a **minimum logical row** count). When the surrounding UI needs scrolling (scheduler editor scroll region, long chat transcript), the **outer** container scrolls, not the inner editor.
+
+**Line numbers**
+
+- Numbers mark **logical** lines (split on `\n`).
+- When a logical line **wraps** to multiple visual rows, only the **first** visual row shows a number; wrapped continuation rows keep an **empty** gutter cell at the same row height.
+- When the document has fewer logical lines than **`minRows`**, pad the gutter with numbered blank rows up to **`minRows`** (scheduler default **10**, plan card **4**).
+
+**Active line**
+
+- The logical line that contains the caret is highlighted across **every** visual row it occupies: one **`md-line-editor-hl-band`** per visual row with **`is-current`** (semi-transparent background). The matching gutter number uses **`is-active`**.
+
+**Measurement**
+
+- A hidden probe (**`md-line-editor-measure`**, same font and wrap rules as the textarea) measures each logical line at the textarea **text width** (inside horizontal padding).
+- Visual row count per logical line: **`ceil((measuredHeight - 1) / lineHeightPx)`** (see **`measureLineVisualRows`**). Gutter rows and highlight bands share the fixed band height **`--md-editor-line-px`** set on the editor root from computed line height.
+
+**Typography**
+
+- Default (scheduler): **12px**, line height **1.45** (**`--md-editor-fs`**, **`--md-editor-lh`**).
+- Plan variant (**`.md-line-editor--plan`**): **13px**, line height **1.5**.
+
+**Tests**
+
+- **`external/ui/src/ui/markdown/MarkdownLineEditor.test.tsx`**
+- **`external/ui/src/ui/markdown/markdownLineGutter.test.ts`**
+- Plan card: **`external/ui/src/ui/chat/PlanDocumentSection.test.tsx`**
+
+### Plan mode plan document card
+
+**Component**: **`PlanDocumentSection`** (**`external/ui/src/ui/chat/PlanDocumentSection.tsx`**). Rendered from **`plan_document`** transcript items (**`MessageList`**).
+
+**Collapsed**
+
+- **Title**: frontmatter **`name`** or **`slug`**. **`title` attribute** (native tooltip) shows absolute file **`path`** when known (for example **`…/plans/<slug>.plan.md`**).
+- **Description**: one line from **`overview`** or the first non-empty body line.
+- **Footer**: **Discard** and **Run plan** stay visible; expand/collapse is on the header button only.
+
+**Expanded**
+
+- **Left accent**: **`box-shadow: inset 2px 0 0`** orange on **`.plan-document-card--expanded`** (not discarded).
+- **Header**: title toggles expand; optional **Saving…** or save error after debounced PUT.
+- **Body pane** (**.plan-document-pane**): one region for content. **Eye control** top-right (**`Toggle preview`**, **`aria-pressed`** when preview is on). **Default: Preview** ( **`Markdown`** on body text). Toggle switches to **Markdown** (**`MarkdownLineEditor`**, **`className="md-line-editor--plan"`**, **`minRows={4}`**, spellcheck enabled).
+- **No fixed-height clip** on the pane: **preview** and **markdown** both **grow with content**; **no inner scrollbar** on **`.plan-document-pane-inner`**. The chat column scrolls when the card is tall.
+- **Footer**: **Discard** (text link) and **Run plan** (orange, ▶ icon). **`min-width: 640px`**: CSS grid places **head** and **actions** on one row, **body** full width below; actions stack in a column on the right.
+
+**Editing**
+
+- The editor shows **markdown body only** (YAML frontmatter stripped via **`planEditorBody`** in **`planContent.ts`**). Autosave **`PUT /coddy/sessions/{id}/plans/{slug}`** with JSON **`{ "body": "…" }`**, about **600ms** debounce.
+
+**Discard**
+
+- **`DELETE`** marks the plan **`discarded`** in session state; the card **stays** in the transcript, muted (**`.plan-document-card--discarded`**), controls disabled. Server excludes discarded slugs from the plan-mode system prompt.
+
+**Run plan**
+
+- Starts implementation via session prompt metadata (see **`docs/acp-protocol.md`**, **Run plan**).
+
+**Tests**
+
+- **`external/ui/src/ui/chat/PlanDocumentSection.test.tsx`**
 
 ### Responsive breakpoints
 
@@ -290,6 +365,8 @@ The UI should be implemented as small React components with folder-enforced hier
   - `ui/messages/ThinkingMessage`
   - `ui/messages/MemoryCopilotMessage`
   - `ui/messages/ToolCallMessage`
+- `ui/chat/PlanDocumentSection`
+- `ui/markdown/MarkdownLineEditor`
 
 ### Session overflow menu (`…`)
 

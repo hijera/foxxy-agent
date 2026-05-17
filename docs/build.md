@@ -10,7 +10,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 Optional:
 
-- **`golangci-lint`** - for **`make lint`**.
+- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v7`** or newer (v6 supports only golangci-lint v1).
 
 ## Recommended full binary (HTTP, UI, scheduler, memory)
 

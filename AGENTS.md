@@ -43,6 +43,8 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 
 The composer exposes **`Mode`** (**`agent`** / **`plan`**) and a separate **`Model`** YAML backend selector (**`metadata.model`**; list rows with **`owned_by`** other than **`coddy`** from **`GET /v1/models`**). Default YAML id comes from **`default_agent_model`**; persisted preference uses cookie **`coddy_llm_model`**. Parallel **`POST /v1/responses`** per session, **Stop** (**cancel** + partial assistant persistence), and transcript merge after **`GET .../messages`** are specified in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/ui/spec.md`**.
 
+**`MarkdownLineEditor`** (`external/ui/src/ui/markdown/`) is the shared markdown body editor (line gutter, wrap-aware numbering, active-line highlight, content-driven height). Used in the plan document card and scheduler job body. Visual and behaviour contract: **`DESIGN.md`** (**Markdown line editor**, **Plan mode plan document card**); functional checklist: **`docs/ui/spec.md`**.
+
 ## Python samples (`examples/`)
 
 See **`examples/README.md`** for layout (**`examples/httpserver/`**, **`examples/acp/`**, **`examples/shared/`**). Scripts may use a project-local interpreter (`.venv` recommended); follow each script header for prerequisites.

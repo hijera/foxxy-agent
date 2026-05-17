@@ -231,12 +231,53 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 - UI renders Markdown with fenced code blocks and syntax highlighting.
 - Each code block has a copy button that copies only that block content.
 
-## Plan and todo list
+## Markdown line editor (shared)
 
-- Right rail shows the current plan entries.
-- Load via `GET /coddy/sessions/{id}/plan`.
-- Save via `PUT /coddy/sessions/{id}/plan`.
-- Archive via `POST /coddy/sessions/{id}/plan/archive`.
+Implemented as **`MarkdownLineEditor`** (`external/ui/src/ui/markdown/MarkdownLineEditor.tsx`). Used for:
+
+- Scheduler job **`body (markdown)`** (`SchedulerJobEditorSheet`, default **`minRows`** **10**).
+- Plan document card markdown mode (`PlanDocumentSection`, **`minRows`** **4**, class **`md-line-editor--plan`**).
+
+Behaviour (see **`DESIGN.md`**, **Markdown line editor**):
+
+- Full parent width; editor height follows content (minimum logical rows); **no** scrollbar on the inner **`textarea`**.
+- Gutter shows one number per **logical** line (`\n`-separated). Wrapped visual lines leave **blank** gutter cells (no duplicate numbers).
+- Caret logical line: highlight spans **all** visual rows of that line; active gutter number tinted.
+- Wrap measurement uses a hidden probe with the same font and text width as the textarea; visual rows = **`ceil(height / lineHeight)`**.
+- Long unbreakable tokens wrap (**`overflow-wrap: anywhere`**); no horizontal scroll inside the editor.
+
+Automated checks:
+
+- `external/ui/src/ui/markdown/MarkdownLineEditor.test.tsx`
+- `external/ui/src/ui/markdown/markdownLineGutter.test.ts`
+
+## Plan document card (plan mode transcript)
+
+Transcript type **`plan_document`** renders **`PlanDocumentSection`** in the main chat column (not a right rail).
+
+Data and API:
+
+- Persisted in **`messages.json`**; hydrated fields include **`slug`**, **`name`**, **`overview`**, **`content`**, optional **`body`**, **`path`**, **`discarded`**.
+- Body edit: **`PUT /coddy/sessions/{id}/plans/{slug}`** with **`{ "body": "<markdown>" }`** (debounced autosave).
+- Discard: **`DELETE /coddy/sessions/{id}/plans/{slug}`** sets **`discarded: true`**; card remains visible, controls disabled.
+- Run plan: client triggers implementation run (metadata / prompt; see **`docs/acp-protocol.md`**).
+
+UI requirements:
+
+- Collapsed: title, one-line description, **Discard** and **Run plan** in footer; title **`title`** tooltip = absolute plan file path when known.
+- Expanded: **Preview** default (rendered markdown via **`Markdown`**); eye toggle switches to **`MarkdownLineEditor`**.
+- Content pane grows with document length for **both** preview and markdown (**no** inner max-height scroll on the pane).
+- Expanded desktop (**`min-width: 640px`**): title row and action buttons share the top row; body full width below.
+- Editor body excludes YAML frontmatter (client **`planEditorBody`**); preview uses the same body text.
+
+Automated checks:
+
+- `external/ui/src/ui/chat/PlanDocumentSection.test.tsx`
+
+## Plan and todo list (legacy rail)
+
+- Optional right-rail plan entries (if present in a build) use **`GET /coddy/sessions/{id}/plan`**, **`PUT`**, **`POST .../plan/archive`**.
+- Distinct from the **`plan_document`** transcript card above.
 
 ## Long term memory
 

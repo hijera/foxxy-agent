@@ -1,7 +1,13 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { isValidElement, useCallback, useMemo, useState } from "react";
+import {
+  isValidElement,
+  useCallback,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 type CodeProps = {
   inline?: boolean;
@@ -88,6 +94,11 @@ export function Markdown(props: { text: string }) {
           </div>
         );
       },
+      table: ({ children }: { children?: ReactNode }) => (
+        <div className="md-table-scroll">
+          <table>{children}</table>
+        </div>
+      ),
       a: (p: AProps) => {
         const href = typeof p.href === "string" ? p.href : "";
         if (href.startsWith("coddy-skill:")) {

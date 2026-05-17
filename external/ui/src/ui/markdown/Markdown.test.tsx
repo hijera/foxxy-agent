@@ -28,6 +28,17 @@ test("fenced code block wrapper keeps symmetric vertical margin in styles", () =
   expect(m![0]).toMatch(/margin:\s*12px\s+0/);
 });
 
+test("tables render inside horizontal scroll wrapper", () => {
+  render(
+    <Markdown
+      text={`| A | B |\n| --- | --- |\n| one | two |`}
+    />,
+  );
+  const wrap = document.querySelector(".md-table-scroll");
+  expect(wrap).not.toBeNull();
+  expect(wrap?.querySelector("table")).not.toBeNull();
+});
+
 test("fenced code without language still shows Copy control", () => {
   const md = ["```", "AGENTS.md", "```"].join("\n");
   render(<Markdown text={md} />);

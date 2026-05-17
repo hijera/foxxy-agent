@@ -13,6 +13,7 @@ import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
+import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
 
 const DOC_SCROLL_SHELL_STACK_MQ = shellStackMaxWidthMediaQuery;
 
@@ -64,11 +65,15 @@ export function ChatScreen(props: {
     itemId: string,
     resolved: QuestionResolvedState,
   ) => void;
+  onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
+  onPlanDocumentRun?: (slug: string) => void;
+  onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
   const stickToBottomRef = useRef(true);
+  const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
   const [composerReserve, setComposerReserve] = useState(200);
   const mobileDocScroll = useSyncExternalStore(
     subscribeMobileDocScroll,
@@ -94,6 +99,11 @@ export function ChatScreen(props: {
 
   useEffect(() => {
     if (isEmpty) return;
+    const prev = prevItemsForScrollRef.current;
+    prevItemsForScrollRef.current = props.items;
+    if (!transcriptItemsAffectAutoScroll(prev, props.items)) {
+      return;
+    }
     if (!stickToBottomRef.current) return;
     if (mobileDocScroll) {
       const run = () => {
@@ -210,11 +220,21 @@ export function ChatScreen(props: {
             <div className="messages-inner">
               <MessageList
                 items={props.items}
+                sessionId={props.sessionId}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
                   : {})}
                 {...(props.onQuestionPromptResolved
                   ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
+                  : {})}
+                {...(props.onPlanDocumentExpanded
+                  ? { onPlanDocumentExpanded: props.onPlanDocumentExpanded }
+                  : {})}
+                {...(props.onPlanDocumentRun
+                  ? { onPlanDocumentRun: props.onPlanDocumentRun }
+                  : {})}
+                {...(props.onPlanDocumentDiscard
+                  ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
                   : {})}
               />
             </div>

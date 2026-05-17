@@ -15,6 +15,22 @@ export type TranscriptItem =
     }
   | {
       id: string;
+      type: "plan_document";
+      slug: string;
+      name: string;
+      overview: string;
+      content: string;
+      /** Markdown body only (no YAML frontmatter). */
+      body?: string;
+      /** Absolute path to plans/<slug>.plan.md in the session bundle. */
+      path?: string;
+      expanded: boolean;
+      /** User discarded the plan in UI; card stays visible but inactive. */
+      discarded?: boolean;
+      updatedAtUtc?: string;
+    }
+  | {
+      id: string;
       type: "user_message";
       content: string;
       /** RFC3339 UTC from server created_at or client clock when sending. */

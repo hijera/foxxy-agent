@@ -1322,6 +1322,28 @@ export function App() {
         continue;
       }
       if (role === "assistant") {
+        const pdRaw = (m as Record<string, unknown>).plan_document;
+        if (pdRaw && typeof pdRaw === "object" && !Array.isArray(pdRaw)) {
+          const pd = pdRaw as Record<string, unknown>;
+          const slug = String(pd.slug ?? "").trim();
+          if (slug) {
+            next.push({
+              id: newId("pd"),
+              type: "plan_document",
+              slug,
+              name: String(pd.name ?? ""),
+              overview: String(pd.overview ?? ""),
+              content: String(pd.content ?? ""),
+              body: String(pd.body ?? ""),
+              expanded: false,
+              ...(pd.path ? { path: String(pd.path) } : {}),
+              ...(pd.discarded === true ? { discarded: true } : {}),
+              ...(pd.updatedAt
+                ? { updatedAtUtc: String(pd.updatedAt) }
+                : {}),
+            });
+          }
+        }
         const reasoning = (m.reasoning || "").trim();
         if (reasoning) {
           const dk = reasoningDurationCacheKey(reasoning);
@@ -1829,7 +1851,10 @@ export function App() {
     }
   }
 
-  async function streamResponses(text: string) {
+  async function streamResponses(
+    text: string,
+    opts?: { modeOverride?: string; runPlanSlug?: string },
+  ) {
     const abortCtl = new AbortController();
     let postSessionKey = "";
     let completedNormally = false;
@@ -1926,7 +1951,7 @@ export function App() {
       }
 
       const reqBody: Record<string, unknown> = {
-        model: mode || "agent",
+        model: opts?.modeOverride || mode || "agent",
         input: text,
         stream: true,
       };
@@ -1940,8 +1965,12 @@ export function App() {
         }
       }
       const yamlSel = llmModel.trim();
-      if (yamlSel) {
-        reqBody.metadata = { model: yamlSel };
+      const runSlug = (opts?.runPlanSlug || "").trim();
+      if (yamlSel || runSlug) {
+        const meta: Record<string, string> = {};
+        if (yamlSel) meta.model = yamlSel;
+        if (runSlug) meta.runPlanSlug = runSlug;
+        reqBody.metadata = meta;
       }
       // Mark this session busy before awaiting fetch so hung POST still blocks same-session resend.
       addActiveComposer(postSessionKey);
@@ -2542,6 +2571,49 @@ export function App() {
           generating={generating}
           onStop={() => stopActiveGeneration()}
           onQuestionPromptResolved={resolveQuestionPrompt}
+          onPlanDocumentExpanded={(itemId, expanded) => {
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === itemId && x.type === "plan_document"
+                  ? { ...x, expanded }
+                  : x,
+              ),
+            );
+          }}
+          onPlanDocumentRun={(slug) => {
+            if (
+              sessionId.trim() &&
+              activeComposerSidRef.current.has(sessionId.trim())
+            ) {
+              return;
+            }
+            void streamResponses("Implement the plan.", {
+              modeOverride: "agent",
+              runPlanSlug: slug,
+            });
+          }}
+          onPlanDocumentDiscard={async (itemId, slug) => {
+            const sid = sessionId.trim();
+            if (!sid) return;
+            try {
+              await fetch(
+                `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                {
+                  method: "DELETE",
+                  headers,
+                },
+              );
+            } catch {
+              return;
+            }
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === itemId && x.type === "plan_document"
+                  ? { ...x, discarded: true }
+                  : x,
+              ),
+            );
+          }}
           onSend={(text: string) => {
             if (
               sessionId.trim() &&

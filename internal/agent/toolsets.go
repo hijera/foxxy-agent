@@ -18,7 +18,9 @@ var planToolNames = []string{
 	"webfetch",
 	"run_command",
 	"question",
-	"plan_exit",
+	"plan_write",
+	"plan_list",
+	"plan_read",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

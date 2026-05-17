@@ -255,8 +255,37 @@ When the process is started with a writable sessions root (default **`$CODDY_HOM
 - `assets/` - reserved for future session-scoped files
 - `todos/active.md` - current todo checklist synced from plan tools
 - `todos/archive/todo-<nanos>.md` - archived list when a completed list is replaced
+- `plans/<slug>.plan.md` - design plan files (YAML frontmatter + markdown body), written in plan mode via **`plan_write`**
 
 The server always advertises **`loadSession`** when a store is configured (`coddy acp` and **`coddy http`** open a **`FileStore`** at startup).
+
+### Design plans (plan mode)
+
+Plan mode uses standard ACP only. The agent saves files with tools **`plan_write`** / **`plan_list`** (not JSON-RPC extensions).
+
+After **`plan_write`**, Coddy publishes:
+
+- **`session/update`** with `sessionUpdate: "plan"` and checklist **`entries`** from the file frontmatter (preview for any ACP client)
+- **`_meta`** on that update: `coddy.dev/planSlug`, `coddy.dev/planKind: "design"` (opt-in; distinguishes design plans from live todo checklist updates)
+- A persisted **`plan_document`** row in **`messages.json`** for the bundled UI (also visible as assistant markdown in chat when the model summarizes the plan)
+
+**Run plan** (start implementation) without a custom `_coddy/*` method:
+
+1. **Coddy-aware** - `session/prompt` with `_meta`:
+
+```json
+{
+  "sessionId": "sess_…",
+  "prompt": [{ "type": "text", "text": "Implement the plan." }],
+  "_meta": { "coddy.dev/runPlanSlug": "my-feature" }
+}
+```
+
+Coddy switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan.
+
+2. **Portable** - client sets `mode` to **agent**, then `session/prompt` referencing `@plans/<slug>.plan.md` or text like *implement the plan my-feature*.
+
+HTTP **`POST /v1/responses`** accepts the same hook via JSON **`metadata.runPlanSlug`** (bundled UI). CRUD for plan files is HTTP-only under **`/coddy/sessions/{id}/plans`** (not part of core ACP).
 
 ### `session/prompt`
 
@@ -271,7 +300,10 @@ Send a user message, starts the ReAct loop.
       "type": "text",
       "text": "Refactor the auth module to use JWT"
     }
-  ]
+  ],
+  "_meta": {
+    "coddy.dev/runPlanSlug": "optional-slug-for-run-plan"
+  }
 }
 ```
 

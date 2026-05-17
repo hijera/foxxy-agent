@@ -1,3 +1,4 @@
+import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
 import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
@@ -29,6 +30,10 @@ export function MessageList(props: {
     itemId: string,
     resolved: QuestionResolvedState,
   ) => void;
+  sessionId?: string;
+  onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
+  onPlanDocumentRun?: (slug: string) => void;
+  onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
 }) {
   return (
     <>
@@ -127,6 +132,31 @@ export function MessageList(props: {
               level={it.level}
               message={it.message}
             />
+          );
+        }
+        if (it.type === "plan_document") {
+          const sid = (props.sessionId || "").trim();
+          return (
+            <div key={it.id} className="message-row-plan">
+              <PlanDocumentSection
+                sessionId={sid}
+                slug={it.slug}
+                name={it.name}
+                overview={it.overview}
+                content={it.content}
+                {...it.body !== undefined ? { body: it.body } : {}}
+                {...it.path ? { path: it.path } : {}}
+                discarded={it.discarded === true}
+                expanded={it.expanded}
+                onExpandedChange={(ex) =>
+                  props.onPlanDocumentExpanded?.(it.id, ex)
+                }
+                onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
+                onDiscard={() =>
+                  props.onPlanDocumentDiscard?.(it.id, it.slug)
+                }
+              />
+            </div>
           );
         }
         if (it.type === "question_prompt") {
