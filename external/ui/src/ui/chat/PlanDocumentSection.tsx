@@ -252,12 +252,6 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                   />
                 )}
               </div>
-              <PlanPreviewEyeToggle
-                previewOn={previewOn}
-                onToggle={() =>
-                  setBodyView((v) => (v === "preview" ? "markdown" : "preview"))
-                }
-              />
             </div>
           </div>
         ) : null}
