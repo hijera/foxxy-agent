@@ -119,6 +119,30 @@ todos:
 	}
 }
 
+func TestWriteBodyWithFallbackBootstrapsFromContent(t *testing.T) {
+	dir := t.TempDir()
+	slug := "bootstrap-plan"
+	bootstrap := `---
+name: Bootstrap title
+overview: From transcript
+---
+# Draft body
+`
+	updated, err := plans.WriteBodyWithFallback(dir, slug, "# Saved from editor\n", bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "Bootstrap title" || updated.Overview != "From transcript" {
+		t.Fatalf("meta: %+v", updated)
+	}
+	if updated.Body != "# Saved from editor" {
+		t.Fatalf("body: %q", updated.Body)
+	}
+	if _, err := plans.Read(dir, slug); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWriteRejectsInvalidFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	slug := "bad-plan"

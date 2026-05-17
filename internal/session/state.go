@@ -367,6 +367,61 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 	s.touchPersist()
 }
 
+// PlanDocumentContentBySlug returns the last transcript snapshot content for slug, if any.
+func (s *State) PlanDocumentContentBySlug(slug string) string {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for i := len(s.Messages) - 1; i >= 0; i-- {
+		pd := s.Messages[i].PlanDocument
+		if pd == nil || pd.Slug != slug {
+			continue
+		}
+		return strings.TrimSpace(pd.Content)
+	}
+	return ""
+}
+
+// UpdatePlanDocumentFromWrite refreshes plan_document rows after a design plan file save.
+func (s *State) UpdatePlanDocumentFromWrite(doc plans.Document) {
+	slug := strings.TrimSpace(doc.Slug)
+	if slug == "" {
+		return
+	}
+	updated := ""
+	if !doc.UpdatedAt.IsZero() {
+		updated = doc.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	path := ""
+	if sd := strings.TrimSpace(s.SessionDir); sd != "" {
+		if p, err := plans.FilePath(sd, slug); err == nil {
+			path = p
+		}
+	}
+	s.mu.Lock()
+	for i := range s.Messages {
+		pd := s.Messages[i].PlanDocument
+		if pd == nil || pd.Slug != slug {
+			continue
+		}
+		s.Messages[i].PlanDocument.Name = doc.Name
+		s.Messages[i].PlanDocument.Overview = doc.Overview
+		s.Messages[i].PlanDocument.Content = doc.Content
+		s.Messages[i].PlanDocument.Body = doc.Body
+		if path != "" {
+			s.Messages[i].PlanDocument.Path = path
+		}
+		if updated != "" {
+			s.Messages[i].PlanDocument.UpdatedAt = updated
+		}
+	}
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
 // MarkPlanDocumentDiscarded flags transcript rows for slug as discarded (UI + plan-mode prompt).
 func (s *State) MarkPlanDocumentDiscarded(slug string) {
 	slug = strings.TrimSpace(slug)

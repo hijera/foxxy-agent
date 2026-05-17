@@ -73,14 +73,36 @@ func Write(sessionDir, slug, content string) (*Document, error) {
 
 // WriteBody replaces the markdown body while preserving existing YAML frontmatter.
 func WriteBody(sessionDir, slug, body string) (*Document, error) {
+	return WriteBodyWithFallback(sessionDir, slug, body, "")
+}
+
+// WriteBodyWithFallback is like WriteBody but, when the plan file is missing, bootstraps
+// frontmatter from bootstrapContent (full file text from the session transcript).
+func WriteBodyWithFallback(sessionDir, slug, body, bootstrapContent string) (*Document, error) {
 	doc, err := Read(sessionDir, slug)
-	if err != nil {
+	if err == nil {
+		content := Format(Frontmatter{
+			Name:     doc.Name,
+			Overview: doc.Overview,
+			Todos:    todoList(doc.Todos),
+		}, body)
+		return Write(sessionDir, slug, content)
+	}
+	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
+	boot := strings.TrimSpace(bootstrapContent)
+	if boot == "" {
+		return nil, ErrNotFound
+	}
+	parsed, parseErr := Parse(slug, boot)
+	if parseErr != nil {
+		return nil, parseErr
+	}
 	content := Format(Frontmatter{
-		Name:     doc.Name,
-		Overview: doc.Overview,
-		Todos:    todoList(doc.Todos),
+		Name:     parsed.Name,
+		Overview: parsed.Overview,
+		Todos:    todoList(parsed.Todos),
 	}, body)
 	return Write(sessionDir, slug, content)
 }

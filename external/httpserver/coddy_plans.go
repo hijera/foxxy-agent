@@ -147,10 +147,16 @@ func (s *Server) coddyDesignPlanPut(w http.ResponseWriter, r *http.Request) {
 	var doc *plans.Document
 	var err error
 	switch {
+	case reqBody.Body != nil:
+		bootstrap := ""
+		if reqBody.Content != nil {
+			bootstrap = *reqBody.Content
+		} else {
+			bootstrap = st.PlanDocumentContentBySlug(slug)
+		}
+		doc, err = plans.WriteBodyWithFallback(sd, slug, *reqBody.Body, bootstrap)
 	case reqBody.Content != nil && strings.TrimSpace(*reqBody.Content) != "":
 		doc, err = plans.Write(sd, slug, *reqBody.Content)
-	case reqBody.Body != nil:
-		doc, err = plans.WriteBody(sd, slug, *reqBody.Body)
 	default:
 		http.Error(w, `{"error":{"message":"content or body required"}}`, http.StatusBadRequest)
 		return
@@ -159,6 +165,7 @@ func (s *Server) coddyDesignPlanPut(w http.ResponseWriter, r *http.Request) {
 		s.coddyPlanHTTPError(w, err)
 		return
 	}
+	st.UpdatePlanDocumentFromWrite(*doc)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "coddy.design_plan_updated",

@@ -142,7 +142,10 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
               "Content-Type": "application/json",
               [HDR]: sid,
             },
-            body: JSON.stringify({ body: text }),
+            body: JSON.stringify({
+              body: text,
+              ...(props.content.trim() ? { content: props.content } : {}),
+            }),
           },
         );
         if (!res.ok) {
@@ -154,7 +157,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         setSaving(false);
       }
     },
-    [props.sessionId, props.slug, discarded],
+    [props.sessionId, props.slug, props.content, discarded],
   );
 
   const scheduleSave = useCallback(

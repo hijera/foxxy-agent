@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
 import { PlanDocumentSection } from "./PlanDocumentSection";
 
@@ -67,4 +67,27 @@ test("collapsed card shows title and one-line description", () => {
   expect(screen.getByText("Demo plan")).toBeInTheDocument();
   expect(screen.getByText("Short overview for the card")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Toggle preview" })).toBeNull();
+});
+
+test("markdown edit autosaves body with transcript content for bootstrap", async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    renderPlan();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle preview" }));
+    const editor = screen.getByRole("textbox", { name: /plan body/i });
+    fireEvent.change(editor, { target: { value: "# Hello\n\nEdited" } });
+    await vi.advanceTimersByTimeAsync(650);
+    expect(fetchMock).toHaveBeenCalled();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/coddy/sessions/sess_test/plans/demo-plan");
+    expect(init?.method).toBe("PUT");
+    const payload = JSON.parse(String(init?.body));
+    expect(payload.body).toBe("# Hello\n\nEdited");
+    expect(payload.content).toContain("name: Demo");
+  } finally {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
 });
