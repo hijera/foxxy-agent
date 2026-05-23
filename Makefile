@@ -28,6 +28,9 @@ TAGS ?=
 BUILD_DIR := build
 BINARY := $(BUILD_DIR)/coddy
 
+# Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
+FULL_TAGS := http ui scheduler memory
+
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
 
@@ -56,8 +59,15 @@ print-version:
 # Install binary: /usr/local/bin for root, ~/.local/bin for regular users.
 INSTALL_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/bin,$(HOME)/.local/bin)
 
-install: build
+# Install build/coddy onto PATH. Reuses an existing binary; builds FULL_TAGS only when missing.
+install:
 	@mkdir -p $(INSTALL_DIR)
+	@if [ ! -f $(BINARY) ]; then \
+		echo "No $(BINARY); building with TAGS=\"$(FULL_TAGS)\""; \
+		$(MAKE) build TAGS="$(FULL_TAGS)"; \
+	else \
+		echo "Installing existing $(BINARY)"; \
+	fi
 	cp $(BINARY) $(INSTALL_DIR)/coddy
 	@echo "Installed to $(INSTALL_DIR)/coddy"
 

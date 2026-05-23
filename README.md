@@ -90,8 +90,11 @@ The CLI is written to **`build/coddy`** (not the repo root).
 
 **Install `build/coddy` onto your PATH**
 
+Reuses **`build/coddy`** when it already exists; otherwise builds with all optional modules first.
+
 ```bash
-make install TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory"
+make install
 ```
 
 - **root** - **`/usr/local/bin/coddy`**
