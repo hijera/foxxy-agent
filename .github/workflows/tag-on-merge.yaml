@@ -74,6 +74,9 @@ jobs:
     name: Docker build and push
     needs: tag-version
     if: needs.tag-version.outputs.skip != 'true'
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/docker-build-push.yaml
     with:
       tag: ${{ needs.tag-version.outputs.tag }}
@@ -83,6 +86,8 @@ jobs:
     name: Release binaries
     needs: tag-version
     if: needs.tag-version.outputs.skip != 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/release-binaries.yaml
     with:
       tag: ${{ needs.tag-version.outputs.tag }}
