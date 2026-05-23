@@ -69,6 +69,9 @@ agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
+  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3)
+  llm_retry_base_ms: 1000      # initial backoff between LLM retries
+  llm_min_interval_ms: 0       # min gap between consecutive LLM calls; e.g. 12000 on strict free tiers
 
 # System prompt templates
 prompts:

@@ -583,7 +583,11 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 		return nil, err
 	}
 
-	return llm.NewProvider(llm.ProviderInput{
+	return llm.NewProvider(a.llmProviderInput(rm))
+}
+
+func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
+	return llm.WithAgentResilience(llm.ProviderInput{
 		Type:        rm.ProviderType,
 		Model:       rm.Model,
 		APIKey:      rm.APIKey,
@@ -591,7 +595,7 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 		ProxyURL:    rm.ProxyURL,
 		MaxTokens:   rm.MaxTokens,
 		Temperature: rm.Temperature,
-	})
+	}, a.cfg.Agent.LLMRetryMax, a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

@@ -1,7 +1,10 @@
 // Package llm provides an abstraction over LLM providers.
 package llm
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Role is the role of a conversation message.
 type Role string
@@ -97,6 +100,14 @@ type ProviderInput struct {
 	ProxyURL    string
 	MaxTokens   int
 	Temperature float64
+	// RetryMax is the number of retries after the first failed attempt (default 3).
+	RetryMax int
+	// RetryBase is the initial backoff between retries (default 1s).
+	RetryBase time.Duration
+	// RetryMaxDelay caps retry backoff (default 60s).
+	RetryMaxDelay time.Duration
+	// MinInterval enforces a minimum gap between consecutive LLM calls (default 0).
+	MinInterval time.Duration
 }
 
 // NewProvider creates the appropriate Provider from a model definition.
@@ -105,14 +116,16 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	var inner Provider
 	switch p.Type {
 	case "openai":
-		return newOpenAIProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature), nil
+		inner = newOpenAIProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature)
 	case "anthropic":
-		return newAnthropicProvider(p.Model, p.APIKey, hc, p.MaxTokens, p.Temperature), nil
+		inner = newAnthropicProvider(p.Model, p.APIKey, hc, p.MaxTokens, p.Temperature)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}
+	return applyResilientWrap(inner, p), nil
 }
 
 // UnsupportedProviderError is returned when the provider type is unknown.

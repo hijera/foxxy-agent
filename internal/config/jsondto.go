@@ -45,6 +45,9 @@ type AgentJSON struct {
 	Model            string `json:"model"`
 	MaxTurns         int    `json:"max_turns,omitempty"`
 	MaxTokensPerTurn int    `json:"max_tokens_per_turn,omitempty"`
+	LLMRetryMax      int    `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS   int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS int    `json:"llm_min_interval_ms,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -151,7 +154,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, ModelJSON(m))
 	}
 	out.Agent = AgentJSON{
-		Model: c.Agent.Model, MaxTurns: c.Agent.MaxTurns, MaxTokensPerTurn: c.Agent.MaxTokensPerTurn,
+		Model:            c.Agent.Model,
+		MaxTurns:         c.Agent.MaxTurns,
+		MaxTokensPerTurn: c.Agent.MaxTokensPerTurn,
+		LLMRetryMax:      c.Agent.LLMRetryMax,
+		LLMRetryBaseMS:   c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS: c.Agent.LLMMinIntervalMS,
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt,
@@ -206,7 +214,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, ModelEntry(m))
 	}
 	cfg.Agent = Agent{
-		Model: j.Agent.Model, MaxTurns: j.Agent.MaxTurns, MaxTokensPerTurn: j.Agent.MaxTokensPerTurn,
+		Model:            j.Agent.Model,
+		MaxTurns:         j.Agent.MaxTurns,
+		MaxTokensPerTurn: j.Agent.MaxTokensPerTurn,
+		LLMRetryMax:      j.Agent.LLMRetryMax,
+		LLMRetryBaseMS:   j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS: j.Agent.LLMMinIntervalMS,
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt,

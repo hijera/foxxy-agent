@@ -104,7 +104,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	if maxTok <= 0 || maxTok > 96 {
 		maxTok = 96
 	}
-	return llm.NewProvider(llm.ProviderInput{
+	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Type:        rm.ProviderType,
 		Model:       rm.Model,
 		APIKey:      rm.APIKey,
@@ -112,7 +112,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		ProxyURL:    rm.ProxyURL,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
-	})
+	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, error) {
@@ -131,7 +131,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	if maxTok <= 0 || maxTok > 96 {
 		maxTok = 96
 	}
-	return llm.NewProvider(llm.ProviderInput{
+	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Type:        rm.ProviderType,
 		Model:       rm.Model,
 		APIKey:      rm.APIKey,
@@ -139,7 +139,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		ProxyURL:    rm.ProxyURL,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
-	})
+	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {

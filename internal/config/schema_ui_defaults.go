@@ -20,6 +20,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Model:            "openai/gpt-4o",
 			MaxTurns:         AgentDefaultMaxTurns,
 			MaxTokensPerTurn: AgentDefaultMaxTokensPerTurn,
+			LLMRetryMax:      AgentDefaultLLMRetryMax,
+			LLMRetryBaseMS:   AgentDefaultLLMRetryBaseMS,
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",
