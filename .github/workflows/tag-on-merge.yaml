@@ -1,5 +1,9 @@
 # On each push to main: bump patch SemVer tag on HEAD (if untagged), then build Docker image and release binaries.
 # Child workflows are invoked via workflow_call (GITHUB_TOKEN tag pushes do not fire push: tags workflows).
+#
+# workflow_dispatch:
+#   - empty: bump tag on HEAD (if needed) and release
+#   - release_tag set: rebuild Docker and binaries for an existing tag (no bump)
 
 name: Tag release on merge
 
@@ -8,6 +12,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Rebuild Docker and binaries for this tag (skip version bump)
+        required: false
+        type: string
 
 concurrency:
   group: release-tag-main
@@ -18,14 +27,14 @@ defaults:
     shell: bash
 
 jobs:
-  tag-version:
-    name: Bump and push version tag
+  release:
+    name: Prepare release tag
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
-      skip: ${{ steps.check.outputs.skip }}
-      tag: ${{ steps.version.outputs.tag }}
+      skip: ${{ steps.finish.outputs.skip }}
+      tag: ${{ steps.finish.outputs.tag }}
 
     steps:
       - name: Checkout repository
@@ -36,19 +45,36 @@ jobs:
       - name: Fetch all tags
         run: git fetch --tags origin
 
+      - name: Rebuild existing tag only
+        id: rebuild
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.release_tag }}"
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match X.Y.Z (got ${TAG})." >&2
+            exit 1
+          fi
+          if ! git rev-parse "refs/tags/${TAG}^{commit}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} does not exist on origin." >&2
+            exit 1
+          fi
+          echo "Rebuilding release for existing tag ${TAG}."
+
       - name: Check if commit already has a tag
         id: check
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.release_tag == ''
         run: |
           if [ -n "$(git tag --points-at HEAD)" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Commit already has a tag, skipping."
+            echo "Commit already has a tag, skipping bump and release jobs."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Get latest SemVer tag and bump patch
         id: version
-        if: steps.check.outputs.skip != 'true'
+        if: (github.event_name != 'workflow_dispatch' || github.event.inputs.release_tag == '') && steps.check.outputs.skip != 'true'
         run: |
           set -euo pipefail
           LATEST="$({ git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
@@ -62,7 +88,7 @@ jobs:
           echo "Bumping ${LATEST} -> ${NEW_VERSION}"
 
       - name: Create and push tag
-        if: steps.check.outputs.skip != 'true'
+        if: (github.event_name != 'workflow_dispatch' || github.event.inputs.release_tag == '') && steps.check.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -70,25 +96,41 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG (auto-tag on merge)"
           git push origin "$TAG"
 
+      - name: Set job outputs
+        id: finish
+        env:
+          REBUILD_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          if [ -n "$REBUILD_TAG" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "tag=${REBUILD_TAG}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.check.outputs.skip }}" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
   docker:
     name: Docker build and push
-    needs: tag-version
-    if: needs.tag-version.outputs.skip != 'true'
+    needs: release
+    if: needs.release.outputs.skip != 'true'
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/docker-build-push.yaml
     with:
-      tag: ${{ needs.tag-version.outputs.tag }}
+      tag: ${{ needs.release.outputs.tag }}
     secrets: inherit
 
   binaries:
     name: Release binaries
-    needs: tag-version
-    if: needs.tag-version.outputs.skip != 'true'
+    needs: release
+    if: needs.release.outputs.skip != 'true'
     permissions:
       contents: write
     uses: ./.github/workflows/release-binaries.yaml
     with:
-      tag: ${{ needs.tag-version.outputs.tag }}
+      tag: ${{ needs.release.outputs.tag }}
     secrets: inherit

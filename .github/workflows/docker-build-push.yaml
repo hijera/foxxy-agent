@@ -104,6 +104,10 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install ripgrep
+        if: steps.gate.outputs.skip != 'true'
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Run tests
         if: steps.gate.outputs.skip != 'true'
         run: make test
