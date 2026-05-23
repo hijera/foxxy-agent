@@ -125,6 +125,8 @@ export type ConsumeComposerSseParams = {
   ) => TranscriptItem[];
   /** Coddy extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
   onQuestion?: (payload: Record<string, unknown>) => void;
+  /** Coddy extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
+  onPermission?: (payload: Record<string, unknown>) => void;
 };
 
 export type ConsumeComposerSseResult = {
@@ -152,6 +154,7 @@ export async function consumeComposerSseReader(
     applyMemoryPhaseToItems,
     applyMemoryChunkToItems,
     onQuestion,
+    onPermission,
   } = p;
 
       const toolQueue: Array<
@@ -477,6 +480,16 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "permission") {
+            try {
+              const raw = JSON.parse(ev.data) as Record<string, unknown>;
+              onPermission?.(raw);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "question") {
             try {
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
@@ -674,6 +687,15 @@ export async function consumeComposerSseReader(
                   delta: typeof raw.delta === "string" ? raw.delta : "",
                 }),
               );
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+          if (ev.event === "permission") {
+            try {
+              const raw = JSON.parse(ev.data) as Record<string, unknown>;
+              onPermission?.(raw);
             } catch {
               // ignore
             }

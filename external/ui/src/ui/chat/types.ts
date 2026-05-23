@@ -1,3 +1,4 @@
+import type { CoddyPermissionPayload, PermissionResolvedState } from "./permissionTypes";
 import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
 
 export type TokenUsage = {
@@ -7,6 +8,12 @@ export type TokenUsage = {
 };
 
 export type TranscriptItem =
+  | {
+      id: string;
+      type: "permission_prompt";
+      payload: CoddyPermissionPayload;
+      resolved?: PermissionResolvedState;
+    }
   | {
       id: string;
       type: "question_prompt";

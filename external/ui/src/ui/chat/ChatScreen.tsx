@@ -7,6 +7,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { HeroAccentVerb } from "./heroTitleWords";
+import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { ChatHeader } from "./ChatHeader";
@@ -64,6 +65,11 @@ export function ChatScreen(props: {
     sessionId: string,
     itemId: string,
     resolved: QuestionResolvedState,
+  ) => void;
+  onPermissionPromptResolved?: (
+    sessionId: string,
+    itemId: string,
+    resolved: PermissionResolvedState,
   ) => void;
   onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
   onPlanDocumentRun?: (slug: string) => void;
@@ -226,6 +232,12 @@ export function ChatScreen(props: {
                   : {})}
                 {...(props.onQuestionPromptResolved
                   ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
+                  : {})}
+                {...(props.onPermissionPromptResolved
+                  ? {
+                      onPermissionPromptResolved:
+                        props.onPermissionPromptResolved,
+                    }
                   : {})}
                 {...(props.onPlanDocumentExpanded
                   ? { onPlanDocumentExpanded: props.onPlanDocumentExpanded }

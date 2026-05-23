@@ -524,6 +524,44 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/permission": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`**, or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"required": []interface{}{
+										"toolCallId",
+									},
+									"properties": map[string]interface{}{
+										"toolCallId": map[string]string{"type": "string"},
+										"optionId":   map[string]string{"type": "string"},
+										"outcome":    map[string]string{"type": "string"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Permission choice accepted"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/question": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Answer a pending interactive question from a streaming ReAct turn",

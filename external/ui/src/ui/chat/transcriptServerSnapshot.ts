@@ -49,6 +49,16 @@ export function transcriptItemsLooselyEqual(
         (b as Extract<TranscriptItem, { type: "memory_copilot" }>).userTurnIndex ===
           a.userTurnIndex
       );
+    case "permission_prompt": {
+      const asv = a as Extract<TranscriptItem, { type: "permission_prompt" }>;
+      const bl = b as Extract<TranscriptItem, { type: "permission_prompt" }>;
+      if (asv.payload.toolCall.toolCallId !== bl.payload.toolCall.toolCallId) {
+        return false;
+      }
+      if (bl.resolved && !asv.resolved) return true;
+      if (!!asv.resolved !== !!bl.resolved) return false;
+      return true;
+    }
     case "question_prompt": {
       const asv = a as Extract<TranscriptItem, { type: "question_prompt" }>;
       const bl = b as Extract<TranscriptItem, { type: "question_prompt" }>;
@@ -129,6 +139,15 @@ export function mergeTranscriptPreferLocalSuffix(
       lastS.type === "question_prompt" &&
       lastL.type === "question_prompt" &&
       lastS.payload.requestId === lastL.payload.requestId &&
+      lastL.resolved &&
+      !lastS.resolved
+    ) {
+      return [...serverNext.slice(0, -1), lastL];
+    }
+    if (
+      lastS.type === "permission_prompt" &&
+      lastL.type === "permission_prompt" &&
+      lastS.payload.toolCall.toolCallId === lastL.payload.toolCall.toolCallId &&
       lastL.resolved &&
       !lastS.resolved
     ) {

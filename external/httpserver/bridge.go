@@ -133,12 +133,33 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 	return nil
 }
 
-// RequestPermission allows all tools when master key is set; otherwise denies (no interactive HTTP UI).
-func (s *Sender) RequestPermission(ctx context.Context, _ acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+// RequestPermission allows all tools when master key is set; otherwise emits SSE and waits for POST /coddy/sessions/{id}/permission.
+func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	if permission.MasterKeyActive(s.cfg) {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
-	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	if !s.stream || s.w == nil {
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
+	sid := strings.TrimSpace(params.SessionID)
+	tcid := strings.TrimSpace(params.ToolCall.ToolCallID)
+	if sid == "" || tcid == "" {
+		return nil, fmt.Errorf("sessionId and toolCall.toolCallId are required")
+	}
+	ch := registerPermissionWait(sid, tcid)
+	defer unregisterPermissionWait(sid, tcid)
+	if err := s.writeNamedEventJSON("permission", params); err != nil {
+		return nil, err
+	}
+	select {
+	case res := <-ch:
+		if res == nil {
+			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+		}
+		return res, nil
+	case <-ctx.Done():
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
 }
 
 // RequestQuestion emits a composer SSE question event and waits for POST /coddy/sessions/{id}/question.

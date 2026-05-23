@@ -17,6 +17,10 @@ import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { consumeComposerSseReader } from "./chat/consumeComposerSse";
 import {
+  parseCoddyPermissionPayload,
+  type PermissionResolvedState,
+} from "./chat/permissionTypes";
+import {
   parseCoddyQuestionPayload,
   type QuestionResolvedState,
 } from "./chat/questionTypes";
@@ -666,6 +670,37 @@ export function App() {
     [],
   );
 
+  const handleComposerSsePermission = useCallback(
+    (raw: Record<string, unknown>) => {
+      const p = parseCoddyPermissionPayload(raw);
+      if (!p) return;
+      const key = p.sessionId.trim();
+      if (!key) return;
+      const tcid = p.toolCall.toolCallId.trim();
+      applyStreamItemsForSession(key, (prev) => {
+        const withoutStalePending = prev.filter(
+          (x) => !(x.type === "permission_prompt" && !x.resolved),
+        );
+        const withoutDup = withoutStalePending.filter(
+          (x) =>
+            !(
+              x.type === "permission_prompt" &&
+              x.payload.toolCall.toolCallId === tcid
+            ),
+        );
+        return [
+          ...withoutDup,
+          {
+            id: `pp_${tcid}`,
+            type: "permission_prompt" as const,
+            payload: p,
+          },
+        ];
+      });
+    },
+    [],
+  );
+
   const resolveQuestionPrompt = useCallback(
     (
       sessionId: string,
@@ -694,6 +729,25 @@ export function App() {
         }
         return next;
       });
+    },
+    [],
+  );
+
+  const resolvePermissionPrompt = useCallback(
+    (
+      sessionId: string,
+      itemId: string,
+      resolved: PermissionResolvedState,
+    ) => {
+      const key = sessionId.trim();
+      if (!key) return;
+      applyStreamItemsForSession(key, (prev) =>
+        prev.map((x) =>
+          x.id === itemId && x.type === "permission_prompt"
+            ? { ...x, resolved }
+            : x,
+        ),
+      );
     },
     [],
   );
@@ -1755,6 +1809,7 @@ export function App() {
         applyMemoryPhaseToItems,
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
+        onPermission: handleComposerSsePermission,
       });
 
       const syncAssistantFromServer = async () => {
@@ -2082,6 +2137,7 @@ export function App() {
         applyMemoryPhaseToItems,
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
+        onPermission: handleComposerSsePermission,
       });
 
       const syncAssistantFromServer = async () => {
@@ -2571,6 +2627,7 @@ export function App() {
           generating={generating}
           onStop={() => stopActiveGeneration()}
           onQuestionPromptResolved={resolveQuestionPrompt}
+          onPermissionPromptResolved={resolvePermissionPrompt}
           onPlanDocumentExpanded={(itemId, expanded) => {
             setItems((prev) =>
               prev.map((x) =>
