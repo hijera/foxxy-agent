@@ -1,5 +1,7 @@
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
+import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
+import type { PermissionResolvedState } from "../chat/permissionTypes";
 import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
 import { AssistantMessage } from "./AssistantMessage";
@@ -29,6 +31,11 @@ export function MessageList(props: {
     sessionId: string,
     itemId: string,
     resolved: QuestionResolvedState,
+  ) => void;
+  onPermissionPromptResolved?: (
+    sessionId: string,
+    itemId: string,
+    resolved: PermissionResolvedState,
   ) => void;
   sessionId?: string;
   onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
@@ -154,6 +161,24 @@ export function MessageList(props: {
                 onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
                 onDiscard={() =>
                   props.onPlanDocumentDiscard?.(it.id, it.slug)
+                }
+              />
+            </div>
+          );
+        }
+        if (it.type === "permission_prompt") {
+          return (
+            <div key={it.id} className="message-row message-row-permission">
+              <PermissionPromptSection
+                itemId={it.id}
+                payload={it.payload}
+                resolved={it.resolved}
+                onResolved={(state) =>
+                  props.onPermissionPromptResolved?.(
+                    it.payload.sessionId,
+                    it.id,
+                    state,
+                  )
                 }
               />
             </div>

@@ -127,6 +127,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/question", s.coddySessionQuestionPost)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/permission", s.coddySessionPermissionPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}", s.coddySessionDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/plan", s.coddyPlanGet)
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/plan", s.coddyPlanPut)
@@ -173,6 +174,67 @@ func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Req
 	s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.session_cancelled", "id": id})
+}
+
+func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := session.ValidateFolderSessionID(id); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	if hdr != "" && hdr != id {
+		http.Error(w, `{"error":{"message":"X-Coddy-Session-ID does not match path id"}}`, http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		ToolCallID string `json:"toolCallId"`
+		OptionID   string `json:"optionId"`
+		Outcome    string `json:"outcome"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
+	tcid := strings.TrimSpace(body.ToolCallID)
+	if tcid == "" {
+		http.Error(w, `{"error":{"message":"toolCallId is required"}}`, http.StatusBadRequest)
+		return
+	}
+	opt := strings.TrimSpace(body.OptionID)
+	out := strings.TrimSpace(body.Outcome)
+	if opt == "" && out == "" {
+		http.Error(w, `{"error":{"message":"optionId or outcome is required"}}`, http.StatusBadRequest)
+		return
+	}
+	if out == "" {
+		switch opt {
+		case "reject":
+			out = "cancelled"
+		default:
+			out = "allow"
+		}
+	}
+	if opt == "" {
+		if out == "cancelled" {
+			opt = "reject"
+		} else {
+			opt = "allow"
+		}
+	}
+	ok := CompletePermissionAnswer(id, tcid, &acp.PermissionResult{
+		Outcome:  out,
+		OptionID: opt,
+	})
+	if !ok {
+		http.Error(w, `{"error":{"message":"no pending permission for this toolCallId"}}`, http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) coddySessionQuestionPost(w http.ResponseWriter, r *http.Request) {

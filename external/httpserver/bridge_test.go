@@ -92,6 +92,73 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 	}
 }
 
+func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sender := NewSender(&config.Config{}, rec, true, "agent-model")
+	ctx := context.Background()
+	p := acp.PermissionRequestParams{
+		SessionID: "s1",
+		ToolCall: acp.PermissionToolCall{
+			ToolCallID: "call_perm_1",
+			Title:      "Run: run_command",
+			Kind:       "run_command",
+			Status:     "pending",
+			Content: []acp.ToolCallResultItem{
+				{Type: "content", Content: acp.ContentBlock{Type: "text", Text: "Execute: echo hi"}},
+			},
+		},
+		Options: []acp.PermissionOption{
+			{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+			{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+		},
+	}
+	done := make(chan error, 1)
+	var got *acp.PermissionResult
+	go func() {
+		r, err := sender.RequestPermission(ctx, p)
+		if err != nil {
+			done <- err
+			return
+		}
+		got = r
+		done <- nil
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(rec.Body.String(), "event: permission") {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if ok := CompletePermissionAnswer("s1", "call_perm_1", &acp.PermissionResult{
+		Outcome:  "allow",
+		OptionID: "allow",
+	}); !ok {
+		t.Fatal("CompletePermissionAnswer failed")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Outcome != "allow" || got.OptionID != "allow" {
+		t.Fatalf("unexpected result %#v", got)
+	}
+}
+
+func TestRequestPermissionDeniesWhenNotStreaming(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sender := NewSender(&config.Config{}, rec, false, "agent-model")
+	got, err := sender.RequestPermission(context.Background(), acp.PermissionRequestParams{
+		SessionID: "s1",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "c1", Status: "pending"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Outcome != "cancelled" || got.OptionID != "reject" {
+		t.Fatalf("expected deny, got %#v", got)
+	}
+}
+
 func TestForwardTextChunk_TextUsesContentDelta(t *testing.T) {
 	rec := httptest.NewRecorder()
 	sender := NewSender(&config.Config{}, rec, true, "agent-model")

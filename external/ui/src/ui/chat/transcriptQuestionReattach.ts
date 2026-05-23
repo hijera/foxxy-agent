@@ -1,15 +1,41 @@
 import type { TranscriptItem } from "./types";
 
-/** Local-only rows for interactive prompts (SSE + POST /question). Persisted transcripts omit them. */
+/** Local-only rows for interactive prompts (SSE). Persisted transcripts omit them. */
 function isQuestionPrompt(
   x: TranscriptItem,
 ): x is Extract<TranscriptItem, { type: "question_prompt" }> {
   return x.type === "question_prompt";
 }
 
+function isPermissionPrompt(
+  x: TranscriptItem,
+): x is Extract<TranscriptItem, { type: "permission_prompt" }> {
+  return x.type === "permission_prompt";
+}
+
+function interactivePromptKey(x: TranscriptItem): string {
+  if (isQuestionPrompt(x)) {
+    return `q:${x.payload.requestId.trim()}`;
+  }
+  if (isPermissionPrompt(x)) {
+    return `p:${x.payload.toolCall.toolCallId.trim()}`;
+  }
+  return "";
+}
+
+function interactiveToolCallId(x: TranscriptItem): string {
+  if (isQuestionPrompt(x)) {
+    return x.payload.toolCallId?.trim() || "";
+  }
+  if (isPermissionPrompt(x)) {
+    return x.payload.toolCall.toolCallId.trim();
+  }
+  return "";
+}
+
 /**
- * Re-insert question_prompt rows from the client shadow after merging server messages.
- * The HTTP messages list contains no question_prompt rows, so naive prefix merge strips them
+ * Re-insert question_prompt and permission_prompt rows from the client shadow after merging server messages.
+ * The HTTP messages list contains no interactive prompt rows, so naive prefix merge strips them
  * and breaks the transcript when a tool row aligns but the following local row differs.
  */
 export function reattachLocalQuestionPrompts(
@@ -19,21 +45,26 @@ export function reattachLocalQuestionPrompts(
   if (!local?.length) {
     return merged;
   }
-  const extras = local.filter(isQuestionPrompt);
+  const extras = local.filter(
+    (x) => isQuestionPrompt(x) || isPermissionPrompt(x),
+  );
   if (extras.length === 0) {
     return merged;
   }
   const have = new Set(
-    merged.filter(isQuestionPrompt).map((x) => x.payload.requestId.trim()),
+    merged
+      .filter((x) => isQuestionPrompt(x) || isPermissionPrompt(x))
+      .map(interactivePromptKey)
+      .filter(Boolean),
   );
   let out = [...merged];
   for (const q of extras) {
-    const rid = q.payload.requestId.trim();
-    if (!rid || have.has(rid)) {
+    const key = interactivePromptKey(q);
+    if (!key || have.has(key)) {
       continue;
     }
-    have.add(rid);
-    const tcid = q.payload.toolCallId?.trim();
+    have.add(key);
+    const tcid = interactiveToolCallId(q);
     let insertAt = out.length;
     if (tcid) {
       const idx = out.findIndex(
