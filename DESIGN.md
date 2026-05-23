@@ -239,7 +239,7 @@ The transcript UI is a flat list of message blocks (no nested threads). The runt
 Current block types:
 
 - `user_message`
-  - Raw user input text (Markdown allowed).
+  - Raw user input text (**plain**, **`pre-wrap`**; no Markdown or transcript skill chips).
 - `thinking`
   - Streaming model reasoning deltas (`delta.reasoning_content`) rendered as a disclosure row.
   - `thinking...` while in progress, `thinking` when completed.
@@ -302,7 +302,7 @@ When the caret sits on the current composer line on a **`/`** that is **line-sta
 - **Desktop** (**`slash-menu--floating`**) attaches above the textarea inside **`composer-card`**. **`Mobile`** (**narrow width**, match roughly **`max-width: 720px`**) renders a dimming backdrop (**`slash-sheet-backdrop`**) plus a bottom sheet (**`slash-menu--sheet`**).
 - Choosing a row replaces the typed **`/`…** segment with **`/<name> `** (plain **`#composer`** value and wire text to **`POST /v1/responses`**). The UI **never** stores **`[/<name>](coddy-skill:<name>)`** in the composer draft.
 - While the draft is non-empty, **`Composer`** draws a **mirror layer** (see **Caret sync** below) and highlights slash tokens parsed by **`segmentComposerSlashSpans`** (**`external/ui/src/ui/skills/segmentComposerSlashSpans.ts`**) with **`span.composer-skill-chip-inline`** (**`data-testid="composer-skill-chip"`**).
-- **`user_message`** bubbles run **`slugSlashesForUserBubbleMarkdown`** (same module) so **`Markdown.tsx`** renders transcript chips from **`coddy-skill:`** autolinks (**`data-testid="coddy-skill-span"`**) while persisted user text remains plain slashes.
+- **`user_message`** bubbles show persisted text as-is (**`UserMessage`**, **`msg-user-body`**, **`white-space: pre-wrap`**). Skill mirror chips apply only in **`#composer`**, not in the transcript.
 - **`Escape`** closes the menu; **`Enter`** confirms the first row when results are loaded and the menu is open (same turn as **`/`** autocomplete).
 
 #### Composer mirror and caret sync (contract)
@@ -347,15 +347,16 @@ Use these to regress behaviour after CSS or **`Composer`** edits. **Vitest** row
 | UC3 | Token **`x/foo`** | Whole token plain text slice (no chip for **`/foo`**) | **`external/ui/src/ui/skills/segmentComposerSlashSpans.test.ts`** · `segmentComposerSlashSpans skips letter before slash` |
 | UC4 | Line-leading **`/foo`** | Single **`slash`** segment **`/foo`** | **`segmentComposerSlashSpans.test.ts`** · `segmentComposerSlashSpans line start slash` |
 | UC5 | Strip legacy **`a [/demo](coddy-skill:demo) b`** | Output **`a /demo b`** | **`segmentComposerSlashSpans.test.ts`** · `stripCoddySkillMarkdownLinks restores plain slash token` |
-| UC6 | User bubble **`hi /demo there`** | **`data-testid="coddy-skill-span"`** text **`/demo`** | **`external/ui/src/ui/messages/UserMessage.test.tsx`** |
-| UC7 | Display-only slug transform | Plain **`/`** → **`[/<n>](coddy-skill:<n>)`**; legacy link preserved before second token | **`segmentComposerSlashSpans.test.ts`** · `slugSlashesForUserBubbleMarkdown for Markdown chip render` and **`slugSlashesForUserBubbleMarkdown strips legacy first then chips`** |
+| UC6 | User bubble **`hi /demo there`** | Plain text, no **`coddy-skill-span`** | **`external/ui/src/ui/messages/UserMessage.test.tsx`** |
+| UC7 | Multiline YAML in user bubble | Line breaks preserved in **`user-message-body`** | **`external/ui/src/ui/messages/UserMessage.test.tsx`** |
+| UC7b | Display-only slug transform (composer / legacy helpers) | Plain **`/`** → autolink form in **`slugSlashesForUserBubbleMarkdown`** unit tests only | **`segmentComposerSlashSpans.test.ts`** |
 | UC8 | Live **`coddy http`** after **`make build TAGS="http ui"`**, **`#composer`** with **`/coddy_slash_demo`** | **`textarea.value`** plain; **`fontFamily`** chip **===** **`#composer`**; EOL **`selectionStart === value.length`** | **Playwright MCP** · **`browser_navigate`**, **`browser_fill_form`**, **`browser_evaluate`** |
 
 ### Markdown
 
-Messages may contain Markdown.
+**Assistant** messages may contain Markdown. **User** bubbles do not (plain **`pre-wrap`** text).
 
-- **`coddy-skill:`** autolinks in transcripts (see **`slugSlashesForUserBubbleMarkdown`**) render as **`span.coddy-skill-chip`** (not a navigating anchor).
+- **`coddy-skill:`** chips appear only in the **composer mirror** while editing, not in persisted user bubbles.
 - Render fenced code blocks with syntax highlighting.
 - Each code block has a copy button in the top right corner that copies only the block contents.
 

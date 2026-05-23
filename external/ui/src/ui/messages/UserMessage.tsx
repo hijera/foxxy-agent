@@ -1,5 +1,3 @@
-import { Markdown } from "../markdown/Markdown";
-import { slugSlashesForUserBubbleMarkdown } from "../skills/segmentComposerSlashSpans";
 import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
 import {
   formatUtcToLocalFullDetail,
@@ -8,9 +6,7 @@ import {
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 
 export function UserMessage(props: { content: string; createdAtUtc?: string }) {
-  const display = slugSlashesForUserBubbleMarkdown(
-    stripCoddyAttachmentsForUserDisplay(props.content),
-  );
+  const display = stripCoddyAttachmentsForUserDisplay(props.content);
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
     : "";
@@ -21,7 +17,9 @@ export function UserMessage(props: { content: string; createdAtUtc?: string }) {
   return (
     <div className="msg-user-stack">
       <div className="msg msg-user">
-        <Markdown text={display} />
+        <div className="msg-user-body" data-testid="user-message-body">
+          {display}
+        </div>
       </div>
       <div className="msg-user-foot">
         <MessageCopyIconButton

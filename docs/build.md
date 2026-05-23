@@ -39,13 +39,17 @@ The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via
 
 ## Install on your PATH
 
-**`make install`** depends on **`build`**, then copies **`build/coddy`**:
+**`make install`** copies **`build/coddy`** onto your **`PATH`**:
+
+- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory"`** first.
 
 - **root** - **`/usr/local/bin/coddy`**
 - **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**)
 
 ```bash
-make install TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory"
+make install
 ```
 
 ## Lean build (ACP-focused, smaller binary)

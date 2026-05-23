@@ -6,9 +6,28 @@ import { UserMessage } from "./UserMessage";
 
 afterEach(() => cleanup());
 
-test("user bubble chips plain slash commands for Markdown", () => {
+test("user bubble preserves multiline text without markdown pipeline", () => {
+  const yaml = [
+    "---",
+    "services:",
+    "  qbittorrent:",
+    "    volumes:",
+    "      - /path/to/downloads:/downloads",
+  ].join("\n");
+  render(<UserMessage content={yaml} />);
+  const body = screen.getByTestId("user-message-body");
+  expect(body).toHaveTextContent("services:");
+  expect(body).toHaveTextContent("/path/to/downloads:/downloads");
+  expect(body.textContent).toBe(yaml);
+  expect(screen.queryByTestId("coddy-skill-span")).toBeNull();
+});
+
+test("user bubble does not treat path slashes as skill chips", () => {
   render(<UserMessage content="hi /demo there" />);
-  expect(screen.getByTestId("coddy-skill-span")).toHaveTextContent("/demo");
+  expect(screen.getByTestId("user-message-body")).toHaveTextContent(
+    "hi /demo there",
+  );
+  expect(screen.queryByTestId("coddy-skill-span")).toBeNull();
 });
 
 test("copy sends raw user text not display-only slash chip source", () => {

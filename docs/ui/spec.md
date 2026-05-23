@@ -161,7 +161,8 @@ Mirror and caret alignment
 
 Transcript vs composer
 
-- **`user_message`** runs **`slugSlashesForUserBubbleMarkdown`** before **`Markdown`**, producing display autolinks rendered as **`span.coddy-skill-chip`** (**`data-testid="coddy-skill-span"`**). Transcript chips may use stronger typography and padding; they are **not** subject to the mirror contract.
+- **`user_message`** bubbles render **plain text** only (**`msg-user-body`**, **`white-space: pre-wrap`**). No Markdown pipeline, no transcript skill chips (**`coddy-skill-span`**). Slash tokens such as **`/path/to`** and YAML blocks stay exactly as persisted, with line breaks preserved.
+- Composer mirror chips (**`composer-skill-chip`**) apply **only** while editing **`#composer`**, not in the transcript.
 - Persisted user turns may carry hydrated attachments as **`coddy_attachment`** XML with **`path`**, **`name`**, and CDATA file bodies (**`internal/agent`**). **`stripCoddyAttachmentsForUserDisplay`** replaces each XML block with a compact **`@path`** **only when** that path is **not** already present as an **`@`** mention in the surrounding text (**avoids duplication** because the persisted turn already repeats the **`@`** in the user text plus the hydrated block).
 
 Verification use cases
@@ -173,8 +174,9 @@ Verification use cases
 | UC3 | **`x/foo`** no chip for **`/foo`** | **`segmentComposerSlashSpans.test.ts`** (`segmentComposerSlashSpans skips letter before slash`) |
 | UC4 | Line-leading **`/foo`** chip | **`segmentComposerSlashSpans.test.ts`** (`segmentComposerSlashSpans line start slash`) |
 | UC5 | **`stripCoddySkillMarkdownLinks`** on legacy paste | **`segmentComposerSlashSpans.test.ts`** (`stripCoddySkillMarkdownLinks restores plain slash token`) |
-| UC6 | Bubble shows **`coddy-skill-span`** for **`hi /demo there`** | **`UserMessage.test.tsx`** |
-| UC7 | Display-only **`slugSlashes`** (plain **`/`** and legacy mix) | **`segmentComposerSlashSpans.test.ts`** (`slugSlashesForUserBubbleMarkdown for Markdown chip render`, `slugSlashesForUserBubbleMarkdown strips legacy first then chips`) |
+| UC6 | User bubble keeps **`hi /demo there`** plain (no **`coddy-skill-span`**) | **`UserMessage.test.tsx`** |
+| UC7 | Multiline YAML / paths keep **`\\n`** layout in **`user-message-body`** | **`UserMessage.test.tsx`** |
+| UC7b | Display-only **`slugSlashes`** (plain **`/`** and legacy mix) | **`segmentComposerSlashSpans.test.ts`** (`slugSlashesForUserBubbleMarkdown …`; composer / legacy only, not transcript) |
 | UC8 | Live **`coddy http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
 | UC9 | User bubble hides **`coddy_attachment`** bodies, shows **`@path`** only | **`UserMessage.test.tsx`**, **`stripCoddyAttachments.test.ts`** |
 
@@ -202,7 +204,7 @@ Verification use cases
 The chat transcript renders a flat list of UI message blocks. Each block has a `type` and a minimal set of required fields.
 
 - `user_message`
-  - Plain user input text.
+  - Plain user input text (**no Markdown**; **`pre-wrap`** preserves line breaks).
 - `thinking`
   - Renders model reasoning as a lightweight disclosure row.
   - Status `in_progress` shows label `thinking...` and a spinner.
@@ -223,7 +225,7 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**, **`thinking-label`**, **`thinking-dur`**), **`aria-label="Tool summary"`** |
 | Args | **`pre.tool-block`**, **`aria-label="Tool arguments"`** (inside **`thinking-body coddy-tool-call-body`**) |
 | Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
-| Markdown | Not used for tool **result** (user or assistant bubbles still use the Markdown pipeline per below) |
+| Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
 | Full text | First **Load more** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
 | CSS | **`styles.css`**: **`.coddy-tool-call-row`**, **`.coddy-tool-call-body`**, **`thinking-details:not([open])` body hidden**, plus **`.tool-result-raw`** and viewport / toggle classes above |
@@ -241,7 +243,8 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 ## Markdown rendering
 
 - Tool outputs are excluded; they stay raw monospace text (**`ToolCallMessage`**).
-- User and assistant messages may contain Markdown.
+- **User** messages are plain text with preserved line breaks (**`UserMessage`**).
+- **Assistant** messages may contain Markdown.
 - UI renders Markdown with fenced code blocks and syntax highlighting.
 - Each code block has a copy button that copies only that block content.
 
