@@ -70,7 +70,8 @@ jobs:
             exit 1
           fi
 
-          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          # checkout@v4 on a tag ref already creates a local tag; force-update from origin.
+          git fetch origin "+refs/tags/${TAG}:refs/tags/${TAG}"
           git checkout --force "$TAG"
           echo "Building commit $(git rev-parse --short HEAD) at ${TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
