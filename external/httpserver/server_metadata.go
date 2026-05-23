@@ -94,6 +94,20 @@ func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 	return st.EffectiveModelID(cfg)
 }
 
+// applySessionYAMLModel sets or clears the session YAML model override (persists when hooked).
+func applySessionYAMLModel(cfg *config.Config, st *session.State, modelID string) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		st.SetSelectedModelID("")
+		return nil
+	}
+	if cfg == nil || cfg.FindModelEntry(modelID) == nil {
+		return ErrUnknownMetadataModel
+	}
+	st.SetSelectedModelID(modelID)
+	return nil
+}
+
 // sessionPromptMetaFromHTTP maps HTTP metadata extensions to ACP session/prompt _meta.
 func sessionPromptMetaFromHTTP(raw json.RawMessage) map[string]interface{} {
 	if len(raw) == 0 {

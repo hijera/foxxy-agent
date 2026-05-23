@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -855,6 +856,10 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		"sessionId": id,
 		"messages":  llmMsgsToCoddyOpenAI(st.GetMessages()),
 	}
+	if s.activeCfg() != nil {
+		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
+		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
+	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
 		for _, e := range u {
@@ -884,8 +889,9 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	var body struct {
-		Title            string `json:"title"`
-		MarkActivityRead bool   `json:"markActivityRead"`
+		Title             string  `json:"title"`
+		MarkActivityRead  bool    `json:"markActivityRead"`
+		SelectedModelID   *string `json:"selectedModelId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -901,6 +907,21 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		"id":     id,
 	}
 	did := false
+	if body.SelectedModelID != nil {
+		if err := applySessionYAMLModel(s.activeCfg(), st, *body.SelectedModelID); err != nil {
+			if errors.Is(err, ErrUnknownMetadataModel) {
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+			http.Error(w, `{"error":{"message":"invalid selectedModelId"}}`, http.StatusBadRequest)
+			return
+		}
+		did = true
+		resp["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
+		if s.activeCfg() != nil {
+			resp["model"] = effectiveYAMLModel(s.activeCfg(), st)
+		}
+	}
 	if body.MarkActivityRead {
 		st.MarkActivityReadSynced()
 		did = true
@@ -919,7 +940,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		resp["title"] = t
 	}
 	if !did {
-		http.Error(w, `{"error":{"message":"title or markActivityRead required"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"title, markActivityRead, or selectedModelId required"}}`, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

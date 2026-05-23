@@ -72,6 +72,12 @@ Session title
 - When the title is missing, UI shows `New chat`.
 - Title is editable inline. On blur the UI saves via `PATCH /coddy/sessions/{id}`.
 
+### Per-session model
+
+- **New chat** defaults **Model** from cookie **`coddy_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
+- **Opening a session** restores **Model** from **`GET /coddy/sessions/{id}/messages`** field **`model`** (session override on disk), not from the cookie.
+- Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
+
 ## Session list
 
 - **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).

@@ -998,6 +998,191 @@ func TestResponsesProfileMetadataSelectsYAML(t *testing.T) {
 	}
 }
 
+func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var sb strings.Builder
+		for _, b := range prompt {
+			if b.Type == "text" {
+				sb.WriteString(b.Text)
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "stub"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home, CWD: "/tmp"},
+		Models: []config.ModelEntry{
+			{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2},
+			{Model: "openai/gpt-4o-mini", MaxTokens: 100, Temperature: 0.2},
+		},
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+	}
+	store := &session.FileStore{Root: sessRoot}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sidA := "sess_model_a"
+	reqA, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(
+		`{"model":"agent","input":"hi","stream":false,"metadata":{"model":"openai/gpt-4o-mini"}}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqA.Header.Set("Content-Type", "application/json")
+	reqA.Header.Set("X-Coddy-Session-ID", sidA)
+	resA, err := http.DefaultClient.Do(reqA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ioReadAllClose(resA.Body)
+	if resA.StatusCode != http.StatusOK {
+		t.Fatalf("session A status %d", resA.StatusCode)
+	}
+
+	sidB := "sess_model_b"
+	reqB, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(
+		`{"model":"agent","input":"hi","stream":false,"metadata":{"model":"openai/gpt-4o"}}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqB.Header.Set("Content-Type", "application/json")
+	reqB.Header.Set("X-Coddy-Session-ID", sidB)
+	resB, err := http.DefaultClient.Do(reqB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ioReadAllClose(resB.Body)
+	if resB.StatusCode != http.StatusOK {
+		t.Fatalf("session B status %d", resB.StatusCode)
+	}
+
+	msgReqA, _ := http.NewRequest(http.MethodGet, ts.URL+"/coddy/sessions/"+sidA+"/messages", nil)
+	msgReqA.Header.Set("X-Coddy-Session-ID", sidA)
+	msgResA, err := http.DefaultClient.Do(msgReqA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bA, _ := ioReadAllClose(msgResA.Body)
+	if msgResA.StatusCode != http.StatusOK {
+		t.Fatalf("messages A status %d %s", msgResA.StatusCode, bA)
+	}
+	var bodyA struct {
+		Model            string `json:"model"`
+		SelectedModelID  string `json:"selectedModelId"`
+	}
+	if err := json.Unmarshal(bA, &bodyA); err != nil {
+		t.Fatal(err)
+	}
+	if bodyA.Model != "openai/gpt-4o-mini" {
+		t.Fatalf("session A model want openai/gpt-4o-mini got %q", bodyA.Model)
+	}
+	if bodyA.SelectedModelID != "openai/gpt-4o-mini" {
+		t.Fatalf("session A selectedModelId want openai/gpt-4o-mini got %q", bodyA.SelectedModelID)
+	}
+
+	snapA, err := store.ReadSnapshot(sidA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapA.Meta.SelectedModelID != "openai/gpt-4o-mini" {
+		t.Fatalf("disk A selectedModelId %q", snapA.Meta.SelectedModelID)
+	}
+
+	msgReqB, _ := http.NewRequest(http.MethodGet, ts.URL+"/coddy/sessions/"+sidB+"/messages", nil)
+	msgReqB.Header.Set("X-Coddy-Session-ID", sidB)
+	msgResB, err := http.DefaultClient.Do(msgReqB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bB, _ := ioReadAllClose(msgResB.Body)
+	var bodyB struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(bB, &bodyB); err != nil {
+		t.Fatal(err)
+	}
+	if bodyB.Model != "openai/gpt-4o" {
+		t.Fatalf("session B model want openai/gpt-4o got %q", bodyB.Model)
+	}
+}
+
+func TestCoddySessionPatchSelectedModelId(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := strings.NewReader(`{"selectedModelId":"openai/gpt-4o"}`)
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	resHTTP, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("status %d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		SelectedModelID string `json:"selectedModelId"`
+		Model           string `json:"model"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.SelectedModelID != "openai/gpt-4o" || parsed.Model != "openai/gpt-4o" {
+		t.Fatalf("patch response %+v", parsed)
+	}
+
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.SelectedModelID != "openai/gpt-4o" {
+		t.Fatalf("disk selectedModelId %q", snap.Meta.SelectedModelID)
+	}
+
+	bad := strings.NewReader(`{"selectedModelId":"unknown/model"}`)
+	reqBad, _ := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), bad)
+	reqBad.Header.Set("Content-Type", "application/json")
+	reqBad.Header.Set("X-Coddy-Session-ID", sid)
+	resBad, err := http.DefaultClient.Do(reqBad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badB, _ := ioReadAllClose(resBad.Body)
+	if resBad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400 for unknown model got %d %s", resBad.StatusCode, badB)
+	}
+}
+
 func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {

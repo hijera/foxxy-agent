@@ -44,6 +44,10 @@ import type { TokenUsage, TranscriptItem } from "./chat/types";
 import { NavRail } from "./nav/NavRail";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
+import {
+  pickDefaultLlmModelForNewChat,
+  pickLlmModelForOpenSession,
+} from "./chat/llmModelSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import {
   armSessionDeleteBackdropSuppressUntil,
@@ -626,6 +630,7 @@ export function App() {
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
+  const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
@@ -1069,16 +1074,16 @@ export function App() {
         .map((r) => r.id);
       setLlmModelIds(backends);
       const defaultYaml = (res.data.default_agent_model || "").trim();
-      const fromCookie = readLlmModelCookie();
-      let next = "";
-      if (fromCookie && backends.includes(fromCookie)) {
-        next = fromCookie;
-      } else if (defaultYaml && backends.includes(defaultYaml)) {
-        next = defaultYaml;
-      } else if (backends.length > 0 && backends[0]) {
-        next = backends[0];
+      setDefaultAgentYamlModel(defaultYaml);
+      if (!viewedSessionIdRef.current.trim()) {
+        setLlmModel(
+          pickDefaultLlmModelForNewChat({
+            backends,
+            cookie: readLlmModelCookie(),
+            defaultAgentModel: defaultYaml,
+          }),
+        );
       }
-      setLlmModel(next);
     })();
   }, []);
 
@@ -1281,8 +1286,11 @@ export function App() {
       setItems([]);
       return null;
     }
+    const viewingTrim = viewedSessionIdRef.current.trim();
     const res = await fetchJSON<{
       messages: Array<any>;
+      model?: string;
+      selectedModelId?: string;
       memoryTurns?: MemoryTurnApi[];
       uiLog?: Array<{
         id?: string;
@@ -1296,12 +1304,23 @@ export function App() {
     });
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
-        const viewingTrim = viewedSessionIdRef.current.trim();
         if (viewingTrim === sid) {
           setItems([]);
         }
       }
       return null;
+    }
+    if (viewingTrim === sid && llmModelIds.length > 0) {
+      const sessionModel =
+        (res.data.model || res.data.selectedModelId || "").trim();
+      setLlmModel(
+        pickLlmModelForOpenSession({
+          backends: llmModelIds,
+          sessionModel,
+          cookie: readLlmModelCookie(),
+          defaultAgentModel: defaultAgentYamlModel,
+        }),
+      );
     }
     type UILogRow = {
       id: string;
@@ -1527,7 +1546,6 @@ export function App() {
         next[idx] = merged;
       }
     }
-    const viewingTrim = viewedSessionIdRef.current.trim();
     const prevShadow = streamShadowBySidRef.current.get(sid);
     const localForMerge =
       prevShadow && prevShadow.length > 0
@@ -1573,6 +1591,15 @@ export function App() {
     setTokenUsage(null);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
+    if (llmModelIds.length > 0) {
+      setLlmModel(
+        pickDefaultLlmModelForNewChat({
+          backends: llmModelIds,
+          cookie: readLlmModelCookie(),
+          defaultAgentModel: defaultAgentYamlModel,
+        }),
+      );
+    }
   }
 
   async function deleteSession(id: string) {
@@ -2304,10 +2331,26 @@ export function App() {
     return row?.maxContextTokens || 128000;
   }, [modelInfos, llmModel]);
 
-  const onLlmModelChange = useCallback((id: string) => {
-    setLlmModel(id);
-    writeLlmModelCookie(id);
-  }, []);
+  const onLlmModelChange = useCallback(
+    (id: string) => {
+      const mid = id.trim();
+      if (!mid) {
+        return;
+      }
+      setLlmModel(mid);
+      writeLlmModelCookie(mid);
+      const sid = sessionId.trim();
+      if (!sid || !llmModelIds.includes(mid)) {
+        return;
+      }
+      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ selectedModelId: mid }),
+      });
+    },
+    [sessionId, llmModelIds, headers],
+  );
 
   const contextPct = useMemo(() => {
     if (!tokenUsage || !maxContextTokens) return 0;

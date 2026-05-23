@@ -114,6 +114,12 @@ Non-stream replies include **`metadata`** with **`model`** set to the effective 
 
 Malformed ids (**HTTP 400**). Dedicated **`/coddy/*`** helpers return **503** if persistence is unavailable (`Manager` lacked a **`FileStore`**, primarily in tests).
 
+### Per-session model (bundled UI)
+
+- **`GET /coddy/sessions/{id}/messages`** returns **`model`** (effective YAML backend for the session) and **`selectedModelId`** (stored override in **`session.json`**, may be empty).
+- **`PATCH /coddy/sessions/{id}`** accepts **`selectedModelId`** to set the YAML **`models[].model`** selector for that session (unknown ids **400**).
+- The SPA restores **Model** from **`model`** when opening a chat. Changing **Model** writes cookie **`coddy_llm_model`** (default for the next **New chat**) and **`PATCH`**es the active session.
+
 ## Memory roots
 
 Matches `external/memory/README.md`: **`global`** uses configured **`memory.dir`** (fallback **`$CODDY_HOME/memory`**). **`workspace`** resolves to **`$CWD/memory`** for that session bundle. **`agentMemory`** placeholders remain agent-only (`session.json`), not REST-editable here.

@@ -288,7 +288,8 @@ Composer mode selector
 Composer YAML **`models[].model`** selector
 
 - **`Model`** sits immediately next to **`Mode`** in **`Composer.tsx`**. It lists only YAML backend rows (**`owned_by`** is not **`coddy`**). Opens **down** on the empty start screen (**`isEmpty`**) and **up** when docked over an active chat (same **`opens-down`** / **`opens-up`** convention as **`Mode`**).
-- Default follows **`default_agent_model`** from **`GET /v1/models`** when that id is present among YAML rows; otherwise the first YAML row. Last choice persists in cookie **`coddy_llm_model`** (**`Path=/`**, long **`Max-Age`**) so **New chat** keeps the backend without forcing a re-selection.
+- Default for **new chat** follows cookie **`coddy_llm_model`** when valid, else **`default_agent_model`** from **`GET /v1/models`**, else the first YAML row (**`Path=/`**, long **`Max-Age`** on the cookie).
+- Opening an existing session restores **Model** from **`GET /coddy/sessions/{id}/messages`** field **`model`** (per-session override on disk), not from the cookie. Changing **Model** updates the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session.
 - For ReAct (**`agent`** / **`plan`**), the UI sends **`metadata.model`** with the selected YAML **`id`**; the context-meter **`max_context_tokens`** for the ring follows that YAML row.
 
 Composer does not show tools toggles in this milestone.
