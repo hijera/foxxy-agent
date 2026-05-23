@@ -73,7 +73,7 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 	}
 	cap := cfg.Memory.CopilotMaxTokens
 	clampProviderMax(rm, cap)
-	return llm.NewProvider(llm.ProviderInput{
+	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Type:        rm.ProviderType,
 		Model:       rm.Model,
 		APIKey:      rm.APIKey,
@@ -81,7 +81,7 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 		ProxyURL:    rm.ProxyURL,
 		MaxTokens:   rm.MaxTokens,
 		Temperature: rm.Temperature,
-	})
+	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 type saveCapture struct {

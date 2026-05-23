@@ -110,8 +110,8 @@ logger:
 	if cfg.Agent.MaxTurns != 7 {
 		t.Errorf("agent.max_turns: got %d want 7", cfg.Agent.MaxTurns)
 	}
-	if cfg.Agent.MaxTokensPerTurn != config.AgentDefaultMaxTokensPerTurn {
-		t.Errorf("agent.max_tokens_per_turn default: got %d", cfg.Agent.MaxTokensPerTurn)
+	if cfg.Agent.LLMRetryMax != config.AgentDefaultLLMRetryMax {
+		t.Errorf("agent.llm_retry_max default: got %d", cfg.Agent.LLMRetryMax)
 	}
 
 	wantPrompts := filepath.Clean("/tmp/coddy-e2e-prompts")
