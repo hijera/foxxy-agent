@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import { contextUsagePercent } from "./chat/contextUsage";
 import {
   HERO_ACCENT_VERBS,
   pickHeroAccentVerb,
@@ -2411,13 +2412,10 @@ export function App() {
     [sessionId, llmModelIds, headers],
   );
 
-  const contextPct = useMemo(() => {
-    if (!tokenUsage || !maxContextTokens) return 0;
-    return Math.min(
-      100,
-      Math.max(0, (tokenUsage.totalTokens / maxContextTokens) * 100),
-    );
-  }, [tokenUsage, maxContextTokens]);
+  const contextPct = useMemo(
+    () => contextUsagePercent(maxContextTokens, contextBreakdown),
+    [maxContextTokens, contextBreakdown],
+  );
 
   const onSchedulerRunJob = useCallback(
     async (jobId: string) => {

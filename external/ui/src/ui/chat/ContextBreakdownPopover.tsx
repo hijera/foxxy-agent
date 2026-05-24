@@ -146,10 +146,6 @@ export function ContextBreakdownPopover(props: {
   }
 
   const idle = props.contextIdle === true;
-  const pct =
-    typeof props.contextPct === "number" && Number.isFinite(props.contextPct)
-      ? props.contextPct
-      : 0;
   const maxCtx = props.maxContextTokens > 0 ? props.maxContextTokens : 128000;
   const b = props.breakdown;
   const rows = SEGMENTS.map((s) => ({
@@ -191,7 +187,7 @@ export function ContextBreakdownPopover(props: {
         </div>
       )}
       <div className="context-breakdown-summary">
-        <span>{idle ? "0.0" : pct.toFixed(1)}% Full</span>
+        <span>{idle ? "0.0" : fillPct.toFixed(1)}% Full</span>
         <span className="context-breakdown-summary-sep">·</span>
         <span>
           ~{fmtInt(used)} / {fmtInt(maxCtx)} Tokens

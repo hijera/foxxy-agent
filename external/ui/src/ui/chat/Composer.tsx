@@ -29,6 +29,7 @@ import {
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "../skills/workspaceAtRecents";
 import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
+import { contextUsagePercent } from "./contextUsage";
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -843,7 +844,16 @@ export function Composer(props: {
   const modeLabel = displayMode(props.mode || "agent");
   const llmLabel = llmVal ? displayLlmId(llmVal) : "Model";
   const contextIdle = props.contextIdle === true;
-  const pctRaw = typeof props.contextPct === "number" ? props.contextPct : null;
+  const maxCtx =
+    typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
+      ? props.maxContextTokens
+      : 128000;
+  const pctRaw =
+    props.contextBreakdown != null
+      ? contextUsagePercent(maxCtx, props.contextBreakdown)
+      : typeof props.contextPct === "number"
+        ? props.contextPct
+        : null;
   const pct = contextIdle ? null : pctRaw;
   const pct01 = contextIdle
     ? 0
@@ -854,17 +864,13 @@ export function Composer(props: {
   const c = 2 * Math.PI * r;
   const off = c * (1 - pct01);
   const usage = contextIdle ? null : props.tokenUsage || null;
-  const maxCtx =
-    typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
-      ? props.maxContextTokens
-      : 128000;
   const modeMenuDirClass = props.isEmpty ? "opens-down" : "opens-up";
   const tip = contextIdle
     ? ["No context usage yet", `Max context ${fmtInt(maxCtx)}`].join("\n")
     : [
         `${typeof pct === "number" ? pct.toFixed(1) : "0.0"}% context used`,
         usage
-          ? `Input ${fmtInt(usage.inputTokens)}   Output ${fmtInt(usage.outputTokens)}   Total ${fmtInt(usage.totalTokens)}`
+          ? `Input ${fmtInt(usage.inputTokens)}\nOutput ${fmtInt(usage.outputTokens)}\nTotal ${fmtInt(usage.totalTokens)}`
           : "",
         `Max context ${fmtInt(maxCtx)}`,
       ]

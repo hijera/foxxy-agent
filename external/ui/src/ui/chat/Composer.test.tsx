@@ -332,6 +332,41 @@ test("click context ring opens breakdown popover; Escape closes", () => {
   expect(screen.queryByTestId("context-breakdown-popover")).toBeNull();
 });
 
+test("context popover percent follows breakdown not cumulative tokenUsage pct", () => {
+  const breakdown = {
+    systemPrompt: 851,
+    toolDefinitions: 1950,
+    rules: 14867,
+    skills: 45,
+    mcp: 0,
+    subagents: 0,
+    conversation: 6074,
+    estimatedTotal: 23787,
+  };
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{ inputTokens: 800000, outputTokens: 20000, totalTokens: 820000 }}
+      contextPct={100}
+      maxContextTokens={128000}
+      contextBreakdown={breakdown}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("composer-context-ring-host"));
+  expect(screen.getByText(/18\.6% Full/)).toBeTruthy();
+  const fg = document.querySelector(".context-ring-fg") as SVGCircleElement | null;
+  expect(fg).toBeTruthy();
+  const c = 2 * Math.PI * 12;
+  const off = Number.parseFloat(fg!.getAttribute("stroke-dashoffset") || "0");
+  expect(off).toBeCloseTo(c * (1 - 23787 / 128000), 1);
+});
+
 test("context meter fill width reflects usage percent", () => {
   const breakdown = {
     systemPrompt: 500,
