@@ -65,6 +65,9 @@
   --coddy-plan-eye-bg: rgba(14, 14, 16, 0.92);
   --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
   --coddy-on-accent-fg: #ffffff;
+  --coddy-context-ring-inner: rgba(196, 181, 253, 0.5);
+  /* Logo outer arc (cmf-stroke light end); flat, no gradient */
+  --coddy-context-ring-fg: #f5f3ff;
   --coddy-ghost-btn-fg: var(--muted);
   /* Slash skills UI must stay below History (backdrop 40, drawer 50; mobile 60/70). */
   --coddy-z-slash-command: 38;
@@ -133,6 +136,8 @@
   --coddy-plan-eye-bg: #ffffff;
   --coddy-plan-eye-fg: #52525b;
   --coddy-on-accent-fg: #ffffff;
+  --coddy-context-ring-inner: rgba(124, 58, 237, 0.42);
+  --coddy-context-ring-fg: var(--accent);
   --coddy-ghost-btn-fg: #3f3f46;
 }
 
@@ -2476,16 +2481,17 @@ textarea#composer {
   display: block;
 }
 
-.context-ring-bg {
+.context-ring-inner {
   fill: none;
-  stroke: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  stroke-width: 4;
+  stroke: var(--coddy-context-ring-inner);
+  stroke-width: 2.15;
+  stroke-linecap: round;
 }
 
 .context-ring-fg {
   fill: none;
-  stroke: rgba(147, 51, 234, 0.9);
-  stroke-width: 4;
+  stroke: var(--coddy-context-ring-fg);
+  stroke-width: 3.25;
   stroke-linecap: round;
   transform: rotate(-90deg);
   transform-origin: 14px 14px;

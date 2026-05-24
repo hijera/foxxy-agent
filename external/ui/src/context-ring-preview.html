@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Context ring preview</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: system-ui, sans-serif;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 8px;
+      }
+      h2 {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin: 28px 0 14px;
+        opacity: 0.55;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+        align-items: center;
+      }
+      .cell {
+        display: grid;
+        gap: 8px;
+        justify-items: center;
+        font-size: 12px;
+      }
+      .theme-dark {
+        background: #0b0b0c;
+        color: #fafafa;
+      }
+      .theme-dark .cell {
+        color: #9ca3af;
+      }
+      .theme-light {
+        background: #f8f8fa;
+        color: #18181b;
+        border-radius: 12px;
+        padding: 20px 24px;
+        margin-top: 8px;
+      }
+      .theme-light .cell {
+        color: #52525b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Context ring (idle vs filled)</h1>
+    <section class="theme-dark" data-theme="dark">
+      <h2>Dark</h2>
+      <div class="row" id="rings-dark"></div>
+    </section>
+    <section class="theme-light" data-theme="light">
+      <h2>Light</h2>
+      <div class="row" id="rings-light"></div>
+    </section>
+    <script type="module">
+      import { createRoot } from "react-dom/client";
+      import React from "react";
+      import { ContextUsageRing } from "./ui/chat/ContextUsageRing.tsx";
+      import "./styles.css";
+
+      const fills = [
+        { label: "0% idle", fill: 0 },
+        { label: "18.6%", fill: 0.186 },
+        { label: "50%", fill: 0.5 },
+        { label: "85%", fill: 0.85 },
+      ];
+
+      function mountRow(containerId) {
+        const row = document.getElementById(containerId);
+        fills.forEach(({ label, fill }) => {
+          const cell = document.createElement("div");
+          cell.className = "cell";
+          const mount = document.createElement("div");
+          cell.appendChild(mount);
+          const cap = document.createElement("span");
+          cap.textContent = label;
+          cell.appendChild(cap);
+          row.appendChild(cell);
+          createRoot(mount).render(
+            React.createElement(ContextUsageRing, { fill01: fill, size: 48 }),
+          );
+        });
+      }
+
+      mountRow("rings-dark");
+      mountRow("rings-light");
+    </script>
+  </body>
+</html>

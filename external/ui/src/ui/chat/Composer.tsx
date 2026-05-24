@@ -12,6 +12,7 @@ import {
   ContextBreakdownPopover,
   type ContextBreakdown,
 } from "./ContextBreakdownPopover";
+import { ContextUsageRing } from "./ContextUsageRing";
 import {
   draftExtendsFailedAtPrefix,
   atMenuDraftAtCaret,
@@ -866,11 +867,6 @@ export function Composer(props: {
   const pct01 = contextIdle
     ? 0
     : clamp01(typeof pct === "number" ? pct / 100 : 0);
-  const r = 12;
-  const vb = 28;
-  const cx = vb / 2;
-  const c = 2 * Math.PI * r;
-  const off = c * (1 - pct01);
   const usage = contextIdle ? null : props.tokenUsage || null;
   const modeMenuDirClass = props.isEmpty ? "opens-down" : "opens-up";
   const tip = contextIdle
@@ -1262,24 +1258,7 @@ export function Composer(props: {
                   }
                 }}
               >
-                <div className="context-ring" role="img" aria-hidden="true">
-                  <svg
-                    viewBox={`0 0 ${vb} ${vb}`}
-                    width="30"
-                    height="30"
-                    aria-hidden="true"
-                  >
-                    <circle className="context-ring-bg" cx={cx} cy={cx} r={r} />
-                    <circle
-                      className="context-ring-fg"
-                      cx={cx}
-                      cy={cx}
-                      r={r}
-                      strokeDasharray={c}
-                      strokeDashoffset={off}
-                    />
-                  </svg>
-                </div>
+                <ContextUsageRing fill01={pct01} />
                 {!contextPopoverOpen && !contextTipSuppressed ? (
                   <span className="rail-tip composer-context-tip" role="tooltip">
                     {tip}

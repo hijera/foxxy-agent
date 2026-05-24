@@ -12,6 +12,8 @@ function cssText(): string {
 test("styles define shared coddy frosted glass tokens", () => {
   const css = cssText();
   expect(css).toMatch(/--coddy-glass-panel-bg:/);
+  expect(css).toMatch(/--coddy-context-ring-inner:/);
+  expect(css).toMatch(/--coddy-context-ring-fg:/);
   expect(css).toMatch(/--coddy-glass-panel-backdrop:/);
   expect(css).toMatch(/--coddy-glass-panel-radius:/);
   expect(css).toMatch(/--coddy-overlay-scrim-bg:/);
@@ -27,6 +29,12 @@ test("light theme overrides semantic tokens on data-theme", () => {
   );
   expect(css).toMatch(
     /\[data-theme="light"\]\s*\{[^}]*--coddy-tip-fg:\s*#18181b/,
+  );
+  expect(css).toMatch(
+    /\[data-theme="light"\]\s*\{[^}]*--coddy-context-ring-inner:/,
+  );
+  expect(css).toMatch(
+    /\.context-ring-inner\s*\{[^}]*stroke:\s*var\(--coddy-context-ring-inner\)/,
   );
   expect(css).toMatch(/\.rail-tip\s*\{[^}]*color:\s*var\(--coddy-tip-fg\)/);
 });
