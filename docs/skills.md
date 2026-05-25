@@ -1,42 +1,19 @@
-# Skills and Cursor Rules
+# Skills
 
 ## Overview
 
-The agent can read skills and Cursor rules from the filesystem using the same on-disk conventions as Cursor (for example `~/.cursor/skills` when those paths are listed in `skills.dirs`).
-These files provide context, instructions, and domain knowledge that are injected into the
-system prompt when relevant.
+Skills are reusable instruction packs discovered from **`skills.dirs`** in **`config.yaml`**. They power slash commands, the **`{{.Skills}}`** block in the system prompt, and ACP **`available_commands_update`** notifications.
 
-## Supported File Types
+**Project rules** (**.cursor/rules**, **.coddy/rules**, etc.) are a **separate** mechanism. They are auto-discovered under the session **cwd** and injected as **`{{.Rules}}`**. See **[rules.md](rules.md)** - do not rely on **`skills.dirs`** to load **`.cursor/rules/`**.
 
-### 1. Cursor Rules (`.md` or `.mdc`)
+## Supported file types
 
-Standard Cursor rule files. Place them under any configured skill directory (for example `.skills/` in the project tree).
+### Agent skills (`SKILL.md`)
 
-Format:
-```markdown
----
-description: "Short description of when this rule applies"
-globs: ["**/*.go", "**/*.mod"]
-alwaysApply: false
----
-
-# Rule Title
-
-Content of the rule. Markdown format.
-Write code comments in English.
-Use error wrapping with fmt.Errorf("context: %w", err).
-```
-
-Frontmatter fields:
-- `description` - human-readable description
-- `globs` - list of file patterns. Rule is applied when any matched file is in context
-- `alwaysApply` - if true, always inject regardless of context
-
-### 2. Agent Skills (`SKILL.md`)
-
-Skill files provide reusable instructions for specific tasks. Compatible with Cursor skills format.
+Skill files provide reusable instructions for specific tasks. Compatible with the Cursor skills layout (`subdir/SKILL.md`).
 
 Format:
+
 ```markdown
 # Skill Title
 
@@ -47,66 +24,49 @@ Short description of what this skill does.
 Detailed instructions...
 ```
 
-Skills are discovered by searching for `SKILL.md` files in the configured skill directories.
-A **symbolic link** in a skill root that points to a directory is treated like a normal subfolder if that directory contains **`SKILL.md`** (so `~/.coddy/skills/my-skill -> elsewhere/my-skill` works).
+Skills are discovered by searching for **`SKILL.md`** under each configured directory. A **symbolic link** in a skill root that points to a directory is treated like a normal subfolder when that directory contains **`SKILL.md`**.
 
-### 3. Plain Markdown Rules
+### Root `.md` / `.mdc` in skill directories
 
-Simple markdown files without frontmatter are treated as always-apply rules.
+Optional rule-like files at the **root** of a skill directory (not under **`.cursor/rules/`**) can be loaded as skills when listed in **`skills.dirs`**. Prefer **`.coddy/rules/`** or **`.cursor/rules/`** for project rules so activation (**globs**, **`@mention`**, sticky auto rules) follows the rules engine.
 
-## Loading Priority
+## Loading priority
 
-Directories are scanned in config order (see `skills.dirs` in `docs/config.md`). Built-in defaults when `dirs` is empty are:
+Directories are scanned in config order (see **`skills.dirs`** in [config.md](config.md)). Built-in defaults when **`dirs`** is empty:
 
 1. **`${CODDY_HOME}/skills/`** - installed skills (agent home)
-2. **`${CWD}/.skills/`** - project skills (session working directory, same idea as **`CODDY_CWD`** when the client leaves `cwd` empty)
+2. **`${CWD}/.skills/`** - project skills (session working directory)
 3. **`~/.cursor/skills/`**
 4. **`~/.claude/skills/`**
+
+Bundled **`/coddy-generate-rules`** is always prepended (writes **`.coddy/rules/*.mdc`** by default).
 
 ## Slash commands catalog
 
 Every discovered skill has a canonical slash **`name`** (folder name for `subdir/SKILL.md`, file stem for root `*.md` / `*.mdc`). The agent builds one **`Skills`** template block:
 
 1. A Markdown catalog listing all commands with short descriptions (**`ListSkills`**).
-2. Full bodies for **`globs`** / **`alwaysApply`** matches (existing behavior).
-3. On a user message, **`/name`** tokens preceded by line start or ASCII whitespace (and legacy **`[/name](coddy-skill:name)`** forms if present in stored text) are collected outside fenced code and blockquotes and append the matching skill body for that turn when the name is **not** already in the glob-selected active set (catalog lines alone do not count as a full body); the persisted user message is unchanged.
+2. Full bodies for **`globs`** / **`alwaysApply`** matches (skills pipeline).
+3. On a user message, **`/name`** tokens preceded by line start or ASCII whitespace (and legacy **`[/name](coddy-skill:name)`** forms if present in stored text) append the matching skill body for that turn when the name is **not** already in the glob-selected active set.
 
-ACP clients receive **`session/update`** **`available_commands_update`** with **`name`** and **`description`** for the same listings after **`session/new`** and **`session/load`** (see **`examples/acp/acp_e2e_skills_slash.py`**).
+ACP clients receive **`session/update`** **`available_commands_update`** after **`session/new`** and **`session/load`** (see **`examples/acp/acp_e2e_skills_slash.py`**).
 
-The **`coddy http`** SPA queries **`GET /coddy/slash-commands`** (required pagination) for autocomplete; picking a row inserts plain **`/<name> `** in the composer. The UI highlights those tokens locally; user bubbles run a display-only Markdown pass so transcript chips still render from **`coddy-skill:`** autolinks.
+The **`coddy http`** SPA queries **`GET /coddy/slash-commands`** for autocomplete.
 
-## How Rules Are Applied
+## How skills are applied
 
-When processing a `session/prompt`, the agent:
+On **`session/prompt`**, the agent:
 
-1. Collects all skill/rule files from configured directories
-2. Filters based on `globs` matching files mentioned in the prompt context
-3. Includes all `alwaysApply: true` rules
-4. Injects the merged slash catalog plus applicable rules into the system prompt template via the **`Skills`** field (see prompts in **`docs/config.md`**)
+1. Loads skills from **`skills.dirs`** for the session **cwd** and **`CODDY_HOME`**
+2. Applies glob / **`alwaysApply`** filtering for the skills section
+3. Merges slash catalog plus invoked **`/name`** bodies into **`{{.Skills}}`**
 
-## Example Rule File
+Rules from **`internal/rules`** are merged separately into **`{{.Rules}}`**.
 
-`.skills/go-standards.md`:
-```markdown
----
-description: "Go coding standards for this project"
-globs: ["**/*.go"]
-alwaysApply: false
----
-
-# Go Coding Standards
-
-- Write all code comments in English
-- Use `fmt.Errorf("context: %w", err)` for error wrapping
-- Prefer early returns over nested if-else
-- All exported functions must have godoc comments
-- Use table-driven tests with `t.Run`
-- Never use `panic` in library code
-```
-
-## Example Skill File
+## Example skill file
 
 `~/.cursor/skills/code-review/SKILL.md`:
+
 ```markdown
 # Code Review Skill
 
@@ -122,13 +82,10 @@ When asked to review code:
 5. Verify documentation is adequate
 ```
 
-## Adding Custom Skills at Runtime
+## Adding custom skills at runtime
 
-Users can add skills via the session's MCP server configuration. The agent
-exposes a built-in MCP-compatible tool `list_skills` that returns loaded skills,
-and skills can also be provided via MCP resource URIs.
+Configure extra directories in **`config.yaml`**:
 
-Alternatively, additional skill directories can be configured in `config.yaml`:
 ```yaml
 skills:
   dirs:
@@ -136,10 +93,12 @@ skills:
     - "/shared/team-skills"
 ```
 
-## CLI helpers
+Or install into **`skills.install_dir`** via CLI:
 
-When using the `coddy` binary, the `skills` package backs these commands (see your CLI help for exact flags):
+- **`coddy skills list`**
+- **`coddy skills install <path-or-url>`**
+- **`coddy skills uninstall <name>`**
 
-- `coddy skills list` - print skills resolved from configured directories
-- `coddy skills install <path-or-url>` - copy or download into `skills.install_dir`
-- `coddy skills uninstall <name>` - remove the directory `<install_dir>/<name>` only (`<name>` is one path segment)
+## References
+
+- Implementation: **`internal/skills/*`**, wiring in **`internal/session`**, **`internal/agent/system_prompt.go`**

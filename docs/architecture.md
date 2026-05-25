@@ -8,7 +8,7 @@ by pluggable LLM providers. Ship it as one binary suitable for scratch or distro
 sidecars, CI sandboxes, or local installs.
 
 The default toolset and prompts are tuned so the harness presents as an **interactive coding agent**
-(ACP clients spawn `coddy acp`; users get filesystem, commands, MCP, and optional Cursor-style rules/skills from configured paths).
+(ACP clients spawn `coddy acp`; users get filesystem, commands, MCP, project rules from `.coddy`/`.cursor`/`.claude`/`.codex` trees under session cwd, and skills from `skills.dirs`).
 That coding-agent surface is **a productized profile on top of the harness**, not the only way to run Coddy.
 
 ## High-Level Architecture
@@ -16,7 +16,7 @@ That coding-agent surface is **a productized profile on top of the harness**, no
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        ACP client (editor)                      │
-│              (Zed external agent / scripts / CI / other)        │
+│         (Cursor, Zed, coddy http UI, scripts, CI, other)        │
 └──────────────────────────┬──────────────────────────────────────┘
                            │  JSON-RPC 2.0 over stdio
                            ▼
@@ -162,7 +162,7 @@ Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default o
 
 Discovers `.mdc` / `.md` rules from `.coddy/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` under session CWD. Injected into **`{{.Rules}}`** separately from skills; see **`docs/rules.md`**.
 
-Each file is parsed as Markdown and injected into the system prompt when relevant (based on glob patterns in frontmatter).
+Activation uses globs, **`alwaysApply`**, **`@mention`**, and sticky auto rules (see **`docs/rules.md`**).
 
 ### Config (`internal/config`)
 

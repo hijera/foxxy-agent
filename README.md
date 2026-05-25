@@ -31,13 +31,14 @@ Screenshots at **1920×1080** from the embedded UI (`coddy http` + Vite dev). Sp
 
 </details>
 
-Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE.
+Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many Coddy instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
 
 ## Contents
 
 - [Features](#features)
 - [Quick start](#quick-start)
-  - [Installation](#installation)
+  - [Install](#install)
+  - [Other installation methods](#other-installation-methods)
   - [Build tags](#build-tags)
   - [Docker](#docker)
   - [Paths (`CODDY_HOME`, `CODDY_CWD`)](#paths-coddy_home-coddy_cwd)
@@ -60,73 +61,76 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
 - **Two operating modes** - `agent` (full tool access) and `plan` (planning + text files only)
-- **Cursor rules support** - reads `.cursor/rules/` and skills from the same on-disk layout Cursor uses when those paths appear in **`skills.dirs`**
+- **Rules** - auto-discovers **`.cursor/rules/`**, **`.coddy/rules/`**, **`.claude/rules/`**, and **`.codex/rules/`** under the session cwd - see [Rules](docs/rules.md)
+- **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults include **`~/.cursor/skills`**) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
 
 ## Editor and IDE integration
 
-Coddy speaks **ACP as the server** over stdin/stdout. A compatible **client** must spawn `coddy acp` and exchange JSON-RPC messages (see **`docs/acp-protocol.md`** and **`examples/acp/`**).
+Coddy is an **ACP server** (`coddy acp`). **Cursor**, **Zed**, scripts, and the bundled **`coddy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
 
-- **Zed** and other products that support **external ACP agents** can point their agent command at **`coddy acp`** (exact settings depend on that product; see its ACP or external-agent docs).
-- **Cursor Desktop** (in-app Agent or Composer) does **not** document a supported way to replace the built-in agent with a custom **`coddy acp`** binary. Cursor's published ACP guide describes **`agent acp`**, where **Cursor's own agent** runs as the ACP **server** for third-party **clients** (for example Neovim or JetBrains integrations that connect **to** Cursor). That is the opposite wiring from running Coddy as your local agent process.
-- **Cursor-style paths on disk** - Coddy can still load rules and skills from **`.cursor/rules/`**, **`~/.cursor/skills`**, and other **`skills.dirs`** entries in **`config.yaml`**. That is file-layout compatibility with Cursor, not Cursor acting as the Coddy runtime host.
+Full setup (Cursor external agent, Zed `agent_servers`, shared sessions, rules vs skills): **[`docs/editor-integration.md`](docs/editor-integration.md)**. Protocol details: **`docs/acp-protocol.md`**, harness examples: **`examples/acp/`**.
 
 ## Quick Start
 
-### Installation
+### Install
 
-**Prerequisites**
+**Linux / macOS** - release binary plus **`~/.coddy`** bootstrap:
+
+```bash
+curl -fsSL https://coddy.dev/install.sh | bash
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://coddy.dev/install.ps1 | iex
+```
+
+Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). Full installer options: **[`docs/install.md`](docs/install.md)**.
+
+Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy http`** for the UI, or **`coddy acp`** for an editor client.
+
+**Docker** - same full binary in **`ghcr.io/coddy-project/coddy-agent`**: **`docker compose up -d`** (see [Docker](#docker)).
+
+Upgrade later with **`coddy update -y`** ([How to update](#how-to-update)).
+
+<details>
+<summary><strong>Other installation methods</strong> (build from source, Go install, manual)</summary>
+
+**Prerequisites for building**
 
 - **Go** - same minor version as [`go.mod`](go.mod) (currently **1.25**).
 - **Git** - used by the Makefile for the embedded version string.
 - **Node.js / npm** - only if you build with **`http`** and **`ui`** (the Makefile runs **`ui-build`** for embedded assets).
 
-**Install with Go (quick, default upstream tags)**
+**Install with Go (lean module default, no `http` / UI tags)**
 
 ```bash
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-That builds whatever the module ships **without** custom `-tags`. For **`coddy http`**, the bundled SPA, scheduler, and long-term memory together, **build from source** with the tags below (same defaults as [`Dockerfile`](Dockerfile) / [`docker-compose.dev.yml`](docker-compose.dev.yml)).
+For **`coddy http`**, the bundled SPA, scheduler, and memory, use a **release binary** (install script above) or **build from source** below.
 
-**Recommended full binary from source (HTTP + UI + scheduler + memory)**
-
-Pass the **`memory`** build tag to link long-term memory; optional HTTP, SPA, and scheduler use their own tags (see [Build tags](#build-tags)). Runtime **`memory.enabled`** in YAML only applies when the binary includes **`memory`**.
+**Recommended full binary from source**
 
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
 make build TAGS="http ui scheduler memory"
+make install   # copies build/coddy to ~/.local/bin or /usr/local/bin
 ```
 
-The CLI is written to **`build/coddy`** (not the repo root).
+Or download archives from [GitHub Releases](https://github.com/coddy-project/coddy-agent/releases).
 
-**Install `build/coddy` onto your PATH**
+**Manual `go build`**
 
-Reuses **`build/coddy`** when it already exists; otherwise builds with all optional modules first.
-
-```bash
-make build TAGS="http ui scheduler memory"
-make install
-```
-
-- **root** - **`/usr/local/bin/coddy`**
-- **regular user** - **`~/.local/bin/coddy`** (put that directory on **`PATH`** if needed)
-
-**Build without installing**
+When **`TAGS`** includes **`http`** and **`ui`**, run **`make ui-build`** first.
 
 ```bash
-make build TAGS="http ui scheduler memory"
-```
-
-**Manual `go build` (same as Makefile)**
-
-When **`TAGS`** includes **`http`** and **`ui`**, run **`make ui-build`** first (or rely on **`make build`**, which triggers it).
-
-```bash
-make ui-build   # required before go build when using -tags=...,ui,... with http
+make ui-build
 VERSION="$(make -s print-version)"
 go build -tags=http,ui,scheduler,memory \
   -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
@@ -134,19 +138,13 @@ go build -tags=http,ui,scheduler,memory \
   ./cmd/coddy/
 ```
 
-Lean **ACP-only** binary (no **`coddy http`**, no embedded UI, no scheduler packages):
+Lean **ACP-only** binary: **`make build`** (no **`http`** / UI / scheduler / memory tags).
 
-```bash
-make build
-```
+Build reference: **[`docs/build.md`](docs/build.md)**.
 
-After any local build, prefer **`./build/coddy`** or **`make install`** so you do not accidentally run another **`coddy`** already on **`PATH`**. Check with **`which coddy`** and **`coddy -v`**.
+</details>
 
-To upgrade an existing install from GitHub Releases, see **[How to update](#how-to-update)**.
-
-Full detail, **`LDFLAGS`**, and **`make print-version`** - **[docs/build.md](docs/build.md)**.
-
-The agent speaks ACP over stdio. An **ACP client** (your editor integration or harness) launches **`coddy`** once it is configured to spawn **`coddy acp`**. **`coddy -v`** or **`coddy --version`** prints the embedded build version (**`dev`** if not set at link time). Flags for ACP live on the subcommand, for example **`coddy acp --help`** (**`--log-level`**, **`--home`**, **`--cwd`**, **`--config`**, etc.).
+**`coddy -v`** prints the embedded version. **`coddy acp --help`** lists ACP flags (**`--home`**, **`--cwd`**, **`--config`**, etc.).
 
 ### Build tags
 
@@ -319,13 +317,13 @@ Best for: architecture planning, writing specs, design documents, code review.
 
 Use your editor session mode selector (or **`session/set_config_option`**).
 
-## Cursor Rules and Skills
+## Rules and skills
 
-By default the agent reads skill files and rules from (see **`skills`** in **`docs/config.md`**):
+**Rules** (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.coddy/rules`**, **`.cursor/rules`**, **`.claude/rules`**, and **`.codex/rules`** when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
 
-1. **`$CODDY_HOME/skills/`** (installed skills)
+**Skills** (slash commands, **`{{.Skills}}`**) are loaded from **`skills.dirs`**. Defaults: **`${CODDY_HOME}/skills`**, **`${CWD}/.skills`**, **`~/.cursor/skills`**, **`~/.claude/skills`**. See **`skills`** in **[`docs/config.md`](docs/config.md)** and **[`docs/skills.md`](docs/skills.md)**.
 
-Rules support the standard Cursor frontmatter format:
+Rule files often use Cursor-style frontmatter, for example:
 
 ```markdown
 ---
@@ -416,7 +414,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Embedded UI](docs/ui.md) - functional spec, Vite dev workflow, build tags
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
-- [Skills & Rules](docs/skills.md) - cursor rules and skills guide
+- [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.coddy/rules`, …)
+- [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 
 ## Examples (ACP over stdio)
