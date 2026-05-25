@@ -4,7 +4,7 @@ Purpose: authoritative reference for the embedded SPA built from `external/ui/`.
 
 ## Design references
 
-Store the design reference images under `docs/ui/assets/` and link to the specific file when describing a pixel sensitive UI detail. Navbar parity with Cursor - style mockups lives in [`docs/ui/assets/INDEX.md`](docs/ui/assets/INDEX.md) (see Navbar section).
+Store the design reference images under `docs/assets/` and link to the specific file when describing a pixel sensitive UI detail. Navbar parity with Cursor - style mockups lives in [`docs/assets/INDEX.md`](docs/assets/INDEX.md) (see Navbar section).
 
 ## Foundations
 
@@ -173,7 +173,7 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 ### Narrow-rail hover tooltips
 
 - Shown **only** when the rail is **narrow** (no wide labels column). Labels visible in wide rail substitute for tooltips; do not show floating tip rows there.
-- **Copy**: brand area **New Chat**, **History** nav control **History**, **Scheduler** nav control **Scheduler**, external links match their labels. Reference accent chrome in **`docs/ui/assets/ref-navbar-narrow-tooltips-accent.png`**.
+- **Copy**: brand area **New Chat**, **History** nav control **History**, **Scheduler** nav control **Scheduler**, external links match their labels. Reference accent chrome in **`docs/assets/ref-navbar-narrow-tooltips-accent.png`**.
 - **While a control owns an open overlay** (example **History** with the list visible and **`.is-active`** on the trigger), **hide that row's tooltip** even if the mouse still hovers (**nav stacking can sit above backdrop**). Same for **Scheduler** when its drawer is open.
 - Tooltip **horizontal offset** must use the **same gutter math** as the History drawer (**column padding + nav floating gutter (+ border shim where needed)**), not a shorter offset from icon-only **`rail-tip-host`** width alone.
 
@@ -192,7 +192,7 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 - **Expand (narrow rail at XL)**. Keep a **chevron / chevron-pair** style control that reads as **widen rail**, not a second burger menu.
 - **GitHub**. Use a **recognizable filled Octicon-style** mark (**`fillRule="evenodd"`** on a **24×24** path grid). **Do not** ship the old single-path **fractional-coordinate** silo that smears when scaled to **18px**.
 - **Rendering**. Small rail SVGs should opt into **`shape-rendering` tuned for crisp curves** (for example **`geometricPrecision`**) and **`flex-shrink: 0`** so flex layout does not squash glyphs.
-- **Regression art**. Use hover captures under **`docs/ui/assets/`** (for example **`pw-rail-icons-burger-hover.png`**, **`pw-rail-icons-github-hover.png`**) when checking outline and press states.
+- **Regression art**. Use hover captures under **`docs/assets/`** (for example **`pw-rail-icons-burger-hover.png`**, **`pw-rail-icons-github-hover.png`**) when checking outline and press states.
 
 Sessions search uses **`GET /coddy/sessions?q=...`** (**title or first persisted user message substring only**); list uses infinite scroll toward older pages.
 
@@ -278,7 +278,7 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 - Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).
 - **Circular button** (**not** pill or squircle): fixed equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`**. Intended diameter **42px** in production CSS (**may track token scale**, but stays a **circle**).
 - **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`~17px`** **■** (dense glyph, avoids clipping inside the circle). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
-- Idle **disabled** when message field empty; streaming shows **stop** affordance (see **`docs/ui/spec.md`**, section **Composer primary action**).
+- Idle **disabled** when message field empty; streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
 
 Composer mode selector
 

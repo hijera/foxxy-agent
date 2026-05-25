@@ -337,17 +337,18 @@ File API
 
 ## Reference images
 
-Store the provided design reference images under `docs/ui/assets/`.
+Store the provided design reference images under `docs/assets/`.
 
 When describing a specific element, link to the relevant image file.
 
-- Home layout: `assets/ref-home-1.png`, `assets/ref-home-2.png`, `assets/ref-home-3.png`
-- Home scroll state: `assets/ref-home-scroll.png`
-- Composer state: `assets/ref-home-composer.png`
-- Left rail icon states: `assets/ref-rail-states.png`
-- Chat history view: `assets/ref-history.png`
-- Chat transcript view: `assets/ref-chat.png`
-- Flow montage: `assets/ref-flow.png`
+- Full HD UI tour (README): `docs/assets/screenshot-fullhd-start.png`, `screenshot-fullhd-chat.png`, `screenshot-fullhd-history.png`, `screenshot-fullhd-scheduler.png`, `screenshot-fullhd-settings.png`
+- Home layout: `docs/assets/ref-home-1.png`, `ref-home-2.png`, `ref-home-3.png`
+- Home scroll state: `docs/assets/ref-home-scroll.png`
+- Composer state: `docs/assets/ref-home-composer.png`
+- Left rail icon states: `docs/assets/ref-rail-states.png`
+- Chat history view: `docs/assets/ref-history.png`
+- Chat transcript view: `docs/assets/ref-chat.png`
+- Flow montage: `docs/assets/ref-flow.png`
 
 ## UI test scenarios
 

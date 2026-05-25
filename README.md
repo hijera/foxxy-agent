@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/ui/assets/coddy-logo-wordmark.svg" alt="Coddy agent" height="156" />
+  <img src="docs/assets/coddy-logo-wordmark.svg" alt="Coddy agent" height="156" />
 </p>
 
 <p align="center">
@@ -16,6 +16,20 @@
   ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.
 </p>
 
+![Start screen](docs/assets/screenshot-fullhd-start.png)
+
+<details>
+<summary>More screenshots</summary>
+
+| Chat | History |
+| --- | --- |
+| ![Chat](docs/assets/screenshot-fullhd-chat.png) | ![History](docs/assets/screenshot-fullhd-history.png) |
+| Scheduler (list + job) | Settings |
+| ![Scheduler](docs/assets/screenshot-fullhd-scheduler.png) | ![Settings](docs/assets/screenshot-fullhd-settings.png) |
+
+Screenshots at **1920×1080** from the embedded UI (`coddy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
+
+</details>
 
 Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE.
 
@@ -142,7 +156,7 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 |-----|---------|------|
 | **`memory`** | Long-term memory copilot (**`memory.enabled`** in YAML); with **`http`**, session memory REST under **`/coddy/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
 | **`http`** | **`coddy http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
-| **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui/README.md`](docs/ui/README.md), [`DESIGN.md`](DESIGN.md) |
+| **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Scheduler daemon and **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
 
 Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
@@ -399,7 +413,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
 - [Configuration](docs/config.md) - full config file reference
 - [HTTP API](docs/http-api.md) - REST gateway (**`-tags=http`**) and embedded UI (**`-tags=http,ui`**); includes **`/coddy/config`** for live YAML editing from the SPA (**#/settings**).
-- [Embedded UI](docs/ui/README.md) - Vite SPA, dev workflow, build tags
+- [Embedded UI](docs/ui.md) - functional spec, Vite dev workflow, build tags
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Skills & Rules](docs/skills.md) - cursor rules and skills guide

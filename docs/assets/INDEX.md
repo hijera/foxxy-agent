@@ -21,6 +21,16 @@ Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
 - `pw-navbar-390-mobile-topbar.png` - max-width 1199px shell, rail as top bar row
 - `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
 
+## Full HD tour (README, May 2026)
+
+Captured at **1920×1080** via Playwright MCP (`vite` + `coddy http`, `CODDY_UI_BACKEND`).
+
+- `screenshot-fullhd-start.png` - new chat / hero start screen (README, above fold)
+- `screenshot-fullhd-chat.png` - active session transcript (`#/s/...`)
+- `screenshot-fullhd-history.png` - History drawer on a session (`#/s/...?history=1`)
+- `screenshot-fullhd-scheduler.png` - scheduler list plus job editor (`#/scheduler/jobs/nightly-docs`)
+- `screenshot-fullhd-settings.png` - settings drawer (`#/settings`)
+
 ## Primary
 
 - `ref-home-1.png` - landing page with collapsed left rail and centered composer
