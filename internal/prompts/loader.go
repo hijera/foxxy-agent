@@ -6,7 +6,7 @@
 //
 //	{{.CWD}}      - session working directory
 //	{{.Tools}}    - readable list of tools available in the current mode (markdown)
-//	{{.Skills}}   - active skills/rules (markdown), built by the agent
+//	{{.Skills}}   - active skills markdown (slash catalog and bodies), built by the agent
 //	{{.Memory}}   - session agent memory notes (may be empty)
 //	{{.TodoList}} - current session todo checklist rendered as markdown (empty until plan tools populate state)
 //	{{.UTCNow}}   - current date and time in UTC (RFC3339), set each time the system prompt renders

@@ -30,7 +30,7 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	if !strings.Contains(prompt, "RULE_GLOB_TOKEN") {
 		t.Fatal("expected rule token in prompt")
 	}
-	if strings.Contains(prompt, "## Active Rules and Skills") {
+	if strings.Contains(prompt, "## Active Skills") {
 		t.Fatal("rule token should be under Rules not Skills heading")
 	}
 }

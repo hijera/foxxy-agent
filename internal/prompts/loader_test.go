@@ -79,7 +79,7 @@ func TestRenderPlanPrompt(t *testing.T) {
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
 	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD:    "/project",
-		Skills: "## Active Rules\n\nstub",
+		Skills: "## Active Skills\n\nstub",
 		Tools:  "- `read`: read",
 		Memory: "User prefers pytest.",
 		UTCNow: fixtureUTC,
@@ -102,7 +102,7 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if strings.Contains(result, "## Active Rules and Skills") {
+	if strings.Contains(result, "## Active Skills") {
 		t.Error("should not emit skills heading when Skills data is empty")
 	}
 	if strings.Contains(result, "## Available tools") {

@@ -27,6 +27,129 @@ General build instructions without Docker - **[docs/build.md](build.md)**.
 - A **`config.yaml`** you mount read-only into the container (start from **`config.example.yaml`**). Do not commit secrets.
 - For the web UI, a browser on the machine that can reach the published host port (default **12345**)
 
+## Docker Compose
+
+Compose is the recommended way to run the published GHCR image or a locally built one. Both files define a **single service** named **`coddy`** - no database or Redis sidecar. The process is **`coddy http`** bound to **`0.0.0.0:12345`** inside the container; Compose maps that port to the host.
+
+| File | When to use |
+|------|-------------|
+| [`docker-compose.yml`](../docker-compose.yml) | Pull a release from GHCR (**`docker compose pull`**) - day-to-day and production-like runs without building on the host |
+| [`docker-compose.dev.yml`](../docker-compose.dev.yml) | **`build:`** from the repo [`Dockerfile`](../Dockerfile) - hacking on Coddy, reproducing CI, or running **`examples/httpserver/docker.sh`** |
+
+Compose V2 merges an optional **`docker-compose.override.yml`** in the same directory (git-ignored by convention) so you can pin an image tag, change ports, or add **`environment`** without editing the tracked file.
+
+### What the `coddy` service runs
+
+| Setting | Default compose | Dev compose |
+|---------|-----------------|-------------|
+| **Image** | **`${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}`** | **`coddy-agent:${CODDY_VERSION:-dev}`** (built locally) |
+| **Command** | Image **`CMD`**: **`http -H 0.0.0.0 -P 12345`** | Same |
+| **Published port** | **`${CODDY_HTTP_PORT:-12345}:12345`** | Same |
+| **Working dir** | **`/workspace`** (**`CODDY_CWD`**) | Same |
+
+**Healthcheck** - **`coddy --version`** every 5s (container "healthy" once the binary responds; HTTP readiness is separate - use **`curl /v1/models`** after **`up`**).
+
+**Logging** - **`json-file`** driver with **`max-size: 100k`** per file to avoid unbounded log growth on long-lived hosts.
+
+### Host paths and environment
+
+Bind mounts (override host paths with env vars before **`up`**):
+
+| Host (default) | Container | Variable |
+|----------------|-------------|----------|
+| **`./config.yaml`** | **`/home/user/.coddy.yaml`** (read-only) | **`CODDY_CONFIG`** |
+| **`./workspace`** | **`/workspace`** | **`CODDY_CWD`** |
+| **`./coddy_home`** | **`/home/user/.coddy`** | **`CODDY_HOME`** |
+
+Fixed inside the container (set by compose **`environment`**):
+
+| Variable | Value | Role |
+|----------|-------|------|
+| **`CODDY_CONFIG`** | **`/home/user/.coddy.yaml`** | Points the loader at the mounted file (not **`$CODDY_HOME/config.yaml`**) |
+| **`CODDY_HOME`** | **`/home/user/.coddy`** | Sessions, skills, scheduler store |
+| **`CODDY_CWD`** | **`/workspace`** | Default cwd for new sessions and tool paths |
+
+Provider keys can be injected from the host shell (optional, empty if unset):
+
+- **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, **`DEEPSEEK_API_KEY`**
+
+Prefer mounting secrets via config or your orchestrator; do not commit real keys.
+
+### Compose commands
+
+**Published image** (from repo root or any directory where you keep **`config.yaml`**, **`workspace/`**, **`coddy_home/`**):
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose ps
+docker compose logs -f coddy
+curl -sS http://127.0.0.1:12345/v1/models | head
+docker compose restart coddy
+docker compose down
+```
+
+Pin a GHCR tag without editing YAML:
+
+```bash
+export CODDY_IMAGE=ghcr.io/coddy-project/coddy-agent:0.2.0
+docker compose pull
+docker compose up -d
+```
+
+Change only the host port:
+
+```bash
+export CODDY_HTTP_PORT=8080
+docker compose up -d
+# UI: http://127.0.0.1:8080/
+```
+
+**Build from source** (dev compose file):
+
+```bash
+docker compose -f docker-compose.dev.yml build coddy
+docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml logs -f coddy
+docker compose -f docker-compose.dev.yml down
+```
+
+Optional build args on the dev file:
+
+```bash
+export CODDY_VERSION="$(git describe --tags --dirty 2>/dev/null || echo dev)"
+export CODDY_BUILD_TAGS="http,scheduler,ui,memory"
+docker compose -f docker-compose.dev.yml build coddy
+```
+
+**`CODDY_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**.
+
+### Override example
+
+Create **`docker-compose.override.yml`** next to **`docker-compose.yml`** (Compose loads it automatically):
+
+```yaml
+services:
+  coddy:
+    image: ghcr.io/coddy-project/coddy-agent:0.2.0
+    ports:
+      - "8080:12345"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+```
+
+Use overrides for machine-specific ports, pinned tags, or extra **`environment`** - keep secrets out of git.
+
+### Upgrade and rollback
+
+```bash
+export CODDY_IMAGE=ghcr.io/coddy-project/coddy-agent:NEW_TAG
+docker compose pull
+docker compose up -d
+```
+
+Sessions and config on the host (**`./coddy_home`**, mounted **`config.yaml`**) survive image swaps. If a new binary fails health checks, inspect **`docker compose logs coddy`** and roll back **`CODDY_IMAGE`** to the previous tag.
+
 ## Quick start (Compose + web UI)
 
 From a checkout of this repository (or any folder where you keep **`config.yaml`**, **`workspace/`**, and **`coddy_home/`**):
@@ -45,14 +168,6 @@ Optional: set **`httpserver.host`** to **`0.0.0.0`** and **`httpserver.port`** t
 **2. Start Coddy** (published image from GHCR):
 
 ```bash
-docker compose pull
-docker compose up -d
-```
-
-Override the image tag if needed:
-
-```bash
-export CODDY_IMAGE=ghcr.io/coddy-project/coddy-agent:0.2.0
 docker compose pull
 docker compose up -d
 ```
@@ -93,26 +208,7 @@ docker compose logs -f coddy
 
 **Security:** **`coddy http`** has no application-level auth. Treat port **12345** like any admin API - bind to localhost, use a firewall, or put a reverse proxy with TLS and authentication in front for remote access.
 
-## Build and run from source (Compose)
-
-Use [`docker-compose.dev.yml`](../docker-compose.dev.yml) when you want to build the image from the local **`Dockerfile`**:
-
-```bash
-docker compose -f docker-compose.dev.yml build coddy
-docker compose -f docker-compose.dev.yml up -d --build coddy
-```
-
-Optional build args (same variables as in the compose file):
-
-```bash
-export CODDY_VERSION="$(git describe --tags --dirty 2>/dev/null || echo dev)"
-export CODDY_BUILD_TAGS="http,scheduler,ui,memory"
-docker compose -f docker-compose.dev.yml build coddy
-```
-
-**`CODDY_BUILD_TAGS`** must stay **comma-separated** with **no spaces**, matching **`go build -tags=`**.
-
-After **`up`**, open the UI the same way: **`http://127.0.0.1:12345/`** (or **`${CODDY_HTTP_PORT}`** if you change the host mapping in a custom override).
+For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Docker Compose](#docker-compose) above.
 
 ## What the image contains by default
 
@@ -125,36 +221,7 @@ After **`up`**, open the UI the same way: **`http://127.0.0.1:12345/`** (or **`$
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 
-## Volumes and environment
-
-Both compose files mount:
-
-| Mount | Purpose |
-|-------|---------|
-| **`${CODDY_CONFIG:-./config.yaml}`** → **`/home/user/.coddy.yaml`** | Read-only config (**`CODDY_CONFIG`**) |
-| **`${CODDY_CWD:-./workspace}`** → **`/workspace`** | Workspace (**`CODDY_CWD`**) |
-| **`${CODDY_HOME:-./coddy_home}`** → **`/home/user/.coddy`** | Sessions, skills, scheduler data (**`CODDY_HOME`**) |
-
-Override host paths:
-
-```bash
-export CODDY_CONFIG="$PWD/my-coddy.yaml"
-export CODDY_CWD="$PWD/myproject"
-export CODDY_HOME="$PWD/coddy-state"
-docker compose up -d
-```
-
-The compose files set **`CODDY_CONFIG`** inside the container to the **mounted file** path (**`/home/user/.coddy.yaml`**). On a normal host install without **`CODDY_CONFIG`**, the loader prefers **`$CODDY_HOME/config.yaml`** (see **`docs/config.md`**).
-
-Optional provider keys can be passed as environment variables (see compose **`environment`**). Prefer **mounted config** or your secret manager for production; **do not** commit real keys.
-
-Change the published HTTP port on the host:
-
-```bash
-export CODDY_HTTP_PORT=8080
-docker compose up -d
-# UI: http://127.0.0.1:8080/
-```
+Volume and environment details for Compose are in [Docker Compose](#docker-compose). On a bare-metal install without **`CODDY_CONFIG`**, the loader prefers **`$CODDY_HOME/config.yaml`** (see **`docs/config.md`**).
 
 ## How the Dockerfile stages work
 

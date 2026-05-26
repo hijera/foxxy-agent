@@ -80,7 +80,7 @@ prompts:
   # Go text/template data. Fields in internal/prompts/loader.go. YAML shape is config.Prompts in internal/config/prompts.go.
   #   {{.CWD}}      - session working directory
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
-  #   {{.Skills}}   - markdown block for active skills and rules (omit section when empty via {{if .Skills}})
+  #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
   #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enabled is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
@@ -111,7 +111,7 @@ memory:
 
 # Skills directories (Go: config.Skills, internal/config/skills.go)
 skills:
-  # Directories to search for skill files (SKILL.md, rules as .md)
+  # Directories to search for SKILL.md and optional root .md/.mdc skill files
   # Searched in order. When omitted, defaults are
   # ${CODDY_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
   dirs:

@@ -37,7 +37,7 @@ Working directory: {{.CWD}}
 {{.Tools}}
 {{end}}
 
-{{if .Skills}} ... active rules/skills markdown ... {{end}}
+{{if .Skills}} ... active skills markdown ... {{end}}
 
 {{if .TodoList}}
 ### Current todo checklist
@@ -89,7 +89,7 @@ messages: [
 
 ```
 1. BUILD_MESSAGES
-   - Load applicable skills/rules for current context (context files from prompt)
+   - Load applicable skills and project rules for current context (separate prompt sections)
    - Build system prompt (template + TemplateData incl. TodoList snapshot)
    - Prepend system to session history (user turn already persisted on Run entry)
 

@@ -215,7 +215,7 @@ func TestBuildSystemPromptSection(t *testing.T) {
 	}
 
 	section := skills.BuildSystemPromptSection(loaded)
-	if !strings.Contains(section, "## Active Rules and Skills") {
+	if !strings.Contains(section, "## Active Skills") {
 		t.Error("missing section header")
 	}
 	if !strings.Contains(section, "rule1") {
