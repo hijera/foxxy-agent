@@ -82,6 +82,7 @@ import {
   upsertClientDraftSession,
   type ClientDraftSession,
 } from "./sessions/draftSessions";
+import { isRedundantSessionPick } from "./sessions/pickSessionGuard";
 import { startSuggestSessionTitle } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
@@ -784,7 +785,6 @@ export function App() {
   const sessionsHasMoreRef = useRef(false);
   const sessionsLoadingMoreRef = useRef(false);
   const [viewportXL, setViewportXL] = useState(false);
-  const [drawersWide, setDrawersWide] = useState(false);
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
@@ -1107,7 +1107,7 @@ export function App() {
       setSettingsRoute(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setSessionsOpen(!!p.historyOpen);
+      setSessionsOpen(false);
       return;
     }
     if (p.branch === "scheduler") {
@@ -1131,7 +1131,7 @@ export function App() {
         return;
       }
       setSchedulerOpen(true);
-      setSessionsOpen(!!p.historyOpen && drawersWide);
+      setSessionsOpen(false);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -1142,7 +1142,7 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSessionsOpen(!!p.historyOpen);
-  }, [schedulerHttpLinked, sessionId, drawersWide]);
+  }, [schedulerHttpLinked, sessionId]);
 
   const openSessionFromRoute = useCallback(
     (id: string, opts?: { historySidebar?: boolean }) => {
@@ -1327,14 +1327,6 @@ export function App() {
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1200px)");
-    const apply = () => setDrawersWide(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
-
   useLayoutEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked !== true) {
       setSchedDockClusterWidthPx(0);
@@ -1399,10 +1391,7 @@ export function App() {
       }
       if (schedulerEditor) {
         setSchedulerEditor(null);
-        const hp = parseAppHash();
-        const hist =
-          hp.branch === "scheduler" && hp.historyOpen;
-        setSchedulerListHash({ historySidebar: hist });
+        setSchedulerListHash();
         return;
       }
       if (schedulerOpen) {
@@ -1911,6 +1900,9 @@ export function App() {
   }
 
   function pickSession(id: string) {
+    if (isRedundantSessionPick(id, sessionId)) {
+      return;
+    }
     persistComposerDraftBeforeLeave();
     reasoningDurationMsByContentRef.current = new Map();
     if (fadeOutTimerRef.current !== null) {
@@ -2782,24 +2774,18 @@ export function App() {
     if (schedulerHttpLinked !== true) {
       return;
     }
-    const hist = drawersWide && sessionsOpen;
-    if (!drawersWide) {
-      setSessionsOpen(false);
-    }
+    setSessionsOpen(false);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
-    setSchedulerListHash({ historySidebar: hist });
-  }, [schedulerHttpLinked, drawersWide, sessionsOpen]);
+    setSchedulerListHash();
+  }, [schedulerHttpLinked]);
 
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    if (!drawersWide) {
-      setSessionsOpen(false);
-    }
-    const hist = drawersWide && sessionsOpen;
-    setSettingsHash({ historySidebar: hist });
-  }, [drawersWide, sessionsOpen]);
+    setSessionsOpen(false);
+    setSettingsHash();
+  }, []);
 
   const onCloseSettings = useCallback(() => {
     const sid = sessionId.trim();
@@ -2811,37 +2797,15 @@ export function App() {
   }, [sessionId, clearSessionRoute]);
 
   const onOpenHistoryFromNav = useCallback(() => {
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
     setSessionsOpen(true);
-    if (parseAppHash().branch === "settings") {
-      if (drawersWide) {
-        setSettingsHash({ historySidebar: true });
-      } else {
-        setHistoryHash();
-      }
-      return;
-    }
-    if (drawersWide && schedulerOpen && schedulerHttpLinked === true) {
-      if (schedulerEditor?.mode === "edit") {
-        setSchedulerJobHash(schedulerEditor.jobId, { historySidebar: true });
-      } else {
-        setSchedulerListHash({ historySidebar: true });
-      }
-      return;
-    }
-    if (!drawersWide && schedulerOpen) {
-      setSchedulerOpen(false);
-      setSchedulerEditor(null);
-    }
     setHistoryHash();
-  }, [
-    drawersWide,
-    schedulerOpen,
-    schedulerHttpLinked,
-    schedulerEditor,
-  ]);
+  }, []);
 
   const shellBackdropOpen =
-    (!drawersWide && sessionsOpen) ||
+    sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute;
 
@@ -2857,12 +2821,6 @@ export function App() {
     });
   }, [schedulerJobs, schedulerFilterQ]);
 
-  const historyDrawerBesideScheduler =
-    drawersWide &&
-    sessionsOpen &&
-    schedulerOpen &&
-    schedulerHttpLinked === true;
-
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
     permissionPendingSessionIds: permissionPendingSids,
@@ -2870,9 +2828,6 @@ export function App() {
     sessions: sessionsForSidebar,
     ...(sessionsError ? { error: sessionsError } : {}),
     open: sessionsOpen,
-    ...(historyDrawerBesideScheduler
-      ? { className: "sessions-drawer-beside-scheduler" }
-      : {}),
     onClose: () => {
       setSessionsOpen(false);
       const p = parseAppHash();
@@ -2940,7 +2895,6 @@ export function App() {
         className={[
           "shell-main",
           sessionsOpen ? "shell-history-open" : "",
-          historyDrawerBesideScheduler ? "shell-history-beside-scheduler" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -2995,18 +2949,11 @@ export function App() {
               listError={schedulerListError}
               loading={schedulerListLoading}
               onAddJob={() => {
-                const hp = parseAppHash();
-                setSchedulerCreateHash({
-                  historySidebar:
-                    hp.branch === "scheduler" && hp.historyOpen,
-                });
+                setSchedulerCreateHash();
               }}
               onOpenJob={(jid) => {
                 setSchedulerEditor({ mode: "edit", jobId: jid });
-                const hp = parseAppHash();
-                const hist =
-                  hp.branch === "scheduler" && hp.historyOpen;
-                setSchedulerJobHash(jid, { historySidebar: hist });
+                setSchedulerJobHash(jid);
               }}
               onRunJob={(jid) => void onSchedulerRunJob(jid)}
               onCancelJob={(jid) => void onSchedulerCancelJob(jid)}
@@ -3026,10 +2973,7 @@ export function App() {
               currentCwd={currentSessionCwd}
               onClose={() => {
                 setSchedulerEditor(null);
-                const hp = parseAppHash();
-                const hist =
-                  hp.branch === "scheduler" && hp.historyOpen;
-                setSchedulerListHash({ historySidebar: hist });
+                setSchedulerListHash();
               }}
               onSaved={(createdId) => {
                 void refreshSchedulerJobs({ silent: true });

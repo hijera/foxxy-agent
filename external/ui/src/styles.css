@@ -267,20 +267,6 @@ body {
   min-height: 0;
 }
 
-@media (min-width: 1200px) {
-  .shell-main.shell-history-open > .main {
-    padding-left: calc(
-      min(
-          320px,
-          calc(
-            100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
-              16px
-          )
-        ) + 16px
-    );
-  }
-}
-
 /* Nav rail column */
 .rail-column {
   position: relative;
@@ -3449,16 +3435,6 @@ textarea#composer {
   border: 1px solid var(--coddy-glass-panel-border);
   backdrop-filter: var(--coddy-glass-panel-backdrop);
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
-}
-
-@media (min-width: 1200px) {
-  .shell-main.shell-history-beside-scheduler
-    .sessions.drawer.sessions-drawer-beside-scheduler {
-    left: calc(
-      var(--rail-shell-track-width) + var(--nav-floating-gutter) +
-        var(--sched-dock-cluster-width, 0px) + 8px
-    );
-  }
 }
 
 .scheduler-editor-scroll {
