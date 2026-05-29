@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+
+import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
@@ -42,6 +45,11 @@ export function MessageList(props: {
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
 }) {
+  const permissionWaitingToolCallIds = useMemo(
+    () => permissionPendingToolCallIds(props.items),
+    [props.items],
+  );
+
   return (
     <>
       {props.items.map((it, idx) => {
@@ -224,6 +232,9 @@ export function MessageList(props: {
               : {})}
             {...(typeof it.startedAtMs === "number"
               ? { startedAtMs: it.startedAtMs }
+              : {})}
+            {...(permissionWaitingToolCallIds.has(it.toolCallId)
+              ? { permissionWaiting: true }
               : {})}
             {...(props.onFetchToolCallFull
               ? { onFetchToolCallFull: props.onFetchToolCallFull }

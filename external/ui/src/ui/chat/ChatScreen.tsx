@@ -58,6 +58,7 @@ export function ChatScreen(props: {
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string) => void;
+  onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
@@ -197,6 +198,7 @@ export function ChatScreen(props: {
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
+              {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
               {...(props.generating === true && props.onStop !== undefined
                 ? { generating: true, onStop: props.onStop }
                 : {})}
@@ -288,6 +290,7 @@ export function ChatScreen(props: {
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
+                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}

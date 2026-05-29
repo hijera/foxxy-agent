@@ -25,12 +25,31 @@ import {
   parseCoddyQuestionPayload,
   type QuestionResolvedState,
 } from "./chat/questionTypes";
-import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import {
+  preserveTranscriptItemIds,
+  stableAssistantItemId,
+  stablePermissionPromptItemId,
+  stableThinkingItemId,
+  stableToolCallItemId,
+  stableUserItemId,
+} from "./chat/transcriptItemIds";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
 } from "./chat/transcriptServerSnapshot";
+import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import {
+  mergePermissionPromptsIntoTranscript,
+  permissionPendingSessionIdsFromStorage,
+  removePermissionPromptRecord,
+  upsertPermissionPromptRecord,
+} from "./chat/permissionPromptSessionStore";
+import {
+  parseToolsPermissionPolicy,
+  type ToolsPermissionPolicy,
+} from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import {
   clearQuestionPromptRecords,
@@ -55,6 +74,15 @@ import {
   shouldSuppressShellBackdropClose,
 } from "./sessions/sessionDeleteBackdropSuppress";
 import type { SessionRow } from "./sessions/types";
+import {
+  isClientDraftSessionId,
+  mergeSessionsWithDrafts,
+  newClientDraftId,
+  readClientDraftSessions,
+  removeClientDraftSession,
+  upsertClientDraftSession,
+  type ClientDraftSession,
+} from "./sessions/draftSessions";
 import { startSuggestSessionTitle } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
@@ -65,6 +93,7 @@ import {
 import { schedulerCancelJob, schedulerListJobs, schedulerRunJob } from "./scheduler/api";
 import {
   parseAppHash,
+  setDraftHashInLocation,
   setHistoryHash,
   setSessionHashInLocation,
   schedulerEditorFromParsedHash,
@@ -284,12 +313,16 @@ function memoryTranscriptFromApi(
     recallReasoning: row.recallReasoningText || "",
     persistText: row.persistJudgeText || "",
     persistReasoning: "",
-    recallDurationMs: row.recallDurationMs,
-    persistDurationMs: row.persistDurationMs,
+    ...(typeof row.recallDurationMs === "number"
+      ? { recallDurationMs: row.recallDurationMs }
+      : {}),
+    ...(typeof row.persistDurationMs === "number"
+      ? { persistDurationMs: row.persistDurationMs }
+      : {}),
     ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
-    persistSaved: row.persistSaved,
-    persistRelativePath: row.persistRelativePath,
-    persistTitle: row.persistTitle,
+    ...(typeof row.persistSaved === "boolean" ? { persistSaved: row.persistSaved } : {}),
+    ...(row.persistRelativePath ? { persistRelativePath: row.persistRelativePath } : {}),
+    ...(row.persistTitle ? { persistTitle: row.persistTitle } : {}),
     ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
     ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
   };
@@ -304,7 +337,14 @@ function applyMemoryPhaseToItems(
     (x) => x.type === "memory_copilot" && x.memoryRowId === p.memoryRowId,
   );
   const next = [...prev];
-  const uidx = prev.findLastIndex((x) => x.type === "user_message");
+  let uidx = -1;
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const it = prev[i];
+    if (it && it.type === "user_message") {
+      uidx = i;
+      break;
+    }
+  }
   const insertAt = uidx >= 0 ? uidx + 1 : next.length;
 
   const baseMemory = (): Extract<
@@ -334,11 +374,11 @@ function applyMemoryPhaseToItems(
   }
 
   const cur = next[idx];
-  if (cur.type !== "memory_copilot") {
+  if (!cur || cur.type !== "memory_copilot") {
     return prev;
   }
 
-  let patch = { ...cur };
+  let patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
   const st = (p.status || "").trim();
 
   if (p.phase === "memory") {
@@ -447,9 +487,9 @@ function applyMemoryChunkToItems(
   );
   if (idx < 0) return prev;
   const cur = prev[idx];
-  if (cur.type !== "memory_copilot") return prev;
+  if (!cur || cur.type !== "memory_copilot") return prev;
   const next = [...prev];
-  const patch = { ...cur };
+  const patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
   const ph = (c.phase || "").trim();
   const kd = (c.kind || "").trim();
   const d = typeof c.delta === "string" ? c.delta : "";
@@ -472,13 +512,22 @@ function freezeMemoryWallWhenThinkingAfterRecall(
   items: TranscriptItem[],
   freezeAtMs: number,
 ): TranscriptItem[] {
-  const userIdx = items.findLastIndex((x) => x.type === "user_message");
+  let userIdx = -1;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (!it) continue;
+    if (it && it.type === "user_message") {
+      userIdx = i;
+      break;
+    }
+  }
   if (userIdx < 0) return items;
 
   let memIdx = -1;
   let thinkingIdx = -1;
   for (let i = userIdx + 1; i < items.length; i++) {
     const it = items[i];
+    if (!it) continue;
     if (it.type === "user_message") break;
     if (it.type === "memory_copilot") memIdx = i;
     if (it.type === "thinking" && it.status === "in_progress") {
@@ -489,7 +538,7 @@ function freezeMemoryWallWhenThinkingAfterRecall(
   if (memIdx < 0 || thinkingIdx < 0) return items;
 
   const m = items[memIdx];
-  if (m.type !== "memory_copilot") return items;
+  if (!m || m.type !== "memory_copilot") return items;
 
   const memBusy =
     m.memoryStatus === "in_progress" ||
@@ -531,9 +580,21 @@ export function App() {
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
   const [draft, setDraft] = useState("");
+  const [clientDraftSessions, setClientDraftSessions] = useState<
+    ClientDraftSession[]
+  >(() => readClientDraftSessions());
+  const [activeDraftId, setActiveDraftId] = useState("");
+  const [permissionPendingSids, setPermissionPendingSids] = useState<
+    Set<string>
+  >(() => new Set(permissionPendingSessionIdsFromStorage()));
+  const [toolsPermissionPolicy, setToolsPermissionPolicy] =
+    useState<ToolsPermissionPolicy | null>(null);
+  const [questionPendingSids, setQuestionPendingSids] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [contextBreakdown, setContextBreakdown] = useState<
-    SessionStats["contextBreakdown"] | null
+    NonNullable<SessionStats["contextBreakdown"]> | null
   >(null);
 
   const applySessionStatsPayload = useCallback(
@@ -556,8 +617,6 @@ export function App() {
       }
       if (stats?.contextBreakdown) {
         setContextBreakdown(stats.contextBreakdown);
-      } else {
-        setContextBreakdown(null);
       }
     },
     [],
@@ -583,6 +642,21 @@ export function App() {
     },
     [applySessionStatsPayload],
   );
+
+  const debouncedRefreshSessionStats = useMemo(
+    () =>
+      createDebouncedSessionStatsRefresh((sid) => {
+        void refreshSessionStats(sid);
+      }),
+    [refreshSessionStats],
+  );
+
+  const markViewedSessionActivityRead = useCallback((sid: string) => {
+    const key = sid.trim();
+    if (!key) return;
+    if (viewedSessionIdRef.current.trim() !== key) return;
+    void markCoddySessionActivityRead(key);
+  }, []);
   const tokenBaselineRef = useRef<{
     input: number;
     output: number;
@@ -656,6 +730,25 @@ export function App() {
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
 
+  useEffect(() => {
+    const sid = sessionId.trim();
+    if (!sid || !generating) {
+      return;
+    }
+    void refreshSessionStats(sid);
+    const timer = window.setInterval(() => {
+      void refreshSessionStats(sid);
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [sessionId, generating, refreshSessionStats]);
+
+  const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
+
+  const sessionsForSidebar = useMemo(
+    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
+    [sessions, clientDraftSessions],
+  );
+
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -709,6 +802,11 @@ export function App() {
       if (!p) return;
       const key = p.sessionId.trim();
       if (!key) return;
+      setQuestionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
       upsertQuestionPromptRecord(key, {
         requestId: p.requestId.trim(),
         payload: p,
@@ -746,6 +844,11 @@ export function App() {
       const key = p.sessionId.trim();
       if (!key) return;
       const tcid = p.toolCall.toolCallId.trim();
+      setPermissionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
       applyStreamItemsForSession(key, (prev) => {
         const withoutStalePending = prev.filter(
           (x) => !(x.type === "permission_prompt" && !x.resolved),
@@ -757,14 +860,16 @@ export function App() {
               x.payload.toolCall.toolCallId === tcid
             ),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `pp_${tcid}`,
-            type: "permission_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: stablePermissionPromptItemId(tcid),
+          type: "permission_prompt" as const,
+          payload: p,
+        };
+        upsertPermissionPromptRecord(key, {
+          toolCallId: tcid,
+          payload: p,
+        });
+        return [...withoutDup, row];
       });
     },
     [],
@@ -778,6 +883,11 @@ export function App() {
     ) => {
       const key = sessionId.trim();
       if (!key) return;
+      setQuestionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
       applyStreamItemsForSession(key, (prev) => {
         const next = prev.map((x) =>
           x.id === itemId && x.type === "question_prompt"
@@ -806,17 +916,29 @@ export function App() {
     (
       sessionId: string,
       itemId: string,
-      resolved: PermissionResolvedState,
+      _resolved: PermissionResolvedState,
     ) => {
       const key = sessionId.trim();
       if (!key) return;
-      applyStreamItemsForSession(key, (prev) =>
-        prev.map((x) =>
-          x.id === itemId && x.type === "permission_prompt"
-            ? { ...x, resolved }
-            : x,
-        ),
-      );
+      setPermissionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      applyStreamItemsForSession(key, (prev) => {
+        const hit = prev.find(
+          (x) => x.type === "permission_prompt" && x.id === itemId,
+        );
+        if (hit?.type === "permission_prompt") {
+          removePermissionPromptRecord(
+            key,
+            hit.payload.toolCall.toolCallId.trim(),
+          );
+        }
+        return prev.filter(
+          (x) => !(x.type === "permission_prompt" && x.id === itemId),
+        );
+      });
     },
     [],
   );
@@ -925,11 +1047,27 @@ export function App() {
     const p = parseAppHash();
     if (p.branch === "session") {
       setSettingsRoute(false);
+      setActiveDraftId("");
       viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setSessionsOpen(!!p.historyOpen);
+      return;
+    }
+    if (p.branch === "draft") {
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSessionId("");
+      viewedSessionIdRef.current = "";
+      setActiveDraftId(p.draftId.trim());
+      const row = readClientDraftSessions().find(
+        (r) => r.localId === p.draftId.trim(),
+      );
+      setDraft(row?.draftText || "");
+      setItems([]);
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -974,6 +1112,7 @@ export function App() {
     }
     viewedSessionIdRef.current = "";
     setSessionId("");
+    setActiveDraftId("");
     setSettingsRoute(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -982,6 +1121,7 @@ export function App() {
 
   const openSessionFromRoute = useCallback(
     (id: string, opts?: { historySidebar?: boolean }) => {
+      setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       viewedSessionIdRef.current = id.trim();
@@ -998,6 +1138,7 @@ export function App() {
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
+    setActiveDraftId("");
   }, []);
 
   const closeSchedulerDrawer = useCallback(() => {
@@ -1319,6 +1460,62 @@ export function App() {
   );
 
   useEffect(() => {
+    void (async () => {
+      const res = await fetchJSON<Record<string, unknown>>("/coddy/config", {
+        headers,
+      });
+      if (res.ok && res.data) {
+        setToolsPermissionPolicy(parseToolsPermissionPolicy(res.data));
+      }
+    })();
+  }, [headers]);
+
+  useEffect(() => {
+    const ids = new Set(permissionPendingSessionIdsFromStorage());
+    for (const row of sessions) {
+      if (row.permissionPending) {
+        ids.add(row.id);
+      }
+    }
+    const sid = sessionId.trim();
+    if (
+      sid &&
+      items.some((x) => x.type === "permission_prompt" && !x.resolved)
+    ) {
+      ids.add(sid);
+    }
+    setPermissionPendingSids(ids);
+  }, [sessions, items, sessionId]);
+
+  // /coddy/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
+  useEffect(() => {
+    const sid = sessionId.trim();
+    if (!sid || !toolsPermissionPolicy) {
+      return;
+    }
+    setItems((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      const merged = mergePermissionPromptsIntoTranscript(
+        prev,
+        sid,
+        toolsPermissionPolicy,
+      );
+      const hadPending = prev.some(
+        (x) => x.type === "permission_prompt" && !x.resolved,
+      );
+      const hasPending = merged.some(
+        (x) => x.type === "permission_prompt" && !x.resolved,
+      );
+      if (hadPending === hasPending && merged.length === prev.length) {
+        return prev;
+      }
+      return merged;
+    });
+  }, [toolsPermissionPolicy, sessionId]);
+
+  useEffect(() => {
     const hasBackgroundTurn = sessions.some(
       (s) => !!s.turnActive && s.id !== sessionId,
     );
@@ -1436,13 +1633,17 @@ export function App() {
     };
     const toolIdx = new Map<string, number>();
     let userTurnIdx = 0;
+    let thinkingInTurn = 0;
+    let assistantInTurn = 0;
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
       if (role === "user") {
         userTurnIdx++;
+        thinkingInTurn = 0;
+        assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         next.push({
-          id: newId("u"),
+          id: stableUserItemId(userTurnIdx),
           type: "user_message",
           content: m.content || "",
           ...(cat ? { createdAtUtc: cat } : {}),
@@ -1503,7 +1704,7 @@ export function App() {
             reasoningDurationMsByContentRef.current.set(dk, fromApi);
           }
           next.push({
-            id: newId("r"),
+            id: stableThinkingItemId(userTurnIdx, thinkingInTurn++),
             type: "thinking",
             status: "completed",
             content: reasoning,
@@ -1514,7 +1715,7 @@ export function App() {
         if (content) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           next.push({
-            id: newId("a"),
+            id: stableAssistantItemId(userTurnIdx, assistantInTurn++),
             type: "assistant_message",
             content,
             ...(acat ? { createdAtUtc: acat } : {}),
@@ -1529,7 +1730,7 @@ export function App() {
           if (!id) continue;
           if (toolIdx.has(id)) continue;
           const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-            id: newId("t"),
+            id: stableToolCallItemId(id),
             type: "tool_call",
             toolCallId: id,
             status: "pending",
@@ -1547,7 +1748,7 @@ export function App() {
         const idx = toolIdx.get(id);
         if (idx === undefined) {
           const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-            id: newId("t"),
+            id: stableToolCallItemId(id),
             type: "tool_call",
             toolCallId: id,
             status: "completed",
@@ -1617,6 +1818,11 @@ export function App() {
           : undefined;
     const mergedBase = mergeTranscriptPreferLocalSuffix(next, localForMerge);
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
+    merged = mergePermissionPromptsIntoTranscript(
+      merged,
+      sid,
+      toolsPermissionPolicy,
+    );
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
     const appliedRaw =
@@ -1627,7 +1833,23 @@ export function App() {
         prevShadow,
         prevItems: itemsRef.current,
       }) ?? merged;
-    const applied = dedupeAdjacentDuplicateThinkingCompleted(appliedRaw);
+    const withStableIds = preserveTranscriptItemIds(
+      appliedRaw,
+      localForMerge ?? prevShadow ?? itemsRef.current,
+    );
+    const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
+    const hasPendingPermission = applied.some(
+      (x) => x.type === "permission_prompt" && !x.resolved,
+    );
+    setPermissionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingPermission) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
       return applied;
@@ -1637,15 +1859,48 @@ export function App() {
     return applied;
   }
 
+  function persistComposerDraftBeforeLeave() {
+    if (sessionId.trim()) {
+      return;
+    }
+    const text = draft.trim();
+    const existing = activeDraftId.trim();
+    if (!text && !existing) {
+      return;
+    }
+    const localId = existing || newClientDraftId();
+    const rows = upsertClientDraftSession({
+      localId,
+      draftText: text,
+      updatedAt: new Date().toISOString(),
+    });
+    setClientDraftSessions(rows);
+  }
+
   function pickSession(id: string) {
+    persistComposerDraftBeforeLeave();
     reasoningDurationMsByContentRef.current = new Map();
     setItems([]);
+    if (isClientDraftSessionId(id)) {
+      setActiveDraftId(id);
+      setSessionId("");
+      viewedSessionIdRef.current = "";
+      const row = readClientDraftSessions().find((r) => r.localId === id);
+      setDraft(row?.draftText || "");
+      setDraftHashInLocation(id, { historySidebar: sessionsOpen });
+      return;
+    }
+    setActiveDraftId("");
     openSessionFromRoute(id, {
       historySidebar: sessionsOpen,
     });
   }
 
   function goHome() {
+    persistComposerDraftBeforeLeave();
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
     clearSessionRoute();
     setHeroHomeGeneration((g) => g + 1);
     setItems([]);
@@ -1666,6 +1921,20 @@ export function App() {
   }
 
   async function deleteSession(id: string) {
+    if (isClientDraftSessionId(id)) {
+      const ok = window.confirm("Delete draft");
+      if (!ok) {
+        return;
+      }
+      armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
+      const rows = removeClientDraftSession(id);
+      setClientDraftSessions(rows);
+      if (id === activeDraftId || id === sidebarActiveId) {
+        setSessionsOpen(false);
+        goHome();
+      }
+      return;
+    }
     const ok = window.confirm("Delete chat");
     if (!ok) {
       return;
@@ -1677,7 +1946,8 @@ export function App() {
       headers,
     });
     setSessions((prev) => prev.filter((s) => s.id !== id));
-    if (id === sessionId) {
+    const viewingId = sidebarActiveId.trim();
+    if (id === viewingId) {
       setSessionsOpen(false);
       goHome();
       return;
@@ -1859,6 +2129,7 @@ export function App() {
       if (u === null) return;
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
+        debouncedRefreshSessionStats(key);
       }
     };
 
@@ -1986,6 +2257,7 @@ export function App() {
       const viewing = viewedSessionIdRef.current.trim();
       void loadMessages(key, { skipSetItems: viewing !== key });
       void refreshSessionStats(key);
+      markViewedSessionActivityRead(key);
     }
   }
 
@@ -2012,6 +2284,10 @@ export function App() {
       if (!sid) {
         sid = randomSessionId();
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
+        if (activeDraftId.trim()) {
+          setClientDraftSessions(removeClientDraftSession(activeDraftId.trim()));
+          setActiveDraftId("");
+        }
         openSessionFromRoute(sid);
       }
       sidEffective = sid;
@@ -2029,6 +2305,7 @@ export function App() {
         if (u === null) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
+          debouncedRefreshSessionStats(streamKey);
         }
       };
 
@@ -2331,6 +2608,7 @@ export function App() {
         preserveOnError: true,
       });
       void refreshSessionStats(sidEffective);
+      markViewedSessionActivityRead(sidEffective);
       completedNormally = true;
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
@@ -2367,6 +2645,7 @@ export function App() {
           preserveOnError: true,
         });
         void loadSessionsList(true);
+        markViewedSessionActivityRead(postSessionKey.trim());
       }
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
@@ -2527,20 +2806,25 @@ export function App() {
     schedulerHttpLinked === true;
 
   const sessionPanelShared = {
-    sessionId,
-    sessions,
-    error: sessionsError,
+    sessionId: sidebarActiveId,
+    permissionPendingSessionIds: permissionPendingSids,
+    questionPendingSessionIds: questionPendingSids,
+    sessions: sessionsForSidebar,
+    ...(sessionsError ? { error: sessionsError } : {}),
     open: sessionsOpen,
-    className: historyDrawerBesideScheduler
-      ? "sessions-drawer-beside-scheduler"
-      : undefined,
+    ...(historyDrawerBesideScheduler
+      ? { className: "sessions-drawer-beside-scheduler" }
+      : {}),
     onClose: () => {
       setSessionsOpen(false);
       const p = parseAppHash();
       if (p.branch === "history") {
         const sid = sessionId.trim();
+        const did = activeDraftId.trim();
         if (sid) {
           setSessionHashInLocation(sid);
+        } else if (did) {
+          setDraftHashInLocation(did);
         } else if (window.location.hash) {
           history.replaceState(
             null,
@@ -2723,6 +3007,12 @@ export function App() {
           onModeChange={setMode}
           onDraftChange={setDraft}
           generating={generating}
+          onContextRingOpen={() => {
+            const sid = sessionId.trim();
+            if (sid) {
+              void refreshSessionStats(sid);
+            }
+          }}
           onStop={() => stopActiveGeneration()}
           onQuestionPromptResolved={resolveQuestionPrompt}
           onPermissionPromptResolved={resolvePermissionPrompt}

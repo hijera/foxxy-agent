@@ -10,6 +10,7 @@ import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
+import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
 
 function safePrettyJSON(text: string): string {
   try {
@@ -90,11 +91,17 @@ export function ToolCallMessage(props: {
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
+  /** When true, wall-clock label stops (e.g. awaiting permission). */
+  permissionWaiting?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
 }) {
   const args = useMemo(
-    () => (props.argsText ? safePrettyJSON(props.argsText) : ""),
-    [props.argsText],
+    () =>
+      toolCallArgsDisplay(props.argsText, {
+        kind: props.kind,
+        title: props.title,
+      }),
+    [props.argsText, props.kind, props.title],
   );
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
@@ -116,13 +123,28 @@ export function ToolCallMessage(props: {
     return pendingLike ? `${rawName || "tool"}...` : rawName || "tool";
   }, [isQuestionTool, pendingLike, rawName]);
 
+  const permissionWaiting = props.permissionWaiting === true;
+
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [frozenElapsedMs, setFrozenElapsedMs] = useState<number | null>(null);
+
   useEffect(() => {
-    if (isQuestionTool) return;
+    if (!permissionWaiting) {
+      setFrozenElapsedMs(null);
+      return;
+    }
+    if (typeof props.startedAtMs !== "number") {
+      return;
+    }
+    setFrozenElapsedMs(Math.max(0, Date.now() - props.startedAtMs));
+  }, [permissionWaiting, props.startedAtMs, props.toolCallId]);
+
+  useEffect(() => {
+    if (isQuestionTool || permissionWaiting) return;
     if (!pendingLike || typeof props.startedAtMs !== "number") return;
     const h = window.setInterval(() => setNowMs(Date.now()), 160);
     return () => window.clearInterval(h);
-  }, [isQuestionTool, pendingLike, props.startedAtMs]);
+  }, [isQuestionTool, permissionWaiting, pendingLike, props.startedAtMs]);
 
   const durationLabel = useMemo(() => {
     if (isQuestionTool) {
@@ -140,6 +162,9 @@ export function ToolCallMessage(props: {
       }
       return "-";
     }
+    if (permissionWaiting && frozenElapsedMs !== null) {
+      return formatDuration(frozenElapsedMs);
+    }
     if (
       typeof props.startedAtMs === "number" &&
       Number.isFinite(props.startedAtMs)
@@ -153,7 +178,15 @@ export function ToolCallMessage(props: {
       return formatDuration(props.durationMs);
     }
     return "-";
-  }, [isQuestionTool, props.durationMs, props.startedAtMs, props.status, nowMs]);
+  }, [
+    frozenElapsedMs,
+    isQuestionTool,
+    permissionWaiting,
+    props.durationMs,
+    props.startedAtMs,
+    props.status,
+    nowMs,
+  ]);
 
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);

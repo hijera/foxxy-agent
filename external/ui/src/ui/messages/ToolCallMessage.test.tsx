@@ -192,3 +192,32 @@ test("in-progress tool shows ellipsis on label and elapsed from startedAtMs", ()
   const dur = container.querySelector(".thinking-dur")?.textContent ?? "";
   expect(dur).toMatch(/^\d+ms$|^\d/);
 });
+
+test("elapsed freezes while permission is pending", () => {
+  vi.useFakeTimers();
+  const t0 = Date.now() - 5000;
+  const { container, rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-perm"
+      title="run_command"
+      status="in_progress"
+      startedAtMs={t0}
+      permissionWaiting
+      argsText="{}"
+    />,
+  );
+  const durBefore = container.querySelector(".thinking-dur")?.textContent ?? "";
+  vi.advanceTimersByTime(10_000);
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-perm"
+      title="run_command"
+      status="in_progress"
+      startedAtMs={t0}
+      permissionWaiting
+      argsText="{}"
+    />,
+  );
+  expect(container.querySelector(".thinking-dur")?.textContent).toBe(durBefore);
+  vi.useRealTimers();
+});

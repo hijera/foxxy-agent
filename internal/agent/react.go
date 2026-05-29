@@ -156,11 +156,25 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
 
+	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+}
+
+func (a *Agent) runReActLoop(
+	ctx context.Context,
+	mode string,
+	messages []llm.Message,
+	toolDefs []llm.ToolDefinition,
+	provider llm.Provider,
+	toolEnv *tools.Env,
+	sd, userText string,
+	contextFiles []string,
+	activeSkills []*skills.Skill,
+	maxTurns int,
+) (string, error) {
 	var totalInputTokens, totalOutputTokens int
 	var turnIndex int
 	var lastStatsWrite time.Time
 
-	// ReAct loop.
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
@@ -370,7 +384,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 				return string(acp.StopReasonCancelled), nil
 			}
 
-			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID())
+			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
 
 			var toolResultMsg llm.Message
 			if execErr != nil {
@@ -396,7 +410,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 }
 
 // executeToolCall runs a single tool call and reports updates to the client.
-func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string) (string, error) {
+func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	defer func() { env.ToolCallID = "" }()
 
@@ -455,7 +469,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		requiresPerm = true
 	}
 
-	if requiresPerm {
+	if requiresPerm && !skipPermission {
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{

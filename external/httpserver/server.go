@@ -327,6 +327,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewSender(s.activeCfg(), nil, false, model)
 		}
+		wireBridgeSession(bridge, st)
 		var promptOpts *session.PromptRunOpts
 		if req.Stream {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
@@ -645,6 +646,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewSender(s.activeCfg(), nil, false, model)
 		}
+		wireBridgeSession(bridge, st)
 		var promptOpts *session.PromptRunOpts
 		if body.Stream {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}

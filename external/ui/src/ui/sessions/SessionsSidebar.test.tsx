@@ -55,6 +55,26 @@ test("session row is a link with session hash href", () => {
   expect(link).toHaveAttribute("href", "#/s/sess-one");
 });
 
+test("draft session row links to #/draft/<id>", () => {
+  render(
+    <SessionsSidebar
+      sessionId="draft_1"
+      sessions={[row("draft_1", "Draft: hello")]}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  const link = screen.getByRole("link", { name: /Draft: hello/i });
+  expect(link).toHaveAttribute("href", "#/draft/draft_1");
+});
+
 test("shows spinner and unread dot for other sessions", () => {
   render(
     <SessionsSidebar
@@ -84,3 +104,26 @@ test("shows spinner and unread dot for other sessions", () => {
   expect(screen.queryByTestId("session-spinner-current")).toBeNull();
 });
 
+test("question pending hides spinner and shows animated question icon", () => {
+  render(
+    <SessionsSidebar
+      sessionId="current"
+      sessions={[
+        { id: "current", title: "A" },
+        { id: "q", title: "B", turnActive: true },
+      ]}
+      questionPendingSessionIds={new Set(["q"])}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("session-spinner-q")).toBeNull();
+  expect(screen.getByTestId("session-question-q")).toBeInTheDocument();
+});
