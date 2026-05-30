@@ -39,6 +39,7 @@ __pycache__/
 
 # Config with secrets (use config.example.yaml as template)
 config.yaml
+.env
 
 # Logs
 *.log

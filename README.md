@@ -49,6 +49,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - [Rules](#rules)
 - [Skills](#skills)
 - [MCP server integration](#mcp-server-integration)
+- [Messenger gateway (Telegram)](#messenger-gateway-telegram)
 - [Configuration (reference)](#configuration-1)
 - [Architecture](#architecture)
 - [Documentation](#documentation)
@@ -67,6 +68,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
+- **Messenger gateway** - optional Telegram bot adapter (`-tags gateway.telegram`); per-user sessions, group isolation modes, admin ACL; extensible to Discord, Slack, etc. — see [Messenger Gateway](docs/gateway.md)
 
 ## Editor and IDE integration
 
@@ -157,6 +159,8 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 | **`http`** | **`coddy http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
 | **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Scheduler daemon and **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
+| **`gateway.telegram`** | Telegram bot adapter — **`coddy gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
+| **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
 
 Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
@@ -358,6 +362,31 @@ mcp_servers:
 
 See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
+## Messenger gateway (Telegram)
+
+Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `coddy gateway`.
+
+```bash
+make build TAGS="gateway.telegram"
+./build/coddy gateway --config ~/.coddy/config.yaml
+```
+
+Minimal config addition (`config.yaml`):
+
+```yaml
+gateways:
+  telegram:
+    enabled: true
+    token: "${TELEGRAM_BOT_TOKEN}"
+    admins: [YOUR_USER_ID]
+    default_access: "all"           # all | admins | group:<name>
+    default_isolation: "individual" # individual | shared | admin
+```
+
+Each user or chat gets its own isolated session. In group chats the bot responds only when @mentioned or replied to. `/clear` (no space) starts a fresh session.
+
+Full guide — access levels, group isolation modes, per-chat overrides, and how to write adapters for new messengers: **[docs/gateway.md](docs/gateway.md)**.
+
 ## Configuration
 
 Full configuration reference in [docs/config.md](docs/config.md).
@@ -387,13 +416,13 @@ tools:
 ## Architecture
 
 ```
-ACP client (editor / script / CI)
-        |
-    JSON-RPC 2.0 over stdio
-        |
-    ACP Server Layer
-        |
-    Session Manager
+ACP client (editor / script / CI)        Messenger (Telegram, …)
+        |                                        |
+    JSON-RPC 2.0 over stdio              gateway Hub (per adapter goroutine)
+        |                                        |
+    ACP Server Layer                     session.Manager (shared)
+        |                                        |
+    Session Manager ─────────────────────────────┘
         |
     ReAct Agent Loop
  /      |       |      \
@@ -418,6 +447,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.coddy/rules`, …)
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
+- [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 
 ## Examples (ACP over stdio)
 

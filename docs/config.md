@@ -201,6 +201,62 @@ Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOM
 
 When the scheduler is effectively enabled, **`coddy_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`coddy_scheduler_jobs_list`**, **`coddy_scheduler_job_get`**, **`coddy_scheduler_job_create`**, **`coddy_scheduler_job_replace`**, **`coddy_scheduler_job_patch`**, **`coddy_scheduler_job_delete`**, **`coddy_scheduler_job_pause`**, **`coddy_scheduler_job_resume`**, **`coddy_scheduler_job_run`**, **`coddy_scheduler_job_cancel`**, **`coddy_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/coddy/scheduler`** (see **`docs/http-api.md`**).
 
+## Messenger Gateway (`gateways`)
+
+Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). The `coddy gateway` subcommand reads this block.
+
+```yaml
+# Messenger gateways (external/gateway/; build with -tags gateway.telegram or -tags gateway).
+# Full guide: docs/gateway.md
+gateways:
+  telegram:
+    # Set to true to activate the Telegram adapter when coddy gateway starts.
+    enabled: false
+
+    # Bot token from @BotFather. Never hard-code; always use an env reference.
+    token: "${TELEGRAM_BOT_TOKEN}"
+
+    # Telegram user IDs with admin privileges.
+    # Admins bypass every access check and can always interact with the bot.
+    admins: []
+    # Example:
+    # admins: [98874093]
+
+    # Default access level for chats without a per-chat override.
+    #   "all"          - anyone who can write to the chat
+    #   "admins"       - only user IDs listed in admins
+    #   "group:<name>" - only users in the named user_groups entry (admins always pass)
+    default_access: "all"
+
+    # Default session isolation mode for group chats without a per-chat override.
+    #   "individual"   - each group member gets their own session
+    #   "shared"       - all members share one session
+    #   "admin"        - only admins can interact; all admins share one session
+    default_isolation: "individual"
+
+    # Named sets of user IDs for group-based access control.
+    user_groups: []
+    # Example:
+    # user_groups:
+    #   - name: "devs"
+    #     user_ids: [111222333, 444555666]
+
+    # Per-chat overrides. chat_id is negative for groups and supergroups.
+    chats: []
+    # Example:
+    # chats:
+    #   - chat_id: -1001234567890
+    #     isolation: "individual"
+    #     access: "all"
+    #   - chat_id: -1009876543210
+    #     isolation: "admin"
+    #     access: "admins"
+```
+
+`token` is validated at startup when `enabled: true`. The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+
+See **[docs/gateway.md](gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
+
 ## Environment Variable References
 
 Any config value can reference environment variables using `${VAR_NAME}` syntax.

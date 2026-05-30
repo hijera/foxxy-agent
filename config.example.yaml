@@ -138,6 +138,27 @@ tools:
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
 
+# Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
+# Run the bot with: coddy gateway --config config.yaml
+# gateways:
+#   telegram:
+#     enabled: false
+#     token: "${TELEGRAM_BOT_TOKEN}"   # never hard-code; use env var
+#     admins: [98874093]               # Telegram user IDs with elevated rights
+#     default_access: "all"           # all | admins | group:<name>
+#     default_isolation: "individual" # individual | shared | admin
+#     user_groups:
+#       - name: "devs"
+#         user_ids: [111222333, 444555666]
+#     chats:
+#       # Per-chat overrides (optional); chat_id is negative for groups/supergroups.
+#       - chat_id: -1001234567890
+#         isolation: "individual"
+#         access: "all"
+#       - chat_id: -1009876543210
+#         isolation: "admin"      # only respond to admin users
+#         access: "admins"
+
 logger:
   level: "info"
   # outputs: ["stderr"]          # default when omitted

@@ -98,6 +98,10 @@ func validateSubconfigs(cfg *Config) error {
 		return fmt.Errorf("scheduler: %w", err)
 	}
 	cfg.HTTPServer.Normalize()
+	cfg.Gateways.Telegram.Normalize()
+	if err := cfg.Gateways.Telegram.Validate(); err != nil {
+		return fmt.Errorf("gateways.telegram: %w", err)
+	}
 	if err := cfg.HTTPServer.Validate(); err != nil {
 		return fmt.Errorf("httpserver: %w", err)
 	}
@@ -135,6 +139,9 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Scheduler.Normalize(p)
 	cfg.Scheduler.ApplyDefaults(p)
+
+	cfg.Gateways.Telegram.Normalize()
+	cfg.Gateways.Telegram.ApplyDefaults()
 
 	cfg.HTTPServer.Normalize()
 
