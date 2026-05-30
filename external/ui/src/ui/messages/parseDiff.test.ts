@@ -71,3 +71,59 @@ test("totalDiffLines counts all content lines", () => {
   const d = parseDiffPatch(SIMPLE_PATCH);
   expect(totalDiffLines(d)).toBe(5);
 });
+
+// V4A format (*** Begin Patch) tests
+
+const V4A_PATCH = [
+  "*** Begin Patch",
+  "*** Update File: test.txt",
+  "@@",
+  " asd",
+  "-zxc",
+  "+something else",
+  " qwe",
+  "*** End Patch",
+].join("\n");
+
+test("parseDiffPatch detects V4A format and extracts file path", () => {
+  const d = parseDiffPatch(V4A_PATCH);
+  expect(d.filePath).toBe("test.txt");
+});
+
+test("parseDiffPatch V4A produces one hunk", () => {
+  const d = parseDiffPatch(V4A_PATCH);
+  expect(d.hunks).toHaveLength(1);
+  expect(d.hunks[0].header).toBe("@@");
+});
+
+test("parseDiffPatch V4A assigns correct line kinds", () => {
+  const d = parseDiffPatch(V4A_PATCH);
+  const lines = d.hunks[0].lines;
+  expect(lines[0]).toMatchObject({ kind: "ctx", content: "asd" });
+  expect(lines[1]).toMatchObject({ kind: "del", oldNo: 2, newNo: null, content: "zxc" });
+  expect(lines[2]).toMatchObject({ kind: "add", oldNo: null, newNo: 2, content: "something else" });
+  expect(lines[3]).toMatchObject({ kind: "ctx", content: "qwe" });
+});
+
+test("parseDiffPatch V4A falls back to provided filePath when no *** Update File", () => {
+  const patch = "@@\n+new line";
+  const d = parseDiffPatch(patch, "fallback.ts");
+  expect(d.filePath).toBe("fallback.ts");
+  expect(d.hunks[0].lines[0]).toMatchObject({ kind: "add", content: "new line" });
+});
+
+test("parseDiffPatch V4A with context in @@ header", () => {
+  const patch = [
+    "*** Begin Patch",
+    "*** Update File: src/main.ts",
+    "@@ function foo() {",
+    "-  return 1;",
+    "+  return 2;",
+    "*** End Patch",
+  ].join("\n");
+  const d = parseDiffPatch(patch);
+  expect(d.filePath).toBe("src/main.ts");
+  expect(d.hunks[0].header).toBe("@@ function foo() {");
+  expect(d.hunks[0].lines[0]).toMatchObject({ kind: "del", content: "  return 1;" });
+  expect(d.hunks[0].lines[1]).toMatchObject({ kind: "add", content: "  return 2;" });
+});;

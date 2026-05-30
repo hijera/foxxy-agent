@@ -280,7 +280,7 @@ export function ToolCallMessage(props: {
   const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
   const showDiffView = isPatchTool && !!patchContent;
   const showJsonResult =
-    !isQuestionTool && !!(resultBody && resultBody.length > 0);
+    !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
   const hasBody =
     isQuestionTool ||
     showJsonArgs ||
@@ -311,7 +311,14 @@ export function ToolCallMessage(props: {
         </summary>
         {hasBody ? (
           <div
-            className="thinking-body coddy-tool-call-body"
+            className={[
+              "thinking-body coddy-tool-call-body",
+              showDiffView && !showJsonArgs && !showJsonResult && !isQuestionTool
+                ? "coddy-tool-call-body--diff"
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             aria-label="Tool call details"
           >
             {isQuestionTool ? (

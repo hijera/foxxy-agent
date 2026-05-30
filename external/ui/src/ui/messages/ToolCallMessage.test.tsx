@@ -254,7 +254,7 @@ test("apply_patch renders DiffView instead of raw args JSON", () => {
   expect(container.querySelector("pre.tool-block[aria-label='Tool arguments']")).toBeNull();
 });
 
-test("apply_patch result text still shown after DiffView", () => {
+test("apply_patch omits raw result text and has no tool-result-pre", () => {
   const patch = "@@ -1 +1 @@\n+new";
   const argsText = JSON.stringify({ filePath: "x.ts", patch });
   const { container } = render(
@@ -270,6 +270,36 @@ test("apply_patch result text still shown after DiffView", () => {
   );
   openToolDetails();
   expect(container.querySelector(".diff-block")).not.toBeNull();
-  const result = container.querySelector("[aria-label='Tool result']");
-  expect(result?.textContent).toContain("patch applied successfully");
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+});
+
+test("apply_patch with V4A patch format renders DiffView", () => {
+  const v4aPatch = [
+    "*** Begin Patch",
+    "*** Update File: src/app.ts",
+    "@@",
+    " line1",
+    "-old",
+    "+new",
+    " line3",
+    "*** End Patch",
+  ].join("\n");
+  const argsText = JSON.stringify({ filePath: "src/app.ts", patch: v4aPatch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-v4a"
+      title="apply_patch"
+      kind="write"
+      status="completed"
+      argsText={argsText}
+      resultText="patch applied successfully to src/app.ts"
+      durationMs={8}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelectorAll(".diff-line--del").length).toBeGreaterThanOrEqual(1);
+  expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
 });

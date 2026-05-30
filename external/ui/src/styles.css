@@ -2002,6 +2002,12 @@ a.rail-brand {
   background: transparent;
 }
 
+/* Diff-only body: flush edges, rounded corners from parent handle the clip. */
+.coddy-tool-call-body--diff {
+  padding: 0;
+  overflow: hidden;
+}
+
 .md {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
   line-height: 1.55;
