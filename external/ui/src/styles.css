@@ -4379,11 +4379,12 @@ textarea#composer {
 }
 
 .message-row-question {
-  margin: 10px 0 14px;
+  /*margin: 10px 0 14px;*/
   align-self: stretch;
   width: 100%;
   max-width: 720px;
   box-sizing: border-box;
+  padding-left: 12px;
 }
 
 .question-prompt-frame {
