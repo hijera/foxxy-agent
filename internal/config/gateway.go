@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -36,6 +37,11 @@ type TelegramGatewayConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Token   string `yaml:"token"`
 
+	// Proxy is an optional outbound proxy for Telegram API requests.
+	// Supported schemes: http, https, socks5, socks5h.
+	// Example: "socks5h://127.0.0.1:1080" or "http://proxy.example.com:3128"
+	Proxy string `yaml:"proxy"`
+
 	// Admins is the list of Telegram user IDs with elevated permissions.
 	Admins []int64 `yaml:"admins"`
 
@@ -69,6 +75,7 @@ type TelegramChatConfig struct {
 // Normalize trims whitespace in string fields.
 func (t *TelegramGatewayConfig) Normalize() {
 	t.Token = strings.TrimSpace(t.Token)
+	t.Proxy = strings.TrimSpace(t.Proxy)
 	t.DefaultAccess = AccessLevel(strings.TrimSpace(string(t.DefaultAccess)))
 	t.DefaultIsolation = IsolationMode(strings.TrimSpace(string(t.DefaultIsolation)))
 }
@@ -90,6 +97,17 @@ func (t *TelegramGatewayConfig) Validate() error {
 	}
 	if strings.TrimSpace(t.Token) == "" {
 		return fmt.Errorf("gateways.telegram.token is required when telegram is enabled")
+	}
+	if t.Proxy != "" {
+		u, err := url.Parse(t.Proxy)
+		if err != nil {
+			return fmt.Errorf("gateways.telegram.proxy: invalid URL: %w", err)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "socks5", "socks5h":
+		default:
+			return fmt.Errorf("gateways.telegram.proxy: unsupported scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
+		}
 	}
 	return nil
 }

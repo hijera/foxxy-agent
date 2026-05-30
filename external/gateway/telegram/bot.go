@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/access"
+	"github.com/EvilFreelancer/coddy-agent/external/gateway/proxyutil"
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -18,13 +20,25 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-const adapterName = "tg"
+const (
+	adapterName    = "tg"
+	workerQueueCap = 32 // max queued messages per session
+)
 
 // SessionRunner abstracts the session management and agent execution needed by the bot.
 type SessionRunner interface {
 	EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
 	HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
 	ForgetLiveSession(sessionID string)
+	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
+	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+	Cfg() *config.Config
+}
+
+type workerJob struct {
+	bot *tgbotapi.BotAPI
+	msg *tgbotapi.Message
+	key string // pre-computed session key
 }
 
 // Bot is the Telegram gateway adapter.
@@ -35,16 +49,20 @@ type Bot struct {
 	log     *slog.Logger
 	store   *sessionstore.Store
 	botName string // @username of the bot (set after connect)
+
+	mu      sync.Mutex
+	workers map[string]chan workerJob // session key → sequential job queue
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
 func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, log *slog.Logger) *Bot {
 	return &Bot{
-		cfg:    cfg,
-		runner: runner,
-		cwd:    cwd,
-		log:    log,
-		store:  sessionstore.New(),
+		cfg:     cfg,
+		runner:  runner,
+		cwd:     cwd,
+		log:     log,
+		store:   sessionstore.New(),
+		workers: make(map[string]chan workerJob),
 	}
 }
 
@@ -53,12 +71,27 @@ func (b *Bot) Name() string { return "telegram" }
 
 // Start connects to Telegram and begins polling. Blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
-	bot, err := tgbotapi.NewBotAPI(b.cfg.Token)
+	httpClient, err := proxyutil.BuildHTTPClient(b.cfg.Proxy)
+	if err != nil {
+		return fmt.Errorf("telegram: proxy: %w", err)
+	}
+	bot, err := tgbotapi.NewBotAPIWithClient(b.cfg.Token, tgbotapi.APIEndpoint, httpClient)
 	if err != nil {
 		return fmt.Errorf("telegram: connect: %w", err)
 	}
 	b.botName = bot.Self.UserName
 	b.log.Info("telegram bot connected", "username", b.botName)
+
+	if _, err := bot.Request(tgbotapi.NewSetMyCommands(
+		tgbotapi.BotCommand{Command: "start", Description: "Greeting and quick intro"},
+		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
+		tgbotapi.BotCommand{Command: "mode", Description: "Switch session mode (agent / plan)"},
+		tgbotapi.BotCommand{Command: "model", Description: "Switch LLM model"},
+		tgbotapi.BotCommand{Command: "context", Description: "Show context window usage"},
+		tgbotapi.BotCommand{Command: "clear", Description: "Start a new session (forget context)"},
+	)); err != nil {
+		b.log.Warn("telegram: set commands", "err", err)
+	}
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 30
@@ -73,15 +106,19 @@ func (b *Bot) Start(ctx context.Context) error {
 			if !ok {
 				return fmt.Errorf("telegram: updates channel closed")
 			}
-			if upd.Message == nil {
-				continue
+			if upd.Message != nil {
+				b.dispatch(ctx, bot, upd.Message)
 			}
-			go b.handleMessage(ctx, bot, upd.Message)
+			if upd.CallbackQuery != nil {
+				go b.handleCallback(ctx, bot, upd.CallbackQuery)
+			}
 		}
 	}
 }
 
-func (b *Bot) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message) {
+// dispatch runs fast pre-checks in the polling goroutine, then routes the message
+// to the per-session worker that processes turns sequentially for that session key.
+func (b *Bot) dispatch(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message) {
 	if msg.From == nil {
 		return
 	}
@@ -90,28 +127,63 @@ func (b *Bot) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbo
 	chatID := msg.Chat.ID
 	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
 
-	// --- Access control ---
 	level := access.EffectiveAccess(chatID, b.cfg)
 	if !access.CanAccess(userID, level, b.cfg) {
 		b.log.Debug("telegram: access denied", "user", userID, "chat", chatID)
 		return
 	}
 
-	// --- Isolation / admin-only mode ---
 	isolation := access.EffectiveIsolation(chatID, b.cfg)
 	if isGroup && isolation == config.IsolationAdmin && !b.cfg.IsAdmin(userID) {
 		return
 	}
 
-	// --- Trigger check for group chats ---
 	text := strings.TrimSpace(msg.Text)
 	if isGroup && !b.shouldRespond(msg, text) {
 		return
 	}
 
-	// --- /clear command ---
+	key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
+
+	b.mu.Lock()
+	ch, ok := b.workers[key]
+	if !ok {
+		ch = make(chan workerJob, workerQueueCap)
+		b.workers[key] = ch
+		go b.sessionWorker(ctx, ch)
+	}
+	b.mu.Unlock()
+
+	select {
+	case ch <- workerJob{bot: bot, msg: msg, key: key}:
+	default:
+		reply(bot, chatID, msg.MessageID, "⏳ Still processing your previous message, please wait.")
+	}
+}
+
+// sessionWorker processes jobs for one session key sequentially.
+// It exits when ctx is cancelled.
+func (b *Bot) sessionWorker(ctx context.Context, ch chan workerJob) {
+	for {
+		select {
+		case job, ok := <-ch:
+			if !ok {
+				return
+			}
+			b.processMessage(ctx, job.bot, job.msg, job.key)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
+	userID := msg.From.ID
+	chatID := msg.Chat.ID
+	text := strings.TrimSpace(msg.Text)
+
+	// --- Built-in commands ---
 	if isCommand(msg, "clear") {
-		key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
 		oldID := b.store.Get(key)
 		newID := b.store.Reset(key)
 		b.runner.ForgetLiveSession(oldID)
@@ -119,9 +191,38 @@ func (b *Bot) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbo
 		b.log.Info("telegram: session cleared", "old", oldID, "new", newID, "user", userID)
 		return
 	}
+	if isCommand(msg, "start") {
+		reply(bot, chatID, msg.MessageID,
+			"👋 Hi! I'm Coddy — an AI coding assistant.\n\nJust send me your question or task. Use /help to see available commands.")
+		return
+	}
+	if isCommand(msg, "help") {
+		reply(bot, chatID, msg.MessageID,
+			"*Available commands:*\n\n"+
+				"/start — greeting and quick intro\n"+
+				"/mode — switch session mode (agent / plan)\n"+
+				"/model — switch LLM model\n"+
+				"/context — show context window usage\n"+
+				"/clear — start a new session (forgets previous context)\n"+
+				"/help — show this message\n\n"+
+				"In group chats mention me (@"+b.botName+") or reply to my message to talk to me.")
+		return
+	}
+	if isCommand(msg, "mode") {
+		b.handleModeCommand(ctx, bot, msg, key)
+		return
+	}
+	if isCommand(msg, "model") {
+		b.handleModelCommand(ctx, bot, msg, key)
+		return
+	}
+	if isCommand(msg, "context") {
+		b.handleContextCommand(ctx, bot, msg, key)
+		return
+	}
 
-	// --- Skip empty or command-only messages ---
-	if text == "" || (msg.IsCommand() && msg.Command() != "start") {
+	// --- Skip other commands and empty messages ---
+	if text == "" || msg.IsCommand() {
 		return
 	}
 
@@ -132,7 +233,6 @@ func (b *Bot) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbo
 	}
 
 	// --- Get or create session ---
-	key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
 	sessionID := b.store.Get(key)
 
 	ctx2, cancel := context.WithTimeout(ctx, 10*time.Minute)
@@ -145,6 +245,11 @@ func (b *Bot) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbo
 		return
 	}
 
+	// Show "typing…" in the chat header while the agent prepares its first response.
+	if _, err := bot.Request(tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)); err != nil {
+		b.log.Debug("telegram: typing action", "err", err)
+	}
+
 	sender := newSender(bot, chatID, msg.MessageID, b.log)
 
 	_, err = b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
@@ -154,16 +259,19 @@ func (b *Bot) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbo
 	sender.Flush()
 
 	if err != nil {
-		b.log.Warn("telegram: agent error", "err", err, "session", sessionID)
+		b.log.Warn("telegram: agent error", "err", err, "session", st.GetID())
 		reply(bot, chatID, msg.MessageID, "❌ Agent error: "+err.Error())
 	}
 }
 
 // shouldRespond checks whether the bot should process a group message.
-// It responds to: direct @-mentions, replies to the bot, and /clear command.
+// It responds to: built-in commands, direct @-mentions, and replies to the bot.
 func (b *Bot) shouldRespond(msg *tgbotapi.Message, text string) bool {
-	if isCommand(msg, "clear") {
-		return true
+	if msg.IsCommand() {
+		switch strings.ToLower(msg.Command()) {
+		case "clear", "start", "help", "mode", "model", "context":
+			return true
+		}
 	}
 	if strings.Contains(text, "@"+b.botName) {
 		return true

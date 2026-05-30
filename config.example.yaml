@@ -157,6 +157,8 @@ tools:
 #   telegram:
 #     enabled: false
 #     token: "${TELEGRAM_BOT_TOKEN}"   # never hard-code; use env var
+#     # proxy: "socks5h://127.0.0.1:1080"  # optional outbound proxy (http, https, socks5, socks5h)
+#     # proxy: "http://proxy.example.com:3128"
 #     admins: [98874093]               # Telegram user IDs with elevated rights
 #     default_access: "all"           # all | admins | group:<name>
 #     default_isolation: "individual" # individual | shared | admin

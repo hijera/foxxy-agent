@@ -4,25 +4,37 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+const (
+	// draftInterval is how often sendMessageDraft is called while tokens stream in.
+	draftInterval = 2 * time.Second
+	// typingInterval is how often the "typing…" action is refreshed (Telegram shows it for 5s).
+	typingInterval = 4 * time.Second
+)
+
 // Sender implements acp.UpdateSender and streams agent output back to a Telegram chat.
-// Text chunks are buffered and sent as a single message via Flush.
+// While the agent runs it sends periodic sendMessageDraft previews so the user sees
+// the response building up in real time. Flush() sends the final persistent message.
 type Sender struct {
 	bot     *tgbotapi.BotAPI
 	chatID  int64
-	replyTo int // original user message ID for the first reply
+	replyTo int // original user message ID used for the first reply
 
 	log *slog.Logger
 
-	mu  sync.Mutex
-	buf strings.Builder
+	mu          sync.Mutex
+	buf         strings.Builder
+	lastTyping  time.Time
+	lastDraft   time.Time
 }
 
 func newSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, log *slog.Logger) *Sender {
@@ -36,10 +48,27 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		if u.Content.Type == acp.ContentTypeText {
 			s.mu.Lock()
 			s.buf.WriteString(u.Content.Text)
+			text := s.buf.String()
+			now := time.Now()
+			wantDraft := now.Sub(s.lastDraft) >= draftInterval
+			wantTyping := now.Sub(s.lastTyping) >= typingInterval
+			if wantDraft {
+				s.lastDraft = now
+			}
+			if wantTyping {
+				s.lastTyping = now
+			}
 			s.mu.Unlock()
+
+			if wantTyping {
+				s.sendTyping()
+			}
+			if wantDraft {
+				s.sendDraft(text)
+			}
 		}
+
 	case acp.ToolCallUpdate:
-		// Show brief tool activity indicator.
 		title := u.Title
 		if title == "" {
 			title = u.Kind
@@ -47,7 +76,15 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		if title != "" {
 			s.mu.Lock()
 			s.buf.WriteString("\n⚙️ " + title + "…\n")
+			now := time.Now()
+			wantTyping := now.Sub(s.lastTyping) >= typingInterval
+			if wantTyping {
+				s.lastTyping = now
+			}
 			s.mu.Unlock()
+			if wantTyping {
+				s.sendTyping()
+			}
 		}
 	}
 	return nil
@@ -66,7 +103,8 @@ func (s *Sender) RequestQuestion(_ context.Context, params acp.QuestionRequestPa
 	return &acp.QuestionResult{}, nil
 }
 
-// Flush sends all accumulated text to Telegram. Call after the agent turn completes.
+// Flush sends all accumulated text as a final persistent message.
+// Call after the agent turn completes.
 func (s *Sender) Flush() {
 	s.mu.Lock()
 	text := s.buf.String()
@@ -79,22 +117,66 @@ func (s *Sender) Flush() {
 	_ = s.sendText(text)
 }
 
+// sendTyping refreshes the "typing…" indicator in the chat header.
+func (s *Sender) sendTyping() {
+	if _, err := s.bot.Request(tgbotapi.NewChatAction(s.chatID, tgbotapi.ChatTyping)); err != nil {
+		s.log.Debug("telegram: typing action", "err", err)
+	}
+}
+
+// sendDraft calls the Bot API sendMessageDraft method (available since Bot API 9.3)
+// to show an animated preview of the response as it streams in.
+// Errors are non-fatal: old clients or unsupported chat types will fall back
+// to the final sendMessage from Flush().
+func (s *Sender) sendDraft(text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	params := tgbotapi.Params{
+		"chat_id": fmt.Sprintf("%d", s.chatID),
+		"text":    truncate(text, 4096),
+	}
+	s.mu.Lock()
+	replyTo := s.replyTo
+	s.mu.Unlock()
+	if replyTo != 0 {
+		// reply_parameters is a JSON object (introduced in Bot API 6.0).
+		params["reply_parameters"] = fmt.Sprintf(`{"message_id":%d}`, replyTo)
+	}
+	if _, err := s.bot.MakeRequest("sendMessageDraft", params); err != nil {
+		s.log.Debug("telegram: sendMessageDraft", "err", err)
+	}
+}
+
 func (s *Sender) sendText(text string) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
 	for _, chunk := range splitMessage(text, 4096) {
 		msg := tgbotapi.NewMessage(s.chatID, chunk)
+		s.mu.Lock()
 		if s.replyTo != 0 {
 			msg.ReplyToMessageID = s.replyTo
 			s.replyTo = 0
 		}
+		s.mu.Unlock()
 		if _, err := s.bot.Send(msg); err != nil {
 			s.log.Warn("telegram send failed", "err", err)
 			return err
 		}
 	}
 	return nil
+}
+
+// truncate returns the first n bytes of s, cutting cleanly on a UTF-8 boundary.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && s[n]&0xC0 == 0x80 {
+		n--
+	}
+	return s[:n]
 }
 
 func splitMessage(text string, limit int) []string {
