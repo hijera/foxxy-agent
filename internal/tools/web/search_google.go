@@ -55,8 +55,8 @@ func defaultGoogleSearch(ctx context.Context, query string, page, maxResults int
 	return parseGoogleResults(body, maxResults)
 }
 
-// parseGoogleResults extracts organic search result links from Google's HTML response.
-// It locates <a> elements that contain an <h3> child — Google's stable pattern for result titles.
+// parseGoogleResults extracts organic results from Google's HTML response.
+// Locates <a> elements containing an <h3> — Google's stable pattern for result titles.
 func parseGoogleResults(body []byte, maxResults int) ([]googleResult, error) {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
@@ -75,11 +75,8 @@ func parseGoogleResults(body []byte, maxResults int) ([]googleResult, error) {
 				if actualURL != "" && !isGoogleDomain(actualURL) {
 					title := strings.TrimSpace(htmlText(h3))
 					if title != "" {
-						results = append(results, googleResult{
-							Title: title,
-							URL:   actualURL,
-						})
-						return // do not recurse into this subtree
+						results = append(results, googleResult{Title: title, URL: actualURL})
+						return
 					}
 				}
 			}
@@ -92,8 +89,8 @@ func parseGoogleResults(body []byte, maxResults int) ([]googleResult, error) {
 	return results, nil
 }
 
-// decodeGoogleHref converts a raw href attribute value into an absolute URL.
-// Google wraps organic result links as /url?q=<encoded-url>&...; this decodes them.
+// decodeGoogleHref converts a raw href to an absolute URL.
+// Google wraps organic results as /url?q=<encoded-url>&...; this decodes them.
 func decodeGoogleHref(href string) string {
 	if strings.HasPrefix(href, "/url?") {
 		u, err := url.Parse(href)
@@ -112,55 +109,14 @@ func decodeGoogleHref(href string) string {
 	return ""
 }
 
-// isGoogleDomain reports whether rawURL belongs to a Google-owned domain that
-// should be excluded from organic search results.
+// isGoogleDomain reports whether rawURL belongs to a Google-owned domain.
 func isGoogleDomain(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return true
 	}
-	host := strings.ToLower(u.Hostname())
-	host = strings.TrimPrefix(host, "www.")
+	host := strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
 	return host == "google.com" ||
 		strings.HasPrefix(host, "google.") ||
 		strings.HasSuffix(host, ".google.com")
-}
-
-// findElement returns the first descendant (or self) with the given tag name.
-func findElement(root *html.Node, tag string) *html.Node {
-	if root.Type == html.ElementNode && root.Data == tag {
-		return root
-	}
-	for c := root.FirstChild; c != nil; c = c.NextSibling {
-		if found := findElement(c, tag); found != nil {
-			return found
-		}
-	}
-	return nil
-}
-
-// htmlText returns the concatenated text content of a node and all its descendants.
-func htmlText(n *html.Node) string {
-	var b strings.Builder
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.TextNode {
-			b.WriteString(n.Data)
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(n)
-	return b.String()
-}
-
-// htmlAttr returns the value of the named attribute, or "" if absent.
-func htmlAttr(n *html.Node, key string) string {
-	for _, a := range n.Attr {
-		if a.Key == key {
-			return a.Val
-		}
-	}
-	return ""
 }
