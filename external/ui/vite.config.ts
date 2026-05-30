@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -7,6 +8,7 @@ const backend = (process.env.CODDY_UI_BACKEND || "").trim();
 
 export default defineConfig({
   root: "src",
+  publicDir: path.resolve(import.meta.dirname, "public"),
   plugins: [react()],
   test: {
     environment: "jsdom",

@@ -18,3 +18,14 @@ const patched = html
 await writeFile(path.join(uiRoot, "index.html"), patched);
 await cp(path.join(dist, "styles.css"), path.join(uiRoot, "styles.css"));
 await cp(path.join(dist, "app.js"), path.join(uiRoot, "app.js"));
+
+const docsAssets = path.join(uiRoot, "..", "..", "docs", "assets");
+const faviconFiles = [
+  ["coddy-logo-mark-flat.svg", "coddy-favicon.svg"],
+  ["favicon-32.png", "favicon-32.png"],
+  ["favicon.ico", "favicon.ico"],
+  ["apple-touch-icon.png", "apple-touch-icon.png"],
+];
+for (const [srcName, destName] of faviconFiles) {
+  await cp(path.join(docsAssets, srcName), path.join(uiRoot, destName));
+}

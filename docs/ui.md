@@ -8,6 +8,7 @@ This page captures the original UI requirements and the intended end state. It i
 - Runtime has no auth and no API key checks for the UI.
 - UI must work over the same origin as `coddy http`.
 - UI copy is English.
+- Favicon matches [coddy.dev](https://coddy.dev/) (**`/coddy-favicon.svg`**, same mark as **`docs/assets/coddy-logo-mark-flat.svg`**, plus PNG/ICO fallbacks embedded with the SPA).
 
 ## Appearance (light / dark theme)
 

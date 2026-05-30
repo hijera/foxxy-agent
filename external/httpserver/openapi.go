@@ -29,7 +29,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as coddy http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`** set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as coddy http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
 		"paths": map[string]interface{}{
