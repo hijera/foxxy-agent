@@ -12,6 +12,7 @@ import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 
 /** True while the main-model thinking row above assistant text is streaming for this memory row's turn (same bubble as memory). */
@@ -27,8 +28,15 @@ function mainThinkingOverlapsMemory(
   return false;
 }
 
+function hasStreamingAssistant(items: TranscriptItem[]): boolean {
+  return items.some(
+    (it) => it.type === "assistant_message" && it.streaming === true,
+  );
+}
+
 export function MessageList(props: {
   items: TranscriptItem[];
+  generating?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
   onQuestionPromptResolved?: (
     sessionId: string,
@@ -242,6 +250,9 @@ export function MessageList(props: {
           />
         );
       })}
+      {props.generating === true && !hasStreamingAssistant(props.items) ? (
+        <TypingDotsMessage />
+      ) : null}
     </>
   );
 }

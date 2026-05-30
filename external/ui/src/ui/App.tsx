@@ -742,7 +742,7 @@ export function App() {
     void refreshSessionStats(sid);
     const timer = window.setInterval(() => {
       void refreshSessionStats(sid);
-    }, 1500);
+    }, 800);
     return () => window.clearInterval(timer);
   }, [sessionId, generating, refreshSessionStats]);
 
@@ -2413,7 +2413,6 @@ export function App() {
       }
       if (viewingNow === streamKey) {
         setTokenUsage(null);
-        setContextBreakdown(null);
       }
 
       const reqBody: Record<string, unknown> = {

@@ -37,12 +37,12 @@ func defaultDDGSearch(ctx context.Context, params *ddgsearch.SearchParams) (*ddg
 	return c.Search(ctx, params)
 }
 
-// WebSearchTool returns the websearch built-in tool (DuckDuckGo text search).
+// WebSearchTool returns the websearch built-in tool (DuckDuckGo + Google HTML, parallel, merged).
 func WebSearchTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "websearch",
-			Description: "Search the public web via DuckDuckGo. Returns titles, URLs, and short snippets. Use page for pagination (about 10 results per page). If results are thin, rephrase the query 1-3 times before giving up.",
+			Description: "Search the public web. Queries DuckDuckGo and Google simultaneously, merges results (DDG first, duplicates removed). Returns titles, URLs, and short snippets. Use page for pagination (about 10 results per page). If results are thin, rephrase the query 1-3 times before giving up.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -93,46 +93,104 @@ func executeSearchWeb(ctx context.Context, argsJSON string, _ *tooling.Env) (str
 	if maxRes > 25 {
 		maxRes = 25
 	}
-	params := &ddgsearch.SearchParams{
-		Query:      q,
-		Page:       page,
-		MaxResults: maxRes,
+
+	// Fire both backends in parallel.
+	type ddgOut struct {
+		resp *ddgsearch.SearchResponse
+		err  error
 	}
-	fn := ddgSearchFunc
-	if fn == nil {
-		fn = defaultDDGSearch
+	type gOut struct {
+		rows []googleResult
+		err  error
 	}
-	resp, err := fn(ctx, params)
-	if err != nil {
-		return "", err
+	ddgCh := make(chan ddgOut, 1)
+	gCh := make(chan gOut, 1)
+
+	ddgFn := ddgSearchFunc
+	if ddgFn == nil {
+		ddgFn = defaultDDGSearch
 	}
+	go func() {
+		resp, err := ddgFn(ctx, &ddgsearch.SearchParams{
+			Query:      q,
+			Page:       page,
+			MaxResults: maxRes,
+		})
+		ddgCh <- ddgOut{resp, err}
+	}()
+
+	gFn := googleSearchFunc
+	if gFn == nil {
+		gFn = defaultGoogleSearch
+	}
+	go func() {
+		rows, err := gFn(ctx, q, page, maxRes)
+		gCh <- gOut{rows, err}
+	}()
+
+	ddgR := <-ddgCh
+	gR := <-gCh
+
+	// Both backends errored — nothing to return.
+	if ddgR.err != nil && gR.err != nil {
+		return "", fmt.Errorf("search failed (ddg: %w; google: %v)", ddgR.err, gR.err)
+	}
+
+	// Merge with URL deduplication; DDG results are listed first.
 	type row struct {
 		Title       string `json:"title"`
 		URL         string `json:"url"`
 		Description string `json:"description"`
 	}
+	seen := make(map[string]bool)
+	var rows []row
+
+	if ddgR.err == nil && ddgR.resp != nil {
+		for _, r := range ddgR.resp.Results {
+			u := strings.TrimSpace(r.URL)
+			if u != "" && !seen[u] {
+				seen[u] = true
+				rows = append(rows, row{
+					Title:       strings.TrimSpace(r.Title),
+					URL:         u,
+					Description: strings.TrimSpace(r.Description),
+				})
+			}
+		}
+	}
+	if gR.err == nil {
+		for _, r := range gR.rows {
+			if r.URL != "" && !seen[r.URL] {
+				seen[r.URL] = true
+				rows = append(rows, row{
+					Title:       r.Title,
+					URL:         r.URL,
+					Description: r.Snippet,
+				})
+			}
+		}
+	}
+
+	if len(rows) > maxRes {
+		rows = rows[:maxRes]
+	}
+
 	out := struct {
 		Query       string `json:"query"`
 		Page        int    `json:"page"`
 		HasMoreHint string `json:"has_more_hint,omitempty"`
 		Results     []row  `json:"results"`
 	}{
-		Query: q,
-		Page:  page,
+		Query:   q,
+		Page:    page,
+		Results: rows,
 	}
-	if len(resp.Results) >= maxRes || (len(resp.Results) > 0 && !resp.NoResults) {
+	if len(rows) == 0 {
+		out.HasMoreHint = "No results; try rephrasing the query."
+	} else if len(rows) >= maxRes {
 		out.HasMoreHint = "If you need more links, call websearch again with page incremented or a refined query."
 	}
-	for _, r := range resp.Results {
-		out.Results = append(out.Results, row{
-			Title:       strings.TrimSpace(r.Title),
-			URL:         strings.TrimSpace(r.URL),
-			Description: strings.TrimSpace(r.Description),
-		})
-	}
-	if resp.NoResults && len(out.Results) == 0 {
-		out.HasMoreHint = "No results; try rephrasing the query."
-	}
+
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return "", err

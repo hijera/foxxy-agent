@@ -265,6 +265,7 @@ export function ChatScreen(props: {
               <MessageList
                 items={props.items}
                 sessionId={props.sessionId}
+                generating={props.generating === true}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
                   : {})}
