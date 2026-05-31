@@ -44,6 +44,23 @@ test("copy sends raw user text not display-only slash chip source", () => {
   expect(writeText).toHaveBeenCalledWith("hi /demo there");
 });
 
+test("edit button is absent when onEdit is not provided", () => {
+  render(<UserMessage content="hello" />);
+  expect(screen.queryByTestId("user-message-edit")).toBeNull();
+});
+
+test("edit button is visible when onEdit is provided", () => {
+  render(<UserMessage content="hello" onEdit={vi.fn()} />);
+  expect(screen.getByTestId("user-message-edit")).toBeInTheDocument();
+});
+
+test("edit button calls onEdit with message content", () => {
+  const onEdit = vi.fn();
+  render(<UserMessage content="edit me" onEdit={onEdit} />);
+  screen.getByTestId("user-message-edit").click();
+  expect(onEdit).toHaveBeenCalledWith("edit me");
+});
+
 test("persisted hydrated attachments render as compact @ paths", () => {
   const blob =
     "read this\n\n" +

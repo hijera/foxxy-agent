@@ -60,6 +60,7 @@ import {
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
+import { injectBranchNavItems, type BranchPointData } from "./chat/branchInject";
 import { NavRail } from "./nav/NavRail";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
@@ -582,6 +583,8 @@ export function App() {
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
+  const [editingUserMsgIdx, setEditingUserMsgIdx] = useState<number | null>(null);
+  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(null);
   const [draft, setDraft] = useState("");
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
@@ -1877,15 +1880,30 @@ export function App() {
       streamShadowBySidRef.current.set(sid, applied);
       return applied;
     }
-    streamShadowBySidRef.current.set(sid, applied);
+
+    // Fetch branch points and inject branch_nav items if any exist.
+    let withBranches = applied;
+    try {
+      const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
+        `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
+        { headers: sid === sessionId ? headers : { [HDR]: sid } },
+      );
+      if (brRes.ok && brRes.data?.branchPoints?.length) {
+        withBranches = injectBranchNavItems(applied, brRes.data.branchPoints);
+      }
+    } catch {
+      // ignore — branch nav is optional
+    }
+
+    streamShadowBySidRef.current.set(sid, withBranches);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
     }
     setSessionFadingOut(false);
-    setItems(applied);
+    setItems(withBranches);
     setSessionLoading(false);
-    return applied;
+    return withBranches;
   }
 
   function persistComposerDraftBeforeLeave() {
@@ -2007,11 +2025,42 @@ export function App() {
     await loadSessionsList(true);
   }
 
+  async function handleBranchSend(text: string, userMsgIdx: number) {
+    const sourceSid = sessionId.trim();
+    if (!sourceSid) return;
+    let data: { newSessionId?: string } = {};
+    try {
+      const res = await fetch(
+        `/coddy/sessions/${encodeURIComponent(sourceSid)}/branches`,
+        {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ userMessageIndex: userMsgIdx }),
+        },
+      );
+      if (!res.ok) return;
+      data = (await res.json()) as { newSessionId?: string };
+    } catch {
+      return;
+    }
+    const newSid = (data.newSessionId || "").trim();
+    if (!newSid) return;
+    pendingBranchSendRef.current = { text, sid: newSid };
+    pickSession(newSid);
+  }
+
   useEffect(() => {
     if (!sessionId) {
       setItems([]);
       setSessionLoading(false);
       void loadSessionsList(true);
+      return;
+    }
+    const pending = pendingBranchSendRef.current;
+    if (pending && pending.sid === sessionId) {
+      pendingBranchSendRef.current = null;
+      setSessionLoading(false);
+      void streamResponses(pending.text);
       return;
     }
     setTokenUsage(null);
@@ -3070,6 +3119,11 @@ export function App() {
               ),
             );
           }}
+          onEdit={(content, userMsgIdx) => {
+            setDraft(content);
+            setEditingUserMsgIdx(userMsgIdx);
+          }}
+          onBranchSwitch={(sid) => pickSession(sid)}
           onSend={(text: string) => {
             if (
               sessionId.trim() &&
@@ -3078,7 +3132,13 @@ export function App() {
               return;
             }
             setDraft("");
-            void streamResponses(text);
+            if (editingUserMsgIdx !== null) {
+              const idx = editingUserMsgIdx;
+              setEditingUserMsgIdx(null);
+              void handleBranchSend(text, idx);
+            } else {
+              void streamResponses(text);
+            }
           }}
           onFetchToolCallFull={async (toolCallId: string) => {
             if (!sessionId) return;

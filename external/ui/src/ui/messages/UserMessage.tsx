@@ -5,7 +5,12 @@ import {
 } from "./formatMessageTime";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 
-export function UserMessage(props: { content: string; createdAtUtc?: string }) {
+export function UserMessage(props: {
+  content: string;
+  createdAtUtc?: string;
+  /** Called when the user clicks the Edit button. */
+  onEdit?: (content: string) => void;
+}) {
   const display = stripCoddyAttachmentsForUserDisplay(props.content);
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
@@ -16,10 +21,22 @@ export function UserMessage(props: { content: string; createdAtUtc?: string }) {
       : "";
   return (
     <div className="msg-user-stack">
-      <div className="msg msg-user">
+      <div className="msg msg-user msg-user--editable">
         <div className="msg-user-body" data-testid="user-message-body">
           {display}
         </div>
+        {props.onEdit ? (
+          <button
+            type="button"
+            className="msg-user-edit"
+            aria-label="Edit message"
+            title="Edit message"
+            data-testid="user-message-edit"
+            onClick={() => props.onEdit!(props.content)}
+          >
+            ✎
+          </button>
+        ) : null}
       </div>
       <div className="msg-user-foot">
         <MessageCopyIconButton

@@ -76,6 +76,8 @@ export function ChatScreen(props: {
   onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
+  onEdit?: (content: string, userMsgIdx: number) => void;
+  onBranchSwitch?: (sessionId: string) => void;
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
 }) {
@@ -286,6 +288,10 @@ export function ChatScreen(props: {
                   : {})}
                 {...(props.onPlanDocumentDiscard
                   ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
+                  : {})}
+                {...(props.onEdit ? { onEdit: props.onEdit } : {})}
+                {...(props.onBranchSwitch
+                  ? { onBranchSwitch: props.onBranchSwitch }
                   : {})}
               />
             </div>

@@ -336,6 +336,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if req.Stream {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
 		}
+		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    prompt,
@@ -357,6 +358,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		s.captureAndStoreTurnDiff(st, beforeSnap)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if req.Stream {
 			_ = bridge.FinishStreamWithMetadata(meta)
@@ -655,6 +657,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		if body.Stream {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
 		}
+		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
@@ -676,6 +679,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		s.captureAndStoreTurnDiff(st, beforeSnap2)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
 		if body.Stream {
 			_ = bridge.FinishStreamWithMetadata(meta)
