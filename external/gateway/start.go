@@ -5,6 +5,7 @@ package gateway
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/telegram"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -16,7 +17,8 @@ func Start(ctx context.Context, cfg *config.Config, mgr *session.Manager, log *s
 	var adapters []Adapter
 
 	if cfg.Gateways.Telegram.Enabled {
-		bot := telegram.New(&cfg.Gateways.Telegram, mgr, defaultCWD, log)
+		storePath := filepath.Join(cfg.ResolvedSessionsRoot(), "gateway_sessions.json")
+		bot := telegram.New(&cfg.Gateways.Telegram, mgr, defaultCWD, log, storePath)
 		adapters = append(adapters, bot)
 	}
 

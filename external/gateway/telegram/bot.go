@@ -52,18 +52,27 @@ type Bot struct {
 
 	mu      sync.Mutex
 	workers map[string]chan workerJob // session key → sequential job queue
+
+	seenSessions sync.Map // tracks sessions that already received the formatting hint
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
-func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, log *slog.Logger) *Bot {
-	return &Bot{
+// storePath is an optional path for persisting session IDs across restarts; pass "" for in-memory only.
+func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, log *slog.Logger, storePath string) *Bot {
+	store := sessionstore.NewPersisted(storePath)
+	b := &Bot{
 		cfg:     cfg,
 		runner:  runner,
 		cwd:     cwd,
 		log:     log,
-		store:   sessionstore.New(),
+		store:   store,
 		workers: make(map[string]chan workerJob),
 	}
+	// Pre-populate seenSessions so a restart doesn't re-inject the formatting hint into existing sessions.
+	for _, id := range store.KnownIDs() {
+		b.seenSessions.Store(id, struct{}{})
+	}
+	return b
 }
 
 // Name satisfies gateway.Adapter.
@@ -250,17 +259,46 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		b.log.Debug("telegram: typing action", "err", err)
 	}
 
+	// On the first message of a new session, prepend the Telegram formatting hint
+	// so the agent knows to use Telegram-compatible markdown in its replies.
+	promptText := text
+	_, alreadySeen := b.seenSessions.LoadOrStore(st.GetID(), struct{}{})
+	if !alreadySeen {
+		promptText = telegramFormattingHint + promptText
+	}
+
+	b.log.Debug("telegram: prompt turn",
+		"session", st.GetID(),
+		"user", userID,
+		"chat", chatID,
+		"first_turn", !alreadySeen,
+		"prompt_len", len(promptText),
+	)
+
 	sender := newSender(bot, chatID, msg.MessageID, b.log)
 
-	_, err = b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
+	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: promptText}},
 	}, sender, nil)
 	sender.Flush()
 
+	stopReason := ""
+	if result != nil {
+		stopReason = string(result.StopReason)
+	}
 	if err != nil {
-		b.log.Warn("telegram: agent error", "err", err, "session", st.GetID())
+		b.log.Warn("telegram: agent error",
+			"err", err,
+			"session", st.GetID(),
+			"stop_reason", stopReason,
+		)
 		reply(bot, chatID, msg.MessageID, "❌ Agent error: "+err.Error())
+	} else {
+		b.log.Debug("telegram: agent turn done",
+			"session", st.GetID(),
+			"stop_reason", stopReason,
+		)
 	}
 }
 
