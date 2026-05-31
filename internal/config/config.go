@@ -14,6 +14,9 @@ func LoadFromCLI(cli CLIPaths) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Load $CODDY_HOME/.env before config.yaml is parsed so that ${VAR} references in YAML see the values.
+	// Existing process environment always takes precedence over .env.
+	loadDotEnv(paths.Home)
 	explicitConfig := strings.TrimSpace(cli.Config) != ""
 	if !explicitConfig {
 		if _, err := os.Stat(paths.ConfigPath); errors.Is(err, os.ErrNotExist) {
@@ -59,13 +62,13 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
-		rec, rerr := tryRecoverFromLastGood(paths)
+		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
 			return rec, nil
 		}
 		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
-	_ = WriteLastGoodAtomic(paths.ConfigPath, originalData)
+	_ = WriteBackup(paths.ConfigPath, originalData)
 	return cfg, nil
 }
 
@@ -98,6 +101,10 @@ func validateSubconfigs(cfg *Config) error {
 		return fmt.Errorf("scheduler: %w", err)
 	}
 	cfg.HTTPServer.Normalize()
+	cfg.Gateways.Telegram.Normalize()
+	if err := cfg.Gateways.Telegram.Validate(); err != nil {
+		return fmt.Errorf("gateways.telegram: %w", err)
+	}
 	if err := cfg.HTTPServer.Validate(); err != nil {
 		return fmt.Errorf("httpserver: %w", err)
 	}
@@ -135,6 +142,9 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Scheduler.Normalize(p)
 	cfg.Scheduler.ApplyDefaults(p)
+
+	cfg.Gateways.Telegram.Normalize()
+	cfg.Gateways.Telegram.ApplyDefaults()
 
 	cfg.HTTPServer.Normalize()
 

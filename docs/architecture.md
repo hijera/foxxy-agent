@@ -14,50 +14,49 @@ That coding-agent surface is **a productized profile on top of the harness**, no
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        ACP client (editor)                      │
-│         (Cursor, Zed, coddy http UI, scripts, CI, other)        │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │  JSON-RPC 2.0 over stdio
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        ACP Server Layer                         │
-│  - initialize / session/new / session/prompt / session/cancel   │
-│  - session/update notifications                                 │
-│  - session/request_permission                                   │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Session Manager                            │
-│  - maintains per-session state (history, mode, context)         │
-│  - routes messages to the right ReAct loop                      │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      ReAct Agent Loop                           │
-│                                                                 │
-│   User Prompt                                                   │
-│       │                                                         │
-│       ▼                                                         │
-│   [THINK] LLM generates Thought + Action                        │
-│       │                                                         │
-│       ▼                                                         │
-│   [ACT]  Execute tool / write file / call MCP                   │
-│       │                                                         │
-│       ▼                                                         │
-│   [OBSERVE] Collect result, send session/update                 │
-│       │                                                         │
-│       └── loop back or [ANSWER] final response                  │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-         ┌─────────┐ ┌─────────┐ ┌──────────────┐
-         │  LLM    │ │  Tools  │ │  MCP Clients │
-         │Provider │ │Registry │ │  (external)  │
-         └─────────┘ └─────────┘ └──────────────┘
+┌──────────────────────────┐   ┌──────────────────────────────────┐
+│   ACP client (editor)    │   │  Messenger (Telegram, …)         │
+│  Cursor / Zed / scripts  │   │  (build tag: gateway.telegram    │
+└────────────┬─────────────┘   │             or gateway)          │
+             │ JSON-RPC 2.0    └──────────────┬───────────────────┘
+             │ over stdio                      │ long-polling
+             ▼                                 ▼
+┌────────────────────────┐    ┌────────────────────────────────────┐
+│   ACP Server Layer     │    │  Gateway Hub (external/gateway/)   │
+│  initialize            │    │  one goroutine per adapter         │
+│  session/new           │    │  auto-restart on error             │
+│  session/prompt        │    └──────────────┬─────────────────────┘
+│  session/cancel        │                   │
+└────────────┬───────────┘                   │
+             │                               │
+             └──────────────┬────────────────┘
+                            │
+                            ▼
+            ┌───────────────────────────────┐
+            │        Session Manager        │
+            │  per-session state, mode,     │
+            │  history, rules, skills       │
+            └───────────────┬───────────────┘
+                            │
+                            ▼
+            ┌───────────────────────────────┐
+            │      ReAct Agent Loop         │
+            │  [THINK] → [ACT] → [OBSERVE]  │
+            │  → loop or [ANSWER]           │
+            └──────┬──────────┬─────────────┘
+                   │          │
+        ┌──────────┘    ┌─────┴──────┐   ┌─────────────┐
+        ▼               ▼            ▼   ▼             │
+   ┌─────────┐    ┌──────────┐ ┌──────────────┐        │
+   │   LLM   │    │  Tools   │ │  MCP Clients │        │
+   │Provider │    │Registry  │ │  (external)  │        │
+   └─────────┘    └──────────┘ └──────────────┘        │
+                                               ┌────────┘
+                                               │
+                                    ┌──────────▼────────────┐
+                                    │  optional external/   │
+                                    │  memory  scheduler    │
+                                    └───────────────────────┘
 ```
 
 ## Component Descriptions
@@ -135,6 +134,33 @@ Agents see:
 
 `run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /coddy/sessions/{id}/question`**).
 
+### Messenger Gateway (`external/gateway`)
+
+The gateway is a separate process entry point (`coddy gateway`) that lets messenger bots (Telegram today, others via the same interface) drive the same session manager and ReAct loop used by `coddy acp` and `coddy http`.
+
+Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tags gateway`** (all adapters). Without these tags the `coddy gateway` subcommand is present but returns a "not compiled" error.
+
+**Key packages:**
+
+| Package | Role |
+|---------|------|
+| `external/gateway` | `Adapter` interface, `Hub`, `Start()` entry point |
+| `external/gateway/access` | Access control: `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` |
+| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; `Reset` on `/clear` |
+| `external/gateway/telegram` | `Bot` (polling, trigger rules, ACL), `Sender` (implements `acp.UpdateSender`) |
+
+**Data flow for one incoming message:**
+
+1. Adapter receives raw update, normalises it to `IncomingMessage`.
+2. `access.CanAccess` rejects the message if the user fails the configured access level.
+3. `sessionstore.SessionKey` derives a deterministic string key from gateway name, chat ID, user ID, and isolation mode.
+4. `store.Get(key)` returns the current Coddy session ID for that key (creating one on first use).
+5. `manager.EnsureHTTPSession` loads or creates the session bundle.
+6. `manager.HandleSessionPromptWithSender` runs the ReAct loop with the adapter's `Sender`.
+7. `sender.Flush()` sends accumulated text back to the chat.
+
+**Extending with a new adapter** — implement `gateway.Adapter`, add a `Sender` that satisfies `acp.UpdateSender`, tag files with `//go:build gateway || gateway.<name>`, append to `Start()`. See [`docs/gateway.md`](gateway.md) for the full walkthrough.
+
 ### Optional `external` tool packages (scheduler, memory)
 
 Some features live under **`external/`** and define tools that are **not** registered through **`internal/tools.NewRegistry`**, but still use the same **`internal/tooling.Tool`** shape as the core harness.
@@ -198,7 +224,11 @@ Top level after **`git clone`** (folder name is arbitrary; **`coddy-agent`** is 
 │   ├── memory/                  # long-term memory copilot (`-tags memory`)
 │   ├── httpserver/              # optional REST gateway (build tag http)
 │   ├── ui/                      # Vite SPA sources (embedded when built with http+ui)
-│   └── scheduler/               # optional cron runner (build tag scheduler)
+│   ├── scheduler/               # optional cron runner (build tag scheduler)
+│   └── gateway/                 # messenger gateway (build tag gateway | gateway.telegram)
+│       ├── access/              # ACL: CanAccess, EffectiveIsolation
+│       ├── sessionstore/        # chat/user → session ID mapping
+│       └── telegram/            # Telegram bot adapter (tgbotapi v5)
 ├── examples/                    # ACP and HTTP Python harnesses
 ├── docs/                        # guides (see docs/README.md)
 ├── Dockerfile

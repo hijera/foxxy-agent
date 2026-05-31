@@ -5,12 +5,16 @@
 #     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
 #     http     OpenAI-compatible gateway (coddy http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
-#     scheduler   cron scheduler daemon and tools (see external/scheduler/)
-#     memory   long-term memory copilot and /coddy memory REST (see external/memory/)
+#     scheduler       cron scheduler daemon and tools (see external/scheduler/)
+#     memory          long-term memory copilot and /coddy memory REST (see external/memory/)
+#     gateway.telegram  Telegram bot gateway only (coddy gateway; see external/gateway/)
+#     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
+#             make build TAGS="gateway.telegram"
+#             make build TAGS="http ui scheduler memory gateway"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 

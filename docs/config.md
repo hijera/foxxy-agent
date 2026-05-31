@@ -10,7 +10,7 @@ Resolved locations use environment variables and flags (see README). In short:
 
 If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
-When the primary file exists but is invalid (YAML parse or validation error), the loader may recover from **`config.lastgood.yaml`** in the same directory (see **`internal/config/recovery.go`**). After a successful load, the server refreshes **`config.lastgood.yaml`**. The HTTP **`PUT /coddy/config`** route (see **`docs/http-api.md`**) also maintains **`config.prev.yaml`** before overwriting the primary file.
+When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /coddy/config`** route (see **`docs/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
 The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
 
@@ -200,6 +200,105 @@ Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOM
 **`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
 
 When the scheduler is effectively enabled, **`coddy_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`coddy_scheduler_jobs_list`**, **`coddy_scheduler_job_get`**, **`coddy_scheduler_job_create`**, **`coddy_scheduler_job_replace`**, **`coddy_scheduler_job_patch`**, **`coddy_scheduler_job_delete`**, **`coddy_scheduler_job_pause`**, **`coddy_scheduler_job_resume`**, **`coddy_scheduler_job_run`**, **`coddy_scheduler_job_cancel`**, **`coddy_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/coddy/scheduler`** (see **`docs/http-api.md`**).
+
+## Messenger Gateway (`gateways`)
+
+Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). The `coddy gateway` subcommand reads this block.
+
+```yaml
+# Messenger gateways (external/gateway/; build with -tags gateway.telegram or -tags gateway).
+# Full guide: docs/gateway.md
+gateways:
+  telegram:
+    # Set to true to activate the Telegram adapter when coddy gateway starts.
+    enabled: false
+
+    # Bot token from @BotFather. Never hard-code; always use an env reference.
+    token: "${TELEGRAM_BOT_TOKEN}"
+
+    # Optional outbound proxy for Telegram API requests (http, https, socks5, socks5h).
+    # proxy: "socks5h://127.0.0.1:1080"
+
+    # Telegram user IDs with admin privileges.
+    # Admins bypass every access check and can always interact with the bot.
+    admins: []
+    # Example:
+    # admins: [98874093]
+
+    # Default access level for chats without a per-chat override.
+    #   "all"          - anyone who can write to the chat
+    #   "admins"       - only user IDs listed in admins
+    #   "group:<name>" - only users in the named user_groups entry (admins always pass)
+    default_access: "all"
+
+    # Default session isolation mode for group chats without a per-chat override.
+    #   "individual"   - each group member gets their own session
+    #   "shared"       - all members share one session
+    #   "admin"        - only admins can interact; all admins share one session
+    default_isolation: "individual"
+
+    # Named sets of user IDs for group-based access control.
+    user_groups: []
+    # Example:
+    # user_groups:
+    #   - name: "devs"
+    #     user_ids: [111222333, 444555666]
+
+    # Per-chat overrides. chat_id is negative for groups and supergroups.
+    chats: []
+    # Example:
+    # chats:
+    #   - chat_id: -1001234567890
+    #     isolation: "individual"
+    #     access: "all"
+    #   - chat_id: -1009876543210
+    #     isolation: "admin"
+    #     access: "admins"
+```
+
+`token` is validated at startup when `enabled: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+
+See **[docs/gateway.md](gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
+
+## `.env` file
+
+If **`$CODDY_HOME/.env`** exists, it is read at startup **before** `config.yaml` is parsed. This lets you keep all secrets in one place without touching shell profiles or Docker compose environment blocks.
+
+```sh
+# ~/.coddy/.env
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+TELEGRAM_BOT_TOKEN=8992982910:AAF...
+```
+
+Then in `config.yaml` reference them as usual:
+
+```yaml
+providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
+```
+
+**Rules:**
+
+- Variables that are **already set** in the process environment are **never overridden** — the process environment always wins. `.env` is a fallback only.
+- A missing `.env` is silently ignored (not an error).
+- The file is resolved relative to the effective `CODDY_HOME` (`~/.coddy` by default, or the path from `--home` / `CODDY_HOME` env var).
+
+**Supported syntax:**
+
+| Line form | Example |
+|-----------|---------|
+| `KEY=value` | `OPENAI_API_KEY=sk-abc` |
+| `export KEY=value` | `export DEBUG=true` |
+| Double-quoted value | `MSG="hello world"` |
+| Single-quoted value | `PATH='no escape \n here'` |
+| Escape sequences in `"…"` | `NOTE="line1\nline2"` → real newline |
+| Inline comment (unquoted) | `KEY=val # this is ignored` |
+| Comment line | `# full-line comment` |
+
+Values already in the process environment (e.g. set by the shell, Docker, systemd) take priority and are never changed by `.env`.
 
 ## Environment Variable References
 

@@ -18,4 +18,5 @@ type Config struct {
 	Memory     MemoryConfig      `yaml:"memory"`
 	HTTPServer HTTPServerConfig  `yaml:"httpserver"`
 	Scheduler  SchedulerConfig   `yaml:"scheduler"`
+	Gateways   GatewayConfig     `yaml:"gateways"`
 }
