@@ -2028,7 +2028,15 @@ export function App() {
   async function handleBranchSend(text: string, userMsgIdx: number) {
     const sourceSid = sessionId.trim();
     if (!sourceSid) return;
-    let data: { newSessionId?: string } = {};
+
+    const showBranchError = (msg: string) => {
+      applyStreamItemsForSession(sourceSid, (prev) => [
+        ...prev,
+        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg },
+      ]);
+    };
+
+    let data: { newSessionId?: string; error?: { message?: string } } = {};
     try {
       const res = await fetch(
         `/coddy/sessions/${encodeURIComponent(sourceSid)}/branches`,
@@ -2038,20 +2046,34 @@ export function App() {
           body: JSON.stringify({ userMessageIndex: userMsgIdx }),
         },
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        let errMsg = `Branch creation failed (${res.status})`;
+        try {
+          const body = (await res.json()) as { error?: { message?: string } };
+          if (body?.error?.message) errMsg = body.error.message;
+        } catch { /* ignore */ }
+        showBranchError(errMsg);
+        return;
+      }
       data = (await res.json()) as { newSessionId?: string };
-    } catch {
+    } catch (err) {
+      showBranchError(`Branch creation error: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     const newSid = (data.newSessionId || "").trim();
-    if (!newSid) return;
+    if (!newSid) {
+      showBranchError("Branch creation returned no session ID");
+      return;
+    }
     pendingBranchSendRef.current = { text, sid: newSid };
     pickSession(newSid);
   }
 
   useEffect(() => {
+    setEditingUserMsgIdx(null);
     if (!sessionId) {
       setItems([]);
+      setDraft("");
       setSessionLoading(false);
       void loadSessionsList(true);
       return;
@@ -2063,6 +2085,7 @@ export function App() {
       void streamResponses(pending.text);
       return;
     }
+    setDraft("");
     setTokenUsage(null);
     setContextBreakdown(null);
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };

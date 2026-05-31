@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
@@ -329,9 +328,4 @@ func TurnDiffsDir(sessionDir string) string {
 // This is called before persisting the next turn's diff so we match "after turn N" to the Nth user message.
 func TurnNumber(msgs []llm.Message) int {
 	return CountUserTurns(msgs)
-}
-
-// nowUTC returns an RFC3339 UTC timestamp.
-func nowUTC() string {
-	return time.Now().UTC().Format(time.RFC3339)
 }
