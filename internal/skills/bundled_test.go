@@ -11,7 +11,7 @@ func TestBundledIncludesGenerateRules(t *testing.T) {
 	if len(b) != 1 {
 		t.Fatalf("expected 1 bundled skill, got %d", len(b))
 	}
-	if skills.CanonicalCommandName(b[0]) != "coddy-generate-rules" {
+	if skills.CanonicalCommandName(b[0]) != "generate-rules" {
 		t.Fatalf("name %q", skills.CanonicalCommandName(b[0]))
 	}
 }
@@ -24,7 +24,7 @@ func TestLoadAllPrependsBundled(t *testing.T) {
 	}
 	found := false
 	for _, s := range all {
-		if skills.CanonicalCommandName(s) == "coddy-generate-rules" {
+		if skills.CanonicalCommandName(s) == "generate-rules" {
 			found = true
 			break
 		}

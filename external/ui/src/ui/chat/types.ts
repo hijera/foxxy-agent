@@ -85,6 +85,16 @@ export type TranscriptItem =
     }
   | {
       id: string;
+      type: "branch_nav";
+      /** 0-based index of the user message that this nav is attached to. */
+      userMessageIndex: number;
+      /** 0-based index of the branch currently being viewed. */
+      currentIndex: number;
+      total: number;
+      sessions: Array<{ sessionId: string; preview?: string }>;
+    }
+  | {
+      id: string;
       type: "memory_copilot";
       memoryRowId: string;
       userTurnIndex: number;

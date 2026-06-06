@@ -136,6 +136,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
 	s.registerSchedulerRoutes()
+	s.registerBranchRoutes()
 }
 
 func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Request) {

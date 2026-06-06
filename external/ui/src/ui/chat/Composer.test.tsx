@@ -168,6 +168,60 @@ test("send play disabled when input empty", () => {
     expect(onSend).toHaveBeenCalledWith("test input");
   });
 
+test("Tab key selects first slash command from picker", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      items: [{ name: "generate-rules", description: "Generate rules" }],
+      has_more: false,
+      page: 1,
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => { setValue(v); onChange(v); }}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, { target: { value: "/gen", selectionStart: 4, selectionEnd: 4 } });
+
+  await waitFor(() => {
+    expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeTruthy();
+  });
+
+  fireEvent.keyDown(ta, { key: "Tab", code: "Tab" });
+
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("/generate-rules ");
+  });
+  expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+  vi.unstubAllGlobals();
+});
+
 test("composer highlights only the active slash draft at caret", () => {
   const s = "asdfasf /find-skills asdfasdf";
   render(

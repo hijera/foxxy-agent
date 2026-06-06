@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
+import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
@@ -49,24 +50,55 @@ export function MessageList(props: {
     resolved: PermissionResolvedState,
   ) => void;
   sessionId?: string;
+  knownSkillNames?: Set<string>;
   onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
+  onEdit?: (content: string, userMsgIdx: number) => void;
+  onBranchSwitch?: (sessionId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
   );
 
+  const userMsgIndices = useMemo(() => {
+    const m = new Map<string, number>();
+    let idx = 0;
+    for (const it of props.items) {
+      if (it.type === "user_message") {
+        m.set(it.id, idx++);
+      }
+    }
+    return m;
+  }, [props.items]);
+
   return (
     <>
       {props.items.map((it, idx) => {
         if (it.type === "user_message") {
+          const myIdx = userMsgIndices.get(it.id) ?? 0;
           return (
             <UserMessage
               key={it.id}
               content={it.content}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
+              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+              {...(props.onEdit
+                ? { onEdit: (c) => props.onEdit!(c, myIdx) }
+                : {})}
+            />
+          );
+        }
+        if (it.type === "branch_nav") {
+          return (
+            <BranchNavigator
+              key={`${it.id}-${it.currentIndex}-${it.total}`}
+              userMessageIndex={it.userMessageIndex}
+              currentIndex={it.currentIndex}
+              total={it.total}
+              sessions={it.sessions}
+              onSwitch={(sid) => props.onBranchSwitch?.(sid)}
             />
           );
         }

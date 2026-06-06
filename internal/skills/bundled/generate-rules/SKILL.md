@@ -1,10 +1,11 @@
 ---
+name: generate-rules
 description: "Generate focused project rules under .coddy/rules from repository analysis"
 ---
 
 # Generate Coddy rules
 
-Use this skill when the user invokes `/coddy-generate-rules` to create or refresh project rules.
+Use this skill when the user invokes `/generate-rules` to create or refresh project rules.
 
 ## Workflow
 

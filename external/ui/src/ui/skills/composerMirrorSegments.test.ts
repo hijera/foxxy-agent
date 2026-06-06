@@ -58,3 +58,36 @@ test("completed @ mention chips file only when prose follows ASCII path", () => 
     { type: "text", value: " asdf asdf zxcv" },
   ]);
 });
+
+test("known skill chips completed /name when caret is elsewhere", () => {
+  const known = new Set(["generate-rules"]);
+  const s = "/generate-rules some follow-up text";
+  const caret = s.length;
+  const segs = segmentComposerMirrorSpans(s, caret, null, null, known);
+  expect(segs[0]).toEqual({
+    type: "slash",
+    literal: "/generate-rules",
+    name: "generate-rules",
+  });
+  expect(segs[1]).toEqual({ type: "text", value: " some follow-up text" });
+});
+
+test("unknown /name does not chip when not in known set", () => {
+  const known = new Set(["generate-rules"]);
+  const s = "/unknown-skill";
+  const caret = 0;
+  const segs = segmentComposerMirrorSpans(s, caret, null, null, known);
+  expect(segs).toEqual([{ type: "text", value: "/unknown-skill" }]);
+});
+
+test("known skill chip shows even after selection when caret is after space", () => {
+  const known = new Set(["generate-rules"]);
+  const s = "/generate-rules ";
+  const caret = s.length;
+  const segs = segmentComposerMirrorSpans(s, caret, null, null, known);
+  expect(segs[0]).toEqual({
+    type: "slash",
+    literal: "/generate-rules",
+    name: "generate-rules",
+  });
+});

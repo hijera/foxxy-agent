@@ -88,6 +88,8 @@ export function Composer(props: {
   contextBreakdown?: ContextBreakdown | null;
   /** Fired when the user opens the context breakdown popover (refresh stats). */
   onContextRingOpen?: () => void;
+  /** Known skill names from the catalog — chips confirmed `/name` tokens in the mirror overlay. */
+  knownSkillNames?: Set<string>;
   onModeChange: (mode: string) => void;
   onChange: (v: string) => void;
   onSend: (text: string) => void;
@@ -670,8 +672,9 @@ export function Composer(props: {
         caretPos,
         slashNoMatch,
         atNoMatch,
+        props.knownSkillNames,
       ),
-    [props.value, caretPos, slashNoMatch, atNoMatch],
+    [props.value, caretPos, slashNoMatch, atNoMatch, props.knownSkillNames],
   );
 
   useLayoutEffect(() => {
@@ -1099,6 +1102,22 @@ export function Composer(props: {
                   if (ev.key === "Escape" && (slashOpen || atOpen)) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
+                    return;
+                  }
+                  if (ev.key === "Tab" && atOpen && atItems.length > 0 && !props.generating) {
+                    ev.preventDefault();
+                    const row0 = atItems[0];
+                    if (row0) {
+                      applyAtChoice(row0);
+                    }
+                    return;
+                  }
+                  if (ev.key === "Tab" && slashOpen && slashItems.length > 0 && !props.generating) {
+                    ev.preventDefault();
+                    const row0 = slashItems[0];
+                    if (row0) {
+                      applySlashChoice(row0.name);
+                    }
                     return;
                   }
                   if (

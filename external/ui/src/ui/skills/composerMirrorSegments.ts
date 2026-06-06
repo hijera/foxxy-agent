@@ -3,6 +3,7 @@
  */
 
 import type { ComposerSlashSegment } from "./segmentComposerSlashSpans";
+import { segmentSlashKnownSpans } from "./segmentComposerSlashSpans";
 import {
   atMenuDraftAtCaret,
   draftExtendsFailedAtPrefix,
@@ -18,20 +19,25 @@ export type ComposerMirrorSegment =
   | { type: "at"; literal: string; pathRel: string };
 
 /**
- * Chips every completed workspace **`@`** path; other characters stay plain (**`/`** skills only chip while caret is inside that slash draft).
+ * Chips completed workspace **`@`** paths and, when **`knownSlashNames`** is provided,
+ * chips **`/name`** tokens whose name appears in the set.
  */
-function segmentStaticAtOnly(text: string): ComposerMirrorSegment[] {
+function segmentStaticAtAndSlash(
+  text: string,
+  knownSlashNames?: Set<string>,
+): ComposerMirrorSegment[] {
   if (text === "") {
     return [{ type: "text", value: "" }];
   }
-  const spans = listAtPathSpans(text);
+  const atSpans = listAtPathSpans(text);
   const out: ComposerMirrorSegment[] = [];
   let p = 0;
-  for (const sp of spans) {
+
+  for (const sp of atSpans) {
     if (sp.start > p) {
       const gap = text.slice(p, sp.start);
       if (gap !== "") {
-        out.push({ type: "text", value: gap });
+        appendSlashChipsOrText(out, gap, knownSlashNames);
       }
     }
     out.push({
@@ -44,7 +50,7 @@ function segmentStaticAtOnly(text: string): ComposerMirrorSegment[] {
   if (p < text.length) {
     const tail = text.slice(p);
     if (tail !== "") {
-      out.push({ type: "text", value: tail });
+      appendSlashChipsOrText(out, tail, knownSlashNames);
     }
   }
   if (out.length === 0) {
@@ -53,14 +59,32 @@ function segmentStaticAtOnly(text: string): ComposerMirrorSegment[] {
   return out;
 }
 
+/** Appends slash chips (for known names) or plain text segments for a text region. */
+function appendSlashChipsOrText(
+  out: ComposerMirrorSegment[],
+  text: string,
+  knownSlashNames?: Set<string>,
+): void {
+  if (!knownSlashNames || knownSlashNames.size === 0) {
+    out.push({ type: "text", value: text });
+    return;
+  }
+  const segs = segmentSlashKnownSpans(text, knownSlashNames);
+  for (const seg of segs) {
+    out.push(seg as ComposerMirrorSegment);
+  }
+}
+
 /**
  * Mirrors the textarea for display only. At-token chip takes precedence over slash when both could apply at the caret.
+ * Pass **`knownSlashNames`** to chip completed **`/name`** tokens whose name is in the set (skills confirmed from API).
  */
 export function segmentComposerMirrorSpans(
   value: string,
   caret: number,
   slashNoMatch: { slashIdx: number; prefix: string } | null,
   atNoMatch: { atIdx: number; prefix: string } | null,
+  knownSlashNames?: Set<string>,
 ): ComposerMirrorSegment[] {
   const atDraft = atMenuDraftAtCaret(value, caret);
   if (atDraft.open) {
@@ -73,7 +97,7 @@ export function segmentComposerMirrorSpans(
     const leftSegs =
       left === ""
         ? ([] as ComposerMirrorSegment[])
-        : segmentStaticAtOnly(left);
+        : segmentStaticAtAndSlash(left, knownSlashNames);
 
     let midSeg: ComposerMirrorSegment[];
     if (atNoMatch != null && draftExtendsFailedAtPrefix(atDraft, atNoMatch)) {
@@ -89,13 +113,13 @@ export function segmentComposerMirrorSpans(
     const rightSegs =
       right === ""
         ? ([] as ComposerMirrorSegment[])
-        : segmentStaticAtOnly(right);
+        : segmentStaticAtAndSlash(right, knownSlashNames);
     return [...leftSegs, ...midSeg, ...rightSegs];
   }
 
   const slashDraft = slashMenuDraftAtCaret(value, caret);
   if (!slashDraft.open) {
-    return segmentStaticAtOnly(value);
+    return segmentStaticAtAndSlash(value, knownSlashNames);
   }
 
   const { slashIdx, prefix } = slashDraft;
@@ -105,7 +129,9 @@ export function segmentComposerMirrorSpans(
   const right = value.slice(tokenEnd);
 
   const leftSegs =
-    left === "" ? ([] as ComposerMirrorSegment[]) : segmentStaticAtOnly(left);
+    left === ""
+      ? ([] as ComposerMirrorSegment[])
+      : segmentStaticAtAndSlash(left, knownSlashNames);
 
   let midSeg: ComposerMirrorSegment[];
   if (
@@ -124,6 +150,6 @@ export function segmentComposerMirrorSpans(
   const rightSegs =
     right === ""
       ? ([] as ComposerMirrorSegment[])
-      : segmentStaticAtOnly(right);
+      : segmentStaticAtAndSlash(right, knownSlashNames);
   return [...leftSegs, ...midSeg, ...rightSegs];
 }

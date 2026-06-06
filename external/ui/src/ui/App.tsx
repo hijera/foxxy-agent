@@ -60,6 +60,8 @@ import {
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
+import { injectBranchNavItems, deduplicateBranchNavs, type BranchPointData } from "./chat/branchInject";
+import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
@@ -101,12 +103,14 @@ import {
   setSchedulerJobHash,
   setSchedulerListHash,
   setSettingsHash,
+  setSettingsAppearanceHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { AppearanceSheet } from "./theme/AppearanceModal";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -567,6 +571,9 @@ function reasoningDurationCacheKey(text: string): string {
 }
 
 export function App() {
+  const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [sessionId, setSessionId] = useState("");
   /** Increments on each explicit "new chat" home transition so the hero verb rotates. */
   const [heroHomeGeneration, setHeroHomeGeneration] = useState(() =>
@@ -582,6 +589,10 @@ export function App() {
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
+  const [editingUserMsgIdx, setEditingUserMsgIdx] = useState<number | null>(null);
+  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(null);
+  // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
+  const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
@@ -764,6 +775,7 @@ export function App() {
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -1105,6 +1117,7 @@ export function App() {
     }
     if (p.branch === "settings") {
       setSettingsRoute(true);
+      setAppearanceOpen(p.appearanceOpen);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setSessionsOpen(false);
@@ -1115,7 +1128,7 @@ export function App() {
       if (schedulerHttpLinked === false) {
         setSchedulerOpen(false);
         setSchedulerEditor(null);
-        const sid = sessionId.trim();
+        const sid = viewedSessionIdRef.current.trim();
         if (sid) {
           setSessionHashInLocation(sid);
         } else if (window.location.hash) {
@@ -1142,7 +1155,7 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSessionsOpen(!!p.historyOpen);
-  }, [schedulerHttpLinked, sessionId]);
+  }, [schedulerHttpLinked]);
 
   const openSessionFromRoute = useCallback(
     (id: string, opts?: { historySidebar?: boolean }) => {
@@ -1249,6 +1262,17 @@ export function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [applyLocationHash]);
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetchJSON<{ items?: Array<{ name: string }> }>(
+        "/coddy/slash-commands?page=1&page_size=200",
+      );
+      if (res.ok && res.data?.items) {
+        setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked === false) {
@@ -1554,7 +1578,7 @@ export function App() {
 
   async function loadMessages(
     idOverride?: string,
-    opts?: { skipSetItems?: boolean; preserveOnError?: boolean },
+    opts?: { skipSetItems?: boolean; preserveOnError?: boolean; freshLoad?: boolean },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
     if (!sid) {
@@ -1833,8 +1857,12 @@ export function App() {
       }
     }
     const prevShadow = streamShadowBySidRef.current.get(sid);
-    const localForMerge =
-      prevShadow && prevShadow.length > 0
+    // freshLoad: don't inherit stale items from a previous session (e.g. when first loading a branch).
+    const localForMerge = opts?.freshLoad
+      ? prevShadow && prevShadow.length > 0
+        ? prevShadow
+        : undefined
+      : prevShadow && prevShadow.length > 0
         ? prevShadow
         : viewingTrim === sid
           ? itemsRef.current
@@ -1877,15 +1905,36 @@ export function App() {
       streamShadowBySidRef.current.set(sid, applied);
       return applied;
     }
-    streamShadowBySidRef.current.set(sid, applied);
+
+    // Fetch branch points and inject branch_nav items if any exist.
+    let withBranches = applied;
+    try {
+      const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
+        `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
+        { headers: sid === sessionId ? headers : { [HDR]: sid } },
+      );
+      if (brRes.ok && brRes.data?.branchPoints?.length) {
+        withBranches = deduplicateBranchNavs(injectBranchNavItems(
+          applied.filter((it) => it.type !== "branch_nav"),
+          brRes.data.branchPoints,
+        ));
+        if (sid === viewedSessionIdRef.current.trim()) {
+          setSessionHashInLocation(sid, { historySidebar: sessionsOpen });
+        }
+      }
+    } catch {
+      // ignore — branch nav is optional
+    }
+
+    streamShadowBySidRef.current.set(sid, withBranches);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
     }
     setSessionFadingOut(false);
-    setItems(applied);
+    setItems(withBranches);
     setSessionLoading(false);
-    return applied;
+    return withBranches;
   }
 
   function persistComposerDraftBeforeLeave() {
@@ -1904,6 +1953,11 @@ export function App() {
       updatedAt: new Date().toISOString(),
     });
     setClientDraftSessions(rows);
+  }
+
+  function switchBranch(id: string) {
+    skipLeafResolveRef.current.add(id);
+    pickSession(id);
   }
 
   function pickSession(id: string) {
@@ -2007,18 +2061,127 @@ export function App() {
     await loadSessionsList(true);
   }
 
+  async function handleBranchSend(text: string, userMsgIdx: number) {
+    const sourceSid = sessionId.trim();
+    if (!sourceSid) return;
+
+    const showBranchError = (msg: string) => {
+      applyStreamItemsForSession(sourceSid, (prev) => [
+        ...prev,
+        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg },
+      ]);
+    };
+
+    let data: { newSessionId?: string; error?: { message?: string } } = {};
+    try {
+      const res = await fetch(
+        `/coddy/sessions/${encodeURIComponent(sourceSid)}/branches`,
+        {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ userMessageIndex: userMsgIdx }),
+        },
+      );
+      if (!res.ok) {
+        let errMsg = `Branch creation failed (${res.status})`;
+        try {
+          const body = (await res.json()) as { error?: { message?: string } };
+          if (body?.error?.message) errMsg = body.error.message;
+        } catch { /* ignore */ }
+        showBranchError(errMsg);
+        return;
+      }
+      data = (await res.json()) as { newSessionId?: string };
+    } catch (err) {
+      showBranchError(`Branch creation error: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    const newSid = (data.newSessionId || "").trim();
+    if (!newSid) {
+      showBranchError("Branch creation returned no session ID");
+      return;
+    }
+    pendingBranchSendRef.current = { text, sid: newSid };
+    pickSession(newSid);
+  }
+
   useEffect(() => {
+    setEditingUserMsgIdx(null);
     if (!sessionId) {
       setItems([]);
+      setDraft("");
       setSessionLoading(false);
       void loadSessionsList(true);
       return;
     }
+    const pending = pendingBranchSendRef.current;
+    if (pending && pending.sid === sessionId) {
+      pendingBranchSendRef.current = null;
+      const text = pending.text;
+      const branchSid = sessionId;
+      void (async () => {
+        // Clear any stale shadow cache for the new branch session so loadMessages
+        // doesn't inherit a branch_nav from the previous session's items.
+        streamShadowBySidRef.current.delete(branchSid);
+        // Load the shared prefix first so the user sees prior context while streaming.
+        // freshLoad: skip itemsRef.current as localForMerge so old session items don't bleed in.
+        await loadMessages(branchSid, { freshLoad: true });
+        void streamResponses(text).then(async () => {
+          // After streaming completes, inject the branch_nav so the user can navigate threads.
+          try {
+            const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
+              `/coddy/sessions/${encodeURIComponent(branchSid)}/branches`,
+              { headers: { [HDR]: branchSid } },
+            );
+            if (brRes.ok && brRes.data?.branchPoints?.length) {
+              applyStreamItemsForSession(branchSid, (prev) =>
+                deduplicateBranchNavs(injectBranchNavItems(
+                  prev.filter((it) => it.type !== "branch_nav"),
+                  brRes.data!.branchPoints!,
+                )),
+              );
+              if (branchSid === viewedSessionIdRef.current.trim()) {
+                setSessionHashInLocation(branchSid, { historySidebar: sessionsOpen });
+              }
+            }
+          } catch {
+            // ignore
+          }
+        });
+      })();
+      return;
+    }
+    setDraft("");
     setTokenUsage(null);
     setContextBreakdown(null);
     tokenBaselineRef.current = { input: 0, output: 0, total: 0 };
     const lifecycle = new AbortController();
     void (async () => {
+      // If the user explicitly navigated here via branch nav, skip leaf resolution
+      // so they stay on the session they chose rather than being redirected to the newest thread.
+      const skipLeaf = skipLeafResolveRef.current.has(sessionId);
+      skipLeafResolveRef.current.delete(sessionId);
+
+      if (!skipLeaf) {
+        // Resolve the most-recently-active leaf in the branch tree.
+        // If a more recent thread exists, navigate there instead of loading this one.
+        const leafId = await resolveLatestLeaf(
+          sessionId,
+          async (sid) => {
+            const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
+              `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
+              { headers: { [HDR]: sid } },
+            );
+            return r.ok ? (r.data ?? null) : null;
+          },
+        );
+        if (lifecycle.signal.aborted) return;
+        if (leafId !== sessionId && viewedSessionIdRef.current.trim() === sessionId) {
+          openSessionFromRoute(leafId, { historySidebar: sessionsOpen });
+          return;
+        }
+      }
+
       const list = await loadSessionsList(true);
       if (lifecycle.signal.aborted) {
         return;
@@ -2048,7 +2211,10 @@ export function App() {
           setItems([...shadowSnap]);
           setSessionLoading(false);
         } else {
-          const loaded = await loadMessages();
+          // freshLoad when no shadow: prevents stale itemsRef from a previous session
+          // bleeding into this session (e.g. React StrictMode double-invoke of effects).
+          const noShadow = !shadowSnap || shadowSnap.length === 0;
+          const loaded = await loadMessages(undefined, { freshLoad: noShadow });
           if (lifecycle.signal.aborted) {
             return;
           }
@@ -2794,6 +2960,7 @@ export function App() {
   }, []);
 
   const onCloseSettings = useCallback(() => {
+    setAppearanceOpen(false);
     const sid = sessionId.trim();
     if (sid) {
       setSessionHashInLocation(sid);
@@ -2801,6 +2968,22 @@ export function App() {
       clearSessionRoute();
     }
   }, [sessionId, clearSessionRoute]);
+
+  const onCloseAppearance = useCallback(() => {
+    setAppearanceOpen(false);
+    setSettingsHash();
+  }, []);
+
+  const onToggleAppearance = useCallback(() => {
+    setAppearanceOpen((prev) => {
+      if (prev) {
+        setSettingsHash();
+        return false;
+      }
+      setSettingsAppearanceHash();
+      return true;
+    });
+  }, []);
 
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
@@ -2995,7 +3178,25 @@ export function App() {
           </div>
         ) : null}
 
-        {settingsRoute ? <Settings onClose={onCloseSettings} /> : null}
+        {settingsRoute ? (
+          <div
+            className={[
+              "settings-dock-cluster",
+              appearanceOpen ? "settings-dock-cluster-appearance-active" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <Settings
+              onClose={onCloseSettings}
+              appearanceOpen={appearanceOpen}
+              onToggleAppearance={onToggleAppearance}
+            />
+            {appearanceOpen ? (
+              <AppearanceSheet onClose={onCloseAppearance} />
+            ) : null}
+          </div>
+        ) : null}
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
@@ -3070,6 +3271,12 @@ export function App() {
               ),
             );
           }}
+          onEdit={(content, userMsgIdx) => {
+            setDraft(content);
+            setEditingUserMsgIdx(userMsgIdx);
+          }}
+          onBranchSwitch={(sid) => switchBranch(sid)}
+          {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
           onSend={(text: string) => {
             if (
               sessionId.trim() &&
@@ -3078,7 +3285,13 @@ export function App() {
               return;
             }
             setDraft("");
-            void streamResponses(text);
+            if (editingUserMsgIdx !== null) {
+              const idx = editingUserMsgIdx;
+              setEditingUserMsgIdx(null);
+              void handleBranchSend(text, idx);
+            } else {
+              void streamResponses(text);
+            }
           }}
           onFetchToolCallFull={async (toolCallId: string) => {
             if (!sessionId) return;

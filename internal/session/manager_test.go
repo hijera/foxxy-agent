@@ -500,7 +500,7 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["coddy-generate-rules"] {
-		t.Fatalf("expected demo and coddy-generate-rules, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] {
+		t.Fatalf("expected demo and generate-rules, got %+v", slash.AvailableCommands)
 	}
 }

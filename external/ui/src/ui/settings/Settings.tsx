@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { ThemeToggle } from "../theme/ThemeToggle";
 import { SchemaForm, type JsonSchema } from "./SchemaForm";
 
 type ValidateResponse = { ok: boolean; error?: string };
@@ -59,7 +58,11 @@ function IconRefresh(props: { className?: string }) {
   );
 }
 
-export function Settings(props: { onClose: () => void }) {
+export function Settings(props: {
+  onClose: () => void;
+  appearanceOpen: boolean;
+  onToggleAppearance: () => void;
+}) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -147,7 +150,17 @@ export function Settings(props: { onClose: () => void }) {
       </div>
 
       <div className="settings-lead-pane">
-        <ThemeToggle />
+        <button
+          type="button"
+          className={`settings-appearance-row${props.appearanceOpen ? " active" : ""}`}
+          data-testid="settings-appearance-open"
+          aria-pressed={props.appearanceOpen}
+          onClick={props.onToggleAppearance}
+        >
+          <span className="settings-appearance-swatch-dot" aria-hidden />
+          <span className="settings-appearance-row-label">Appearance</span>
+          <span className="settings-appearance-row-arrow" aria-hidden>›</span>
+        </button>
         <p className="settings-lead">
           Edit configuration from the live JSON schema. Secrets (API keys) are shown in full -
           use only on trusted networks.
@@ -200,4 +213,3 @@ export function Settings(props: { onClose: () => void }) {
     </aside>
   );
 }
-

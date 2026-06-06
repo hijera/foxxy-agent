@@ -2,7 +2,43 @@ export const CODDY_UI_THEME_COOKIE = "coddy_ui_theme";
 
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
-export type UiThemeMode = "dark" | "light";
+export type UiThemeMode =
+  | "dark"
+  | "light"
+  | "midnight"
+  | "solarized-dark"
+  | "monokai"
+  | "nord"
+  | "rose-pine";
+
+/** All valid theme identifiers, in display order. */
+export const UI_THEME_IDS: UiThemeMode[] = [
+  "dark",
+  "light",
+  "midnight",
+  "solarized-dark",
+  "monokai",
+  "nord",
+  "rose-pine",
+];
+
+/** Whether a theme is light (color-scheme: light). All others are dark. */
+export const LIGHT_THEMES = new Set<UiThemeMode>(["light"]);
+
+/** Human-readable label for each theme. */
+export const UI_THEME_LABELS: Record<UiThemeMode, string> = {
+  dark: "Dark",
+  light: "Light",
+  midnight: "Midnight",
+  "solarized-dark": "Solarized Dark",
+  monokai: "Monokai",
+  nord: "Nord",
+  "rose-pine": "Rosé Pine",
+};
+
+function isValidTheme(v: string): v is UiThemeMode {
+  return (UI_THEME_IDS as string[]).includes(v);
+}
 
 export function readUiThemeCookie(): UiThemeMode | null {
   if (typeof document === "undefined") {
@@ -17,7 +53,7 @@ export function readUiThemeCookie(): UiThemeMode | null {
     const v = decodeURIComponent(
       s.slice(CODDY_UI_THEME_COOKIE.length + 1).trim(),
     );
-    if (v === "dark" || v === "light") {
+    if (isValidTheme(v)) {
       return v;
     }
     return null;

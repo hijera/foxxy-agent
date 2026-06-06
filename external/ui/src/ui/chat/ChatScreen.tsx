@@ -76,8 +76,11 @@ export function ChatScreen(props: {
   onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
+  onEdit?: (content: string, userMsgIdx: number) => void;
+  onBranchSwitch?: (sessionId: string) => void;
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
+  knownSkillNames?: Set<string>;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
@@ -234,6 +237,7 @@ export function ChatScreen(props: {
               {...(props.generating === true && props.onStop !== undefined
                 ? { generating: true, onStop: props.onStop }
                 : {})}
+              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
             />
           </div>
         </div>
@@ -287,6 +291,11 @@ export function ChatScreen(props: {
                 {...(props.onPlanDocumentDiscard
                   ? { onPlanDocumentDiscard: props.onPlanDocumentDiscard }
                   : {})}
+                {...(props.onEdit ? { onEdit: props.onEdit } : {})}
+                {...(props.onBranchSwitch
+                  ? { onBranchSwitch: props.onBranchSwitch }
+                  : {})}
+                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
               />
             </div>
             <div className="chat-scroll-tail" aria-hidden />
@@ -327,6 +336,7 @@ export function ChatScreen(props: {
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}
+                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
               />
             </div>
           </div>

@@ -56,6 +56,44 @@ export function segmentComposerSlashSpans(
 }
 
 /**
+ * Segments text into **`slash`** chips for names in **`knownNames`** and plain **`text`** for everything else.
+ * Used to render confirmed skill tokens in the composer mirror and user message bubbles.
+ */
+export function segmentSlashKnownSpans(
+  text: string,
+  knownNames: Set<string>,
+): ComposerSlashSegment[] {
+  if (knownNames.size === 0) {
+    return [{ type: "text", value: text }];
+  }
+  const out: ComposerSlashSegment[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  const re = new RegExp(INVOKED_SLASH.source, "g");
+  while ((m = re.exec(text)) !== null) {
+    const lead = m[1] ?? "";
+    const literal = m[2] ?? "";
+    const name = literal.startsWith("/") ? literal.slice(1) : literal;
+    if (!knownNames.has(name)) {
+      continue;
+    }
+    const prefix = text.slice(last, m.index) + lead;
+    if (prefix !== "") {
+      out.push({ type: "text", value: prefix });
+    }
+    out.push({ type: "slash", literal, name });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) {
+    out.push({ type: "text", value: text.slice(last) });
+  }
+  if (out.length === 0) {
+    out.push({ type: "text", value: text });
+  }
+  return out;
+}
+
+/**
  * Renders `[plainFrom, plainTo)` as plain text in the overlay (no skill chip)
  * when the server matched no slash commands for that `/` + prefix.
  */

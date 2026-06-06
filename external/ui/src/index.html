@@ -11,17 +11,13 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <script>
       (function () {
-        var m = document.cookie.match(
-          /(?:^|;\s*)coddy_ui_theme=([^;]+)/,
-        );
+        var LIGHT = { light: 1 };
+        var VALID = { dark: 1, light: 1, midnight: 1, "solarized-dark": 1, monokai: 1, nord: 1, "rose-pine": 1 };
+        var m = document.cookie.match(/(?:^|;\s*)coddy_ui_theme=([^;]+)/);
         var t = m && decodeURIComponent(m[1].replace(/\+/g, " "));
-        if (t === "light") {
-          document.documentElement.dataset.theme = "light";
-          document.documentElement.style.colorScheme = "light";
-        } else {
-          document.documentElement.dataset.theme = "dark";
-          document.documentElement.style.colorScheme = "dark";
-        }
+        var theme = (t && VALID[t]) ? t : "dark";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = LIGHT[theme] ? "light" : "dark";
       })();
     </script>
   </head>

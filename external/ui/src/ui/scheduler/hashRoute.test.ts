@@ -85,6 +85,25 @@ describe("parseAppHash", () => {
     expect(parseAppHash()).toEqual({
       branch: "settings",
       historyOpen: true,
+      appearanceOpen: false,
+    });
+  });
+
+  test("parses settings/appearance", () => {
+    setHash("#/settings/appearance");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: false,
+      appearanceOpen: true,
+    });
+  });
+
+  test("parses settings/appearance with history sidebar", () => {
+    setHash("#/settings/appearance?history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: true,
+      appearanceOpen: true,
     });
   });
 });
@@ -153,6 +172,12 @@ describe("hash writers", () => {
   });
 
   test("setSessionHashInLocation can add history=1", () => {
+    setHash("");
+    setSessionHashInLocation("demo", { historySidebar: true });
+    expect(window.location.hash).toBe("#/s/demo?history=1");
+  });
+
+  test("setSessionHashInLocation with history only", () => {
     setHash("");
     setSessionHashInLocation("demo", { historySidebar: true });
     expect(window.location.hash).toBe("#/s/demo?history=1");
