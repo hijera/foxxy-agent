@@ -104,20 +104,20 @@ Flat files at the root of a `skills.dirs` entry also register as skills (stem be
 
 ### YAML frontmatter
 
-Optional frontmatter controls when the skill is injected:
+Each skill file must have a frontmatter block with exactly two fields — both required and non-empty:
 
 ```markdown
 ---
-name: code-review          # optional override; defaults to directory/file name
+name: code-review
 description: One-line summary shown in the slash-command catalog and UI.
-globs:
-  - "**/*.go"              # inject body when any open file matches; omit for always-active
 ---
 
 # Code Review
 
 Full skill body here...
 ```
+
+`name` sets the canonical slash-command identifier (e.g. `/code-review`). It overrides the filesystem-derived name when set. `description` is shown in the catalog and the Settings → Skills panel.
 
 ---
 
@@ -143,9 +143,9 @@ name: my-skill
 description: Short description shown in the catalog.
 ---
 
-# My Skill
+# My skill
 
-Instructions the agent will follow when this skill is active...
+Instructions the agent will follow when this skill is active.
 ```
 
 Then add the parent directory to `skills.dirs` in `config.yaml`, or drop the directory into `~/.coddy/skills/` or `${CWD}/.coddy/skills/`.
@@ -159,7 +159,7 @@ To share it with others, publish to GitHub and list it on [skills.sh](https://sk
 On each `session/prompt` the agent:
 
 1. Scans `skills.dirs` for the session cwd and `CODDY_HOME`.
-2. Filters skills: skills with no globs are always-active; skills with globs are active when any glob matches a file in context.
+2. All loaded (and enabled) skills are always active — their bodies are available as slash commands and injected on demand.
 3. Builds the **`{{.Skills}}`** system-prompt block: the slash-command catalog listing all skills, plus the full body of any always-active or glob-matched skill whose name is **not** already in the catalog.
 4. At LLM call time, if the last user message contains `/name` invocations, each matched skill's body is **prepended to the user message** before it is sent to the model. This augmentation happens only inside the LLM request — it is **not stored in session history** and is **not visible in the chat transcript**.
 

@@ -1,6 +1,6 @@
 ---
+name: "coddy_slash_demo"
 description: "Examples-only slash skill (Coddy skills_fixture)"
-globs: ["**/*.nonexistent"]
 ---
 
 # Coddy slash demo (examples)
