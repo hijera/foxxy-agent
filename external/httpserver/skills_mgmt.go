@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -85,6 +86,7 @@ func (s *Server) coddySkillsEnablePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, string(body), http.StatusBadRequest)
 		return
 	}
+	slog.Info("skill enabled", "name", name)
 	s.slashMu.Lock()
 	s.slashCache = make(map[string]slashListCacheEntry)
 	s.slashMu.Unlock()
@@ -104,6 +106,7 @@ func (s *Server) coddySkillsDisablePost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, string(body), http.StatusBadRequest)
 		return
 	}
+	slog.Info("skill disabled", "name", name)
 	s.slashMu.Lock()
 	s.slashCache = make(map[string]slashListCacheEntry)
 	s.slashMu.Unlock()

@@ -2982,6 +2982,7 @@ export function App() {
         setSettingsHash();
         return false;
       }
+      setSkillsPanelOpen(false);
       setSettingsAppearanceHash();
       return true;
     });
@@ -2992,7 +2993,12 @@ export function App() {
   }, []);
 
   const onToggleSkillsPanel = useCallback(() => {
-    setSkillsPanelOpen((prev) => !prev);
+    setSkillsPanelOpen((prev) => {
+      if (!prev) {
+        setAppearanceOpen(false);
+      }
+      return !prev;
+    });
   }, []);
 
   const onOpenHistoryFromNav = useCallback(() => {

@@ -159,7 +159,6 @@ export function Settings(props: {
           aria-pressed={props.appearanceOpen}
           onClick={props.onToggleAppearance}
         >
-          <span className="settings-appearance-swatch-dot" aria-hidden />
           <span className="settings-appearance-row-label">Appearance</span>
           <span className="settings-appearance-row-arrow" aria-hidden>›</span>
         </button>
@@ -170,7 +169,6 @@ export function Settings(props: {
           aria-pressed={props.skillsOpen}
           onClick={props.onToggleSkills}
         >
-          <span className="settings-appearance-swatch-dot" aria-hidden />
           <span className="settings-appearance-row-label">Skills</span>
           <span className="settings-appearance-row-arrow" aria-hidden>›</span>
         </button>

@@ -310,12 +310,20 @@ func runSkills(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: %s skills enable <name>", os.Args[0])
 		}
-		return skills.Enable(cfg, args[1])
+		if err := skills.Enable(cfg, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("Enabled skill %q\n", args[1])
+		return nil
 	case "disable":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: %s skills disable <name>", os.Args[0])
 		}
-		return skills.Disable(cfg, args[1])
+		if err := skills.Disable(cfg, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("Disabled skill %q\n", args[1])
+		return nil
 	default:
 		return fmt.Errorf("unknown skills subcommand %q", args[0])
 	}

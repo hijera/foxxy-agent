@@ -43,7 +43,6 @@ function IconPlug() {
 export function SkillsPanel(props: { onClose: () => void }) {
   const [installed, setInstalled] = useState<InstalledSkill[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -60,7 +59,6 @@ export function SkillsPanel(props: { onClose: () => void }) {
 
   const withBusy = async (key: string, fn: () => Promise<void>) => {
     setBusy((p) => ({ ...p, [key]: true }));
-    setMessage(null);
     setError(null);
     try {
       await fn();
@@ -77,7 +75,6 @@ export function SkillsPanel(props: { onClose: () => void }) {
         setError(res.error || `Failed to ${action}`);
         return;
       }
-      setMessage(`Skill "${skill.name}" ${action}d.`);
       await loadInstalled();
     });
   };
@@ -103,7 +100,6 @@ export function SkillsPanel(props: { onClose: () => void }) {
           <code>~/.agents/skills/</code> and are picked up automatically.
         </p>
         {error ? <p className="settings-error">{error}</p> : null}
-        {message ? <p className="settings-ok">{message}</p> : null}
       </div>
 
       <div className="settings-stack">

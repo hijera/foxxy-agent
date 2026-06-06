@@ -24,7 +24,6 @@ func Enable(cfg *config.Config, skillName string) error {
 	if err := EnableSkill(managedDir, name); err != nil {
 		return fmt.Errorf("enable skill: %w", err)
 	}
-	fmt.Printf("Enabled skill %q\n", name)
 	return nil
 }
 
@@ -38,7 +37,6 @@ func Disable(cfg *config.Config, skillName string) error {
 	if err := DisableSkill(managedDir, name); err != nil {
 		return fmt.Errorf("disable skill: %w", err)
 	}
-	fmt.Printf("Disabled skill %q\n", name)
 	return nil
 }
 

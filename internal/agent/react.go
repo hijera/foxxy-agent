@@ -586,16 +586,67 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 }
 
 // buildMessages constructs the message slice to send to the LLM.
+// The most recent user message is augmented with bodies of any explicitly invoked (/name) skills
+// so the LLM sees the full skill instructions immediately before the user's request.
+// The stored history content is never modified — only the slice sent to the LLM differs.
 func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	history := a.state.GetMessages()
+	allSkills := a.state.GetSkills()
 	msgs := make([]llm.Message, 0, len(history)+1)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
-	for _, m := range history {
-		if isLLMHistoryMessage(m) {
-			msgs = append(msgs, m)
+
+	// Find the index of the most recent user message to augment it.
+	lastUserIdx := -1
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == llm.RoleUser {
+			lastUserIdx = i
+			break
 		}
 	}
+
+	for i, m := range history {
+		if !isLLMHistoryMessage(m) {
+			continue
+		}
+		if i == lastUserIdx && len(allSkills) > 0 {
+			if aug := augmentUserMessageWithInvokedSkills(m.Content, allSkills); aug != m.Content {
+				m.Content = aug
+			}
+		}
+		msgs = append(msgs, m)
+	}
 	return msgs
+}
+
+// augmentUserMessageWithInvokedSkills prepends full skill bodies for any /name commands found
+// in userText. The original text is preserved at the end so the LLM sees both the skill context
+// and the user's exact request. Returns userText unchanged when no skills are invoked.
+func augmentUserMessageWithInvokedSkills(userText string, allSkills []*skills.Skill) string {
+	names := skills.ParseInvokedCommandNames(userText)
+	if len(names) == 0 {
+		return userText
+	}
+	idx := skills.SkillBySlashName(allSkills)
+	var prefix strings.Builder
+	for _, n := range names {
+		sk, ok := idx[n]
+		if !ok {
+			continue
+		}
+		body := strings.TrimSpace(sk.Content)
+		if body == "" {
+			continue
+		}
+		prefix.WriteString("## Invoked skill: /")
+		prefix.WriteString(n)
+		prefix.WriteString("\n\n")
+		prefix.WriteString(body)
+		prefix.WriteString("\n\n---\n\n")
+	}
+	if prefix.Len() == 0 {
+		return userText
+	}
+	return prefix.String() + userText
 }
 
 func isLLMHistoryMessage(m llm.Message) bool {
