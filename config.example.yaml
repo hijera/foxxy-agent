@@ -113,9 +113,6 @@ tools:
     - "git diff"
     - "git log"
 
-  # When non-empty, all tool permission prompts are auto-approved (ACP and HTTP). Dangerous; use only in trusted environments.
-  # permission_master_key: "${CODDY_PERMISSION_MASTER_KEY}"
-
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"
