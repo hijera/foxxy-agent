@@ -2290,7 +2290,7 @@ a.rail-brand {
 
 .thinking-body {
   margin: 8px 0 0 12px;
-  padding: 10px 13px;
+  padding: 6px 12px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   background: var(--coddy-surface-muted);
@@ -2668,7 +2668,7 @@ a.rail-brand {
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   background: var(--coddy-surface-inset);
-  padding: 14px 12px 12px;
+  padding: 6px 12px 6px;
 }
 
 .md-code pre code {
@@ -2729,8 +2729,8 @@ a.rail-brand {
 
 .md-copy {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 4px;
+  right: 5px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
   background: rgba(20, 20, 22, 0.6);
