@@ -72,10 +72,6 @@ prompts:
   # plan_prompt: "plan.md"
 
 skills:
-  # install_dir is used by coddy skills install / coddy skills uninstall.
-  # Default: $CODDY_HOME/skills (typically ~/.coddy/skills)
-  install_dir: ""
-
   # dirs is the list of directories scanned for skills and rules.
   # Searched in order. When empty, defaults are
   # ${CODDY_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills

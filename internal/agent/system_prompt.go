@@ -26,25 +26,14 @@ func joinNonEmptyPromptBlocks(parts ...string) string {
 // buildSkillsPromptMarkdown merges slash catalog, active globs-linked skill bodies, and ephemeral /name invokes.
 func buildSkillsPromptMarkdown(allLoaded []*skills.Skill, active []*skills.Skill, userText string) string {
 	activeDedup := skills.DedupeSkillsByCanonicalName(active)
-	activeGlobCanon := make(map[string]struct{})
-	for _, sk := range activeDedup {
-		n := skills.CanonicalCommandName(sk)
-		if n != "" {
-			activeGlobCanon[n] = struct{}{}
-		}
-	}
-	var filteredInvoke []string
-	for _, n := range skills.ParseInvokedCommandNames(userText) {
-		if _, ok := activeGlobCanon[n]; ok {
-			continue
-		}
-		filteredInvoke = append(filteredInvoke, n)
-	}
 	skillSums := skills.ListSkills(allLoaded)
 	catalogNameSet := make(map[string]struct{}, len(skillSums))
 	for _, s := range skillSums {
 		catalogNameSet[s.Name] = struct{}{}
 	}
+
+	// Active section: skill bodies for context-matched skills that are NOT slash commands.
+	// Slash commands stay catalog-only until explicitly invoked by the user.
 	var activeForSection []*skills.Skill
 	for _, sk := range activeDedup {
 		n := skills.CanonicalCommandName(sk)
@@ -55,6 +44,23 @@ func buildSkillsPromptMarkdown(allLoaded []*skills.Skill, active []*skills.Skill
 		}
 		activeForSection = append(activeForSection, sk)
 	}
+
+	// Ephemeral section: bodies for skills explicitly invoked via /name, but only when their
+	// body is not already shown in the active section above.
+	sectionNames := make(map[string]struct{}, len(activeForSection))
+	for _, sk := range activeForSection {
+		if n := skills.CanonicalCommandName(sk); n != "" {
+			sectionNames[n] = struct{}{}
+		}
+	}
+	var filteredInvoke []string
+	for _, n := range skills.ParseInvokedCommandNames(userText) {
+		if _, ok := sectionNames[n]; ok {
+			continue
+		}
+		filteredInvoke = append(filteredInvoke, n)
+	}
+
 	catalog := skills.BuildSlashCatalogMarkdown(skillSums)
 	section := skills.BuildSystemPromptSection(activeForSection)
 	ephemeral := skills.BuildInvokedSkillsSection(allLoaded, filteredInvoke)
