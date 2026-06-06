@@ -21,5 +21,30 @@ test("index.html bootstraps theme before paint", () => {
     "utf8",
   );
   expect(html).toContain("coddy_ui_theme");
-  expect(html).toContain('dataset.theme = "light"');
+  expect(html).toContain("dataset.theme");
+});
+
+test("styles.css defines variable blocks for all 7 themes", () => {
+  const css = cssText();
+  const themeSelectors = [
+    '[data-theme="dark"]',
+    '[data-theme="light"]',
+    '[data-theme="midnight"]',
+    '[data-theme="solarized-dark"]',
+    '[data-theme="monokai"]',
+    '[data-theme="nord"]',
+    '[data-theme="rose-pine"]',
+  ];
+  for (const sel of themeSelectors) {
+    expect(css).toContain(sel);
+  }
+});
+
+test("each theme block defines --accent", () => {
+  const css = cssText();
+  const themes = ["dark", "light", "midnight", "solarized-dark", "monokai", "nord", "rose-pine"];
+  for (const t of themes) {
+    const block = new RegExp(`\\[data-theme="${t}"\\][^{]*\\{[^}]*--accent:[^}]*\\}`, "s");
+    expect(css, `${t} should have --accent`).toMatch(block);
+  }
 });

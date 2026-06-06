@@ -15,7 +15,7 @@ export type ParsedAppHash =
       createOpen: boolean;
       historyOpen: boolean;
     }
-  | { branch: "settings"; historyOpen: boolean };
+  | { branch: "settings"; historyOpen: boolean; appearanceOpen: boolean };
 
 export type SchedulerEditorRoute =
   | { mode: "create" }
@@ -78,7 +78,10 @@ export function parseAppHash(): ParsedAppHash {
     return { branch: "history" };
   }
   if (h === "settings") {
-    return { branch: "settings", historyOpen };
+    return { branch: "settings", historyOpen, appearanceOpen: false };
+  }
+  if (h === "settings/appearance") {
+    return { branch: "settings", historyOpen, appearanceOpen: true };
   }
   const schedJob = /^scheduler\/jobs\/(.+)$/.exec(h);
   if (schedJob && schedJob[1]) {
@@ -169,7 +172,7 @@ export function setSessionHashInLocation(
     return;
   }
   const base = `#/s/${encodeURIComponent(id)}`;
-  const next = withHistoryQuery(base, !!opts?.historySidebar);
+  const next = opts?.historySidebar ? `${base}?history=1` : base;
   if (window.location.hash !== next) {
     history.replaceState(
       null,
@@ -229,6 +232,20 @@ export function setSettingsHash(opts?: {
   }
 }
 
+export function setSettingsAppearanceHash(opts?: {
+  historySidebar?: boolean;
+}): void {
+  const next = withHistoryQuery("#/settings/appearance", !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
 export function setHistoryHash(): void {
   const next = "#/history";
   if (window.location.hash !== next) {
@@ -275,7 +292,11 @@ export function stripHistorySidebarFromHash(): void {
     return;
   }
   if (p.branch === "settings" && p.historyOpen) {
-    setSettingsHash();
+    if (p.appearanceOpen) {
+      setSettingsAppearanceHash();
+    } else {
+      setSettingsHash();
+    }
   }
 }
 
@@ -290,6 +311,10 @@ export function appNavHrefHistory(): string {
 
 export function appNavHrefSettings(): string {
   return "#/settings";
+}
+
+export function appNavHrefSettingsAppearance(): string {
+  return "#/settings/appearance";
 }
 
 export function appNavHrefScheduler(): string {

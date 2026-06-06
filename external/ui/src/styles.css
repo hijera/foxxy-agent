@@ -151,6 +151,371 @@
   --coddy-ghost-btn-fg: #3f3f46;
 }
 
+/* ── Midnight ── deep indigo-blue dark ─────────────────────────────────────── */
+[data-theme="midnight"] {
+  --bg: #0d1117;
+  --diff-add-bg: rgba(46, 160, 67, 0.13);
+  --diff-del-bg: rgba(248, 81, 73, 0.13);
+  --diff-hunk-bg: rgba(88, 101, 242, 0.14);
+  --diff-add-no: rgba(63, 185, 80, 0.55);
+  --diff-del-no: rgba(248, 81, 73, 0.55);
+  --nav: rgba(13, 17, 28, 0.72);
+  --sidebar: rgba(10, 13, 23, 0.8);
+  --accent: #5865f2;
+  --coddy-skill-chip-bg: rgba(88, 101, 242, 0.14);
+  --coddy-skill-chip-bd: rgba(88, 101, 242, 0.52);
+  --coddy-skill-chip-text: rgba(199, 204, 255, 0.96);
+  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --bubble-user: #161b27;
+  --radius: 14px;
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
+  --coddy-canvas-glow-purple: rgba(88, 101, 242, 0.1);
+  --coddy-canvas-glow-indigo: rgba(48, 58, 200, 0.08);
+  --coddy-canvas-gradient-top: #090c14;
+  --coddy-canvas-gradient-bottom: #070a11;
+  --coddy-glass-panel-bg: rgba(10, 14, 24, 0.72);
+  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
+  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
+  --coddy-glass-panel-radius: 18px;
+  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.65);
+  --coddy-surface-subtle: rgba(10, 14, 24, 0.25);
+  --coddy-surface-muted: rgba(10, 14, 24, 0.3);
+  --coddy-surface-raised: rgba(10, 14, 24, 0.4);
+  --coddy-surface-inset: rgba(10, 14, 24, 0.45);
+  --coddy-surface-sunken: rgba(8, 10, 20, 0.42);
+  --coddy-surface-field: rgba(0, 0, 0, 0.4);
+  --coddy-surface-fieldset: rgba(0, 0, 0, 0.22);
+  --coddy-surface-gutter: rgba(0, 0, 0, 0.22);
+  --coddy-surface-code-fg: rgba(186, 192, 210, 0.88);
+  --coddy-surface-code-bg: rgba(229, 231, 240, 0.9);
+  --coddy-link: rgba(120, 135, 255, 0.95);
+  --coddy-md-inline-code-fg: rgba(220, 225, 240, 0.92);
+  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.09);
+  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-link-action: rgba(130, 150, 255, 0.95);
+  --coddy-link-action-hover: rgba(170, 185, 255, 1);
+  --coddy-hero-muted-mid: rgba(220, 230, 244, 0.82);
+  --coddy-hero-muted-end: rgba(139, 148, 158, 0.62);
+  --coddy-hero-accent: #8897ff;
+  --coddy-hero-accent-glow: rgba(88, 101, 242, 0.22);
+  --coddy-blend-base: transparent;
+  --coddy-tip-bg: rgba(22, 27, 39, 0.97);
+  --coddy-tip-border: rgba(88, 101, 242, 0.35);
+  --coddy-tip-fg: #e6edf3;
+  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --coddy-chat-header-bg: rgba(7, 10, 17, 0.45);
+  --coddy-bubble-user-bg: rgba(22, 27, 39, 0.9);
+  --coddy-bubble-user-fg: #e6edf3;
+  --coddy-chip-badge-bg: rgba(13, 17, 28, 0.92);
+  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-plan-eye-bg: rgba(10, 14, 24, 0.94);
+  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-on-accent-fg: #ffffff;
+  --coddy-context-ring-inner: rgba(120, 135, 255, 0.5);
+  --coddy-context-ring-fg: #c7ccff;
+  --coddy-ghost-btn-fg: var(--muted);
+  --coddy-z-slash-command: 38;
+  --rail-column-pad-end: 8px;
+  --nav-floating-gutter: 2px;
+  --rail-pill-track: 74px;
+  --rail-pill-pad-inline: 10px;
+}
+
+/* ── Solarized Dark ─────────────────────────────────────────────────────────── */
+[data-theme="solarized-dark"] {
+  --bg: #002b36;
+  --diff-add-bg: rgba(133, 153, 0, 0.18);
+  --diff-del-bg: rgba(220, 50, 47, 0.18);
+  --diff-hunk-bg: rgba(38, 139, 210, 0.15);
+  --diff-add-no: rgba(133, 153, 0, 0.7);
+  --diff-del-no: rgba(220, 50, 47, 0.7);
+  --nav: rgba(0, 36, 46, 0.72);
+  --sidebar: rgba(0, 28, 36, 0.8);
+  --accent: #268bd2;
+  --coddy-skill-chip-bg: rgba(38, 139, 210, 0.14);
+  --coddy-skill-chip-bd: rgba(38, 139, 210, 0.5);
+  --coddy-skill-chip-text: rgba(147, 161, 161, 0.96);
+  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --text: #839496;
+  --muted: #657b83;
+  --bubble-user: #003847;
+  --radius: 14px;
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+  --coddy-canvas-glow-purple: rgba(38, 139, 210, 0.09);
+  --coddy-canvas-glow-indigo: rgba(108, 113, 196, 0.07);
+  --coddy-canvas-gradient-top: #001e26;
+  --coddy-canvas-gradient-bottom: #001a22;
+  --coddy-glass-panel-bg: rgba(0, 36, 46, 0.75);
+  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
+  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+  --coddy-glass-panel-radius: 18px;
+  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
+  --coddy-surface-subtle: rgba(0, 36, 46, 0.22);
+  --coddy-surface-muted: rgba(0, 36, 46, 0.28);
+  --coddy-surface-raised: rgba(0, 40, 52, 0.38);
+  --coddy-surface-inset: rgba(0, 40, 52, 0.44);
+  --coddy-surface-sunken: rgba(0, 28, 38, 0.42);
+  --coddy-surface-field: rgba(0, 0, 0, 0.32);
+  --coddy-surface-fieldset: rgba(0, 0, 0, 0.18);
+  --coddy-surface-gutter: rgba(0, 0, 0, 0.18);
+  --coddy-surface-code-fg: rgba(131, 148, 150, 0.88);
+  --coddy-surface-code-bg: rgba(0, 43, 54, 0.9);
+  --coddy-link: rgba(38, 139, 210, 0.95);
+  --coddy-md-inline-code-fg: rgba(147, 161, 161, 0.92);
+  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.07);
+  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-link-action: rgba(38, 139, 210, 0.95);
+  --coddy-link-action-hover: rgba(100, 175, 230, 1);
+  --coddy-hero-muted-mid: rgba(131, 148, 150, 0.82);
+  --coddy-hero-muted-end: rgba(101, 123, 131, 0.62);
+  --coddy-hero-accent: #2aa198;
+  --coddy-hero-accent-glow: rgba(42, 161, 152, 0.2);
+  --coddy-blend-base: transparent;
+  --coddy-tip-bg: rgba(0, 36, 46, 0.97);
+  --coddy-tip-border: rgba(38, 139, 210, 0.35);
+  --coddy-tip-fg: #93a1a1;
+  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
+  --coddy-chat-header-bg: rgba(0, 26, 34, 0.45);
+  --coddy-bubble-user-bg: rgba(0, 48, 62, 0.9);
+  --coddy-bubble-user-fg: #93a1a1;
+  --coddy-chip-badge-bg: rgba(0, 36, 46, 0.92);
+  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-plan-eye-bg: rgba(0, 32, 42, 0.94);
+  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-on-accent-fg: #fdf6e3;
+  --coddy-context-ring-inner: rgba(38, 139, 210, 0.5);
+  --coddy-context-ring-fg: #93a1a1;
+  --coddy-ghost-btn-fg: var(--muted);
+  --coddy-z-slash-command: 38;
+  --rail-column-pad-end: 8px;
+  --nav-floating-gutter: 2px;
+  --rail-pill-track: 74px;
+  --rail-pill-pad-inline: 10px;
+}
+
+/* ── Monokai ── warm charcoal with orange/green ─────────────────────────────── */
+[data-theme="monokai"] {
+  --bg: #272822;
+  --diff-add-bg: rgba(166, 226, 46, 0.13);
+  --diff-del-bg: rgba(249, 38, 114, 0.14);
+  --diff-hunk-bg: rgba(102, 217, 239, 0.11);
+  --diff-add-no: rgba(166, 226, 46, 0.6);
+  --diff-del-no: rgba(249, 38, 114, 0.6);
+  --nav: rgba(31, 32, 26, 0.72);
+  --sidebar: rgba(25, 26, 21, 0.8);
+  --accent: #fd971f;
+  --coddy-skill-chip-bg: rgba(253, 151, 31, 0.13);
+  --coddy-skill-chip-bd: rgba(253, 151, 31, 0.5);
+  --coddy-skill-chip-text: rgba(255, 220, 170, 0.96);
+  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --text: #f8f8f2;
+  --muted: #75715e;
+  --bubble-user: #3e3d32;
+  --radius: 14px;
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  --coddy-canvas-glow-purple: rgba(253, 151, 31, 0.08);
+  --coddy-canvas-glow-indigo: rgba(166, 226, 46, 0.06);
+  --coddy-canvas-gradient-top: #1e1f1a;
+  --coddy-canvas-gradient-bottom: #1c1d18;
+  --coddy-glass-panel-bg: rgba(28, 29, 24, 0.72);
+  --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
+  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
+  --coddy-glass-panel-radius: 18px;
+  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.58);
+  --coddy-surface-subtle: rgba(20, 20, 16, 0.22);
+  --coddy-surface-muted: rgba(20, 20, 16, 0.28);
+  --coddy-surface-raised: rgba(20, 20, 16, 0.38);
+  --coddy-surface-inset: rgba(20, 20, 16, 0.44);
+  --coddy-surface-sunken: rgba(16, 16, 12, 0.4);
+  --coddy-surface-field: rgba(0, 0, 0, 0.32);
+  --coddy-surface-fieldset: rgba(0, 0, 0, 0.18);
+  --coddy-surface-gutter: rgba(0, 0, 0, 0.18);
+  --coddy-surface-code-fg: rgba(248, 248, 242, 0.88);
+  --coddy-surface-code-bg: rgba(39, 40, 34, 0.9);
+  --coddy-link: rgba(253, 151, 31, 0.95);
+  --coddy-md-inline-code-fg: rgba(248, 248, 242, 0.9);
+  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
+  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-link-action: rgba(253, 151, 31, 0.95);
+  --coddy-link-action-hover: rgba(255, 190, 100, 1);
+  --coddy-hero-muted-mid: rgba(248, 248, 242, 0.82);
+  --coddy-hero-muted-end: rgba(117, 113, 94, 0.62);
+  --coddy-hero-accent: #fd971f;
+  --coddy-hero-accent-glow: rgba(253, 151, 31, 0.18);
+  --coddy-blend-base: transparent;
+  --coddy-tip-bg: rgba(36, 37, 31, 0.97);
+  --coddy-tip-border: rgba(253, 151, 31, 0.32);
+  --coddy-tip-fg: #f8f8f2;
+  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.46);
+  --coddy-chat-header-bg: rgba(20, 20, 16, 0.4);
+  --coddy-bubble-user-bg: rgba(62, 61, 50, 0.9);
+  --coddy-bubble-user-fg: #f8f8f2;
+  --coddy-chip-badge-bg: rgba(28, 29, 24, 0.92);
+  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-plan-eye-bg: rgba(24, 25, 20, 0.94);
+  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-on-accent-fg: #272822;
+  --coddy-context-ring-inner: rgba(253, 151, 31, 0.5);
+  --coddy-context-ring-fg: #ffe699;
+  --coddy-ghost-btn-fg: var(--muted);
+  --coddy-z-slash-command: 38;
+  --rail-column-pad-end: 8px;
+  --nav-floating-gutter: 2px;
+  --rail-pill-track: 74px;
+  --rail-pill-pad-inline: 10px;
+}
+
+/* ── Nord ── polar night cool blue-grey ─────────────────────────────────────── */
+[data-theme="nord"] {
+  --bg: #2e3440;
+  --diff-add-bg: rgba(163, 190, 140, 0.14);
+  --diff-del-bg: rgba(191, 97, 106, 0.14);
+  --diff-hunk-bg: rgba(136, 192, 208, 0.12);
+  --diff-add-no: rgba(163, 190, 140, 0.65);
+  --diff-del-no: rgba(191, 97, 106, 0.65);
+  --nav: rgba(36, 41, 52, 0.72);
+  --sidebar: rgba(30, 34, 44, 0.8);
+  --accent: #88c0d0;
+  --coddy-skill-chip-bg: rgba(136, 192, 208, 0.13);
+  --coddy-skill-chip-bd: rgba(136, 192, 208, 0.48);
+  --coddy-skill-chip-text: rgba(216, 222, 233, 0.96);
+  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --text: #eceff4;
+  --muted: #4c566a;
+  --bubble-user: #3b4252;
+  --radius: 14px;
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  --coddy-canvas-glow-purple: rgba(136, 192, 208, 0.08);
+  --coddy-canvas-glow-indigo: rgba(129, 161, 193, 0.07);
+  --coddy-canvas-gradient-top: #242933;
+  --coddy-canvas-gradient-bottom: #21262f;
+  --coddy-glass-panel-bg: rgba(30, 34, 44, 0.72);
+  --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
+  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+  --coddy-glass-panel-radius: 18px;
+  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
+  --coddy-surface-subtle: rgba(36, 41, 51, 0.22);
+  --coddy-surface-muted: rgba(36, 41, 51, 0.28);
+  --coddy-surface-raised: rgba(36, 41, 51, 0.38);
+  --coddy-surface-inset: rgba(36, 41, 51, 0.45);
+  --coddy-surface-sunken: rgba(28, 32, 42, 0.4);
+  --coddy-surface-field: rgba(0, 0, 0, 0.28);
+  --coddy-surface-fieldset: rgba(0, 0, 0, 0.16);
+  --coddy-surface-gutter: rgba(0, 0, 0, 0.16);
+  --coddy-surface-code-fg: rgba(216, 222, 233, 0.88);
+  --coddy-surface-code-bg: rgba(46, 52, 64, 0.9);
+  --coddy-link: rgba(136, 192, 208, 0.95);
+  --coddy-md-inline-code-fg: rgba(216, 222, 233, 0.92);
+  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
+  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-link-action: rgba(136, 192, 208, 0.95);
+  --coddy-link-action-hover: rgba(180, 215, 230, 1);
+  --coddy-hero-muted-mid: rgba(236, 239, 244, 0.82);
+  --coddy-hero-muted-end: rgba(76, 86, 106, 0.62);
+  --coddy-hero-accent: #88c0d0;
+  --coddy-hero-accent-glow: rgba(136, 192, 208, 0.18);
+  --coddy-blend-base: transparent;
+  --coddy-tip-bg: rgba(40, 46, 58, 0.97);
+  --coddy-tip-border: rgba(136, 192, 208, 0.3);
+  --coddy-tip-fg: #eceff4;
+  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.44);
+  --coddy-chat-header-bg: rgba(26, 30, 40, 0.4);
+  --coddy-bubble-user-bg: rgba(59, 66, 82, 0.9);
+  --coddy-bubble-user-fg: #eceff4;
+  --coddy-chip-badge-bg: rgba(36, 41, 51, 0.92);
+  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-plan-eye-bg: rgba(32, 37, 47, 0.94);
+  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-on-accent-fg: #2e3440;
+  --coddy-context-ring-inner: rgba(136, 192, 208, 0.5);
+  --coddy-context-ring-fg: #d8dee9;
+  --coddy-ghost-btn-fg: var(--muted);
+  --coddy-z-slash-command: 38;
+  --rail-column-pad-end: 8px;
+  --nav-floating-gutter: 2px;
+  --rail-pill-track: 74px;
+  --rail-pill-pad-inline: 10px;
+}
+
+/* ── Rosé Pine ── warm plum dark ────────────────────────────────────────────── */
+[data-theme="rose-pine"] {
+  --bg: #191724;
+  --diff-add-bg: rgba(49, 116, 143, 0.15);
+  --diff-del-bg: rgba(235, 111, 146, 0.15);
+  --diff-hunk-bg: rgba(196, 167, 231, 0.12);
+  --diff-add-no: rgba(49, 116, 143, 0.65);
+  --diff-del-no: rgba(235, 111, 146, 0.65);
+  --nav: rgba(21, 19, 32, 0.72);
+  --sidebar: rgba(18, 16, 28, 0.8);
+  --accent: #c4a7e7;
+  --coddy-skill-chip-bg: rgba(196, 167, 231, 0.13);
+  --coddy-skill-chip-bd: rgba(196, 167, 231, 0.48);
+  --coddy-skill-chip-text: rgba(224, 222, 244, 0.96);
+  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --text: #e0def4;
+  --muted: #6e6a86;
+  --bubble-user: #26233a;
+  --radius: 14px;
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.58);
+  --coddy-canvas-glow-purple: rgba(196, 167, 231, 0.1);
+  --coddy-canvas-glow-indigo: rgba(235, 111, 146, 0.07);
+  --coddy-canvas-gradient-top: #110f1c;
+  --coddy-canvas-gradient-bottom: #0f0d1a;
+  --coddy-glass-panel-bg: rgba(16, 14, 26, 0.72);
+  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
+  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.56);
+  --coddy-glass-panel-radius: 18px;
+  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.62);
+  --coddy-surface-subtle: rgba(18, 16, 28, 0.24);
+  --coddy-surface-muted: rgba(18, 16, 28, 0.3);
+  --coddy-surface-raised: rgba(18, 16, 28, 0.4);
+  --coddy-surface-inset: rgba(18, 16, 28, 0.46);
+  --coddy-surface-sunken: rgba(14, 12, 22, 0.42);
+  --coddy-surface-field: rgba(0, 0, 0, 0.36);
+  --coddy-surface-fieldset: rgba(0, 0, 0, 0.2);
+  --coddy-surface-gutter: rgba(0, 0, 0, 0.2);
+  --coddy-surface-code-fg: rgba(224, 222, 244, 0.88);
+  --coddy-surface-code-bg: rgba(25, 23, 36, 0.9);
+  --coddy-link: rgba(196, 167, 231, 0.95);
+  --coddy-md-inline-code-fg: rgba(224, 222, 244, 0.92);
+  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
+  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-link-action: rgba(196, 167, 231, 0.95);
+  --coddy-link-action-hover: rgba(220, 200, 255, 1);
+  --coddy-hero-muted-mid: rgba(224, 222, 244, 0.82);
+  --coddy-hero-muted-end: rgba(110, 106, 134, 0.62);
+  --coddy-hero-accent: #c4a7e7;
+  --coddy-hero-accent-glow: rgba(196, 167, 231, 0.2);
+  --coddy-blend-base: transparent;
+  --coddy-tip-bg: rgba(26, 23, 38, 0.97);
+  --coddy-tip-border: rgba(196, 167, 231, 0.32);
+  --coddy-tip-fg: #e0def4;
+  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
+  --coddy-chat-header-bg: rgba(12, 10, 20, 0.42);
+  --coddy-bubble-user-bg: rgba(38, 35, 58, 0.9);
+  --coddy-bubble-user-fg: #e0def4;
+  --coddy-chip-badge-bg: rgba(20, 18, 32, 0.92);
+  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-plan-eye-bg: rgba(16, 14, 26, 0.94);
+  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-on-accent-fg: #191724;
+  --coddy-context-ring-inner: rgba(196, 167, 231, 0.5);
+  --coddy-context-ring-fg: #f5f3ff;
+  --coddy-ghost-btn-fg: var(--muted);
+  --coddy-z-slash-command: 38;
+  --rail-column-pad-end: 8px;
+  --nav-floating-gutter: 2px;
+  --rail-pill-track: 74px;
+  --rail-pill-pad-inline: 10px;
+}
+
 @media (min-width: 761px) {
   :root {
     --rail-pill-track: 76px;
@@ -5297,6 +5662,191 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: var(--accent);
   border-color: rgba(109, 40, 217, 0.55);
   color: #ffffff;
+}
+
+/* ── Appearance modal ──────────────────────────────────────────────────────── */
+
+/* Settings dock cluster — mirrors .scheduler-dock-cluster */
+.settings-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  z-index: 50;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.settings-dock-cluster > * {
+  pointer-events: auto;
+}
+
+/* Settings drawer inside dock — override fixed positioning to participate in flex flow */
+.settings-dock-cluster .settings.drawer {
+  position: relative;
+  left: auto;
+  top: auto;
+  bottom: auto;
+  flex: 0 0 auto;
+  height: 100%;
+  max-height: none;
+}
+
+/* Appearance side panel — mirrors .scheduler-job-editor-dock */
+.settings-appearance-dock {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: min(420px, 40vw);
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  overflow: hidden;
+}
+
+.appearance-sheet-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.appearance-section-label {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.appearance-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.appearance-swatch {
+  display: flex;
+  flex-direction: column;
+  border: 2px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.appearance-swatch:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.appearance-swatch.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.appearance-swatch-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 10px 8px;
+  height: 72px;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+.appearance-swatch-bar {
+  height: 5px;
+  width: 100%;
+  border-radius: 3px;
+}
+
+.appearance-swatch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.appearance-swatch-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.appearance-swatch-lines > span {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.appearance-swatch-label {
+  display: block;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 1px solid rgba(127, 127, 127, 0.12);
+}
+
+/* Appearance row in settings — session-item style */
+.settings-appearance-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.settings-appearance-row:hover {
+  background: rgba(147, 51, 234, 0.05);
+  border-color: rgba(147, 51, 234, 0.25);
+}
+
+.settings-appearance-row.active {
+  border-color: rgba(147, 51, 234, 0.45);
+  background: rgba(147, 51, 234, 0.08);
+}
+
+.settings-appearance-row-label {
+  flex: 1 1 auto;
+}
+
+.settings-appearance-row-arrow {
+  font-size: 1rem;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.settings-appearance-swatch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 /*$vite$:1*/

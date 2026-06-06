@@ -5,7 +5,24 @@ export type BranchPointData = {
   currentIndex: number;
   total: number;
   sessions: Array<{ sessionId: string; preview?: string }>;
+  own?: boolean;
 };
+
+/** Keep only the last branch_nav per userMessageIndex, removing any duplicates. */
+export function deduplicateBranchNavs(items: TranscriptItem[]): TranscriptItem[] {
+  const lastNavIdx = new Map<number, number>();
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]!;
+    if (it.type === "branch_nav") {
+      lastNavIdx.set(it.userMessageIndex, i);
+    }
+  }
+  if (lastNavIdx.size === 0) return items;
+  return items.filter((it, i) => {
+    if (it.type !== "branch_nav") return true;
+    return lastNavIdx.get(it.userMessageIndex) === i;
+  });
+}
 
 export function injectBranchNavItems(
   items: TranscriptItem[],

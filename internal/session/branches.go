@@ -12,12 +12,33 @@ import (
 const branchesFile = "branches.json"
 const branchesFileVersion = 1
 
+// sessionLastUpdatedMs returns the Unix-millisecond mtime of messages.json for a session dir.
+// Returns 0 if the file cannot be stat'd.
+func sessionLastUpdatedMs(sessionDir string) int64 {
+	fi, err := os.Stat(filepath.Join(sessionDir, messagesFile))
+	if err != nil {
+		return 0
+	}
+	return fi.ModTime().UnixMilli()
+}
+
+// stampLastUpdated fills LastUpdatedAt for each BranchSessionRef using the file store.
+func stampLastUpdated(refs []BranchSessionRef, store *FileStore) {
+	for i := range refs {
+		dir := store.SessionPath(refs[i].SessionID)
+		refs[i].LastUpdatedAt = sessionLastUpdatedMs(dir)
+	}
+}
+
 // BranchSessionRef identifies one session at a branch point.
 type BranchSessionRef struct {
 	SessionID   string `json:"sessionId"`
 	BranchIndex int    `json:"branchIndex"`
 	// Preview holds the trimmed first N chars of the user message at this branch.
 	Preview string `json:"preview,omitempty"`
+	// LastUpdatedAt is the Unix-millisecond mtime of the session's messages file.
+	// Used by the UI to auto-select the most recently active thread.
+	LastUpdatedAt int64 `json:"lastUpdatedAt,omitempty"`
 }
 
 // BranchPoint records all sessions branching from the same user-message index within a session tree.
@@ -145,31 +166,69 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 		return nil, fmt.Errorf("read source branches: %w", err)
 	}
 
-	// If the source session itself is a branch, work with its parent's branch file.
-	// (For now, we only support one level of linear chain from the root.)
+	// If the source session itself is a branch, decide whether to create a sibling or
+	// a deeper nested branch based on the branch position.
 	if srcBF.Origin != nil {
-		// The branch point already exists in the parent. We still add a new entry there.
-		parentDir := m.store.SessionPath(srcBF.Origin.ParentSessionID)
-		parentBF, err := ReadBranchFile(parentDir)
-		if err != nil {
-			return nil, fmt.Errorf("read parent branches: %w", err)
+		if params.UserMessageIndex == srcBF.Origin.UserMessageIndex {
+			// Branching at the same message position where the source diverged from its
+			// parent → add as a sibling in the parent's branch file.
+			parentDir := m.store.SessionPath(srcBF.Origin.ParentSessionID)
+			parentBF, err := ReadBranchFile(parentDir)
+			if err != nil {
+				return nil, fmt.Errorf("read parent branches: %w", err)
+			}
+			bp := branchPointForIndex(parentBF, srcBF.Origin.UserMessageIndex)
+			newBranchIndex := len(bp.Sessions)
+			bp.Sessions = append(bp.Sessions, BranchSessionRef{
+				SessionID:   newID,
+				BranchIndex: newBranchIndex,
+				Preview:     preview,
+			})
+			if err := WriteBranchFile(parentDir, parentBF); err != nil {
+				return nil, fmt.Errorf("write parent branches: %w", err)
+			}
+			newBF := &BranchFile{
+				Version: branchesFileVersion,
+				Origin: &BranchOrigin{
+					ParentSessionID:  srcBF.Origin.ParentSessionID,
+					UserMessageIndex: srcBF.Origin.UserMessageIndex,
+					MyBranchIndex:    newBranchIndex,
+				},
+			}
+			if err := WriteBranchFile(newDir, newBF); err != nil {
+				return nil, fmt.Errorf("write new branch file: %w", err)
+			}
+			return &CreateBranchResult{
+				NewSessionID:  newID,
+				BranchIndex:   newBranchIndex,
+				TotalBranches: len(bp.Sessions),
+			}, nil
 		}
-		bp := branchPointForIndex(parentBF, srcBF.Origin.UserMessageIndex)
-		newBranchIndex := len(bp.Sessions)
-		bp.Sessions = append(bp.Sessions, BranchSessionRef{
+		// Branching at a different position → create a new branch point in the source's
+		// own branch file. The new session's parent is the direct source (not grandparent).
+		srcBP := branchPointForIndex(srcBF, params.UserMessageIndex)
+		if len(srcBP.Sessions) == 0 {
+			srcPreview := messagePreview(userMessageAt(snap.Messages, params.UserMessageIndex))
+			srcBP.Sessions = append(srcBP.Sessions, BranchSessionRef{
+				SessionID:   srcID,
+				BranchIndex: 0,
+				Preview:     srcPreview,
+			})
+		}
+		newBranchIndex := len(srcBP.Sessions)
+		srcBP.Sessions = append(srcBP.Sessions, BranchSessionRef{
 			SessionID:   newID,
 			BranchIndex: newBranchIndex,
 			Preview:     preview,
 		})
-		if err := WriteBranchFile(parentDir, parentBF); err != nil {
-			return nil, fmt.Errorf("write parent branches: %w", err)
+		if err := WriteBranchFile(snap.Dir, srcBF); err != nil {
+			return nil, fmt.Errorf("write source branches: %w", err)
 		}
-		// Write origin for the new session pointing to the parent.
 		newBF := &BranchFile{
 			Version: branchesFileVersion,
 			Origin: &BranchOrigin{
-				ParentSessionID:  srcBF.Origin.ParentSessionID,
-				UserMessageIndex: srcBF.Origin.UserMessageIndex,
+				ParentSessionID:  srcID,
+				UserMessageIndex: params.UserMessageIndex,
 				MyBranchIndex:    newBranchIndex,
 			},
 		}
@@ -179,7 +238,7 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 		return &CreateBranchResult{
 			NewSessionID:  newID,
 			BranchIndex:   newBranchIndex,
-			TotalBranches: len(bp.Sessions),
+			TotalBranches: len(srcBP.Sessions),
 		}, nil
 	}
 
@@ -230,11 +289,15 @@ type BranchPointView struct {
 	CurrentIndex     int                `json:"currentIndex"`
 	Total            int                `json:"total"`
 	Sessions         []BranchSessionRef `json:"sessions"`
+	// Own is true when this session introduced the branch point (its children);
+	// false when it is a sibling view (branch point owned by the parent).
+	Own bool `json:"own"`
 }
 
-// LoadBranchPointViews resolves the branch points visible from sessionDir.
-// It returns a slice of BranchPointView so the UI can render navigation.
-// If the session is itself a branch, it follows the parent to get the full list.
+// LoadBranchPointViews resolves the branch points visible from a session.
+// Returns views for:
+//   - The session's position among siblings (from parent's branch file, if this is a branch).
+//   - Any branch points the session itself introduced (its own children).
 func (m *Manager) LoadBranchPointViews(sessionID string) ([]BranchPointView, error) {
 	if m.store == nil {
 		return nil, nil
@@ -245,41 +308,50 @@ func (m *Manager) LoadBranchPointViews(sessionID string) ([]BranchPointView, err
 		return nil, err
 	}
 
-	// Case 1: this session is a branch – load from parent.
+	var out []BranchPointView
+
+	// If this session is a branch, show its position among siblings in the parent's group.
 	if bf.Origin != nil {
 		parentDir := m.store.SessionPath(bf.Origin.ParentSessionID)
 		parentBF, err := ReadBranchFile(parentDir)
 		if err != nil {
 			return nil, err
 		}
-		var out []BranchPointView
 		for _, bp := range parentBF.BranchPoints {
 			if bp.UserMessageIndex != bf.Origin.UserMessageIndex {
 				continue
 			}
+			sessions := make([]BranchSessionRef, len(bp.Sessions))
+			copy(sessions, bp.Sessions)
+			stampLastUpdated(sessions, m.store)
 			out = append(out, BranchPointView{
 				UserMessageIndex: bp.UserMessageIndex,
 				CurrentIndex:     bf.Origin.MyBranchIndex,
-				Total:            len(bp.Sessions),
-				Sessions:         bp.Sessions,
+				Total:            len(sessions),
+				Sessions:         sessions,
+				Own:              false,
 			})
 		}
-		return out, nil
 	}
 
-	// Case 2: source session — return its own branch points with currentIndex=0.
-	var out []BranchPointView
+	// Also include any branch points this session introduced (whether root or branch).
+	// currentIndex=0 because this session is always index 0 in its own branch points.
 	for _, bp := range bf.BranchPoints {
 		if len(bp.Sessions) < 2 {
-			continue // no actual branches yet
+			continue
 		}
+		sessions := make([]BranchSessionRef, len(bp.Sessions))
+		copy(sessions, bp.Sessions)
+		stampLastUpdated(sessions, m.store)
 		out = append(out, BranchPointView{
 			UserMessageIndex: bp.UserMessageIndex,
 			CurrentIndex:     0,
-			Total:            len(bp.Sessions),
-			Sessions:         bp.Sessions,
+			Total:            len(sessions),
+			Sessions:         sessions,
+			Own:              true,
 		})
 	}
+
 	return out, nil
 }
 

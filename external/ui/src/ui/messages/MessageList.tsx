@@ -91,7 +91,7 @@ export function MessageList(props: {
         if (it.type === "branch_nav") {
           return (
             <BranchNavigator
-              key={it.id}
+              key={`${it.id}-${it.currentIndex}-${it.total}`}
               userMessageIndex={it.userMessageIndex}
               currentIndex={it.currentIndex}
               total={it.total}

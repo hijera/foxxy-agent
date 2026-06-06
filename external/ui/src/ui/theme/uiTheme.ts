@@ -1,9 +1,18 @@
-import { readUiThemeCookie, type UiThemeMode, writeUiThemeCookie } from "./themeCookie";
+import {
+  LIGHT_THEMES,
+  UI_THEME_IDS,
+  readUiThemeCookie,
+  type UiThemeMode,
+  writeUiThemeCookie,
+} from "./themeCookie";
 
 export const UI_THEME_DEFAULT: UiThemeMode = "dark";
 
 export function resolveUiThemeMode(stored: UiThemeMode | null): UiThemeMode {
-  return stored === "light" ? "light" : UI_THEME_DEFAULT;
+  if (stored !== null && (UI_THEME_IDS as string[]).includes(stored)) {
+    return stored;
+  }
+  return UI_THEME_DEFAULT;
 }
 
 export function applyUiTheme(mode: UiThemeMode): void {
@@ -11,14 +20,20 @@ export function applyUiTheme(mode: UiThemeMode): void {
     return;
   }
   document.documentElement.dataset.theme = mode;
-  document.documentElement.style.colorScheme = mode;
+  document.documentElement.style.colorScheme = LIGHT_THEMES.has(mode)
+    ? "light"
+    : "dark";
 }
 
 export function readAppliedUiTheme(): UiThemeMode {
   if (typeof document === "undefined") {
     return UI_THEME_DEFAULT;
   }
-  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const t = document.documentElement.dataset.theme as string | undefined;
+  if (t && (UI_THEME_IDS as string[]).includes(t)) {
+    return t as UiThemeMode;
+  }
+  return UI_THEME_DEFAULT;
 }
 
 export function bootstrapUiThemeFromCookie(): UiThemeMode {
