@@ -155,6 +155,9 @@ tools:
   # Overridable per session via ACP session/set_config_option with configId "permission_mode".
   permission_mode: ask
 
+  # TCP dial timeout for SSH connections in seconds (default: 30).
+  # ssh_connect_timeout: 30
+
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"
@@ -185,6 +188,31 @@ logger:
 ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`** (stdout, stderr, file, both), **`--log-file`**, **`--log-format`**. Empty flag values keep the YAML (or built-in) defaults.
 
 If the older two-field style had **`file`** set under **`logger`** but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
+
+## SSH remote execution
+
+The built-in `ssh_exec` tool lets the agent run commands on remote hosts over SSH — no external `ssh` binary required (pure-Go via `golang.org/x/crypto/ssh`). The only configurable knob is `tools.ssh_connect_timeout` (TCP dial timeout, default 30 s).
+
+**Authentication order:**
+1. **SSH agent** — if `SSH_AUTH_SOCK` is set and reachable, the agent is used first. This covers YubiKeys, 1Password SSH agent, gpg-agent, and standard `ssh-agent` setups.
+2. **Key files** — Coddy always looks in the current OS user's `~/.ssh` directory. Key names tried in order: `id_ed25519`, `id_rsa`, `id_ecdsa`, `id_dsa`. Keys protected by a passphrase are silently skipped.
+
+Both sources are active simultaneously — if the agent is available and has keys, files still act as a fallback if the agent declines.
+
+**Host key verification** — derived automatically from `tools.permission_mode`:
+- Any mode except `bypass` **(default)** — new hosts are added to `~/.ssh/known_hosts` automatically on first connect (TOFU); if a known host's key has changed, the old entry is replaced with the new one.
+- `bypass` — host key verification is disabled (suitable for ephemeral VMs or CI environments).
+
+**Tool schema** — `ssh_exec` accepts:
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `host` | string | yes | `user@hostname` — user is required |
+| `command` | string | yes | Shell command to run on the remote host |
+| `port` | integer | no | SSH port (default: 22) |
+| `timeout_seconds` | integer | no | Command timeout in seconds |
+| `permission_rationale` | string | no | Text shown in the permission dialog |
+
+The tool requires user permission (same as `run_command`) and returns combined stdout + stderr.
 
 ## HTTP gateway (optional build)
 

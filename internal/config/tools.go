@@ -18,6 +18,9 @@ type Tools struct {
 	// Values: "ask" (default), "accept_edits", "bypass".
 	PermissionMode   string   `yaml:"permission_mode"`
 	CommandAllowlist []string `yaml:"command_allowlist"`
+
+	// SSHConnectTimeout is the TCP dial timeout for SSH connections in seconds (default: 30).
+	SSHConnectTimeout int `yaml:"ssh_connect_timeout"`
 }
 
 // ResolvedPermMode returns PermissionMode with a safe default of PermModeAsk.
@@ -37,6 +40,9 @@ func (c *Tools) Validate() error {
 	}
 	for i := range c.CommandAllowlist {
 		c.CommandAllowlist[i] = strings.TrimSpace(c.CommandAllowlist[i])
+	}
+	if c.SSHConnectTimeout <= 0 {
+		c.SSHConnectTimeout = 30
 	}
 	return nil
 }
