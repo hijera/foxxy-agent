@@ -1,25 +1,83 @@
 ---
 name: generate-rules
-description: "Generate focused project rules under .coddy/rules from repository analysis"
+description: "Scan the codebase and generate or refresh focused project rules under .coddy/rules/"
 ---
 
-# Generate Coddy rules
+# Generate project rules
 
-Use this skill when the user invokes `/generate-rules` to create or refresh project rules.
+Use this skill when the user invokes `/generate-rules`. Behave like Cursor's built-in "Generate Cursor Rules": **analyse the codebase first**, derive rules from what you find, then write them without asking the user to describe the project.
 
-## Workflow
+## Phase 1 — scan (do this before writing anything)
 
-1. If the user did not describe scope, ask what to cover (style, tests, HTTP, UI, architecture).
-2. Read `README`, `AGENTS.md`, `DESIGN.md`, `docs/`, existing `*/rules/`, `Makefile`, and representative source files.
-3. Propose several small `.mdc` files (not one giant rule).
-4. Write files under `.coddy/rules/<name>.mdc` by default (use `.cursor/rules/` only if the user asks for Cursor compatibility).
-5. Frontmatter semantics:
-   - Auto rules: `alwaysApply: true` plus meaningful `globs` (or `paths` for Claude-style files).
-   - Manual rules: `alwaysApply: false` plus `description` (activated only via `@ruleName` in chat, not slash).
-6. Report created files, globs, and how to verify with `coddy rules list` and a test turn with a matching file in context.
+Read in order, skimming for patterns:
 
-## Content guidelines
+1. `README.md`, `AGENTS.md`, `DESIGN.md` — stated purpose, tech stack, conventions
+2. Build / package manifest: `go.mod`, `package.json`, `Cargo.toml`, `pyproject.toml`, `Makefile` — languages, dependencies, build commands, test commands
+3. Top-level directory layout (`ls`) — identify main packages / layers
+4. `internal/` or `src/` root — two or three representative source files per package (not all files)
+5. `*_test.go` / `*.test.*` / `tests/` — understand test strategy and naming
+6. Existing rules under `.cursor/rules/`, `.coddy/rules/`, `.claude/rules/` — read every file to avoid duplicates and understand what is already covered
+7. CI config (`.github/workflows/`, `Dockerfile`, `.pre-commit-config.yaml`) if present
 
-- Keep each rule under 200 lines when possible.
-- Reference canonical examples in the repo instead of pasting large code blocks.
-- English only in rule bodies.
+Skip binary, generated, or vendored files.
+
+## Phase 2 — plan
+
+After scanning, output a **brief plan** (not the rules yet): a table listing each proposed file, its globs/type, and one-line purpose. Ask the user to confirm, adjust scope, or skip topics before writing.
+
+Example:
+
+| File | Type | Purpose |
+|------|------|---------|
+| `architecture.mdc` | always, `**/*.go` | layer dependencies and import direction |
+| `code-style.mdc` | always, `**/*.go` | formatting, lint, comment language |
+| `testing.mdc` | always, `**/*_test.go` | test commands, table-driven conventions |
+| `api-layer.mdc` | manual | HTTP handler patterns and OpenAPI sync |
+
+Update or skip existing files that already cover a topic well.
+
+## Phase 3 — write
+
+Write each confirmed file. Default target directory:
+- `.cursor/rules/` if it already exists in the repo
+- Otherwise `.coddy/rules/`
+- Use `.claude/rules/` only if the user explicitly asks
+
+### Frontmatter
+
+```yaml
+---
+description: One-line summary (used when the rule is fetched manually)
+globs: comma-separated glob patterns   # omit if no meaningful file filter
+alwaysApply: true   # or false for manual/reference rules
+---
+```
+
+**`alwaysApply: true`** — rules a model needs on every task (style, architecture, test commands). Pair with tight `globs` to avoid bloating context.
+
+**`alwaysApply: false`** — reference rules activated via `@ruleName` or when context files match. Use for deep-dive docs (API patterns, DB schema, deployment).
+
+### Body
+
+- Title = `# Topic`
+- Short paragraphs or numbered lists — no walls of prose
+- Prefer referencing real files over pasting code: `see [auth.go](mdc:internal/auth/auth.go)`
+- Cross-link related rules in a `## References` section using `@ruleName.mdc`
+- English only
+- Keep each file under 150 lines
+
+### Good rule categories to derive from code
+
+| Category | What to look for |
+|----------|-----------------|
+| Architecture / layers | Package import graph, forbidden cross-layer calls |
+| Code style | Existing naming, error handling, import grouping patterns |
+| Testing | Test helpers, table-driven style, build tags, `make test` targets |
+| API / HTTP layer | Handler registration pattern, OpenAPI sync, middleware order |
+| Data / persistence | ORM or raw SQL patterns, migration conventions |
+| Build & CI | Lint gates, build tags, required pre-push checks |
+| Domain concepts | Key types and their invariants (e.g. session state machine) |
+
+## After writing
+
+Report: files created or updated, their type (`always` / `manual`), and how to verify — e.g. `coddy rules list` or open a matching file in chat to confirm the rule is picked up.
