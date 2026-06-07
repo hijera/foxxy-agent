@@ -619,10 +619,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
 		return
 	}
-	if len(body.InlineFiles) > 0 && httpModelIsCoddyProfile(model) {
-		http.Error(w, `{"error":{"message":"inline_files are only supported for direct YAML model calls, not agent or plan"}}`, http.StatusBadRequest)
-		return
-	}
+	// inline_files are supported for both direct YAML calls and agent/plan mode.
 
 	if httpModelIsCoddyProfile(model) {
 		cwdAbs, err := filepath.Abs(st.GetCWD())
@@ -684,11 +681,18 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
 		}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
-		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
 			Meta:      sessionPromptMetaFromHTTP(body.Metadata),
-		}, bridge, promptOpts); err != nil {
+		}
+		if len(body.InlineFiles) > 0 {
+			promptParams.ImageParts = make([]acp.ImagePartRef, len(body.InlineFiles))
+			for i, f := range body.InlineFiles {
+				promptParams.ImageParts[i] = acp.ImagePartRef{DataURL: f.DataURL, Name: f.Name}
+			}
+		}
+		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts); err != nil {
 			s.log.Error("responses prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {
 				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)

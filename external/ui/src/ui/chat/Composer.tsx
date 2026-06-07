@@ -37,6 +37,13 @@ import {
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
 import { contextUsagePercent } from "./contextUsage";
+import { fileTypeIcon } from "../messages/fileTypeIcon";
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -1025,6 +1032,30 @@ export function Composer(props: {
           Message
         </label>
         <div className="composer-card" ref={composerCardRef}>
+          {attachedFiles.length > 0 ? (
+            <div className="composer-attachments" aria-label="Attached files">
+              {attachedFiles.map((f, idx) => {
+                const { svg, label } = fileTypeIcon(f.type, f.name);
+                const tip = `${f.name}\n${label} · ${fmtBytes(f.size)}`;
+                return (
+                  <span key={idx} className="composer-attachment-chip" title={tip}>
+                    <span className="composer-attachment-chip-icon" aria-hidden="true">{svg}</span>
+                    <span className="composer-attachment-chip-name">{f.name}</span>
+                    <button
+                      type="button"
+                      className="composer-attachment-chip-remove"
+                      aria-label={`Remove ${f.name}`}
+                      onClick={() =>
+                        setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
             <div className="composer-stack">
               {maskComposerText ? (
@@ -1195,25 +1226,6 @@ export function Composer(props: {
             </div>
           </div>
 
-          {attachedFiles.length > 0 ? (
-            <div className="composer-attachments" aria-label="Attached files">
-              {attachedFiles.map((f, idx) => (
-                <span key={idx} className="composer-attachment-chip">
-                  <span className="composer-attachment-chip-name">{f.name}</span>
-                  <button
-                    type="button"
-                    className="composer-attachment-chip-remove"
-                    aria-label={`Remove ${f.name}`}
-                    onClick={() =>
-                      setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
-                    }
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : null}
 
           <div className="composer-bar">
             <div className="composer-tabs" aria-label="Composer options">

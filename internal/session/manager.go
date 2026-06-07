@@ -14,6 +14,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -533,6 +534,14 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" {
 		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
+	}
+
+	if len(params.ImageParts) > 0 {
+		parts := make([]llm.ImagePart, len(params.ImageParts))
+		for i, p := range params.ImageParts {
+			parts[i] = llm.ImagePart{DataURL: p.DataURL, Name: p.Name}
+		}
+		state.SetPendingImageParts(parts)
 	}
 
 	cwdAbs, err := filepath.Abs(state.GetCWD())

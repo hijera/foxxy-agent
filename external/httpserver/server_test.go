@@ -1820,9 +1820,9 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	}
 }
 
-// TestResponsesInlineFilesRejectedForAgent verifies that inline_files are
-// rejected when used with agent/plan mode.
-func TestResponsesInlineFilesRejectedForAgent(t *testing.T) {
+// TestResponsesInlineFilesAcceptedForAgent verifies that inline_files are
+// accepted in agent/plan mode (images are forwarded to the LLM as ImageParts).
+func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -1833,9 +1833,10 @@ func TestResponsesInlineFilesRejectedForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := ioReadAllClose(res.Body)
-	if res.StatusCode != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
+	_, _ = ioReadAllClose(res.Body)
+	// inline_files are now accepted for agent/plan mode; any non-4xx response is fine.
+	if res.StatusCode == http.StatusBadRequest {
+		t.Fatalf("inline_files should be accepted for agent mode, got 400")
 	}
 }
 

@@ -75,6 +75,9 @@ type State struct {
 	// pendingPlanContext is injected into the next agent system prompt (Run plan); not persisted.
 	pendingPlanContext string
 
+	// pendingImageParts are image attachments for the next user message (from inline_files in agent mode); not persisted.
+	pendingImageParts []llm.ImagePart
+
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
@@ -361,6 +364,22 @@ func (s *State) TakePendingPlanContext() string {
 	defer s.mu.Unlock()
 	out := s.pendingPlanContext
 	s.pendingPlanContext = ""
+	return out
+}
+
+// SetPendingImageParts stores image parts to be attached to the next user message.
+func (s *State) SetPendingImageParts(parts []llm.ImagePart) {
+	s.mu.Lock()
+	s.pendingImageParts = parts
+	s.mu.Unlock()
+}
+
+// TakePendingImageParts returns and clears the pending image parts.
+func (s *State) TakePendingImageParts() []llm.ImagePart {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.pendingImageParts
+	s.pendingImageParts = nil
 	return out
 }
 

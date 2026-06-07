@@ -38,6 +38,7 @@ import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
+  preserveUserMessageFiles,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
 import {
@@ -1876,7 +1877,10 @@ export function App() {
         : viewingTrim === sid
           ? itemsRef.current
           : undefined;
-    const mergedBase = mergeTranscriptPreferLocalSuffix(next, localForMerge);
+    const mergedBase = preserveUserMessageFiles(
+      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      localForMerge,
+    );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
     merged = mergePermissionPromptsIntoTranscript(
       merged,
@@ -2576,6 +2580,15 @@ export function App() {
         type: "user_message",
         content: text,
         createdAtUtc: new Date().toISOString(),
+        ...(opts?.files && opts.files.length > 0
+          ? {
+              files: opts.files.map((f) => ({
+                name: f.name,
+                mimeType: f.type || "application/octet-stream",
+                sizeBytes: f.size,
+              })),
+            }
+          : {}),
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
@@ -2612,7 +2625,7 @@ export function App() {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
       }
-      if (opts?.files && opts.files.length > 0 && !profileModel) {
+      if (opts?.files && opts.files.length > 0) {
         const inlineFiles = await Promise.all(
           opts.files.map(
             (f) =>

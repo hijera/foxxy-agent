@@ -46,6 +46,7 @@ type SessionState interface {
 	AppendPlanDocument(plans.Document)
 	DiscardedPlanSlugs() []string
 	TakePendingPlanContext() string
+	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
 }
 
@@ -86,10 +87,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
+	imageParts := a.state.TakePendingImageParts()
 	a.state.AddMessage(llm.Message{
-		Role:      llm.RoleUser,
-		Content:   userText,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Role:       llm.RoleUser,
+		Content:    userText,
+		ImageParts: imageParts,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 	a.runMemoryBeforeTurn(ctx, userText)
 
