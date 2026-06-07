@@ -131,10 +131,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	if err != nil {
 		return nil, err
 	}
-	maxTok := rm.MaxTokens
-	if maxTok <= 0 || maxTok > 96 {
-		maxTok = 96
-	}
+	maxTok := resolveDirectYAMLMaxTokens(rm)
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Type:        rm.ProviderType,
 		Model:       rm.Model,

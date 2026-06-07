@@ -1676,6 +1676,7 @@ export function App() {
           type: "system_notice",
           level: "error",
           message: row.message,
+          createdAtUtc: row.createdAt,
         });
       }
     };
@@ -2076,7 +2077,7 @@ export function App() {
     const showBranchError = (msg: string) => {
       applyStreamItemsForSession(sourceSid, (prev) => [
         ...prev,
-        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg },
+        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg, createdAtUtc: new Date().toISOString() },
       ]);
     };
 
@@ -2452,6 +2453,7 @@ export function App() {
               type: "system_notice",
               level: "error" as const,
               message: errText,
+              createdAtUtc: new Date().toISOString(),
             },
           ];
         });
@@ -2663,6 +2665,7 @@ export function App() {
             type: "system_notice",
             level: "error" as const,
             message: msg,
+            createdAtUtc: new Date().toISOString(),
           },
         ]);
         postAbortBySidRef.current.delete(postSessionKey);
@@ -2713,6 +2716,7 @@ export function App() {
             type: "system_notice",
             level: "error" as const,
             message: msg,
+            createdAtUtc: new Date().toISOString(),
           },
         ]);
         postAbortBySidRef.current.delete(postSessionKey);
@@ -2802,6 +2806,7 @@ export function App() {
               type: "system_notice",
               level: "error" as const,
               message: errText,
+              createdAtUtc: new Date().toISOString(),
             },
           ];
         });

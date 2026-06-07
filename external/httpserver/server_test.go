@@ -1839,6 +1839,35 @@ func TestResponsesInlineFilesRejectedForAgent(t *testing.T) {
 	}
 }
 
+// TestResolveDirectYAMLMaxTokens verifies that resolveDirectYAMLMaxTokens
+// returns the configured value unchanged (regression: was incorrectly capped at 96).
+func TestResolveDirectYAMLMaxTokens(t *testing.T) {
+	cases := []struct {
+		name      string
+		maxTokens int
+		want      int
+	}{
+		{"zero passes through as zero", 0, 0},
+		{"negative passes through as zero", -1, 0},
+		{"small value used as configured", 100, 100},
+		{"large value not capped (regression moonshot kimi-k2.6)", 32000, 32000},
+		{"very large value not capped", 128000, 128000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rm := &config.ResolvedLLM{MaxTokens: tc.maxTokens}
+			got := resolveDirectYAMLMaxTokens(rm)
+			if got != tc.want {
+				t.Errorf("resolveDirectYAMLMaxTokens(MaxTokens=%d) = %d, want %d",
+					tc.maxTokens, got, tc.want)
+			}
+		})
+	}
+	if got := resolveDirectYAMLMaxTokens(nil); got != 0 {
+		t.Errorf("resolveDirectYAMLMaxTokens(nil) = %d, want 0", got)
+	}
+}
+
 func ioReadAllClose(b io.ReadCloser) ([]byte, error) {
 	defer b.Close()
 	return io.ReadAll(b)

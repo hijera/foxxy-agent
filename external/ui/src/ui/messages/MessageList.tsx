@@ -186,6 +186,7 @@ export function MessageList(props: {
               key={it.id}
               level={it.level}
               message={it.message}
+              createdAtUtc={it.createdAtUtc}
             />
           );
         }

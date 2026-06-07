@@ -82,6 +82,7 @@ export type TranscriptItem =
       type: "system_notice";
       level: "error";
       message: string;
+      createdAtUtc?: string;
     }
   | {
       id: string;
