@@ -15,11 +15,11 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 )
 
-// ExecTool returns the ssh_exec built-in tool.
-func ExecTool() *tooling.Tool {
+// SSHRunCommandTool returns the ssh_run_command built-in tool.
+func SSHRunCommandTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name: "ssh_exec",
+			Name: "ssh_run_command",
 			Description: "Execute a shell command on a remote host via SSH. " +
 				"Returns the combined stdout and stderr output. " +
 				"Authentication tries the SSH agent (SSH_AUTH_SOCK) first, then falls back to private key files in the configured .ssh directory.",

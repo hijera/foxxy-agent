@@ -191,7 +191,7 @@ If the older two-field style had **`file`** set under **`logger`** but no **`out
 
 ## SSH remote execution
 
-The built-in `ssh_exec` tool lets the agent run commands on remote hosts over SSH — no external `ssh` binary required (pure-Go via `golang.org/x/crypto/ssh`). The only configurable knob is `tools.ssh_connect_timeout` (TCP dial timeout, default 30 s).
+The built-in `ssh_run_command` tool lets the agent run commands on remote hosts over SSH — no external `ssh` binary required (pure-Go via `golang.org/x/crypto/ssh`). The only configurable knob is `tools.ssh_connect_timeout` (TCP dial timeout, default 30 s).
 
 **Authentication order:**
 1. **SSH agent** — if `SSH_AUTH_SOCK` is set and reachable, the agent is used first. This covers YubiKeys, 1Password SSH agent, gpg-agent, and standard `ssh-agent` setups.
@@ -203,7 +203,7 @@ Both sources are active simultaneously — if the agent is available and has key
 - Any mode except `bypass` **(default)** — new hosts are added to `~/.ssh/known_hosts` automatically on first connect (TOFU); if a known host's key has changed, the old entry is replaced with the new one.
 - `bypass` — host key verification is disabled (suitable for ephemeral VMs or CI environments).
 
-**Tool schema** — `ssh_exec` accepts:
+**Tool schema** — `ssh_run_command` accepts:
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `host` | string | yes | `user@hostname` — user is required |

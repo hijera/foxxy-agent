@@ -68,7 +68,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
-- **SSH remote execution** - built-in `ssh_exec` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/config.md#ssh-remote-execution)
+- **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/config.md#ssh-remote-execution)
 - **Messenger gateway** - optional Telegram bot adapter (`-tags gateway.telegram`); per-user sessions, group isolation modes, admin ACL; extensible to Discord, Slack, etc. — see [Messenger Gateway](docs/gateway.md)
 
 ## Editor and IDE integration

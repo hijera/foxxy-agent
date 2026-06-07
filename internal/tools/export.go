@@ -41,7 +41,7 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 	r.Register(todo.ItemMoveTool())
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
-	r.Register(toolssh.ExecTool())
+	r.Register(toolssh.SSHRunCommandTool())
 	registerSchedulerTools(r, cfg)
 	return r
 }

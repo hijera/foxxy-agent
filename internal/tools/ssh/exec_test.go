@@ -72,16 +72,16 @@ func TestKnownHostsModeFrom(t *testing.T) {
 	}
 }
 
-func TestSSHExecToolDefinition(t *testing.T) {
-	tool := ExecTool()
+func TestSSHRunCommandToolDefinition(t *testing.T) {
+	tool := SSHRunCommandTool()
 	if tool == nil {
-		t.Fatal("ExecTool() returned nil")
+		t.Fatal("SSHRunCommandTool() returned nil")
 	}
-	if tool.Definition.Name != "ssh_exec" {
-		t.Errorf("tool name = %q, want %q", tool.Definition.Name, "ssh_exec")
+	if tool.Definition.Name != "ssh_run_command" {
+		t.Errorf("tool name = %q, want %q", tool.Definition.Name, "ssh_run_command")
 	}
 	if !tool.RequiresPermission {
-		t.Error("ssh_exec must require permission")
+		t.Error("ssh_run_command must require permission")
 	}
 	schema, ok := tool.Definition.InputSchema.(map[string]interface{})
 	if !ok {

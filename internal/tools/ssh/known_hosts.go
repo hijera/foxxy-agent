@@ -15,31 +15,13 @@ import (
 
 // hostKeyCallback returns an ssh.HostKeyCallback for the given mode and known_hosts file path.
 //
-//   - "accept_new" – new hosts are added; changed keys are replaced (default).
-//   - "strict"     – standard known_hosts lookup; new or changed hosts are rejected.
-//   - "insecure"   – no host key verification (unsafe, for test/dev environments only).
+//   - "insecure"   – no host key verification (tools.permission_mode = bypass).
+//   - anything else – new hosts are added; changed keys are replaced (TOFU, default).
 func hostKeyCallback(mode, knownHostsPath string) (gossh.HostKeyCallback, error) {
-	switch mode {
-	case "insecure":
+	if mode == "insecure" {
 		return gossh.InsecureIgnoreHostKey(), nil //nolint:gosec // intentional for insecure mode
-
-	case "strict":
-		if knownHostsPath == "" {
-			return nil, fmt.Errorf("ssh: strict mode requires a known_hosts path")
-		}
-		cb, err := knownhosts.New(knownHostsPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("ssh: known_hosts file not found at %s; "+
-					"connect to the host once with ssh to populate it, or set known_hosts_mode to accept_new", knownHostsPath)
-			}
-			return nil, fmt.Errorf("ssh: load known_hosts: %w", err)
-		}
-		return cb, nil
-
-	default: // "accept_new" and anything unrecognised
-		return autoUpdateCallback(knownHostsPath)
 	}
+	return autoUpdateCallback(knownHostsPath)
 }
 
 // autoUpdateCallback builds a host key callback that automatically trusts new hosts
