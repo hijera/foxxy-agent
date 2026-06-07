@@ -49,6 +49,9 @@ type Env struct {
 	// ToolCallID is the active LLM tool call id for this execution, when applicable.
 	ToolCallID string
 
+	// SSHConnectTimeout is the TCP dial timeout for SSH connections in seconds.
+	SSHConnectTimeout int
+
 	// SetSessionMode switches the session operating mode (e.g. plan to agent). Optional.
 	SetSessionMode func(mode string) error
 

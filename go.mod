@@ -6,12 +6,14 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
+	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/jedib0t/go-pretty/v6 v6.5.9
 	github.com/kuhahalong/ddgsearch v0.0.0-20241205095054-d297f4189b6e
 	github.com/openai/openai-go v1.12.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/tidwall/gjson v1.18.0
-	golang.org/x/net v0.53.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/net v0.54.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -20,7 +22,6 @@ require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/go-shiori/dom v0.0.0-20230515143342-73569d674e1c // indirect
-	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1 // indirect
 	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
@@ -28,6 +29,6 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )

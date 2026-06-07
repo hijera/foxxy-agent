@@ -5,6 +5,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
+	toolssh "github.com/EvilFreelancer/coddy-agent/internal/tools/ssh"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
@@ -40,6 +41,7 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 	r.Register(todo.ItemMoveTool())
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
+	r.Register(toolssh.SSHRunCommandTool())
 	registerSchedulerTools(r, cfg)
 	return r
 }

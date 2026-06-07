@@ -113,6 +113,9 @@ tools:
     - "git diff"
     - "git log"
 
+  # TCP dial timeout for SSH connections in seconds (default: 30).
+  # ssh_connect_timeout: 30
+
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"
