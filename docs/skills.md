@@ -10,7 +10,7 @@ Skills are reusable instruction packs that extend the agent with slash commands,
 
 ### skills.sh — community registry
 
-The open agent skills ecosystem lives at **[https://skills.sh](https://skills.sh)**. Skills are plain GitHub repos with a `SKILL.md` file, compatible across agents that support the format (Cursor, Claude Code, Coddy, etc.).
+The open agent skills ecosystem lives at **[https://skills.sh](https://skills.sh)**. Skills are plain GitHub repos with a `SKILL.md` file, compatible across agents that support the format (Cursor, Codex, Claude Code, Coddy, etc.).
 
 Install via **`npx skills`** (Node.js required):
 
@@ -88,7 +88,7 @@ skills:
 
 ### `subdir/SKILL.md` (recommended)
 
-One skill per directory. Compatible with the Cursor skills layout and `npx skills`:
+One skill per directory. Compatible with the standard agent skills layout and `npx skills`:
 
 ```
 ~/.agents/skills/

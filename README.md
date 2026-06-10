@@ -16,18 +16,24 @@
   ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.
 </p>
 
-![Start screen](docs/assets/screenshot-fullhd-start.png)
+| Desktop (1920×1080) | Mobile (390×844) |
+|---|---|
+| ![Start screen](docs/assets/screenshot-fullhd-start.png) | ![Mobile start](docs/assets/screenshot-mobile-start.png) |
 
 <details>
 <summary>More screenshots</summary>
 
-| Chat | History |
-| --- | --- |
-| ![Chat](docs/assets/screenshot-fullhd-chat.png) | ![History](docs/assets/screenshot-fullhd-history.png) |
-| Scheduler (list + job) | Settings |
-| ![Scheduler](docs/assets/screenshot-fullhd-scheduler.png) | ![Settings](docs/assets/screenshot-fullhd-settings.png) |
+| Chat | Mobile chat |
+|---|---|
+| ![Chat](docs/assets/screenshot-fullhd-chat.png) | ![Mobile chat](docs/assets/screenshot-mobile-chat.png) |
+| **History** | **Scheduler** |
+| ![History](docs/assets/screenshot-fullhd-history.png) | ![Scheduler](docs/assets/screenshot-fullhd-scheduler.png) |
+| **Settings** | **Settings — Skills** |
+| ![Settings](docs/assets/screenshot-fullhd-settings.png) | ![Settings Skills](docs/assets/screenshot-fullhd-settings-skills.png) |
+| **Settings — Appearance** | |
+| ![Settings Appearance](docs/assets/screenshot-fullhd-settings-appearance.png) | |
 
-Screenshots at **1920×1080** from the embedded UI (`coddy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
+Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`coddy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
 
 </details>
 
@@ -67,15 +73,16 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.coddy/skills`**, **`${CWD}/.coddy/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
+- **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.coddy/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
 - **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/config.md#ssh-remote-execution)
 - **Messenger gateway** - optional Telegram bot adapter (`-tags gateway.telegram`); per-user sessions, group isolation modes, admin ACL; extensible to Discord, Slack, etc. — see [Messenger Gateway](docs/gateway.md)
 
 ## Editor and IDE integration
 
-Coddy is an **ACP server** (`coddy acp`). **Cursor**, **Zed**, scripts, and the bundled **`coddy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
+Coddy is an **ACP server** (`coddy acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`coddy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
 
-Full setup (Cursor external agent, Zed `agent_servers`, shared sessions, rules vs skills): **[`docs/editor-integration.md`](docs/editor-integration.md)**. Protocol details: **`docs/acp-protocol.md`**, harness examples: **`examples/acp/`**.
+Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/`**.
 
 ## Quick Start
 

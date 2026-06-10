@@ -6,8 +6,6 @@ Coddy implements ACP as the **wire contract for the harness**. ACP standardizes 
 
 Reference: https://agentclientprotocol.com/protocol/overview
 
-Editor setup (Cursor, Zed, shared sessions): [editor-integration.md](editor-integration.md).
-
 ## Transport
 
 All messages are newline-delimited JSON objects sent via **stdin/stdout**.

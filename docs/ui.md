@@ -155,6 +155,22 @@ Regression
 
 - Automated UI checks (**Playwright MCP** or **`@playwright/test`**) MAY assert **`#btn-send`** **`offsetWidth`** **≈** **`offsetHeight`** and computed **`border-radius`** **≥ half** **`min(width,height)`** (within sub-pixel tolerance).
 
+## Composer file attachments (multimodal)
+
+- The paperclip button (**`data-testid="composer-file-input"`** hidden `<input type="file">` triggered by a visible icon button) appears in the composer **only** when the active model has **`multimodal: true`** from **`GET /v1/models`**. The flag is derived from **`models[].multimodal`** in YAML config and propagated through **`ModelInfo.multimodal`** → **`llmModelMultimodal`** in **`App.tsx`** → **`Composer`** prop.
+- Attached files are held in **`attachedFiles: File[]`** state on **`Composer`**. Preview chips appear above the composer input showing file name and type icon.
+- On send, **`App.tsx`** reads each file as a data URL via **`FileReader`** and includes **`inline_files: [{name, data_url}]`** in the **`POST /v1/responses`** body.
+- **Agent / plan turns**: the server writes each file to **`~/.coddy/sessions/<id>/assets/`** (permissions **`0o444`**) and injects a **`<coddy_session_assets>`** XML block into the user message so the agent can **`read`** or **`cp`** those paths. Duplicate asset names get **`_1`**, **`_2`** suffixes (see `internal/session/assets.go` **`SavePartsToAssets`**).
+- **Direct YAML model turns**: each file becomes an **`image_url`** content part sent inline to the provider.
+- The user bubble strips the XML annotation via **`stripCoddyAttachmentsForUserDisplay`** in **`stripCoddyAttachments.ts`** and shows file chips (**`msg-user-files`** / **`msg-user-file-chip`** CSS classes). **`parseSessionAssetFiles`** re-derives chip metadata on page reload.
+- After a **`PUT /coddy/config`** save in Settings, **`App.tsx`** bumps **`modelsEpoch`** → re-fetches **`/v1/models`** so the attachment button appears or disappears without a page reload.
+
+| Case | Expected | Automated check |
+|------|----------|-----------------|
+| FA1 | Paperclip visible only when `llmModelMultimodal` is true | `Composer.test.tsx` |
+| FA2 | File chips render in user bubble after send | `stripCoddyAttachments.test.ts` |
+| FA3 | Chips persist on reload via `parseSessionAssetFiles` | `stripCoddyAttachments.test.ts` |
+
 ## Composer slash skills and mirror caret
 
 Authoritative narrative and visual tokens live in **`DESIGN.md`** (slash picker, mirror contract, verification table). This section is the functional contract for regression.
@@ -351,6 +367,7 @@ Store the provided design reference images under `docs/assets/`.
 When describing a specific element, link to the relevant image file.
 
 - Full HD UI tour (README): `docs/assets/screenshot-fullhd-start.png`, `screenshot-fullhd-chat.png`, `screenshot-fullhd-history.png`, `screenshot-fullhd-scheduler.png`, `screenshot-fullhd-settings.png`
+- Mobile UI tour (README): `docs/assets/screenshot-mobile-start.png`, `screenshot-mobile-chat.png`
 - Home layout: `docs/assets/ref-home-1.png`, `ref-home-2.png`, `ref-home-3.png`
 - Home scroll state: `docs/assets/ref-home-scroll.png`
 - Composer state: `docs/assets/ref-home-composer.png`
