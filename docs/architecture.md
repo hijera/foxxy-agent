@@ -8,7 +8,7 @@ by pluggable LLM providers. Ship it as one binary suitable for scratch or distro
 sidecars, CI sandboxes, or local installs.
 
 The default toolset and prompts are tuned so the harness presents as an **interactive coding agent**
-(ACP clients spawn `coddy acp`; users get filesystem, commands, MCP, project rules from `.coddy`/`.cursor`/`.claude`/`.codex` trees under session cwd, and skills from `skills.dirs`).
+(ACP clients spawn `coddy acp`; users get filesystem, commands, MCP, project rules from `.coddy`/`.cursor`/`.claude`/`.codex` rule trees under session cwd, and skills from `skills.dirs`).
 That coding-agent surface is **a productized profile on top of the harness**, not the only way to run Coddy.
 
 ## High-Level Architecture
@@ -16,11 +16,11 @@ That coding-agent surface is **a productized profile on top of the harness**, no
 ```
 ┌──────────────────────────┐   ┌──────────────────────────────────┐
 │   ACP client (editor)    │   │  Messenger (Telegram, …)         │
-│  Cursor / Zed / scripts  │   │  (build tag: gateway.telegram    │
+│      Zed / scripts       │   │  (build tag: gateway.telegram    │
 └────────────┬─────────────┘   │             or gateway)          │
-             │ JSON-RPC 2.0    └──────────────┬───────────────────┘
-             │ over stdio                      │ long-polling
-             ▼                                 ▼
+             │ JSON-RPC 2.0    └─────────────┬────────────────────┘
+             │ over stdio                    │ long-polling
+             ▼                               ▼
 ┌────────────────────────┐    ┌────────────────────────────────────┐
 │   ACP Server Layer     │    │  Gateway Hub (external/gateway/)   │
 │  initialize            │    │  one goroutine per adapter         │
@@ -51,7 +51,7 @@ That coding-agent surface is **a productized profile on top of the harness**, no
    │   LLM   │    │  Tools   │ │  MCP Clients │        │
    │Provider │    │Registry  │ │  (external)  │        │
    └─────────┘    └──────────┘ └──────────────┘        │
-                                               ┌────────┘
+                                               ┌───────┘
                                                │
                                     ┌──────────▼────────────┐
                                     │  optional external/   │

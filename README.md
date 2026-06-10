@@ -80,9 +80,9 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 
 ## Editor and IDE integration
 
-Coddy is an **ACP server** (`coddy acp`). **Cursor**, **Zed**, scripts, and the bundled **`coddy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
+Coddy is an **ACP server** (`coddy acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`coddy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
 
-Full setup (Cursor external agent, Zed `agent_servers`, shared sessions, rules vs skills): **[`docs/editor-integration.md`](docs/editor-integration.md)**. Protocol details: **`docs/acp-protocol.md`**, harness examples: **`examples/acp/`**.
+Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/`**.
 
 ## Quick Start
 
