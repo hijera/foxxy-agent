@@ -95,6 +95,11 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Reasoning levels offered by the current model; empty/omitted hides the selector. */
+  llmReasoningLevels?: string[];
+  /** Selected reasoning level (`metadata.reasoning`). */
+  llmReasoning?: string;
+  onLlmReasoningChange?: (level: string) => void;
   /** Files carried over from the message being edited — shown as read-only chips. */
   editingFiles?: { name: string; mimeType: string }[];
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
@@ -120,7 +125,9 @@ export function Composer(props: {
     snapshotShellStack,
     serverSnapshotShellStack,
   );
-  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | null>(null);
+  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | null>(
+    null,
+  );
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
   /** After closing the breakdown, hide hover tooltip until pointer leaves the ring. */
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
@@ -869,6 +876,13 @@ export function Composer(props: {
   const showLlm = llmList.length > 0;
   const llmVal = (props.llmModel || "").trim();
 
+  const reasoningLevels = props.llmReasoningLevels ?? [];
+  const showReasoning = reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
+  const reasoningVal = (props.llmReasoning || "").trim();
+  const reasoningLabel = reasoningVal
+    ? reasoningVal.slice(0, 1).toUpperCase() + reasoningVal.slice(1)
+    : "Reasoning";
+
   function displayMode(id: string): string {
     const m = id || "agent";
     if (m === "plan" || m === "agent") {
@@ -1339,6 +1353,51 @@ export function Composer(props: {
                             className={`mode-item ${mid === llmVal ? "is-selected" : ""}`}
                             onClick={() => {
                               props.onLlmModelChange?.(mid);
+                              setMenuOpen(null);
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showReasoning ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    className="composer-tab mode-btn mode-reasoning"
+                    aria-label="Reasoning level"
+                    title="Reasoning level (metadata.reasoning)"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "reasoning"}
+                    onClick={() =>
+                      setMenuOpen((cur) =>
+                        cur === "reasoning" ? null : "reasoning",
+                      )
+                    }
+                  >
+                    {reasoningLabel}
+                  </button>
+                  {menuOpen === "reasoning" ? (
+                    <div
+                      className={`mode-menu ${modeMenuDirClass}`}
+                      role="menu"
+                    >
+                      {reasoningLevels.map((lv) => {
+                        const label = lv.slice(0, 1).toUpperCase() + lv.slice(1);
+                        return (
+                          <button
+                            key={lv}
+                            type="button"
+                            role="menuitem"
+                            title={lv}
+                            className={`mode-item ${lv === reasoningVal ? "is-selected" : ""}`}
+                            onClick={() => {
+                              props.onLlmReasoningChange?.(lv);
                               setMenuOpen(null);
                             }}
                           >

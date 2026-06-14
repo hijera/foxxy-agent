@@ -32,6 +32,7 @@ type SessionState interface {
 	GetMode() string
 	SetMode(mode string)
 	EffectiveModelID(cfg *config.Config) string
+	EffectiveReasoning(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
 	GetMCPClients() []*mcp.Client
@@ -144,8 +145,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		SessionID:                    a.state.GetID(),
-		SessionDir:                   sd,
+		SessionID:        a.state.GetID(),
+		SessionDir:       sd,
 		ArchiveActiveMarkdown: func() error {
 			if sd == "" {
 				return nil
@@ -719,7 +720,9 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	return mk(a.llmProviderInput(rm))
+	in := a.llmProviderInput(rm)
+	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
+	return mk(in)
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {

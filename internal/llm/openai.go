@@ -16,13 +16,14 @@ import (
 
 // openAIProvider implements Provider using the OpenAI API (or compatible).
 type openAIProvider struct {
-	client    openai.Client
-	model     string
-	maxTokens int
-	temp      float64
+	client          openai.Client
+	model           string
+	maxTokens       int
+	temp            float64
+	reasoningEffort string
 }
 
-func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64) *openAIProvider {
+func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
 	opts := []option.RequestOption{}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
@@ -34,10 +35,11 @@ func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, m
 		opts = append(opts, option.WithHTTPClient(httpClient))
 	}
 	return &openAIProvider{
-		client:    openai.NewClient(opts...),
-		model:     model,
-		maxTokens: maxTokens,
-		temp:      temp,
+		client:          openai.NewClient(opts...),
+		model:           model,
+		maxTokens:       maxTokens,
+		temp:            temp,
+		reasoningEffort: reasoningEffort,
 	}
 }
 
@@ -255,6 +257,11 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 	}
 	if p.temp > 0 {
 		params.Temperature = openai.Float(p.temp)
+	}
+	// reasoning_effort is only valid for reasoning models; callers pass an empty
+	// string for non-reasoning models so the field is omitted (omitzero).
+	if p.reasoningEffort != "" {
+		params.ReasoningEffort = openai.ReasoningEffort(p.reasoningEffort)
 	}
 
 	if len(tools) > 0 {

@@ -14,13 +14,14 @@ import (
 
 // anthropicProvider implements Provider using the Anthropic API.
 type anthropicProvider struct {
-	client    anthropic.Client
-	model     string
-	maxTokens int
-	temp      float64
+	client          anthropic.Client
+	model           string
+	maxTokens       int
+	temp            float64
+	reasoningEffort string
 }
 
-func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxTokens int, temp float64) *anthropicProvider {
+func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
 	opts := []option.RequestOption{}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
@@ -32,11 +33,45 @@ func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxToke
 		maxTokens = 8192
 	}
 	return &anthropicProvider{
-		client:    anthropic.NewClient(opts...),
-		model:     model,
-		maxTokens: maxTokens,
-		temp:      temp,
+		client:          anthropic.NewClient(opts...),
+		model:           model,
+		maxTokens:       maxTokens,
+		temp:            temp,
+		reasoningEffort: reasoningEffort,
 	}
+}
+
+// anthropicMinThinkingBudget is the smallest budget the Anthropic API accepts for extended thinking.
+const anthropicMinThinkingBudget int64 = 1024
+
+// anthropicThinkingBudget maps a reasoning level to an extended-thinking token budget.
+// Returns 0 when the level is empty/unknown (thinking disabled). The budget is a
+// fraction of maxTokens, floored at the API minimum; callers must still ensure
+// max_tokens stays strictly greater than the returned budget.
+func anthropicThinkingBudget(level string, maxTokens int) int64 {
+	if maxTokens <= 0 {
+		maxTokens = 8192
+	}
+	var frac float64
+	switch level {
+	case "minimal":
+		return anthropicMinThinkingBudget
+	case "low":
+		frac = 0.25
+	case "medium":
+		frac = 0.5
+	case "high":
+		frac = 0.75
+	default:
+		return 0
+	}
+	b := int64(float64(maxTokens) * frac)
+	if b < anthropicMinThinkingBudget {
+		b = anthropicMinThinkingBudget
+	}
+	// No upper clamp here: buildParams guarantees max_tokens stays greater than the budget
+	// (bumping max_tokens when needed), so the budget never drops below the API minimum.
+	return b
 }
 
 func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
@@ -211,7 +246,16 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 	if system != "" {
 		params.System = []anthropic.TextBlockParam{{Type: "text", Text: system}}
 	}
-	if p.temp > 0 {
+
+	budget := anthropicThinkingBudget(p.reasoningEffort, p.maxTokens)
+	if budget >= anthropicMinThinkingBudget {
+		// Extended thinking requires room for a response beyond the thinking budget
+		// and forbids a custom temperature (only the default is allowed).
+		if params.MaxTokens <= budget {
+			params.MaxTokens = budget + anthropicMinThinkingBudget
+		}
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+	} else if p.temp > 0 {
 		params.Temperature = anthropic.Float(p.temp)
 	}
 

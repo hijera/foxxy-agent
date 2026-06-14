@@ -70,6 +70,8 @@ import {
   pickDefaultLlmModelForNewChat,
   pickLlmModelForOpenSession,
 } from "./chat/llmModelSelection";
+import { readReasoningCookie, writeReasoningCookie } from "./chat/reasoningCookie";
+import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import {
   armSessionDeleteBackdropSuppressUntil,
@@ -236,6 +238,8 @@ type ModelInfo = {
   ownedBy?: string;
   maxContextTokens?: number | undefined;
   multimodal?: boolean;
+  reasoningLevels?: string[];
+  reasoningDefault?: string;
 };
 
 const PROFILE_MODES = ["agent", "plan"] as const;
@@ -814,6 +818,7 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const [llmReasoning, setLlmReasoning] = useState("");
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -1312,6 +1317,8 @@ export function App() {
           owned_by?: string;
           max_context_tokens?: number;
           multimodal?: boolean;
+          reasoning_levels?: string[];
+          reasoning_default?: string;
         }>;
       }>("/v1/models");
       if (!res.ok || !res.data?.data) {
@@ -1325,10 +1332,20 @@ export function App() {
             ? { maxContextTokens: d.max_context_tokens }
             : {}),
           multimodal: !!d.multimodal,
+          reasoningLevels: Array.isArray(d.reasoning_levels)
+            ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
+            : [],
+          reasoningDefault: (d.reasoning_default || "").trim(),
         }))
         .filter((d) => d.id);
       const rows: ModelInfo[] = raw.map((d) => {
-        const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy, multimodal: d.multimodal };
+        const m: ModelInfo = {
+          id: d.id,
+          ownedBy: d.ownedBy,
+          multimodal: d.multimodal,
+          reasoningLevels: d.reasoningLevels,
+          reasoningDefault: d.reasoningDefault,
+        };
         if (d.maxContextTokens !== undefined) {
           m.maxContextTokens = d.maxContextTokens;
         }
@@ -1606,6 +1623,7 @@ export function App() {
       messages: Array<any>;
       model?: string;
       selectedModelId?: string;
+      selectedReasoning?: string;
       memoryTurns?: MemoryTurnApi[];
       uiLog?: Array<{
         id?: string;
@@ -1636,6 +1654,9 @@ export function App() {
           defaultAgentModel: defaultAgentYamlModel,
         }),
       );
+      // Restore the session's reasoning level; the clamp effect validates it
+      // against the (possibly newly selected) model's available levels.
+      setLlmReasoning((res.data.selectedReasoning || "").trim());
     }
     type UILogRow = {
       id: string;
@@ -2653,10 +2674,12 @@ export function App() {
         reqBody.inline_files = inlineFiles;
       }
       const yamlSel = llmModel.trim();
+      const reasoningSel = llmReasoning.trim();
       const runSlug = (opts?.runPlanSlug || "").trim();
-      if (yamlSel || runSlug) {
+      if (yamlSel || reasoningSel || runSlug) {
         const meta: Record<string, string> = {};
         if (yamlSel) meta.model = yamlSel;
+        if (reasoningSel) meta.reasoning = reasoningSel;
         if (runSlug) meta.runPlanSlug = runSlug;
         reqBody.metadata = meta;
       }
@@ -2949,6 +2972,47 @@ export function App() {
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
+
+  const llmReasoningLevels = useMemo(() => {
+    const row = modelInfos.find((m) => m.id === llmModel);
+    return row?.reasoningLevels ?? [];
+  }, [modelInfos, llmModel]);
+
+  // Keep the selected reasoning level valid for the current model: keep the user's
+  // pick when the new model still offers it, else fall back (cookie -> model default).
+  useEffect(() => {
+    const row = modelInfos.find((m) => m.id === llmModel);
+    const levels = row?.reasoningLevels ?? [];
+    setLlmReasoning((prev) =>
+      pickReasoningLevel({
+        levels,
+        cookie: readReasoningCookie(),
+        sessionLevel: prev,
+        modelDefault: row?.reasoningDefault ?? null,
+      }),
+    );
+  }, [llmModel, modelInfos]);
+
+  const onLlmReasoningChange = useCallback(
+    (level: string) => {
+      const lv = level.trim();
+      if (!lv) {
+        return;
+      }
+      setLlmReasoning(lv);
+      writeReasoningCookie(lv);
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ selectedReasoning: lv }),
+      });
+    },
+    [sessionId, headers],
+  );
 
   const onLlmModelChange = useCallback(
     (id: string) => {
@@ -3293,7 +3357,19 @@ export function App() {
           mode={mode}
           modes={[...PROFILE_MODES]}
           {...(llmModelIds.length > 0
-            ? { llmModels: llmModelIds, llmModel, onLlmModelChange, llmModelMultimodal }
+            ? {
+                llmModels: llmModelIds,
+                llmModel,
+                onLlmModelChange,
+                llmModelMultimodal,
+                ...(llmReasoningLevels.length > 0
+                  ? {
+                      llmReasoningLevels,
+                      llmReasoning,
+                      onLlmReasoningChange,
+                    }
+                  : {}),
+              }
             : {})}
           onModeChange={setMode}
           onDraftChange={setDraft}
