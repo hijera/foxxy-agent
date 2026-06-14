@@ -3,7 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-const cssPath = join(dirname(fileURLToPath(import.meta.url)), "../../styles.css");
+const cssPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../styles.css",
+);
 
 function cssText(): string {
   return readFileSync(cssPath, "utf8");
