@@ -3271,6 +3271,109 @@ textarea#composer {
   border: 1px solid rgba(147, 51, 234, 0.25);
 }
 
+/* Model selector menu: filter input, vendor groups, and a ~5-row scroll cap.
+ * The filter input stays pinned above the scroll so it never scrolls away. */
+.mode-menu--llm {
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 24px));
+}
+
+/* Fixed desktop dropdown width so filtering down to a few rows does not shrink
+ * the panel (shrink-to-fit would otherwise resize it between min/max-width).
+ * The mobile sheet keeps its own full-width sizing below. */
+.mode-menu--portal.mode-menu--llm {
+  width: min(360px, calc(100vw - 24px));
+}
+
+.mode-menu-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.mode-menu-filter::placeholder {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.mode-menu-filter:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
+/* Cap the visible list at ~5 rows on desktop (~35px each); the rest scrolls.
+ * Padding/margin offset keeps the is-selected border from being clipped. */
+.mode-menu-scroll {
+  max-height: min(175px, 50vh);
+  overflow-y: auto;
+  padding: 1px;
+  margin: -1px;
+}
+
+.mode-menu-group-label {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.mode-menu-group + .mode-menu-group {
+  margin-top: 2px;
+}
+
+.mode-menu-empty {
+  padding: 12px 10px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+/* Long ids never blow out the menu width; full id stays in the row title. */
+.mode-menu--llm .mode-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Mobile/narrow shells: mode/model/reasoning menus become a full-width bottom
+ * sheet (same family as the slash/at picker sheet), not a cramped dropdown. */
+.mode-menu--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  margin: 0 auto;
+  width: auto;
+  min-width: 0;
+  max-width: min(560px, 100vw);
+  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius) 0
+    0;
+  z-index: 101;
+}
+
+/* In the sheet, drop the desktop 360px cap and the row ellipsis so the full
+ * width is used and names can breathe. */
+.mode-menu--sheet.mode-menu--llm {
+  min-width: 0;
+  max-width: min(560px, 100vw);
+}
+
+.mode-menu--sheet .mode-menu-scroll {
+  max-height: 46vh;
+}
+
+/* Sheet variant dims the chat behind it like the slash/at picker sheet. */
+.mode-menu-backdrop--scrim {
+  background: var(--coddy-overlay-scrim-bg);
+}
+
 .composer-tab:hover {
   background: var(--coddy-surface-raised);
 }
