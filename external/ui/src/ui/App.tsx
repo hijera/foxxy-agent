@@ -1382,6 +1382,27 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelsEpoch]);
 
+  // Apply the opened session's saved model/reasoning once the backends list is
+  // known. Runs whenever either input lands, so the restore is independent of
+  // whether /v1/models or the session messages resolve first after a reload.
+  useEffect(() => {
+    if (!openSessionSelection || llmModelIds.length === 0) {
+      return;
+    }
+    if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
+      return;
+    }
+    setLlmModel(
+      pickLlmModelForOpenSession({
+        backends: llmModelIds,
+        sessionModel: openSessionSelection.model,
+        cookie: readLlmModelCookie(),
+        defaultAgentModel: defaultAgentYamlModel,
+      }),
+    );
+    setLlmReasoning(openSessionSelection.reasoning);
+  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
+
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
   }, [sessionId]);
@@ -1653,20 +1674,15 @@ export function App() {
       }
       return null;
     }
-    if (viewingTrim === sid && llmModelIds.length > 0) {
-      const sessionModel =
-        (res.data.model || res.data.selectedModelId || "").trim();
-      setLlmModel(
-        pickLlmModelForOpenSession({
-          backends: llmModelIds,
-          sessionModel,
-          cookie: readLlmModelCookie(),
-          defaultAgentModel: defaultAgentYamlModel,
-        }),
-      );
-      // Restore the session's reasoning level; the clamp effect validates it
-      // against the (possibly newly selected) model's available levels.
-      setLlmReasoning((res.data.selectedReasoning || "").trim());
+    if (viewingTrim === sid) {
+      // Stash the session's saved selection; an effect applies it once the
+      // backends list is loaded (the two fetches race on reload). The reasoning
+      // level is later validated by the clamp effect against the chosen model.
+      setOpenSessionSelection({
+        sid,
+        model: (res.data.model || res.data.selectedModelId || "").trim(),
+        reasoning: (res.data.selectedReasoning || "").trim(),
+      });
     }
     type UILogRow = {
       id: string;
@@ -2069,6 +2085,9 @@ export function App() {
     setContextBreakdown(null);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
+    // Drop any stashed session selection so its restore effect cannot reapply
+    // the old session's model over the new chat default.
+    setOpenSessionSelection(null);
     if (llmModelIds.length > 0) {
       setLlmModel(
         pickDefaultLlmModelForNewChat({
