@@ -1680,7 +1680,7 @@ a.rail-brand {
   /* Opaque canvas backing: pinned title stays on top while transcript
      scrolls behind it (no see-through bleed). Matches canvas top color so
      the shield is invisible against the page in every theme. */
-  background-color: var(--coddy-canvas-gradient-top);
+  /* background-color: var(--coddy-canvas-gradient-top); */
 }
 
 /* Same max-width as .chat-bottom-inner / transcript column so title and composer share one vertical stripe */
@@ -1826,7 +1826,7 @@ a.rail-brand {
 .msg-user-time {
   font-size: 12px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
   user-select: none;
   white-space: nowrap;
   cursor: help;
@@ -1884,7 +1884,7 @@ a.rail-brand {
 .msg-assistant-time {
   font-size: 12px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
   user-select: none;
   white-space: nowrap;
   cursor: help;
@@ -2824,13 +2824,43 @@ a.rail-brand {
   color: rgba(109, 40, 217, 0.95);
 }
 
+/* Light theme: the dark-theme green/blue/red are too bright and low-contrast
+   on the pale code surface; use darker, less saturated tokens. */
+[data-theme="light"] .hljs-string,
+[data-theme="light"] .hljs-title,
+[data-theme="light"] .hljs-section,
+[data-theme="light"] .hljs-attribute,
+[data-theme="light"] .hljs-literal,
+[data-theme="light"] .hljs-template-tag,
+[data-theme="light"] .hljs-template-variable,
+[data-theme="light"] .hljs-type,
+[data-theme="light"] .hljs-addition {
+  color: rgba(17, 105, 49, 0.95);
+}
+
+[data-theme="light"] .hljs-number,
+[data-theme="light"] .hljs-symbol,
+[data-theme="light"] .hljs-bullet,
+[data-theme="light"] .hljs-variable,
+[data-theme="light"] .hljs-built_in,
+[data-theme="light"] .hljs-builtin-name {
+  color: rgba(13, 92, 173, 0.95);
+}
+
+[data-theme="light"] .hljs-deletion,
+[data-theme="light"] .hljs-meta {
+  color: rgba(185, 28, 28, 0.95);
+}
+
 .md-copy {
   position: absolute;
   top: 4px;
   right: 5px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  background: rgba(20, 20, 22, 0.6);
+  /* Theme-aware glass: dark frosted on dark themes, frosted white on light
+     (was hardcoded dark rgba, which read as a dark blob on the light theme). */
+  background: var(--coddy-glass-panel-bg);
   color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
   cursor: pointer;
   font-size: 12px;
@@ -2838,7 +2868,7 @@ a.rail-brand {
 }
 
 .md-copy:hover {
-  background: rgba(20, 20, 22, 0.8);
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
 }
 
 .token-bar {
@@ -5897,8 +5927,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 [data-theme="light"] .msg-system {
-  background: rgba(254, 226, 226, 0.85);
-  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(253, 240, 240, 0.92);
+  border-color: rgba(220, 38, 38, 0.2);
 }
 
 [data-theme="light"] .msg-system-label {
@@ -5906,7 +5936,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 [data-theme="light"] .msg-system-body {
-  color: #7f1d1d;
+  color: #991b1b;
+}
+
+/* Without this the dark-theme pink (rgba(255,168,168,...)) shows as a salmon
+   timestamp on the light canvas; keep it a muted member of the error family. */
+[data-theme="light"] .msg-system-time {
+  color: rgba(185, 28, 28, 0.6);
 }
 
 [data-theme="light"] .composer-wrap-docked .composer-card,
