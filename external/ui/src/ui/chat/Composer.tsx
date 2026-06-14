@@ -37,6 +37,12 @@ import {
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
 import { contextUsagePercent } from "./contextUsage";
+import {
+  filterLlmModels,
+  groupLlmModelsByVendor,
+  shouldGroupLlmModels,
+  shouldShowLlmFilter,
+} from "./llmModelMenu";
 import { fileTypeIcon } from "../messages/fileTypeIcon";
 
 function fmtBytes(n: number): string {
@@ -130,6 +136,9 @@ export function Composer(props: {
   );
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
+  /** Live query for the model menu filter (only meaningful while `menuOpen === "llm"`). */
+  const [llmQuery, setLlmQuery] = useState("");
+  const llmFilterRef = useRef<HTMLInputElement | null>(null);
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
   /** After closing the breakdown, hide hover tooltip until pointer leaves the ring. */
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
@@ -877,6 +886,35 @@ export function Composer(props: {
   const llmList = props.llmModels ?? [];
   const showLlm = llmList.length > 0;
   const llmVal = (props.llmModel || "").trim();
+  // Filter input appears once the backend list is long; vendor grouping kicks
+  // in whenever more than one vendor is configured. See llmModelMenu.ts.
+  const llmShowFilter = shouldShowLlmFilter(llmList.length);
+  const llmFiltered = useMemo(
+    () => filterLlmModels(llmList, llmQuery),
+    [llmList, llmQuery],
+  );
+  const llmGrouped = shouldGroupLlmModels(llmList);
+  const llmGroups = useMemo(
+    () => groupLlmModelsByVendor(llmFiltered),
+    [llmFiltered],
+  );
+  function renderLlmItem(mid: string) {
+    return (
+      <button
+        key={mid}
+        type="button"
+        role="menuitem"
+        title={mid}
+        className={`mode-item ${mid === llmVal ? "is-selected" : ""}`}
+        onClick={() => {
+          props.onLlmModelChange?.(mid);
+          closeMenu();
+        }}
+      >
+        {displayLlmId(mid)}
+      </button>
+    );
+  }
 
   const reasoningLevels = props.llmReasoningLevels ?? [];
   const showReasoning = reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
@@ -915,10 +953,15 @@ export function Composer(props: {
     : clamp01(typeof pct === "number" ? pct / 100 : 0);
   const usage = contextIdle ? null : props.tokenUsage || null;
   const modeMenuDirClass = props.isEmpty ? "opens-down" : "opens-up";
+  // On narrow/mobile shells the mode/model/reasoning menus render as a
+  // full-width bottom sheet (same family as the slash/at picker sheet) instead
+  // of a cramped anchored dropdown.
+  const menuUseSheet = isMobileShell;
 
   function closeMenu() {
     setMenuOpen(null);
     setMenuAnchorRect(null);
+    setLlmQuery("");
   }
 
   function toggleMenu(
@@ -928,6 +971,7 @@ export function Composer(props: {
     if (menuOpen === type) {
       closeMenu();
     } else {
+      setLlmQuery("");
       setMenuAnchorRect(trigger.getBoundingClientRect());
       setMenuOpen(type);
     }
@@ -1451,12 +1495,12 @@ export function Composer(props: {
           breakdown={props.contextBreakdown}
         />
       ) : null}
-      {menuOpen && menuAnchorRect
+      {menuOpen && (menuUseSheet || menuAnchorRect)
         ? createPortal(
             <>
               <button
                 type="button"
-                className="mode-menu-backdrop"
+                className={`mode-menu-backdrop ${menuUseSheet ? "mode-menu-backdrop--scrim" : ""}`}
                 aria-hidden="true"
                 tabIndex={-1}
                 onMouseDown={(e) => {
@@ -1465,10 +1509,12 @@ export function Composer(props: {
                 }}
               />
               <div
-                className={`mode-menu mode-menu--portal ${modeMenuDirClass}`}
+                className={`mode-menu ${menuUseSheet ? "mode-menu--sheet" : `mode-menu--portal ${modeMenuDirClass}`} ${menuOpen === "llm" ? "mode-menu--llm" : ""}`}
                 role="menu"
                 style={
-                  modeMenuDirClass === "opens-up"
+                  menuUseSheet || !menuAnchorRect
+                    ? undefined
+                    : modeMenuDirClass === "opens-up"
                     ? {
                         left: menuAnchorRect.left,
                         bottom:
@@ -1496,23 +1542,59 @@ export function Composer(props: {
                       </button>
                     ))
                   : null}
-                {menuOpen === "llm"
-                  ? llmList.map((mid) => (
-                      <button
-                        key={mid}
-                        type="button"
-                        role="menuitem"
-                        title={mid}
-                        className={`mode-item ${mid === llmVal ? "is-selected" : ""}`}
-                        onClick={() => {
-                          props.onLlmModelChange?.(mid);
-                          closeMenu();
+                {menuOpen === "llm" ? (
+                  <>
+                    {llmShowFilter ? (
+                      <input
+                        ref={llmFilterRef}
+                        type="text"
+                        className="mode-menu-filter"
+                        data-testid="model-menu-filter"
+                        aria-label="Filter models"
+                        placeholder="Filter models…"
+                        autoFocus
+                        value={llmQuery}
+                        onChange={(e) => setLlmQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            closeMenu();
+                          } else if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const first = llmFiltered[0];
+                            if (first) {
+                              props.onLlmModelChange?.(first);
+                              closeMenu();
+                            }
+                          }
                         }}
-                      >
-                        {displayLlmId(mid)}
-                      </button>
-                    ))
-                  : null}
+                      />
+                    ) : null}
+                    <div className="mode-menu-scroll">
+                      {llmFiltered.length === 0 ? (
+                        <div
+                          className="mode-menu-empty"
+                          data-testid="model-menu-empty"
+                        >
+                          No models match “{llmQuery.trim()}”
+                        </div>
+                      ) : llmGrouped ? (
+                        llmGroups.map((g) => (
+                          <div key={g.vendor || "_"} className="mode-menu-group">
+                            <div className="mode-menu-group-label">
+                              {g.vendor || "Other"}
+                            </div>
+                            {g.models.map((mid) => renderLlmItem(mid))}
+                          </div>
+                        ))
+                      ) : (
+                        llmFiltered.map((mid) => renderLlmItem(mid))
+                      )}
+                    </div>
+                  </>
+                ) : null}
                 {menuOpen === "reasoning"
                   ? reasoningLevels.map((lv) => (
                       <button
