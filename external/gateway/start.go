@@ -17,9 +17,14 @@ func Start(ctx context.Context, cfg *config.Config, mgr *session.Manager, log *s
 	var adapters []Adapter
 
 	if cfg.Gateways.Telegram.Enabled {
-		storePath := filepath.Join(cfg.ResolvedSessionsRoot(), "gateway_sessions.json")
-		bot := telegram.New(&cfg.Gateways.Telegram, mgr, defaultCWD, log, storePath)
-		adapters = append(adapters, bot)
+		if cfg.Gateways.Telegram.EffectiveToken() == "" {
+			log.Warn("gateway: telegram enabled but no token; set gateways.telegram.token or the " +
+				config.TelegramBotTokenEnvVar + " environment variable")
+		} else {
+			storePath := filepath.Join(cfg.ResolvedSessionsRoot(), "gateway_sessions.json")
+			bot := telegram.New(&cfg.Gateways.Telegram, mgr, defaultCWD, log, storePath)
+			adapters = append(adapters, bot)
+		}
 	}
 
 	if len(adapters) == 0 {

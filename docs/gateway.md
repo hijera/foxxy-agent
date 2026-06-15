@@ -127,12 +127,16 @@ Open Telegram, find your bot, send a message. The agent replies in the same chat
 
 ## Configuration reference
 
-All gateway config lives under the `gateways` key in `config.yaml`.
+All gateway config lives under the `gateways` key in `config.yaml`. When running `coddy http` with the bundled UI, the same fields are editable under **Settings → Messenger gateways → Telegram**; the `gateways` block round-trips through `GET`/`PUT /coddy/config`, so saving settings in the UI preserves it (the bot token is shown in full — use only on trusted networks).
 
 ```yaml
 gateways:
   telegram:
     enabled: false
+    # Bot token. Optional: leave empty (or omit) to read it from the TELEGRAM_BOT_TOKEN
+    # environment variable (e.g. via .env), the same way provider api_key falls back to
+    # NAME_API_KEY. When telegram is enabled but no token can be resolved, the gateway
+    # logs a warning and skips the bot instead of failing config validation.
     token: "${TELEGRAM_BOT_TOKEN}"
 
     # Optional outbound proxy for Telegram API requests.

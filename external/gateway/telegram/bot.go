@@ -86,7 +86,11 @@ func (b *Bot) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("telegram: proxy: %w", err)
 	}
-	bot, err := tgbotapi.NewBotAPIWithClient(b.cfg.Token, tgbotapi.APIEndpoint, httpClient)
+	token := b.cfg.EffectiveToken()
+	if token == "" {
+		return fmt.Errorf("telegram: no bot token; set gateways.telegram.token or the %s environment variable", config.TelegramBotTokenEnvVar)
+	}
+	bot, err := tgbotapi.NewBotAPIWithClient(token, tgbotapi.APIEndpoint, httpClient)
 	if err != nil {
 		return fmt.Errorf("telegram: connect: %w", err)
 	}

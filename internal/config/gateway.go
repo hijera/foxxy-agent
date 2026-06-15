@@ -3,8 +3,14 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 )
+
+// TelegramBotTokenEnvVar is the environment variable consulted for the bot token
+// when gateways.telegram.token is left empty (so the token can live in .env instead
+// of config.yaml). Mirrors the provider api_key → NAME_API_KEY convention.
+const TelegramBotTokenEnvVar = "TELEGRAM_BOT_TOKEN"
 
 // GatewayConfig is the root config block for all messenger gateways (built with -tags gateway or gateway.telegram).
 type GatewayConfig struct {
@@ -97,13 +103,22 @@ func (t *TelegramGatewayConfig) ApplyDefaults() {
 	}
 }
 
-// Validate checks the Telegram config when enabled.
+// EffectiveToken returns the configured token, or the TELEGRAM_BOT_TOKEN environment
+// variable when token is left empty. Returns empty when neither is set.
+func (t *TelegramGatewayConfig) EffectiveToken() string {
+	if tok := strings.TrimSpace(t.Token); tok != "" {
+		return tok
+	}
+	return strings.TrimSpace(os.Getenv(TelegramBotTokenEnvVar))
+}
+
+// Validate checks the Telegram config when enabled. The token is intentionally not
+// required here: it may be supplied at runtime via the TELEGRAM_BOT_TOKEN environment
+// variable (see EffectiveToken). The gateway logs a clear warning and skips the bot if
+// no token can be resolved at startup.
 func (t *TelegramGatewayConfig) Validate() error {
 	if !t.Enabled {
 		return nil
-	}
-	if strings.TrimSpace(t.Token) == "" {
-		return fmt.Errorf("gateways.telegram.token is required when telegram is enabled")
 	}
 	if t.Proxy != "" {
 		u, err := url.Parse(t.Proxy)

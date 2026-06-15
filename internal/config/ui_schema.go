@@ -281,7 +281,7 @@ func UISchemaMap() map[string]interface{} {
 	telegramProps := map[string]interface{}{
 		"enabled": boolProp("Enabled", "Run the Telegram bot (requires the gateway or gateway.telegram build tag)."),
 		"token": strProp("Bot token",
-			"BotFather token. Secret — prefer ${TELEGRAM_BOT_TOKEN} in YAML; it is shown in full here."),
+			"BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full."),
 		"rich_messages": boolProp("Rich messages",
 			"Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported."),
 		"proxy": strProp("Proxy",
