@@ -268,24 +268,24 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
 	rich := b.cfg.RichMessages
 
-	// On the first message of a new session, prepend the formatting hint so the agent
-	// knows how to format its replies. Rich mode asks for full Markdown; legacy mode
-	// asks for the restricted Telegram subset.
+	// Legacy mode needs a one-time hint on the first message of a new session so the
+	// agent restricts itself to the Telegram-compatible Markdown subset. Rich mode sends
+	// the agent's natural Markdown verbatim, so no hint is prepended — keeping the first
+	// turn identical to later ones (a hint-prefixed first message was suppressing replies).
 	promptText := text
-	_, alreadySeen := b.seenSessions.LoadOrStore(st.GetID(), struct{}{})
-	if !alreadySeen {
-		hint := telegramFormattingHint
-		if rich {
-			hint = richFormattingHint
+	firstTurn := false
+	if !rich {
+		if _, alreadySeen := b.seenSessions.LoadOrStore(st.GetID(), struct{}{}); !alreadySeen {
+			firstTurn = true
+			promptText = telegramFormattingHint + promptText
 		}
-		promptText = hint + promptText
 	}
 
 	b.log.Debug("telegram: prompt turn",
 		"session", st.GetID(),
 		"user", userID,
 		"chat", chatID,
-		"first_turn", !alreadySeen,
+		"first_turn", firstTurn,
 		"rich", rich,
 		"prompt_len", len(promptText),
 	)

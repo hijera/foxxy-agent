@@ -201,7 +201,7 @@ gateways:
 | Final message | `mdToTelegram` downgrades headings/tables to plain text | Agent's native Markdown sent verbatim via `sendRichMessage` — headings, tables, task lists, fenced code, footnotes, LaTeX all render |
 | Streaming (private chats) | progressive `editMessageText` of a live message | ephemeral `sendRichMessageDraft` preview (30 s, animated) |
 | Tool activity | `⚙️ toolname…` line, dropped from the final message | live `<tg-thinking>` placeholder during streaming **and** one collapsed `<details>` block per executed tool (name + output, `❌` on failure) in the final message |
-| Formatting hint | "use the restricted Telegram subset" | "use full GitHub-flavored Markdown" |
+| Formatting hint | one-time "use the restricted Telegram subset" note on the first turn | none — the agent's natural Markdown renders as-is, so every turn is identical |
 
 **Behaviour notes:**
 

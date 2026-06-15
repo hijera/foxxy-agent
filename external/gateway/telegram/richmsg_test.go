@@ -32,8 +32,12 @@ func TestBuildRichMarkdown_PerToolCollapsedBlocksWithOutput(t *testing.T) {
 	if !strings.Contains(got, "bash") || !strings.Contains(got, "exit 0") {
 		t.Fatalf("expected bash with its output, got:\n%s", got)
 	}
-	if !strings.HasPrefix(got, "Done.") {
-		t.Fatalf("expected LLM text to precede the tool blocks, got:\n%s", got)
+	// Tool blocks run before the answer, so they precede the LLM text.
+	if strings.Index(got, "<details>") >= strings.Index(got, "Done.") {
+		t.Fatalf("expected tool blocks to precede the answer text, got:\n%s", got)
+	}
+	if !strings.HasSuffix(got, "Done.") {
+		t.Fatalf("expected the answer text to come last, got:\n%s", got)
 	}
 }
 

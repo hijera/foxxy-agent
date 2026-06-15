@@ -27,19 +27,19 @@ type toolCall struct {
 }
 
 // buildRichMarkdown assembles the final rich-message markdown from the accumulated
-// LLM text and the tools that ran during the turn. The LLM text is passed through
-// verbatim (it is already GitHub-flavored Markdown); each tool is appended as its own
-// collapsed-by-default <details> block showing its output.
+// LLM text and the tools that ran during the turn. Tool blocks come first (they ran
+// before the answer), each as its own collapsed-by-default <details> block showing its
+// output; the LLM answer follows, passed through verbatim (already GitHub-flavored Markdown).
 func buildRichMarkdown(llmText string, tools []toolCall) string {
-	text := strings.TrimRight(llmText, " \t\n")
+	text := strings.TrimSpace(llmText)
 	details := richToolsDetails(tools)
 	if details == "" {
-		return strings.TrimSpace(text)
+		return text
 	}
-	if strings.TrimSpace(text) == "" {
+	if text == "" {
 		return details
 	}
-	return text + "\n\n" + details
+	return details + "\n\n" + text
 }
 
 // richToolsDetails renders every executed tool as its own collapsed <details> block:
@@ -90,16 +90,3 @@ func buildRichDraftMarkdown(llmText, currentTool string) string {
 	}
 	return text + "\n\n" + thinking
 }
-
-// richFormattingHint is prepended to the first message of a new session when Rich
-// Messages are enabled, so the agent leans into full Markdown instead of the
-// restricted Telegram legacy subset used by telegramFormattingHint.
-const richFormattingHint = `[System note – your replies are rendered as Telegram Rich Messages:
-• Use the full GitHub-flavored Markdown you would use normally
-• Headings (#, ##, ###), **bold**, _italic_, ~~strikethrough~~, ` + "`code`" + `
-• Tables, ordered/unordered/task lists, > block quotes and fenced ` + "```lang" + ` code blocks all render natively
-• Footnotes ([^1]) and LaTeX ($x^2$, $$E=mc^2$$) are supported
-Do not avoid tables or headings — they look good here.
-This note is invisible to the user.]
-
-`
