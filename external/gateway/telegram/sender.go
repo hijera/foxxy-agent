@@ -36,16 +36,36 @@ type Sender struct {
 
 	log *slog.Logger
 
+	rich richConfig // Bot API 10.1 Rich Messages mode (off → legacy formatting)
+
 	mu          sync.Mutex
 	responseBuf strings.Builder // LLM text only — sent in Flush()
 	currentTool string          // tool currently running — shown in stream, not in Flush()
+	tools       []string        // names of tools executed this turn, in order (deduplicated)
 	liveID      int             // message ID being progressively edited; 0 = none sent yet
 	lastEdit    time.Time
 	lastTyping  time.Time
 }
 
-func newSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, log *slog.Logger) *Sender {
-	return &Sender{bot: bot, chatID: chatID, replyTo: replyTo, log: log}
+// richConfig controls the Rich Messages behaviour of a Sender.
+type richConfig struct {
+	enabled    bool  // send the final turn via sendRichMessage instead of legacy formatting
+	allowDraft bool  // stream a sendRichMessageDraft preview (private chats only)
+	draftID    int64 // non-zero draft identifier for this turn; reused so updates animate
+}
+
+func newSender(bot *tgbotapi.BotAPI, chatID int64, replyTo int, log *slog.Logger, rich richConfig) *Sender {
+	return &Sender{bot: bot, chatID: chatID, replyTo: replyTo, log: log, rich: rich}
+}
+
+// addTool records a tool name once, preserving execution order. Caller holds s.mu.
+func (s *Sender) addTool(name string) {
+	for _, t := range s.tools {
+		if t == name {
+			return
+		}
+	}
+	s.tools = append(s.tools, name)
 }
 
 // SendSessionUpdate handles streaming events from the agent.
@@ -68,7 +88,7 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		s.mu.Unlock()
 
 		if wantEdit {
-			s.streamUpdate(text, "")
+			s.stream(text, "")
 		}
 
 	case acp.ToolCallUpdate:
@@ -81,6 +101,7 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		}
 		s.mu.Lock()
 		s.currentTool = title
+		s.addTool(title)
 		llmText := s.responseBuf.String()
 		now := time.Now()
 		wantEdit := now.Sub(s.lastEdit) >= editInterval
@@ -93,14 +114,42 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		}
 		s.mu.Unlock()
 
-		if wantTyping {
+		// In draft mode the <tg-thinking> block conveys activity, so skip the
+		// redundant typing action; legacy and group-rich paths still use it.
+		if wantTyping && !s.rich.allowDraft {
 			s.sendTyping()
 		}
 		if wantEdit {
-			s.streamUpdate(llmText, title)
+			s.stream(llmText, title)
 		}
 	}
 	return nil
+}
+
+// stream dispatches a progressive update to the right transport: a rich draft
+// (private chats, Rich Messages on), or the legacy live editMessageText path.
+// Rich group chats get no progressive update (drafts are private-only); their
+// content is delivered by the final sendRichMessage in Flush().
+func (s *Sender) stream(llmText, toolName string) {
+	switch {
+	case s.rich.enabled && s.rich.allowDraft:
+		s.streamDraft(llmText, toolName)
+	case s.rich.enabled:
+		// Rich group chat: no ephemeral draft available; wait for Flush().
+	default:
+		s.streamUpdate(llmText, toolName)
+	}
+}
+
+// streamDraft sends an ephemeral sendRichMessageDraft preview for this turn.
+func (s *Sender) streamDraft(llmText, toolName string) {
+	md := buildRichDraftMarkdown(llmText, toolName)
+	if md == "" {
+		return
+	}
+	if err := sendRichMessageDraft(s.bot, s.chatID, s.rich.draftID, md); err != nil {
+		s.log.Debug("telegram: rich draft", "err", err)
+	}
 }
 
 // RequestPermission auto-approves in gateway context (no interactive UI).
@@ -124,11 +173,39 @@ func (s *Sender) Flush() {
 	text := s.responseBuf.String()
 	s.responseBuf.Reset()
 	s.currentTool = ""
+	tools := append([]string(nil), s.tools...)
 	liveID := s.liveID
 	s.liveID = 0
 	replyTo := s.replyTo
 	s.mu.Unlock()
 
+	if s.rich.enabled {
+		if s.flushRich(text, tools, replyTo) {
+			return
+		}
+		// Rich send failed — fall through to the legacy formatted send so the
+		// user still receives the reply.
+	}
+	s.flushLegacy(text, liveID, replyTo)
+}
+
+// flushRich sends the final persistent message via sendRichMessage. It returns
+// true on success and false when the caller should fall back to legacy formatting.
+func (s *Sender) flushRich(text string, tools []string, replyTo int) bool {
+	md := buildRichMarkdown(text, tools)
+	if md == "" {
+		return true // nothing to send; treat as handled
+	}
+	if _, err := sendRichMessage(s.bot, s.chatID, md, replyTo); err != nil {
+		s.log.Warn("telegram: rich send failed, falling back to legacy", "err", err)
+		return false
+	}
+	return true
+}
+
+// flushLegacy sends the final message using Telegram legacy Markdown, editing the
+// live streaming message in place when one exists.
+func (s *Sender) flushLegacy(text string, liveID, replyTo int) {
 	if strings.TrimSpace(text) == "" {
 		// Nothing from the LLM — remove the streaming placeholder if one was sent.
 		if liveID != 0 {

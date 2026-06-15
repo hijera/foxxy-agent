@@ -42,6 +42,13 @@ type TelegramGatewayConfig struct {
 	// Example: "socks5h://127.0.0.1:1080" or "http://proxy.example.com:3128"
 	Proxy string `yaml:"proxy"`
 
+	// RichMessages enables Bot API 10.1 Rich Messages: the agent's native Markdown
+	// (headings, tables, task lists, code, footnotes, LaTeX) is sent verbatim, tool
+	// activity streams as a "Thinking…" placeholder, and executed tools are listed in
+	// a collapsible block. Requires a Bot API server that supports 10.1; the gateway
+	// falls back to legacy formatting if a rich send fails. Default false.
+	RichMessages bool `yaml:"rich_messages"`
+
 	// Admins is the list of Telegram user IDs with elevated permissions.
 	Admins []int64 `yaml:"admins"`
 

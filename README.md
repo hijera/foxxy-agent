@@ -416,9 +416,12 @@ gateways:
     admins: [YOUR_USER_ID]
     default_access: "admins"   # all | admins | group:<name>
     default_isolation: "admin" # individual | shared | admin
+    rich_messages: true        # Bot API 10.1 Rich Messages (native Markdown + tool blocks)
 ```
 
 Each user or chat gets its own isolated session. In group chats the bot responds only when @mentioned or replied to. `/clear` (no space) starts a fresh session.
+
+With `rich_messages: true` the bot uses [Bot API 10.1 Rich Messages](https://core.telegram.org/bots/api#rich-messages): the agent's full Markdown (headings, tables, code, task lists) renders natively, tool activity streams as a "Thinking…" placeholder, and executed tools appear in a collapsible block. It falls back to legacy formatting if the Bot API server doesn't support it. See [docs/gateway.md](docs/gateway.md#rich-messages).
 
 Full guide — access levels, group isolation modes, per-chat overrides, and how to write adapters for new messengers: **[docs/gateway.md](docs/gateway.md)**.
 

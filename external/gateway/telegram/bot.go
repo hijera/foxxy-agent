@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/access"
@@ -53,7 +54,8 @@ type Bot struct {
 	mu      sync.Mutex
 	workers map[string]chan workerJob // session key → sequential job queue
 
-	seenSessions sync.Map // tracks sessions that already received the formatting hint
+	seenSessions sync.Map     // tracks sessions that already received the formatting hint
+	draftSeq     atomic.Int64 // monotonic source of non-zero rich-message draft IDs
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
@@ -259,12 +261,20 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		b.log.Debug("telegram: typing action", "err", err)
 	}
 
-	// On the first message of a new session, prepend the Telegram formatting hint
-	// so the agent knows to use Telegram-compatible markdown in its replies.
+	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
+	rich := b.cfg.RichMessages
+
+	// On the first message of a new session, prepend the formatting hint so the agent
+	// knows how to format its replies. Rich mode asks for full Markdown; legacy mode
+	// asks for the restricted Telegram subset.
 	promptText := text
 	_, alreadySeen := b.seenSessions.LoadOrStore(st.GetID(), struct{}{})
 	if !alreadySeen {
-		promptText = telegramFormattingHint + promptText
+		hint := telegramFormattingHint
+		if rich {
+			hint = richFormattingHint
+		}
+		promptText = hint + promptText
 	}
 
 	b.log.Debug("telegram: prompt turn",
@@ -272,10 +282,17 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		"user", userID,
 		"chat", chatID,
 		"first_turn", !alreadySeen,
+		"rich", rich,
 		"prompt_len", len(promptText),
 	)
 
-	sender := newSender(bot, chatID, msg.MessageID, b.log)
+	// Rich Messages: stream an ephemeral draft preview in private chats (drafts are
+	// private-only); group chats receive the final sendRichMessage without streaming.
+	sender := newSender(bot, chatID, msg.MessageID, b.log, richConfig{
+		enabled:    rich,
+		allowDraft: rich && !isGroup,
+		draftID:    b.draftSeq.Add(1),
+	})
 
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),

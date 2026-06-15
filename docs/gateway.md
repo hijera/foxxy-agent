@@ -140,6 +140,9 @@ gateways:
     # proxy: "socks5h://127.0.0.1:1080"
     # proxy: "http://proxy.example.com:3128"
 
+    # Bot API 10.1 Rich Messages (see "Rich Messages" below). Default false.
+    rich_messages: true
+
     # Telegram user IDs with elevated privileges.
     # Admins always pass every access check regardless of default_access.
     admins: []
@@ -178,6 +181,30 @@ gateways:
 ```
 
 Supported schemes: `http`, `https`, `socks5`, `socks5h`. `socks5h` resolves hostnames on the proxy side. Leave the field empty (the default) for a direct connection.
+
+### Rich Messages
+
+Set `rich_messages: true` to use the [Bot API 10.1 Rich Messages](https://core.telegram.org/bots/api#rich-messages) transport instead of the legacy Telegram Markdown subset:
+
+```yaml
+gateways:
+  telegram:
+    rich_messages: true
+```
+
+| Aspect | Legacy (default) | `rich_messages: true` |
+|--------|------------------|------------------------|
+| Final message | `mdToTelegram` downgrades headings/tables to plain text | Agent's native Markdown sent verbatim via `sendRichMessage` — headings, tables, task lists, fenced code, footnotes, LaTeX all render |
+| Streaming (private chats) | progressive `editMessageText` of a live message | ephemeral `sendRichMessageDraft` preview (30 s, animated) |
+| Tool activity | `⚙️ toolname…` line, dropped from the final message | live `<tg-thinking>` placeholder during streaming **and** a collapsible `🛠 Tools used` `<details>` block in the final message |
+| Formatting hint | "use the restricted Telegram subset" | "use full GitHub-flavored Markdown" |
+
+**Behaviour notes:**
+
+- **Group chats** don't get draft streaming (`sendRichMessageDraft` is private-chat only); the bot sends the final `sendRichMessage` after the turn, showing a typing indicator while it works.
+- **Drafts are ephemeral** — they expire after ~30 s and are never persisted; the turn is finalized by a separate `sendRichMessage`. There is no `editRichMessage` in Bot API 10.1.
+- **Graceful fallback** — if a rich send fails (e.g. the Bot API server doesn't support 10.1), the gateway automatically falls back to the legacy formatted send, so the bot never goes silent.
+- Requires a Bot API server that implements Bot API 10.1.
 
 ### Access levels
 
