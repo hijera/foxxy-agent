@@ -54,6 +54,15 @@ type SessionRunner interface {
 
 `markdown.go` converts standard Markdown to Telegram legacy format: ATX headers → `*bold*`, `**text**` → `*text*`, bullet `* item` → `• item`, tables → plain text, horizontal rules → separator. Fenced code blocks are preserved verbatim.
 
+## Rich Messages (Bot API 10.1)
+
+Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGatewayConfig.RichMessages`). When on, the agent's native Markdown is sent verbatim instead of being downgraded by `markdown.go`.
+
+- `richmsg.go` (pure, table-tested): `buildRichMarkdown` (final message = tool `<details>` blocks first, each with its output via the `toolCall` type, then the answer verbatim) and `buildRichDraftMarkdown` (streaming preview + draft-only `<tg-thinking>` block while a tool runs). Rich mode prepends **no** formatting hint (unlike legacy `telegramFormattingHint`), so the first turn is identical to later ones — a hint-prefixed first message was suppressing replies. The Sender captures tool args/results from `acp.ToolCallStatusUpdate`. `flushRich` retries with the answer alone if the combined message (answer + tool blocks) is rejected, so the reply is never lost.
+- `richclient.go`: `inputRichMessage` type, `richParams`/`richDraftParams` builders, and `sendRichMessage`/`sendRichMessageDraft` issued via `bot.MakeRequest` (the `go-telegram-bot-api/v5` library has no native methods). `InputRichMessage` takes a `markdown` string — no hand-built `RichBlock` JSON tree.
+- `Sender` carries a `richConfig{enabled, allowDraft, draftID}`. `allowDraft` is true only in private chats (drafts are private-only). `Flush()` finalizes via `sendRichMessage`; on error it falls back to the legacy formatted send so the bot never goes silent.
+- No `editRichMessage` exists; drafts are ephemeral 30 s previews and need no deletion. `<tg-thinking>` (RichBlockThinking) may be used only in drafts.
+
 ## Proxy
 
 `proxyutil.BuildHTTPClient(url)` handles http, https, socks5, socks5h. An empty string returns `http.DefaultClient` unchanged. The Telegram adapter passes `cfg.Proxy` to this function in `Start()`.

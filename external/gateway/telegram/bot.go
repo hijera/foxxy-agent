@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/access"
@@ -53,7 +54,8 @@ type Bot struct {
 	mu      sync.Mutex
 	workers map[string]chan workerJob // session key → sequential job queue
 
-	seenSessions sync.Map // tracks sessions that already received the formatting hint
+	seenSessions sync.Map     // tracks sessions that already received the formatting hint
+	draftSeq     atomic.Int64 // monotonic source of non-zero rich-message draft IDs
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
@@ -84,7 +86,11 @@ func (b *Bot) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("telegram: proxy: %w", err)
 	}
-	bot, err := tgbotapi.NewBotAPIWithClient(b.cfg.Token, tgbotapi.APIEndpoint, httpClient)
+	token := b.cfg.EffectiveToken()
+	if token == "" {
+		return fmt.Errorf("telegram: no bot token; set gateways.telegram.token or the %s environment variable", config.TelegramBotTokenEnvVar)
+	}
+	bot, err := tgbotapi.NewBotAPIWithClient(token, tgbotapi.APIEndpoint, httpClient)
 	if err != nil {
 		return fmt.Errorf("telegram: connect: %w", err)
 	}
@@ -259,23 +265,38 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		b.log.Debug("telegram: typing action", "err", err)
 	}
 
-	// On the first message of a new session, prepend the Telegram formatting hint
-	// so the agent knows to use Telegram-compatible markdown in its replies.
+	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
+	rich := b.cfg.RichMessages
+
+	// Legacy mode needs a one-time hint on the first message of a new session so the
+	// agent restricts itself to the Telegram-compatible Markdown subset. Rich mode sends
+	// the agent's natural Markdown verbatim, so no hint is prepended — keeping the first
+	// turn identical to later ones (a hint-prefixed first message was suppressing replies).
 	promptText := text
-	_, alreadySeen := b.seenSessions.LoadOrStore(st.GetID(), struct{}{})
-	if !alreadySeen {
-		promptText = telegramFormattingHint + promptText
+	firstTurn := false
+	if !rich {
+		if _, alreadySeen := b.seenSessions.LoadOrStore(st.GetID(), struct{}{}); !alreadySeen {
+			firstTurn = true
+			promptText = telegramFormattingHint + promptText
+		}
 	}
 
 	b.log.Debug("telegram: prompt turn",
 		"session", st.GetID(),
 		"user", userID,
 		"chat", chatID,
-		"first_turn", !alreadySeen,
+		"first_turn", firstTurn,
+		"rich", rich,
 		"prompt_len", len(promptText),
 	)
 
-	sender := newSender(bot, chatID, msg.MessageID, b.log)
+	// Rich Messages: stream an ephemeral draft preview in private chats (drafts are
+	// private-only); group chats receive the final sendRichMessage without streaming.
+	sender := newSender(bot, chatID, msg.MessageID, b.log, richConfig{
+		enabled:    rich,
+		allowDraft: rich && !isGroup,
+		draftID:    b.draftSeq.Add(1),
+	})
 
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
