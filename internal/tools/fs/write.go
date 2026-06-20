@@ -19,7 +19,7 @@ func WriteTool() *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"filePath": map[string]interface{}{
+					"path": map[string]interface{}{
 						"type":        "string",
 						"description": "File path (absolute or relative to working directory)",
 					},
@@ -28,7 +28,7 @@ func WriteTool() *tooling.Tool {
 						"description": "Full content to write to the file",
 					},
 				},
-				"required": []string{"filePath", "content"},
+				"required": []string{"path", "content"},
 			},
 		},
 		RequiresPermission: false,
@@ -37,8 +37,8 @@ func WriteTool() *tooling.Tool {
 }
 
 type writeArgs struct {
-	FilePath string `json:"filePath"`
-	Content  string `json:"content"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -47,7 +47,7 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 		return "", err
 	}
 
-	path := ResolvePath(args.FilePath, env.CWD)
+	path := ResolvePath(args.Path, env.CWD)
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("write mkdir: %w", err)

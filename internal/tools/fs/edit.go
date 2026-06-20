@@ -20,7 +20,7 @@ func EditTool() *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"filePath": map[string]interface{}{
+					"path": map[string]interface{}{
 						"type":        "string",
 						"description": "Path to the file to edit",
 					},
@@ -37,7 +37,7 @@ func EditTool() *tooling.Tool {
 						"description": "Replace every occurrence of oldString (default: false)",
 					},
 				},
-				"required": []string{"filePath", "newString"},
+				"required": []string{"path", "newString"},
 			},
 		},
 		RequiresPermission: false,
@@ -46,7 +46,7 @@ func EditTool() *tooling.Tool {
 }
 
 type editArgs struct {
-	FilePath   string `json:"filePath"`
+	Path       string `json:"path"`
 	OldString  string `json:"oldString"`
 	NewString  string `json:"newString"`
 	ReplaceAll *bool  `json:"replaceAll"`
@@ -58,7 +58,7 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 		return "", err
 	}
 
-	path := ResolvePath(args.FilePath, env.CWD)
+	path := ResolvePath(args.Path, env.CWD)
 
 	if args.OldString == args.NewString && args.OldString != "" {
 		return "", fmt.Errorf("edit: oldString and newString must differ")

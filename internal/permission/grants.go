@@ -19,16 +19,12 @@ func WriteGrantKeys(toolName, argsJSON, cwd string) []string {
 	switch toolName {
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm":
 		var a struct {
-			Path     string `json:"path"`
-			FilePath string `json:"filePath"`
+			Path string `json:"path"`
 		}
 		if json.Unmarshal([]byte(argsJSON), &a) != nil {
 			return nil
 		}
-		p := strings.TrimSpace(a.FilePath)
-		if p == "" {
-			p = strings.TrimSpace(a.Path)
-		}
+		p := strings.TrimSpace(a.Path)
 		if p == "" {
 			return nil
 		}

@@ -20,7 +20,7 @@ func ApplyPatchTool() *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"filePath": map[string]interface{}{
+					"path": map[string]interface{}{
 						"type":        "string",
 						"description": "File path to patch",
 					},
@@ -29,7 +29,7 @@ func ApplyPatchTool() *tooling.Tool {
 						"description": "Unified diff content (output of diff -u or git diff)",
 					},
 				},
-				"required": []string{"filePath", "patch"},
+				"required": []string{"path", "patch"},
 			},
 		},
 		Execute: executeApplyPatch,
@@ -37,9 +37,9 @@ func ApplyPatchTool() *tooling.Tool {
 }
 
 type applyPatchArgs struct {
-	FilePath string `json:"filePath"`
-	Patch    string `json:"patch"`
-	Diff     string `json:"diff"` // legacy alias
+	Path  string `json:"path"`
+	Patch string `json:"patch"`
+	Diff  string `json:"diff"` // legacy alias
 }
 
 func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -55,7 +55,7 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 		return "", fmt.Errorf("apply_patch: patch is required")
 	}
 
-	path := ResolvePath(args.FilePath, env.CWD)
+	path := ResolvePath(args.Path, env.CWD)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
