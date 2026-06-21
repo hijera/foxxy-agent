@@ -123,6 +123,32 @@ def parse_checklist(md: str) -> tuple[int, int]:
     return done, pending
 
 
+def checklist_totals(session_root: str, session_id: str) -> tuple[int, int, list[str]]:
+    """Completed/pending counts across active.md plus any archived plan snapshots.
+
+    coddy_todo_plan_archive (a valid way to finalize a plan) marks every item completed,
+    writes a snapshot to todos/archive/plan_<unix>.md, then clears active.md. So completed
+    items must be counted in the archive too, otherwise a finalized plan reads as zero.
+    Pending items only ever live in the active list.
+    """
+    base = Path(session_root) / session_id / "todos"
+    done = pending = 0
+    archives: list[str] = []
+    active = base / "active.md"
+    if active.is_file():
+        d, p = parse_checklist(active.read_text(encoding="utf-8"))
+        done += d
+        pending += p
+    arch_dir = base / "archive"
+    if arch_dir.is_dir():
+        for f in sorted(arch_dir.glob("*.md")):
+            d, _ = parse_checklist(f.read_text(encoding="utf-8"))
+            if d:
+                done += d
+                archives.append(f.name)
+    return done, pending, archives
+
+
 def collect_tool_call_titles(backlog: list[dict[str, Any]]) -> list[str]:
     names: list[str] = []
     for m in backlog:
@@ -324,36 +350,34 @@ Fully autonomously (no clarification questions):
             if "error" in rp:
                 print("session/prompt error:", jd(rp), file=sys.stderr)
                 sys.exit(1)
-            if active_path.is_file():
-                body_now = active_path.read_text(encoding="utf-8")
-                done_now, pending_now = parse_checklist(body_now)
-                if done_now >= args.min_completed_items and pending_now == 0:
-                    break
+            done_now, pending_now, _ = checklist_totals(session_root, session_id)
+            if done_now >= args.min_completed_items and pending_now == 0:
+                break
 
         seen_tools = set(collect_tool_call_titles(backlog))
         print("stopReason=", rp.get("result"), file=sys.stderr)
         print("session_update_count=", sum(1 for x in backlog if x.get("method") == "session/update"), file=sys.stderr)
         print("distinct_tool_calls=", sorted(seen_tools), file=sys.stderr)
 
-        if not active_path.is_file():
-            print("FAIL: missing todos/active.md", file=sys.stderr)
-            exit_code = 11
+        done, pending, archives = checklist_totals(session_root, session_id)
+        print("--- todos/active.md ---", file=sys.stderr)
+        if active_path.is_file():
+            print(active_path.read_text(encoding="utf-8"), file=sys.stderr)
         else:
-            body = active_path.read_text(encoding="utf-8")
-            print("--- todos/active.md ---", file=sys.stderr)
-            print(body, file=sys.stderr)
-            done, pending = parse_checklist(body)
-            print(f"checklist: completed={done} pending={pending}", file=sys.stderr)
+            print("(active.md absent: plan was archived)", file=sys.stderr)
+        if archives:
+            print("archived plan snapshots:", archives, file=sys.stderr)
+        print(f"checklist: completed={done} pending={pending}", file=sys.stderr)
 
-            if done < args.min_completed_items:
-                print(
-                    f"FAIL: need >= {args.min_completed_items} completed items, got {done}",
-                    file=sys.stderr,
-                )
-                exit_code = 12
-            if pending != 0:
-                print(f"FAIL: expected zero pending checklist rows, got {pending}", file=sys.stderr)
-                exit_code = 13
+        if done < args.min_completed_items:
+            print(
+                f"FAIL: need >= {args.min_completed_items} completed items, got {done}",
+                file=sys.stderr,
+            )
+            exit_code = 12
+        if pending != 0:
+            print(f"FAIL: expected zero pending checklist rows, got {pending}", file=sys.stderr)
+            exit_code = 13
 
         artifact_bytes = sum_utf8_regular_files(Path(work))
         word_count = count_words_in_files(Path(work))

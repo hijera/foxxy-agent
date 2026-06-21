@@ -192,6 +192,12 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 			covered[key] = struct{}{}
 			textContent, mime, err := ReadWorkspaceUTF8(cwdAbs, relPath)
 			if err != nil {
+				// @tokens here are extracted heuristically from free text. One that does not
+				// resolve to a readable workspace file (an @mention rule trigger, a username,
+				// or ordinary prose) is left as text instead of failing the whole prompt.
+				if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrFolderAttach) {
+					continue
+				}
 				return nil, err
 			}
 			rebuilt = append(rebuilt, acp.ContentBlock{

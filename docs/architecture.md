@@ -182,7 +182,7 @@ Tools from MCP servers are appended to the LLM tool list in **`agent`** and **`p
 
 ### Skills loader (`internal/skills`)
 
-Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.coddy/skills`** (coddy-specific), **`${CWD}/.coddy/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/coddy-generate-rules`** is always prepended.
+Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.coddy/skills`** (coddy-specific), **`${CWD}/.coddy/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
 
 ### Rules engine (`internal/rules`)
 

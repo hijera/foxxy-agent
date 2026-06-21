@@ -48,6 +48,20 @@ func TestHydratePromptContentBlocksExpandsAtInText(t *testing.T) {
 	}
 }
 
+func TestHydratePromptContentBlocksSkipsMissingAtMention(t *testing.T) {
+	root := t.TempDir()
+	// "@mention_demo" is a rules @mention trigger (no such file). A heuristic @token that
+	// does not resolve to a workspace file must be left as text, not fail the whole prompt.
+	in := []acp.ContentBlock{{Type: "text", Text: "@mention_demo apply the mention-only rule"}}
+	out, err := session.HydratePromptContentBlocks(root, in)
+	if err != nil {
+		t.Fatalf("missing @file mention must not error: %v", err)
+	}
+	if len(out) != 1 || out[0].Type != "text" {
+		t.Fatalf("expected unchanged single text block, got %+v", out)
+	}
+}
+
 func TestHydratePromptContentBlocksReadsResourceURI(t *testing.T) {
 	root := t.TempDir()
 	p := filepath.Join(root, "a.txt")

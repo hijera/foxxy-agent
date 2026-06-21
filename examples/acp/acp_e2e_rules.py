@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""ACP e2e: project rules glob stickiness, @mention-only rules, bundled /coddy-generate-rules catalog.
+"""ACP e2e: project rules glob stickiness, @mention-only rules, bundled /generate-rules catalog.
 
 Copies ``examples/rules_fixture/.coddy/rules`` into the session work dir, then:
 
-1. ``available_commands_update`` includes ``coddy-generate-rules``.
+1. ``available_commands_update`` includes ``generate-rules``.
 2. Glob rule activates with a Go file resource block; assistant includes ``RULE_GLOB_TOKEN:e2e-glob``.
 3. Mention-only rule via ``@mention_demo`` includes ``RULE_MENTION_TOKEN:e2e-mention``.
 """
@@ -22,7 +22,7 @@ from typing import Any
 
 GLOB_TOKEN = "RULE_GLOB_TOKEN:e2e-glob"
 MENTION_TOKEN = "RULE_MENTION_TOKEN:e2e-mention"
-BUNDLED_SLASH = "coddy-generate-rules"
+BUNDLED_SLASH = "generate-rules"
 
 
 def jd(obj: dict[str, Any]) -> str:

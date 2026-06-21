@@ -50,7 +50,7 @@ These are unconditional; they do not use `alwaysApply` or `@mention`.
 
 ## Generating rules
 
-Use the bundled skill **`/coddy-generate-rules`**. It is always available (embedded in the binary) and guides the agent to write focused `.coddy/rules/*.mdc` files via filesystem tools.
+Use the bundled skill **`/generate-rules`**. It is always available (embedded in the binary) and guides the agent to write focused `.coddy/rules/*.mdc` files via filesystem tools.
 
 There is no `coddy rules generate` CLI subcommand.
 

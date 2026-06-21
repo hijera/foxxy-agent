@@ -14,7 +14,7 @@ from typing import Any, Tuple
 
 GLOB_TOKEN = "RULE_GLOB_TOKEN:e2e-glob"
 MENTION_TOKEN = "RULE_MENTION_TOKEN:e2e-mention"
-BUNDLED_SLASH = "coddy-generate-rules"
+BUNDLED_SLASH = "generate-rules"
 
 
 def http_json(
@@ -58,13 +58,15 @@ def extract_output_text(resp: dict[str, Any]) -> str:
     for item in resp.get("output") or []:
         if not isinstance(item, dict):
             continue
-        if item.get("type") != "message":
+        # Coddy /v1/responses shape: {"type": "text", "text": "..."} (openapi ResponsesCreateResponse).
+        if item.get("type") == "text" and isinstance(item.get("text"), str):
+            parts.append(item["text"])
             continue
-        for c in item.get("content") or []:
-            if isinstance(c, dict) and c.get("type") == "output_text":
-                t = c.get("text")
-                if isinstance(t, str):
-                    parts.append(t)
+        # Fallback to OpenAI Responses shape: message -> content[].output_text.
+        if item.get("type") == "message":
+            for c in item.get("content") or []:
+                if isinstance(c, dict) and c.get("type") == "output_text" and isinstance(c.get("text"), str):
+                    parts.append(c["text"])
     return "".join(parts)
 
 
