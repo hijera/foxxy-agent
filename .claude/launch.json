@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "coddy-http",
+      "runtimeExecutable": "build/coddy.exe",
+      "runtimeArgs": ["http", "-P", "12400"],
+      "port": 12400
+    }
+  ]
+}
