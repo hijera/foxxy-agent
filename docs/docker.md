@@ -5,18 +5,18 @@ Run Coddy as **`coddy http`** inside a minimal **`scratch`** image. The default 
 Related files:
 
 - [`Dockerfile`](../Dockerfile) - multi-stage build (**Node** UI bundle, **Go** binary, **`scratch`** runtime)
-- [`docker-compose.yml`](../docker-compose.yml) - run **`ghcr.io/coddy-project/coddy-agent`** (default **`docker compose`**)
+- [`docker-compose.yml`](../docker-compose.yml) - run **`ghcr.io/hijera/foxxy-agent`** (default **`docker compose`**)
 - [`docker-compose.dev.yml`](../docker-compose.dev.yml) - build from source, publish port **12345**, volumes
 - [`.dockerignore`](../.dockerignore) - keeps context small; never commit **`config.yaml`** with secrets
 - [`examples/httpserver/docker.sh`](../examples/httpserver/docker.sh) - automated smoke test
 
-Published images: **[coddy-agent on GHCR](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** (`ghcr.io/coddy-project/coddy-agent`). CI builds **multi-arch** manifests (**`linux/amd64`**, **`linux/arm64`**) on SemVer tags and pushes floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml).
+Published images: **[foxxy-agent on GHCR](https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent)** (`ghcr.io/hijera/foxxy-agent`). CI builds **multi-arch** manifests (**`linux/amd64`**, **`linux/arm64`**) on SemVer tags and pushes floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml).
 
 On Apple Silicon or arm64 Linux hosts, pull the image as usual; Docker selects **`arm64`** automatically. To pin a platform explicitly:
 
 ```bash
-docker pull --platform linux/arm64 ghcr.io/coddy-project/coddy-agent:latest
-docker pull --platform linux/amd64 ghcr.io/coddy-project/coddy-agent:latest
+docker pull --platform linux/arm64 ghcr.io/hijera/foxxy-agent:latest
+docker pull --platform linux/amd64 ghcr.io/hijera/foxxy-agent:latest
 ```
 
 General build instructions without Docker - **[docs/build.md](build.md)**.
@@ -42,7 +42,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 
 | Setting | Default compose | Dev compose |
 |---------|-----------------|-------------|
-| **Image** | **`${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}`** | **`coddy-agent:${CODDY_VERSION:-dev}`** (built locally) |
+| **Image** | **`${CODDY_IMAGE:-ghcr.io/hijera/foxxy-agent:latest}`** | **`foxxy-agent:${CODDY_VERSION:-dev}`** (built locally) |
 | **Command** | Image **`CMD`**: **`http -H 0.0.0.0 -P 12345`** | Same |
 | **Published port** | **`${CODDY_HTTP_PORT:-12345}:12345`** | Same |
 | **Working dir** | **`/workspace`** (**`CODDY_CWD`**) | Same |
@@ -92,7 +92,7 @@ docker compose down
 Pin a GHCR tag without editing YAML:
 
 ```bash
-export CODDY_IMAGE=ghcr.io/coddy-project/coddy-agent:0.2.0
+export CODDY_IMAGE=ghcr.io/hijera/foxxy-agent:0.2.0
 docker compose pull
 docker compose up -d
 ```
@@ -131,7 +131,7 @@ Create **`docker-compose.override.yml`** next to **`docker-compose.yml`** (Compo
 ```yaml
 services:
   coddy:
-    image: ghcr.io/coddy-project/coddy-agent:0.2.0
+    image: ghcr.io/hijera/foxxy-agent:0.2.0
     ports:
       - "8080:12345"
     environment:
@@ -143,7 +143,7 @@ Use overrides for machine-specific ports, pinned tags, or extra **`environment`*
 ### Upgrade and rollback
 
 ```bash
-export CODDY_IMAGE=ghcr.io/coddy-project/coddy-agent:NEW_TAG
+export CODDY_IMAGE=ghcr.io/hijera/foxxy-agent:NEW_TAG
 docker compose pull
 docker compose up -d
 ```

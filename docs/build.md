@@ -30,7 +30,7 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
 go build -tags=http,ui,scheduler,memory \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
+  -ldflags "-X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -71,7 +71,7 @@ Use this when you only need stdio ACP and want fewer dependencies and no **`npm`
 The Makefile sets:
 
 ```text
-LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/hijera/foxxy-agent/internal/version.Version=$(VERSION)
 ```
 
 **`VERSION`** is resolved from git (tag at **HEAD**, else **`git describe`**, else **`dev`**). Print the same value the next **`make build`** would embed:
@@ -85,7 +85,7 @@ Manual one-liner aligned with **`make build`**:
 ```bash
 go build \
   -tags=http,ui,scheduler,memory \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" \
+  -ldflags "-X github.com/hijera/foxxy-agent/internal/version.Version=$(make -s print-version)" \
   -o build/coddy \
   ./cmd/coddy/
 ```
@@ -141,7 +141,7 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ## **`go install` from upstream**
 
 ```bash
-go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
+go install github.com/hijera/foxxy-agent/cmd/coddy@latest
 ```
 
 That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory"`** (or **`go build -tags=...`** as above).

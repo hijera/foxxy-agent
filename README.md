@@ -1,20 +1,23 @@
 <p align="center">
   <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/EvilFreelancer/coddy-agent" alt="MIT License" /></a>
-  <a href="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="MIT License" /></a>
+  <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
   <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="distroless-ready" />
   <img src="https://img.shields.io/badge/single%20binary-252525" alt="single binary" />
 </p>
 
-<p align="center">
-  <img src="docs/assets/coddy-logo-wordmark.svg" alt="Coddy agent" height="156" />
-</p>
+<h1 align="center">Foxxy Agent</h1>
 
 <p align="center">
   <strong>Run a full general purpose agent from one static Go binary.</strong><br />
-  ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.
+  ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.<br />
+  An IDE-friendly fork that is easy to adapt to your editor of choice.
 </p>
+
+> **Foxxy Agent is based on [coddy-agent](https://github.com/coddy-project/coddy-agent)** by the Coddy project (MIT).
+> This fork keeps the upstream architecture and stays merge-compatible with it, while rebranding the
+> distribution (repository, binary name, releases) and focusing on easy IDE adaptation.
 
 | Desktop (1920×1080) | Mobile (390×844) |
 |---|---|
@@ -33,11 +36,11 @@
 | **Settings — Appearance** | |
 | ![Settings Appearance](docs/assets/screenshot-fullhd-settings-appearance.png) | |
 
-Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`coddy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
+Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`foxxy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
 
 </details>
 
-Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many Coddy instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
+Foxxy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many Foxxy instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
 
 ## Contents
 
@@ -75,13 +78,13 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.coddy/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **Reasoning level** - for reasoning models (gpt-5, o-series, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/config.md)
-- **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
+- **ACP protocol** - Foxxy is an **ACP server** (`foxxy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
 - **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/config.md#ssh-remote-execution)
 - **Messenger gateway** - optional Telegram bot adapter (`-tags gateway.telegram`); per-user sessions, group isolation modes, admin ACL; extensible to Discord, Slack, etc. — see [Messenger Gateway](docs/gateway.md)
 
 ## Editor and IDE integration
 
-Coddy is an **ACP server** (`coddy acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`coddy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
+Foxxy is an **ACP server** (`foxxy acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`foxxy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
 
 Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/`**.
 
@@ -89,25 +92,24 @@ Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/
 
 ### Install
 
-**Linux / macOS** - release binary plus **`~/.coddy`** bootstrap:
+**Build from source** (recommended - see prerequisites under "Other installation methods"):
 
 ```bash
-curl -fsSL https://coddy.dev/install.sh | bash
+git clone https://github.com/hijera/foxxy-agent
+cd foxxy-agent
+make build TAGS="http ui scheduler memory"
+make install   # copies build/foxxy to ~/.local/bin or /usr/local/bin
 ```
 
-**Windows (PowerShell)**
+Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** and put the **`foxxy`** binary on **`PATH`**.
 
-```powershell
-irm https://coddy.dev/install.ps1 | iex
-```
+Bootstrap the config: **`mkdir -p ~/.coddy && cp config.example.yaml ~/.coddy/config.yaml`**.
 
-Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). Full installer options: **[`docs/install.md`](docs/install.md)**.
+Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`foxxy http`** for the UI, or **`foxxy acp`** for an editor client.
 
-Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy http`** for the UI, or **`coddy acp`** for an editor client.
+**Docker** - same full binary in **`ghcr.io/hijera/foxxy-agent`**: **`docker compose up -d`** (see [Docker](#docker)).
 
-**Docker** - same full binary in **`ghcr.io/coddy-project/coddy-agent`**: **`docker compose up -d`** (see [Docker](#docker)).
-
-Upgrade later with **`coddy update -y`** ([How to update](#how-to-update)).
+Upgrade later with **`foxxy update -y`** ([How to update](#how-to-update)).
 
 <details>
 <summary><strong>Other installation methods</strong> (build from source, Go install, manual)</summary>
@@ -121,21 +123,10 @@ Upgrade later with **`coddy update -y`** ([How to update](#how-to-update)).
 **Install with Go (lean module default, no `http` / UI tags)**
 
 ```bash
-go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
+go install github.com/hijera/foxxy-agent/cmd/coddy@latest
 ```
 
-For **`coddy http`**, the bundled SPA, scheduler, and memory, use a **release binary** (install script above) or **build from source** below.
-
-**Recommended full binary from source**
-
-```bash
-git clone https://github.com/EvilFreelancer/coddy-agent
-cd coddy-agent
-make build TAGS="http ui scheduler memory"
-make install   # copies build/coddy to ~/.local/bin or /usr/local/bin
-```
-
-Or download archives from [GitHub Releases](https://github.com/coddy-project/coddy-agent/releases).
+Note: `go install` names the binary after the package directory (**`coddy`**, kept for upstream merge compatibility) - rename it to `foxxy` if you like. For **`foxxy http`**, the bundled SPA, scheduler, and memory, use a **release archive** or **build from source** (see [Install](#install)).
 
 **Manual `go build`**
 
@@ -145,8 +136,8 @@ When **`TAGS`** includes **`http`** and **`ui`**, run **`make ui-build`** first.
 make ui-build
 VERSION="$(make -s print-version)"
 go build -tags=http,ui,scheduler,memory \
-  -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
-  -o build/coddy \
+  -ldflags "-X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}" \
+  -o build/foxxy \
   ./cmd/coddy/
 ```
 
@@ -156,7 +147,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 </details>
 
-**`coddy -v`** prints the embedded version. **`coddy acp --help`** lists ACP flags (**`--home`**, **`--cwd`**, **`--config`**, etc.).
+**`foxxy -v`** prints the embedded version. **`foxxy acp --help`** lists ACP flags (**`--home`**, **`--cwd`**, **`--config`**, etc.).
 
 ### Build tags
 
@@ -165,17 +156,17 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 | Tag | Enables | Docs |
 |-----|---------|------|
 | **`memory`** | Long-term memory copilot (**`memory.enabled`** in YAML); with **`http`**, session memory REST under **`/coddy/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
-| **`http`** | **`coddy http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
+| **`http`** | **`foxxy http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
 | **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Scheduler daemon and **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
-| **`gateway.telegram`** | Telegram bot adapter — **`coddy gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
+| **`gateway.telegram`** | Telegram bot adapter — **`foxxy gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
 
 Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, and **`memory`** - the same feature set as **`make build TAGS="http ui scheduler memory"`**.
+Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent)** as **`ghcr.io/hijera/foxxy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, and **`memory`** - the same feature set as **`make build TAGS="http ui scheduler memory"`**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -200,7 +191,7 @@ To **build the image locally** instead, use **`docker-compose.dev.yml`**: **`doc
 http://127.0.0.1:12345/
 ```
 
-The SPA is served on **`GET /`** by **`coddy http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent** or **plan** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
+The SPA is served on **`GET /`** by **`foxxy http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent** or **plan** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
 
 Sanity check without a browser: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
 
@@ -208,8 +199,8 @@ There is **no login** on the HTTP surface - expose port **12345** only on truste
 
 ### Paths (`CODDY_HOME`, `CODDY_CWD`)
 
-- **`CODDY_HOME`** (or **`coddy acp --home`**) is the agent state directory. Default **`~/.coddy`**. The process creates **`sessions/`** and **`skills/`** under it. Config defaults to **`$CODDY_HOME/config.yaml`**.
-- **`CODDY_CWD`** (or **`coddy acp --cwd`**) is the default session working directory when `session/new` sends an empty **`cwd`**. Default is the process current directory at startup. Editors that pass a path in **`session/new`** use that path instead.
+- **`CODDY_HOME`** (or **`foxxy acp --home`**) is the agent state directory. Default **`~/.coddy`**. The process creates **`sessions/`** and **`skills/`** under it. Config defaults to **`$CODDY_HOME/config.yaml`**.
+- **`CODDY_CWD`** (or **`foxxy acp --cwd`**) is the default session working directory when `session/new` sends an empty **`cwd`**. Default is the process current directory at startup. Editors that pass a path in **`session/new`** use that path instead.
 
 ### Configuration
 
@@ -258,21 +249,21 @@ Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based def
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** (assets such as **`foxxy_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory"`**.
 
-**`coddy update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/coddy`**) or when you run **`./build/coddy update`** to refresh a local build artifact.
+**`foxxy update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/foxxy`**) or when you run **`./build/foxxy update`** to refresh a local build artifact.
 
 **1. See what you run today**
 
 ```bash
-which coddy
-coddy -v
+which foxxy
+foxxy -v
 ```
 
 **2. Check for a newer release**
 
 ```bash
-coddy update --check
+foxxy update --check
 ```
 
 Exit code **0** means you are already on the latest published **`X.Y.Z`** (or newer). Exit code **1** means a newer release is available.
@@ -280,15 +271,15 @@ Exit code **0** means you are already on the latest published **`X.Y.Z`** (or ne
 **3. Install**
 
 ```bash
-coddy update          # asks [y/N]
-coddy update -y       # no prompt
+foxxy update          # asks [y/N]
+foxxy update -y       # no prompt
 ```
 
 **4. Confirm**
 
 ```bash
-coddy -v
-coddy http --help     # only when the binary includes -tags=http (release builds do)
+foxxy -v
+foxxy http --help     # only when the binary includes -tags=http (release builds do)
 ```
 
 **Common flags**
@@ -298,11 +289,11 @@ coddy http --help     # only when the binary includes -tags=http (release builds
 | **`--check`** | Only report whether an update exists (no download). |
 | **`-y`** / **`--yes`** | Install without confirmation. |
 | **`--version X.Y.Z`** | Install a specific release, not only "latest". |
-| **`--repo owner/name`** | Alternate GitHub repo (default **`coddy-project/coddy-agent`**). |
+| **`--repo owner/name`** | Alternate GitHub repo (default **`hijera/foxxy-agent`**). |
 
 **Notes**
 
-- Update the same binary you intend to use. If **`which coddy`** points at **`~/.local/bin/coddy`**, run **`coddy update`** from that install, not a different copy on **`PATH`**.
+- Update the same binary you intend to use. If **`which foxxy`** points at **`~/.local/bin/foxxy`**, run **`foxxy update`** from that install, not a different copy on **`PATH`**.
 - **`$CODDY_HOME`** (config, sessions, skills) is untouched; only the executable changes.
 - To build from source or change tags, use **`make build`** instead. For containers, use **`docker compose pull`**. See **[docs/update.md](docs/update.md)** for platform tables, limitations, and other upgrade paths.
 
@@ -357,7 +348,7 @@ Slash commands and **`SKILL.md`** packs (injected as **`{{.Skills}}`**) extend t
 | Priority | Path | Purpose |
 |----------|------|---------|
 | lowest | `~/.agents/skills/` | Global skills — installed by `npx skills` or `npx skillsbd`, shared with all agents |
-| ↑ | `~/.coddy/skills/` | Coddy-specific skills; may contain symlinks into `~/.agents/skills/` |
+| ↑ | `~/.coddy/skills/` | Foxxy-specific skills; may contain symlinks into `~/.agents/skills/` |
 | highest | `${CWD}/.coddy/skills/` | Project-local skills — override anything from higher directories |
 
 Later directories override earlier ones when the same skill name appears in multiple locations.
@@ -365,15 +356,15 @@ Later directories override earlier ones when the same skill name appears in mult
 **Finding and installing skills:**
 
 - **[skills.sh](https://skills.sh)** — community registry, install with `npx skills add <owner/repo@skill>`
-- **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — skillsbd registry curated for Coddy, install with `npx skillsbd install <name>`
-- **Settings → Skills** in the web UI (`coddy http`) — browse and install from the skillsbd registry without leaving the browser
+- **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — skillsbd registry curated for Foxxy, install with `npx skillsbd install <name>`
+- **Settings → Skills** in the web UI (`foxxy http`) — browse and install from the skillsbd registry without leaving the browser
 
 **CLI:**
 
 ```bash
-coddy skills list              # list installed skills with enabled/disabled status
-coddy skills enable <name>     # enable a skill
-coddy skills disable <name>    # disable without uninstalling
+foxxy skills list              # list installed skills with enabled/disabled status
+foxxy skills enable <name>     # enable a skill
+foxxy skills disable <name>    # disable without uninstalling
 ```
 
 See **[`docs/skills.md`](docs/skills.md)** for the full reference.
@@ -399,11 +390,11 @@ See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
 ## Messenger gateway
 
-Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `coddy gateway`.
+Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `foxxy gateway`.
 
 ```bash
 make build TAGS="gateway.telegram"
-./build/coddy gateway --config ~/.coddy/config.yaml
+./build/foxxy gateway --config ~/.coddy/config.yaml
 ```
 
 Minimal config addition (`config.yaml`):
@@ -471,8 +462,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Documentation
 
-- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**
-- [Updating Coddy](docs/update.md) - **`coddy update`**, release assets, **`PATH`** vs **`make install`**
+- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxy`**
+- [Updating Foxxy](docs/update.md) - **`foxxy update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
@@ -489,21 +480,21 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Examples (ACP over stdio)
 
-[**`examples/acp/acp_e2e_todo.py`**](examples/acp/acp_e2e_todo.py) is a newline-delimited JSON-RPC harness against **`coddy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use it as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
+[**`examples/acp/acp_e2e_todo.py`**](examples/acp/acp_e2e_todo.py) is a newline-delimited JSON-RPC harness against **`foxxy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use it as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
 
-[**`examples/acp/acp_e2e_memory.py`**](examples/acp/acp_e2e_memory.py) drives **`build/coddy`**, an isolated **`CODDY_HOME`**, and **`RPA_API_KEY`** to verify recall, persist, and optional prune of markdown under **`$CODDY_HOME/memory`**. See the script docstring for flags. Overview of all harnesses - [**`examples/README.md`**](examples/README.md).
+[**`examples/acp/acp_e2e_memory.py`**](examples/acp/acp_e2e_memory.py) drives **`build/foxxy`**, an isolated **`CODDY_HOME`**, and **`RPA_API_KEY`** to verify recall, persist, and optional prune of markdown under **`$CODDY_HOME/memory`**. See the script docstring for flags. Overview of all harnesses - [**`examples/README.md`**](examples/README.md).
 
 ## Persistent sessions
 
-By default, `coddy acp` and `coddy http` store each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`**, **`coddy http --sessions-dir`**, or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
+By default, `foxxy acp` and `foxxy http` store each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`foxxy acp --sessions-dir`**, **`foxxy http --sessions-dir`**, or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
 
-- **`coddy sessions list`** prints stored sessions (`--sessions-dir` and `--cwd` filters supported).
-- **`coddy acp --session-id <id>`** makes the **next** `session/new` either reopen snapshots for that folder (if present) or create a fresh bundle whose directory name matches that id.
+- **`foxxy sessions list`** prints stored sessions (`--sessions-dir` and `--cwd` filters supported).
+- **`foxxy acp --session-id <id>`** makes the **next** `session/new` either reopen snapshots for that folder (if present) or create a fresh bundle whose directory name matches that id.
 - **`session/load`** restores history and notifies the client; **`session/list`** lists bundles for ACP-aware clients.
 
-The coddy todo tools keep the active checklist mirrored to `todos/active.md`. A wholesale **`coddy_todo_plan_replace`** while items are incomplete is rejected until you finish rows or run **`coddy_todo_plan_archive`**; replacing when every row is **`completed`** moves the prior `active.md` into **`todos/archive/`** (`todo-<nanos>.md`). **`coddy_todo_plan_archive`** finishes open rows to **`completed`**, writes **`todos/archive/plan_<unix_seconds>.md`**, then clears the session plan when persistence is on.
+The coddy_todo_* tools keep the active checklist mirrored to `todos/active.md`. A wholesale **`coddy_todo_plan_replace`** while items are incomplete is rejected until you finish rows or run **`coddy_todo_plan_archive`**; replacing when every row is **`completed`** moves the prior `active.md` into **`todos/archive/`** (`todo-<nanos>.md`). **`coddy_todo_plan_archive`** finishes open rows to **`completed`**, writes **`todos/archive/plan_<unix_seconds>.md`**, then clears the session plan when persistence is on.
 
-When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template (embedded defaults, or files under **`prompts.dir`** using **`prompts.agent_prompt`** and **`prompts.plan_prompt`**, which default to **`agent.md`** and **`plan.md`**) via `{{if .TodoList}}` … `{{end}}`. That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, Coddy refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
+When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template (embedded defaults, or files under **`prompts.dir`** using **`prompts.agent_prompt`** and **`prompts.plan_prompt`**, which default to **`agent.md`** and **`plan.md`**) via `{{if .TodoList}}` … `{{end}}`. That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, Foxxy refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
 
 ## Development
 
@@ -517,13 +508,13 @@ make test
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
 make build TAGS="http ui scheduler memory"
 
-./build/coddy -v    # same as --version
+./build/foxxy -v    # same as --version
 
 # Run with debug logging (ACP mode); optional --log-output, --log-file, --log-format
-coddy acp --log-level debug
+foxxy acp --log-level debug
 
 # Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp/acp_e2e_todo.py)
-echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
+echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | foxxy acp
 ```
 
 ## License

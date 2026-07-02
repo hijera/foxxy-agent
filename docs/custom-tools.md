@@ -113,7 +113,7 @@ import (
     "fmt"
     "net/http"
 
-    "github.com/EvilFreelancer/coddy-agent/internal/llm"
+    "github.com/hijera/foxxy-agent/internal/llm"
 )
 
 // fetchURLTool returns a tool that performs an HTTP GET request.
@@ -301,7 +301,7 @@ import (
     "fmt"
     "os/exec"
 
-    "github.com/EvilFreelancer/coddy-agent/internal/llm"
+    "github.com/hijera/foxxy-agent/internal/llm"
 )
 
 func gitLogTool() *Tool {

@@ -299,7 +299,7 @@ The process blocks until `SIGINT` or `SIGTERM`. Each adapter runs in its own gor
 ```yaml
 services:
   gateway:
-    image: ghcr.io/coddy-project/coddy-agent   # build with gateway tag, see below
+    image: ghcr.io/hijera/foxxy-agent   # build with gateway tag, see below
     command: ["coddy", "gateway", "--config", "/config/config.yaml"]
     volumes:
       - ./config.yaml:/config/config.yaml:ro
@@ -359,10 +359,10 @@ import (
     "context"
     "fmt"
 
-    "github.com/EvilFreelancer/coddy-agent/external/gateway"
-    "github.com/EvilFreelancer/coddy-agent/external/gateway/access"
-    "github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
-    "github.com/EvilFreelancer/coddy-agent/internal/config"
+    "github.com/hijera/foxxy-agent/external/gateway"
+    "github.com/hijera/foxxy-agent/external/gateway/access"
+    "github.com/hijera/foxxy-agent/external/gateway/sessionstore"
+    "github.com/hijera/foxxy-agent/internal/config"
 )
 
 type Bot struct {

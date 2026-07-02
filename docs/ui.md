@@ -43,7 +43,7 @@ Mobile layout
 
 Header links
 
-- GitHub link to `https://github.com/coddy-project/coddy-agent` (**new tab**, `rel=noopener`).
+- GitHub link to `https://github.com/hijera/foxxy-agent` (**new tab**, `rel=noopener`).
 - API docs link to `/docs/` (**new tab**, `rel=noopener`).
 - Links live in the nav rail for this milestone.
 

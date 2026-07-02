@@ -1,30 +1,28 @@
-# Install Coddy
+# Install Foxxy Agent
 
-Install scripts and the landing page: **https://coddy.dev/**
+Foxxy Agent is based on [coddy-agent](https://github.com/coddy-project/coddy-agent). The upstream
+`coddy.dev` install scripts install the original project, not this fork — use one of the methods below.
 
-## One-line install
+## Release archive
 
-**Linux / macOS**
+Download the archive for your platform from
+**[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** (assets such as
+`foxxy_X.Y.Z_linux_amd64.tar.gz`), unpack it, and put the **`foxxy`** binary on `PATH`
+(Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\foxxy`).
+
+Bootstrap the config when missing:
 
 ```bash
-curl -fsSL https://coddy.dev/install.sh | bash
+mkdir -p ~/.coddy && cp config.example.yaml ~/.coddy/config.yaml
 ```
-
-**Windows (PowerShell)**
-
-```powershell
-irm https://coddy.dev/install.ps1 | iex
-```
-
-Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing.
 
 ## After install
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-coddy -v
+foxxy -v
 # edit ~/.coddy/config.yaml
-coddy http
+foxxy http
 ```
 
 ## Docker
@@ -38,7 +36,7 @@ See [docker.md](docker.md) and the [README Docker section](../README.md#docker).
 ## Upgrade
 
 ```bash
-coddy update -y
+foxxy update -y
 ```
 
 See [update.md](update.md).
