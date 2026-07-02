@@ -41,14 +41,14 @@ RUN mkdir -p /out \
 	go build \
 	-tags="$GO_TAGS" \
 	-trimpath \
-	-ldflags "-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
-	-o /out/coddy \
+	-ldflags "-s -w -X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}" \
+	-o /out/foxxy \
 	./cmd/coddy/; \
 	else \
 	go build \
 	-trimpath \
-	-ldflags "-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
-	-o /out/coddy \
+	-ldflags "-s -w -X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}" \
+	-o /out/foxxy \
 	./cmd/coddy/; \
 	fi \
 	&& cp /etc/ssl/certs/ca-certificates.crt /out/ssl-certs/ca-certificates.crt
@@ -56,7 +56,7 @@ RUN mkdir -p /out \
 
 FROM scratch
 
-COPY --from=build /out/coddy /bin/coddy
+COPY --from=build /out/foxxy /bin/foxxy
 COPY --from=build /out/ssl-certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /workspace
@@ -67,5 +67,5 @@ ENV CODDY_CONFIG=/home/user/.coddy.yaml
 
 EXPOSE 12345
 
-ENTRYPOINT ["/bin/coddy"]
+ENTRYPOINT ["/bin/foxxy"]
 CMD ["http","-H","0.0.0.0","-P","12345"]

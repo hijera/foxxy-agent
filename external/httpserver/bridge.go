@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 // Sender implements acp.UpdateSender for HTTP (streaming SSE or silent non-stream).

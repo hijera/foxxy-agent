@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func TestPatchJobRenameJobID(t *testing.T) {

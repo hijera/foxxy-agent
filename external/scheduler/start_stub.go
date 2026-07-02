@@ -6,7 +6,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // Start is a no-op when built without the scheduler tag.

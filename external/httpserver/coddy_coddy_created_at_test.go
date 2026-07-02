@@ -5,7 +5,7 @@ package httpserver
 import (
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 func TestLlmMsgsToCoddyOpenAIIncludesCreatedAt(t *testing.T) {

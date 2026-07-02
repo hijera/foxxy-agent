@@ -3,10 +3,10 @@ package agent
 import (
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/rules"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/rules"
+	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/skills"
 )
 
 // rulesState is implemented by session.State for rules prompt wiring.

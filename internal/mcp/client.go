@@ -15,7 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 // ToolInfo describes a tool provided by an MCP server.

@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	memstorage "github.com/EvilFreelancer/coddy-agent/external/memory/storage"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 func memorySearchTool(store *memstorage.Store, mem *config.MemoryConfig) *tooling.Tool {

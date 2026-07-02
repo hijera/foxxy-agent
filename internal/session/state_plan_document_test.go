@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/plans"
+	"github.com/hijera/foxxy-agent/internal/plans"
 )
 
 func TestMarkPlanDocumentDiscardedPersistsInMessages(t *testing.T) {

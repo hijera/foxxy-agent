@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/tools/todo"
 )
 
 const (

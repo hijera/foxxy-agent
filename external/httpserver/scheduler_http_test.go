@@ -16,10 +16,10 @@ import (
 	"time"
 
 	// Register LaunchManualJob (same as cmd/coddy linking scheduler).
-	_ "github.com/EvilFreelancer/coddy-agent/external/scheduler"
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	_ "github.com/hijera/foxxy-agent/external/scheduler"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {

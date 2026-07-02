@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 func TestLoadInstructionsSingleFile(t *testing.T) {

@@ -3,7 +3,7 @@ package session_test
 import (
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 func TestNormalizeWorkspaceRelativePathRejectsTraversal(t *testing.T) {

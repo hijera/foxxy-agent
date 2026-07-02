@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/version"
+	"github.com/hijera/foxxy-agent/internal/version"
 	"gopkg.in/yaml.v3"
 )
 

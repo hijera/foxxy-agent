@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 // captureAndStoreTurnDiff asynchronously computes the workspace diff against the

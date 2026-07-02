@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 // orphanLockCancelMinAge avoids racing a brand-new lock created milliseconds ago on the same tick.

@@ -5,8 +5,8 @@ package access_test
 import (
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/external/gateway/access"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/external/gateway/access"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func cfg() *config.TelegramGatewayConfig {

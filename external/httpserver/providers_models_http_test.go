@@ -10,9 +10,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 func newProviderModelsServer(t *testing.T, cfg *config.Config) *httptest.Server {

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func (s *Server) registerConfigRoutes() {

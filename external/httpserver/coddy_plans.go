@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/plans"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 type planRunNoopSender struct{}

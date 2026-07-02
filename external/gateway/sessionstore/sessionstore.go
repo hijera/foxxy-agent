@@ -18,7 +18,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // Store maps session keys to Coddy session IDs.

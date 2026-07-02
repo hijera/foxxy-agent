@@ -6,8 +6,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/daemon"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/external/scheduler/daemon"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // Start launches the background scheduler daemon when scheduler is effectively enabled.

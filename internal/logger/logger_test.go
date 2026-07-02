@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func TestNewWritesToStdoutAndFile(t *testing.T) {

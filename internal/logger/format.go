@@ -4,7 +4,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // newHandler builds the slog.Handler matching cfg.Format and cfg.Level.

@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // LaunchManualJob executes one asynchronous manual scheduler job (wired from package daemon via init).

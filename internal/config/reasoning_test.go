@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {

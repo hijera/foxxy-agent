@@ -7,9 +7,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/agent"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/agent"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 // tryResumePendingPermission continues a persisted permission gate after HTTP restart or a dead stream.

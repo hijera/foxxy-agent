@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/plans"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 // PlanWriteTool writes a design plan file under the session bundle plans/ directory.

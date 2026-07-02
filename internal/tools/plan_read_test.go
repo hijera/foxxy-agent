@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/plans"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxy-agent/internal/tools"
 )
 
 func TestPlanReadReturnsDesignPlanContent(t *testing.T) {

@@ -5,7 +5,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
 )
 
 func TestJobRunnableForTickPaused(t *testing.T) {

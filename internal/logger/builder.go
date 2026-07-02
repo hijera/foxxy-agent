@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // New builds a *slog.Logger from cfg. If cfg.Outputs lists "file" the file

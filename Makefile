@@ -3,11 +3,11 @@
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
 #     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
-#     http     OpenAI-compatible gateway (coddy http)
+#     http     OpenAI-compatible gateway (foxxy http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /coddy memory REST (see external/memory/)
-#     gateway.telegram  Telegram bot gateway only (coddy gateway; see external/gateway/)
+#     gateway.telegram  Telegram bot gateway only (foxxy gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
@@ -26,13 +26,13 @@ VERSION := $(shell \
 	elif desc=$$(git describe --tags --dirty 2>/dev/null); then echo $$desc; \
 	elif desc=$$(git describe --tags --always --dirty 2>/dev/null); then echo $$desc; \
 	else echo dev; fi)
-LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/hijera/foxxy-agent/internal/version.Version=$(VERSION)
 
 TAGS ?=
 BUILD_DIR := build
-BINARY := $(BUILD_DIR)/coddy
+BINARY := $(BUILD_DIR)/foxxy
 
-# Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
+# Default tag set for `make install` when build/foxxy is missing (matches Docker BUILD_TAGS).
 FULL_TAGS := http ui scheduler memory
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
@@ -51,7 +51,7 @@ ui-build:
 	npm --prefix external/ui install --no-fund --no-audit
 	npm --prefix external/ui run build:go
 
-# Build the coddy CLI (skills commands + ACP entrypoint; optional modules via TAGS).
+# Build the foxxy CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/coddy/
@@ -63,7 +63,7 @@ print-version:
 # Install binary: /usr/local/bin for root, ~/.local/bin for regular users.
 INSTALL_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/bin,$(HOME)/.local/bin)
 
-# Install build/coddy onto PATH. Reuses an existing binary; builds FULL_TAGS only when missing.
+# Install build/foxxy onto PATH. Reuses an existing binary; builds FULL_TAGS only when missing.
 install:
 	@mkdir -p $(INSTALL_DIR)
 	@if [ ! -f $(BINARY) ]; then \
@@ -72,8 +72,8 @@ install:
 	else \
 		echo "Installing existing $(BINARY)"; \
 	fi
-	cp $(BINARY) $(INSTALL_DIR)/coddy
-	@echo "Installed to $(INSTALL_DIR)/coddy"
+	cp $(BINARY) $(INSTALL_DIR)/foxxy
+	@echo "Installed to $(INSTALL_DIR)/foxxy"
 
 # Run all tests.
 test:

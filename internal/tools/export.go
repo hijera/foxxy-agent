@@ -1,13 +1,13 @@
 package tools
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
-	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
-	toolssh "github.com/EvilFreelancer/coddy-agent/internal/tools/ssh"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
-	toolweb "github.com/EvilFreelancer/coddy-agent/internal/tools/web"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/tooling"
+	toolfs "github.com/hijera/foxxy-agent/internal/tools/fs"
+	"github.com/hijera/foxxy-agent/internal/tools/shell"
+	toolssh "github.com/hijera/foxxy-agent/internal/tools/ssh"
+	"github.com/hijera/foxxy-agent/internal/tools/todo"
+	toolweb "github.com/hijera/foxxy-agent/internal/tools/web"
 )
 
 // Re-export tooling types used by agent, session wiring, and tests.

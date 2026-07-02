@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 // Registry holds all registered tools.

@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/acp"
 )
 
 func TestMemoryTreeRejectsTraversal(t *testing.T) {

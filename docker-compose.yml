@@ -1,13 +1,13 @@
 # Run the published image from GitHub Container Registry (no local Dockerfile build).
-# See docs/docker.md and https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent
+# See docs/docker.md and https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent
 #
-#   export CODDY_IMAGE=ghcr.io/coddy-project/coddy-agent:TAG   # optional
+#   export CODDY_IMAGE=ghcr.io/hijera/foxxy-agent:TAG   # optional
 #   docker compose pull
 #   docker compose up -d
 
 services:
-  coddy:
-    image: ${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}
+  foxxy:
+    image: ${CODDY_IMAGE:-ghcr.io/hijera/foxxy-agent:latest}
     ports:
       - "${CODDY_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
@@ -23,7 +23,7 @@ services:
       - ${CODDY_CWD-./workspace}:/workspace
       - ${CODDY_HOME-./coddy_home}:/home/user/.coddy
     healthcheck:
-      test: ["CMD", "/bin/coddy", "--version"]
+      test: ["CMD", "/bin/foxxy", "--version"]
       interval: 5s
       timeout: 3s
       retries: 20

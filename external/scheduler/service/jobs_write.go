@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
 )
 
 // CreateJob writes a new *.md job file.

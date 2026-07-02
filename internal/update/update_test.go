@@ -16,13 +16,13 @@ import (
 
 func TestInstallFromArchive_tarGz(t *testing.T) {
 	t.Parallel()
-	payload := mustTarGz(t, "coddy", []byte("#!/bin/sh\necho ok\n"))
+	payload := mustTarGz(t, "foxxy", []byte("#!/bin/sh\necho ok\n"))
 	dir := t.TempDir()
-	dest := filepath.Join(dir, "coddy")
+	dest := filepath.Join(dir, "foxxy")
 	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := installFromArchive(payload, "coddy_0.9.3_linux_amd64.tar.gz", dest); err != nil {
+	if err := installFromArchive(payload, "foxxy_0.9.3_linux_amd64.tar.gz", dest); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(dest)
@@ -37,13 +37,13 @@ func TestInstallFromArchive_tarGz(t *testing.T) {
 func TestRun_checkUpdateAvailable(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"tag_name":"0.9.5","assets":[{"name":"coddy_0.9.5_linux_amd64.tar.gz","browser_download_url":"http://example.invalid/x.tar.gz"}]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"0.9.5","assets":[{"name":"foxxy_0.9.5_linux_amd64.tar.gz","browser_download_url":"http://example.invalid/x.tar.gz"}]}`))
 	}))
 	defer srv.Close()
 
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "coddy-project/coddy-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.2",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -57,18 +57,18 @@ func TestRun_checkUpdateAvailable(t *testing.T) {
 func TestRun_checkUpToDate(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/coddy-project/coddy-agent/releases/latest" {
+		if r.URL.Path != "/repos/hijera/foxxy-agent/releases/latest" {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(`{"tag_name":"0.9.3","assets":[{"name":"coddy_0.9.3_linux_amd64.tar.gz","browser_download_url":"http://example.invalid/bin.tar.gz"}]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"0.9.3","assets":[{"name":"foxxy_0.9.3_linux_amd64.tar.gz","browser_download_url":"http://example.invalid/bin.tar.gz"}]}`))
 	}))
 	defer srv.Close()
 
 	var out bytes.Buffer
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "coddy-project/coddy-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.3",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -86,12 +86,12 @@ func TestRun_checkUpToDate(t *testing.T) {
 func TestRun_downloadAndInstall(t *testing.T) {
 	t.Parallel()
 	binBody := []byte("#!/bin/sh\necho release\n")
-	archive := mustTarGz(t, "coddy", binBody)
+	archive := mustTarGz(t, "foxxy", binBody)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		url := "http://" + r.Host + "/asset.tar.gz"
-		body := `{"tag_name":"0.9.4","assets":[{"name":"coddy_0.9.4_linux_amd64.tar.gz","browser_download_url":"` + url + `"}]}`
+		body := `{"tag_name":"0.9.4","assets":[{"name":"foxxy_0.9.4_linux_amd64.tar.gz","browser_download_url":"` + url + `"}]}`
 		_, _ = w.Write([]byte(body))
 	})
 	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, _ *http.Request) {
@@ -101,7 +101,7 @@ func TestRun_downloadAndInstall(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	dest := filepath.Join(dir, "coddy")
+	dest := filepath.Join(dir, "foxxy")
 	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestRun_downloadAndInstall(t *testing.T) {
 	var out bytes.Buffer
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "coddy-project/coddy-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.2",
 		GOOS:           "linux",
 		GOARCH:         "amd64",

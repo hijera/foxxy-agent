@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/update"
+	"github.com/hijera/foxxy-agent/internal/update"
 )
 
 func runUpdate(args []string) error {

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	memstorage "github.com/EvilFreelancer/coddy-agent/external/memory/storage"
-	memtools "github.com/EvilFreelancer/coddy-agent/external/memory/tools"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
+	memtools "github.com/hijera/foxxy-agent/external/memory/tools"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 //go:embed prompts/copilot.md

@@ -1,8 +1,8 @@
 package todo
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 func sendPlanUpdate(env *tooling.Env, entries []acp.PlanEntry) {

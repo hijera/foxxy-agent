@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // Hit is one ranked memory snippet for recall.

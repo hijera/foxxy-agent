@@ -6,7 +6,7 @@ package access
 import (
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // CanAccess reports whether userID is allowed to interact given the effective access level.

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 func makeDataURL(mime, content string) string {

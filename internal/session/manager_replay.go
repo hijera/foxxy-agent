@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessionDir string) error {

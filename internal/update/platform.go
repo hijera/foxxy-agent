@@ -11,11 +11,11 @@ func AssetFileName(version, goos, goarch string) (string, error) {
 	case "linux", "darwin":
 		switch goarch {
 		case "amd64", "arm64":
-			return fmt.Sprintf("coddy_%s_%s_%s.tar.gz", version, goos, goarch), nil
+			return fmt.Sprintf("foxxy_%s_%s_%s.tar.gz", version, goos, goarch), nil
 		}
 	case "windows":
 		if goarch == "amd64" {
-			return fmt.Sprintf("coddy_%s_windows_amd64.zip", version), nil
+			return fmt.Sprintf("foxxy_%s_windows_amd64.zip", version), nil
 		}
 	}
 	return "", fmt.Errorf("unsupported platform %s/%s", goos, goarch)
@@ -24,9 +24,9 @@ func AssetFileName(version, goos, goarch string) (string, error) {
 // BinaryName inside release archives.
 func BinaryName(goos string) string {
 	if goos == "windows" {
-		return "coddy.exe"
+		return "foxxy.exe"
 	}
-	return "coddy"
+	return "foxxy"
 }
 
 // CurrentPlatform returns goos/goarch for this process.

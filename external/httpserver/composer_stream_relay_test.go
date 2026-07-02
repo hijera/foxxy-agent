@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/acp"
 )
 
 func TestComposerStreamRelayReplayAndLive(t *testing.T) {

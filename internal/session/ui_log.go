@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 // UILogEntry is a UI-facing transcript row (shown in HTTP UI after reload).

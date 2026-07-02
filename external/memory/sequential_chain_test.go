@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	memstorage "github.com/EvilFreelancer/coddy-agent/external/memory/storage"
-	memtools "github.com/EvilFreelancer/coddy-agent/external/memory/tools"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
+	memtools "github.com/hijera/foxxy-agent/external/memory/tools"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func extractLinkTargetsForChain(body string) []string {

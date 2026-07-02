@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/skills"
 )
 
 func (s *Server) registerSkillsManagementRoutes() {

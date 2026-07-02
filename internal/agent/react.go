@@ -13,15 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
-	"github.com/EvilFreelancer/coddy-agent/internal/plans"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/mcp"
+	"github.com/hijera/foxxy-agent/internal/permission"
+	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/tools"
 )
 
 // SessionState is the interface Agent needs from a session.

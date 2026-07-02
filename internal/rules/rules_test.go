@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/rules"
+	"github.com/hijera/foxxy-agent/internal/rules"
 )
 
 func TestMatchAutoStickyGlob(t *testing.T) {

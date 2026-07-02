@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
+	"github.com/hijera/foxxy-agent/external/scheduler/service"
 )
 
 func (s *Server) registerSchedulerRoutes() {

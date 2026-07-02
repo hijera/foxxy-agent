@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 func TestFileStoreRoundTripUILog(t *testing.T) {

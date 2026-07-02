@@ -3,9 +3,9 @@
 package main
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/external/httpserver"
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/external/httpserver"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func runHTTP(args []string) error {

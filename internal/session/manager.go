@@ -12,12 +12,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
-	"github.com/EvilFreelancer/coddy-agent/internal/version"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/mcp"
+	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/version"
 )
 
 // AgentRunner is a function that runs the ReAct loop for a prompt turn.

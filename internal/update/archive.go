@@ -18,7 +18,7 @@ func installFromArchive(data []byte, archiveName, destPath string) error {
 	case strings.HasSuffix(lower, ".tar.gz"):
 		return installFromTarGz(data, BinaryName(runtimeGOOSFromArchive(archiveName)), destPath)
 	case strings.HasSuffix(lower, ".zip"):
-		return installFromZip(data, "coddy.exe", destPath)
+		return installFromZip(data, "foxxy.exe", destPath)
 	default:
 		return fmt.Errorf("unsupported archive %q", archiveName)
 	}
@@ -90,7 +90,7 @@ func writeExecutable(dest string, body []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".coddy-update-*")
+	tmp, err := os.CreateTemp(dir, ".foxxy-update-*")
 	if err != nil {
 		return err
 	}

@@ -1,8 +1,8 @@
 package session
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // BuildACPConfigOptions returns Session Config Options for the ACP protocol (mode + model selectors).

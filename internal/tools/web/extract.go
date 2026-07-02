@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 	"github.com/go-shiori/go-readability"
 )
 
@@ -77,7 +77,7 @@ func executeExtractPageContent(ctx context.Context, argsJSON string, _ *tooling.
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "coddy-agent/1.0 (+https://github.com/EvilFreelancer/coddy-agent)")
+	req.Header.Set("User-Agent", "coddy-agent/1.0 (+https://github.com/hijera/foxxy-agent)")
 
 	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
 	resp, err := client.Do(req)

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // StaleLockGraceFromConfig returns how old a basename.lock may get with no tracked run

@@ -1,4 +1,4 @@
-module github.com/EvilFreelancer/coddy-agent
+module github.com/hijera/foxxy-agent
 
 go 1.25.0
 

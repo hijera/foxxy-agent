@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 // ApplyPatchTool returns the apply_patch built-in (unified diff on one file).

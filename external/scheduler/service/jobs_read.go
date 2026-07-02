@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
 )
 
 func (o *Service) buildSchedulerInfo() SchedulerInfo {

@@ -11,13 +11,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/agent"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/logger"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/version"
+	"github.com/hijera/foxxy-agent/external/scheduler"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/agent"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/logger"
+	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/version"
 )
 
 // CommandDeps wires coddy main helpers into the http subcommand without an import cycle.

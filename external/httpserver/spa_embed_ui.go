@@ -5,7 +5,7 @@ package httpserver
 import (
 	"net/http"
 
-	"github.com/EvilFreelancer/coddy-agent/external/ui"
+	"github.com/hijera/foxxy-agent/external/ui"
 )
 
 func mountEmbeddedSPARoot(mux *http.ServeMux) {

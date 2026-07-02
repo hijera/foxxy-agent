@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/skills"
 )
 
 func withoutBundled(loaded []*skills.Skill) []*skills.Skill {

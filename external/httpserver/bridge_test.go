@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func TestForwardTextChunk_ReasoningEmittedAsReasoningContent(t *testing.T) {

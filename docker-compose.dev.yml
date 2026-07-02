@@ -5,14 +5,14 @@
 #   docker compose -f docker-compose.dev.yml up -d --build
 
 services:
-  coddy:
+  foxxy:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         VERSION: ${CODDY_VERSION:-dev}
         BUILD_TAGS: ${CODDY_BUILD_TAGS:-http,scheduler,ui,memory}
-    image: coddy-agent:${CODDY_VERSION:-dev}
+    image: foxxy-agent:${CODDY_VERSION:-dev}
     ports:
       - "${CODDY_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
@@ -28,7 +28,7 @@ services:
       - ${CODDY_CWD-./workspace}:/workspace
       - ${CODDY_HOME-./coddy_home}:/home/user/.coddy
     healthcheck:
-      test: ["CMD", "/bin/coddy", "--version"]
+      test: ["CMD", "/bin/foxxy", "--version"]
       interval: 5s
       timeout: 3s
       retries: 20

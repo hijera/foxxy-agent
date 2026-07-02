@@ -4,8 +4,8 @@
 package schedtools
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 // RegisterTools registers scheduler maintenance tools (requires cfg.Scheduler enabled).

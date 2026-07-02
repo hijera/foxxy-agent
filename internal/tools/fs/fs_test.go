@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 // --- patch.go: unified diff / v4a patch ------------------------------------

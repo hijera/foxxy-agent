@@ -242,7 +242,7 @@ export function ChatScreen(props: {
             />
           </div>
           <div className="hero-footer">
-            <a href="https://github.com/coddy-project/coddy-agent" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/hijera/foxxy-agent" target="_blank" rel="noopener">GitHub</a>
             <span className="hero-footer-sep" aria-hidden>|</span>
             <a href="/docs/" target="_blank" rel="noopener">API docs</a>
           </div>

@@ -3,7 +3,7 @@ package skills_test
 import (
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/skills"
 )
 
 func TestBundledIncludesGenerateRules(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func TestResolveCODDYHomeEnv(t *testing.T) {

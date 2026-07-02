@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	apptools "github.com/EvilFreelancer/coddy-agent/internal/tools"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	apptools "github.com/hijera/foxxy-agent/internal/tools"
 )
 
 type fakeSender struct {

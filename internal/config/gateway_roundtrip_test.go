@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // TestConfigJSON_PreservesTelegramGateway is the regression for the data-loss bug:

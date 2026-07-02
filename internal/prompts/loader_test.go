@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
+	"github.com/hijera/foxxy-agent/internal/prompts"
 )
 
 // Deterministic clock value for built-in template tests (RFC3339 UTC).

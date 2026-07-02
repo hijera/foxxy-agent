@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	apptools "github.com/EvilFreelancer/coddy-agent/internal/tools"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/session"
+	apptools "github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxy-agent/internal/tools/todo"
 )
 
 type mockSender struct {

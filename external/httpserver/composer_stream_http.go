@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 const composerStreamWaitDeadline = 30 * time.Second

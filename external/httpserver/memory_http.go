@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 var errTraversal = errors.New("path escapes allowed root")

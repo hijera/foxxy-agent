@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/session"
 )
 
 type schedRunEntry struct {

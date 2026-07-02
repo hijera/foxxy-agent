@@ -3,8 +3,8 @@
 package tools
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/tools"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/external/scheduler/tools"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 func registerSchedulerTools(r *Registry, cfg *config.Config) {

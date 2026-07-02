@@ -4,13 +4,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools"
-	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/prompts"
+	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxy-agent/internal/tools/todo"
 )
 
 func joinNonEmptyPromptBlocks(parts ...string) string {

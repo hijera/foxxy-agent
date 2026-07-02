@@ -5,7 +5,7 @@ package httpserver
 import (
 	"sync"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/acp"
 )
 
 type permissionWaitKey struct {

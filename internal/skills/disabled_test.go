@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/hijera/foxxy-agent/internal/skills"
 )
 
 func TestReadDisabledMissingFile(t *testing.T) {

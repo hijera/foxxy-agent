@@ -12,12 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EvilFreelancer/coddy-agent/external/gateway/access"
-	"github.com/EvilFreelancer/coddy-agent/external/gateway/proxyutil"
-	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/hijera/foxxy-agent/external/gateway/access"
+	"github.com/hijera/foxxy-agent/external/gateway/proxyutil"
+	"github.com/hijera/foxxy-agent/external/gateway/sessionstore"
+	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxy-agent/internal/session"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 

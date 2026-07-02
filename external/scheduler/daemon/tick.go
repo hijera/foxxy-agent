@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	schedservice "github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	schedservice "github.com/hijera/foxxy-agent/external/scheduler/service"
+	"github.com/hijera/foxxy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxy-agent/internal/config"
 )
 
 // lastSeenScheduleByPath tracks the prior schedule string per job file so we can drop stale

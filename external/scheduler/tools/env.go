@@ -5,7 +5,7 @@ package schedtools
 import (
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 func toolEnvCWD(env *tooling.Env) string {

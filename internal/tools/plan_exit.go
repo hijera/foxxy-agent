@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 // PlanExitTool switches the session from plan mode to agent mode after planning is done.

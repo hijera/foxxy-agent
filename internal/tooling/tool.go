@@ -3,7 +3,7 @@ package tooling
 import (
 	"context"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/hijera/foxxy-agent/internal/llm"
 )
 
 // Tool is a callable tool that the agent can invoke.

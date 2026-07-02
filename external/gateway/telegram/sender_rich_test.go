@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/hijera/foxxy-agent/internal/acp"
 )
 
 // capturingServer records every Bot API call (endpoint + form values).

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultRepo   = "coddy-project/coddy-agent"
+	DefaultRepo   = "hijera/foxxy-agent"
 	DefaultAPIURL = "https://api.github.com"
 )
 
@@ -35,7 +35,7 @@ func fetchRelease(ctx context.Context, client *http.Client, apiBase, repo, tag s
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "coddy-agent-update")
+	req.Header.Set("User-Agent", "foxxy-agent-update")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -73,7 +73,7 @@ func downloadURL(ctx context.Context, client *http.Client, url string) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "coddy-agent-update")
+	req.Header.Set("User-Agent", "foxxy-agent-update")
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

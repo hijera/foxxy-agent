@@ -1,7 +1,7 @@
 package fs
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/hijera/foxxy-agent/internal/tooling"
 )
 
 // RegisterBuiltins registers all filesystem-backed tools via add.
