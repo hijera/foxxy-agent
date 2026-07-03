@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.FormBuilder
+import dev.foxxy.intellij.FoxxyBundle
 import dev.foxxy.intellij.settings.FoxxySettings
 import javax.swing.JComponent
 
@@ -13,19 +14,14 @@ import javax.swing.JComponent
  */
 class FirstRunDialog(project: Project) : DialogWrapper(project) {
     init {
-        title = "Set Up Foxxy"
+        title = FoxxyBundle.message("firstrun.title")
         init()
     }
 
     override fun createCenterPanel(): JComponent =
         FormBuilder.createFormBuilder()
             .addComponent(
-                JBLabel(
-                    "<html>The foxxy agent binary is bundled with the Foxxy plugin and ready to use.<br/>" +
-                        "Just close this dialog and the Foxxy tool window will start it automatically.<br/><br/>" +
-                        "Optional: configure host, port, Foxxy home, or override the binary path in<br/>" +
-                        "Settings | Tools | Foxxy.</html>"
-                )
+                JBLabel(FoxxyBundle.message("firstrun.body"))
             )
             .panel
 

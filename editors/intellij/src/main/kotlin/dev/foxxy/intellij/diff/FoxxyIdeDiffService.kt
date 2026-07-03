@@ -27,6 +27,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
+import dev.foxxy.intellij.FoxxyBundle
 import dev.foxxy.intellij.process.FoxxyProcessManager
 import dev.foxxy.intellij.settings.FoxxySettings
 import java.awt.Color
@@ -151,35 +152,35 @@ class FoxxyIdeDiffService(private val project: Project) : Disposable {
 
     private fun notifyProposed(ev: FoxxyEditEvent) {
         val n = group().createNotification(
-            "Foxxy wants to edit ${fileName(ev.path)}",
-            "Review the inline diff and accept or reject the change.",
+            FoxxyBundle.message("diff.notify.proposed.title", fileName(ev.path)),
+            FoxxyBundle.message("diff.notify.proposed.content"),
             NotificationType.INFORMATION,
         )
-        n.addAction(NotificationAction.createSimple("Accept") {
+        n.addAction(NotificationAction.createSimple(FoxxyBundle.message("diff.action.accept")) {
             respondPermission(ev.sessionId, ev.toolCallId, "allow")
             n.expire()
         })
-        n.addAction(NotificationAction.createSimple("Reject") {
+        n.addAction(NotificationAction.createSimple(FoxxyBundle.message("diff.action.reject")) {
             respondPermission(ev.sessionId, ev.toolCallId, "reject")
             clearHighlights(ev.path)
             n.expire()
         })
-        n.addAction(NotificationAction.createSimple("Show diff") { showDiff(ev) })
+        n.addAction(NotificationAction.createSimple(FoxxyBundle.message("diff.action.showDiff")) { showDiff(ev) })
         n.notify(project)
     }
 
     private fun notifyApplied(ev: FoxxyEditEvent) {
         val n = group().createNotification(
-            "Foxxy edited ${fileName(ev.path)}",
-            "The change was applied. You can revert it or open the full diff.",
+            FoxxyBundle.message("diff.notify.applied.title", fileName(ev.path)),
+            FoxxyBundle.message("diff.notify.applied.content"),
             NotificationType.INFORMATION,
         )
-        n.addAction(NotificationAction.createSimple("Revert") {
+        n.addAction(NotificationAction.createSimple(FoxxyBundle.message("diff.action.revert")) {
             revert(ev)
             clearHighlights(ev.path)
             n.expire()
         })
-        n.addAction(NotificationAction.createSimple("Show diff") { showDiff(ev) })
+        n.addAction(NotificationAction.createSimple(FoxxyBundle.message("diff.action.showDiff")) { showDiff(ev) })
         n.notify(project)
     }
 
@@ -188,7 +189,11 @@ class FoxxyIdeDiffService(private val project: Project) : Disposable {
         val type = FileTypeManager.getInstance().getFileTypeByFileName(fileName(ev.path))
         val c1 = factory.create(project, ev.before, type)
         val c2 = factory.create(project, ev.after, type)
-        val req = SimpleDiffRequest(fileName(ev.path), c1, c2, "Before", "After")
+        val req = SimpleDiffRequest(
+            fileName(ev.path), c1, c2,
+            FoxxyBundle.message("diff.window.before"),
+            FoxxyBundle.message("diff.window.after"),
+        )
         DiffManager.getInstance().showDiff(project, req)
     }
 
@@ -196,7 +201,7 @@ class FoxxyIdeDiffService(private val project: Project) : Disposable {
     private fun revert(ev: FoxxyEditEvent) {
         val vf = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(ev.path)) ?: return
         try {
-            WriteCommandAction.runWriteCommandAction(project, "Revert Foxxy Edit", null, {
+            WriteCommandAction.runWriteCommandAction(project, FoxxyBundle.message("diff.command.revert"), null, {
                 vf.setBinaryContent(ev.before.toByteArray(StandardCharsets.UTF_8))
             })
         } catch (e: Exception) {

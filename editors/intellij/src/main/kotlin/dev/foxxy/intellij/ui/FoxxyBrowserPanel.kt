@@ -14,6 +14,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
+import dev.foxxy.intellij.FoxxyBundle
 import dev.foxxy.intellij.FoxxyNotifications
 import dev.foxxy.intellij.diff.FoxxyIdeDiffService
 import dev.foxxy.intellij.process.FoxxyProcessManager
@@ -49,7 +50,7 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
     }
 
     private fun start() {
-        showMessage("Starting Foxxy…")
+        showMessage(FoxxyBundle.message("process.status.starting"))
         FoxxyProcessManager.getInstance(project).ensureStarted(
             onReady = { url ->
                 loadUrl(url)
@@ -122,15 +123,15 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
     }
 
     private fun showError(msg: String) {
-        FoxxyNotifications.error(project, "Foxxy failed to start", msg)
+        FoxxyNotifications.error(project, FoxxyBundle.message("notification.title.startFailed"), msg)
         val panel = JPanel(BorderLayout())
         panel.add(
-            JLabel("<html><center>Foxxy failed to start:<br/>$msg</center></html>", SwingConstants.CENTER),
+            JLabel(FoxxyBundle.message("process.error.startFailedPanel", msg), SwingConstants.CENTER),
             BorderLayout.CENTER
         )
         val south = JPanel()
-        south.add(JButton("Retry").apply { addActionListener { start() } })
-        south.add(JButton("Open Settings").apply { addActionListener { openSettings() } })
+        south.add(JButton(FoxxyBundle.message("process.button.retry")).apply { addActionListener { start() } })
+        south.add(JButton(FoxxyBundle.message("process.button.openSettings")).apply { addActionListener { openSettings() } })
         panel.add(south, BorderLayout.SOUTH)
         setCenter(panel)
     }
@@ -139,27 +140,30 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
         val panel = JPanel(BorderLayout())
         panel.add(
             JLabel(
-                "<html><center>The embedded browser (JCEF) is unavailable in this IDE runtime.<br/>" +
-                    "Open the Foxxy UI in your system browser instead.</center></html>",
+                FoxxyBundle.message("process.fallback.jcefUnavailable"),
                 SwingConstants.CENTER
             ),
             BorderLayout.CENTER
         )
         val south = JPanel()
-        south.add(JButton("Open $url").apply { addActionListener { BrowserUtil.browse(url) } })
+        south.add(JButton(FoxxyBundle.message("process.button.openUrl", url)).apply { addActionListener { BrowserUtil.browse(url) } })
         panel.add(south, BorderLayout.SOUTH)
         setCenter(panel)
     }
 
     private fun openSettings() {
-        ShowSettingsUtil.getInstance().showSettingsDialog(project, "Foxxy")
+        ShowSettingsUtil.getInstance().showSettingsDialog(project, FoxxyBundle.message("settings.displayName"))
     }
 
     private fun createToolbar(): JComponent {
         val group = DefaultActionGroup()
-        group.add(object : AnAction("Restart Foxxy", "Restart the Foxxy server", AllIcons.Actions.Restart) {
+        group.add(object : AnAction(
+            FoxxyBundle.message("toolbar.action.restart"),
+            FoxxyBundle.message("toolbar.action.restart.desc"),
+            AllIcons.Actions.Restart
+        ) {
             override fun actionPerformed(e: AnActionEvent) {
-                showMessage("Restarting Foxxy…")
+                showMessage(FoxxyBundle.message("process.status.restarting"))
                 FoxxyProcessManager.getInstance(project).restart(
                     onReady = { url ->
                         loadUrl(url)
@@ -169,23 +173,39 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
                 )
             }
         })
-        group.add(object : AnAction("Reload", "Reload the page", AllIcons.Actions.Refresh) {
+        group.add(object : AnAction(
+            FoxxyBundle.message("toolbar.action.reload"),
+            FoxxyBundle.message("toolbar.action.reload.desc"),
+            AllIcons.Actions.Refresh
+        ) {
             override fun actionPerformed(e: AnActionEvent) {
                 val b = browser
                 if (b != null) b.cefBrowser.reload() else start()
             }
         })
-        group.add(object : AnAction("Open in Browser", "Open the Foxxy UI in the system browser", null) {
+        group.add(object : AnAction(
+            FoxxyBundle.message("toolbar.action.openBrowser"),
+            FoxxyBundle.message("toolbar.action.openBrowser.desc"),
+            null
+        ) {
             override fun actionPerformed(e: AnActionEvent) {
                 currentUrl?.let { BrowserUtil.browse(it) }
             }
         })
-        group.add(object : AnAction("Open DevTools", "Open the embedded Chromium developer tools", null) {
+        group.add(object : AnAction(
+            FoxxyBundle.message("toolbar.action.devtools"),
+            FoxxyBundle.message("toolbar.action.devtools.desc"),
+            null
+        ) {
             override fun actionPerformed(e: AnActionEvent) {
                 browser?.openDevtools()
             }
         })
-        group.add(object : AnAction("Foxxy Settings", "Configure Foxxy", AllIcons.General.Settings) {
+        group.add(object : AnAction(
+            FoxxyBundle.message("toolbar.action.settings"),
+            FoxxyBundle.message("toolbar.action.settings.desc"),
+            AllIcons.General.Settings
+        ) {
             override fun actionPerformed(e: AnActionEvent) = openSettings()
         })
         val toolbar = ActionManager.getInstance().createActionToolbar("FoxxyToolbar", group, true)

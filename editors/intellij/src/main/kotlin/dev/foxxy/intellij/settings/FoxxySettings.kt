@@ -32,6 +32,9 @@ class FoxxySettings : PersistentStateComponent<FoxxySettings.State> {
 
         // Show native inline diffs in the editor when the agent edits files.
         var nativeDiffs: Boolean = true
+
+        // UI language: "system" | "en" | "ru". "system" follows Locale.getDefault().
+        var language: String = "system"
     }
 
     private var myState = State()

@@ -3,6 +3,7 @@ package dev.foxxy.intellij.binary
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
+import dev.foxxy.intellij.FoxxyBundle
 import dev.foxxy.intellij.settings.FoxxySettings
 import java.io.File
 
@@ -44,24 +45,23 @@ object FoxxyBinaryResolver {
      * Blocking; call off the EDT.
      */
     fun validate(binary: File): Validation {
-        if (!binary.isFile) return Validation(false, null, "File not found: ${binary.path}")
+        if (!binary.isFile) return Validation(false, null, FoxxyBundle.message("binary.error.notFound", binary.path))
 
         val version = runCapture(binary, listOf("-v"))?.trim()
-            ?: return Validation(false, null, "Could not execute: ${binary.path} -v")
+            ?: return Validation(false, null, FoxxyBundle.message("binary.error.executeVersion", binary.path))
 
         val help = runCapture(binary, listOf("http", "--help"))
-            ?: return Validation(false, version, "Could not execute: ${binary.path} http --help")
+            ?: return Validation(false, version, FoxxyBundle.message("binary.error.executeHelp", binary.path))
 
         if (help.contains("not built", ignoreCase = true) ||
             help.contains("http support is not", ignoreCase = true)
         ) {
             return Validation(
                 false, version,
-                "This is a lean build without HTTP/UI support. Use a full release binary " +
-                    "(built with tags: http, ui, scheduler, memory)."
+                FoxxyBundle.message("binary.error.leanBuild")
             )
         }
-        return Validation(true, version, "OK — foxxy $version (full build)")
+        return Validation(true, version, FoxxyBundle.message("binary.ok.fullBuild", version))
     }
 
     /** Runs the binary, merging stderr into stdout; returns combined output or null on failure. */

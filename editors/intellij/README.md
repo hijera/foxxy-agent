@@ -84,6 +84,20 @@ use the bundled foxxy), host, port (0 = auto), Foxxy home, extra `foxxy http` ar
 Foxxy UI theme to the IDE theme"**. Toolbar buttons: Restart, Reload, Open in Browser,
 **Open DevTools**, Settings.
 
+### Language
+
+The plugin UI (settings panel, first-run dialog, toolbar, notifications, native diff prompts) is
+available in **English** and **Russian**. In **Settings | Tools | Foxxy**, use the **Language**
+dropdown:
+
+- **System** (default) — follows the JVM locale (`Locale.getDefault()`), which matches the IDE
+  language on most JetBrains installations. On a Russian-locale system the plugin starts in Russian
+  on first launch without any configuration.
+- **English** / **Русский** — force a specific language regardless of the OS locale.
+
+Missing translation keys fall back to English automatically. The embedded Foxxy web UI inside JCEF
+has its own language settings and is not affected by this selector.
+
 ### Troubleshooting
 
 If the UI goes blank on an action, open **DevTools** (toolbar) to see the JS/network error;
@@ -113,5 +127,6 @@ src/main/kotlin/dev/foxxy/intellij/
   ui/FoxxyBrowserPanel.kt          JCEF browser + toolbar (+ fallbacks)
   ui/FoxxyThemeBridge.kt           IDE LAF → foxxyUi theme bridging
   ui/FirstRunDialog.kt             first-run wizard
+  FoxxyBundle.kt                   localized strings (en + ru)
   FoxxyNotifications.kt            notification group
 ```

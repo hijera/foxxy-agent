@@ -11,8 +11,63 @@ This page is the detailed reference for local builds. For a short version, see [
 Optional:
 
 - **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v7`** or newer (v6 supports only golangci-lint v1).
+- **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../scripts/build.py)); stdlib only, no `pip` packages.
 
-## Recommended full binary (HTTP, UI, scheduler, memory)
+## Interactive build wizard
+
+On **Windows** (and anywhere without GNU Make on `PATH`), use the Russian-language console wizard
+[`scripts/build.py`](../scripts/build.py). It wraps the same steps as **`make build`**, Gradle
+**`buildPlugin`**, and VS Code **`vsce package`** without duplicating Go compile logic.
+
+**Interactive** (no arguments — step-by-step menus for target, platform, tags, IDE plugins):
+
+```bash
+python scripts/build.py
+```
+
+**Non-interactive** (CI or scripts):
+
+```bash
+# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory")
+python scripts/build.py --target cli --preset full
+
+# Lean ACP-only binary (no npm step)
+python scripts/build.py --target cli --preset lean
+
+# Cross-compile one release target
+python scripts/build.py --target cli --goos linux --goarch arm64 --preset full --dry-run
+
+# All five release platforms + dist/*.tar.gz|zip + SHA256SUMS
+python scripts/build.py --target cli --all-release --preset full --ldflags-strip
+
+# IntelliJ plugin zip (JDK 17+, Go, npm). The wizard auto-detects every JDK 17+
+# available: $JAVA_HOME, then java on PATH, then the bundled JBR of any
+# installed JetBrains IDE (IntelliJ IDEA, PyCharm, WebStorm, ...). When several
+# IDEs are found it prints them all and, in interactive mode, asks which one to
+# use as JAVA_HOME for Gradle — handy on Windows boxes that ship Java 8 on PATH
+# but have PyCharm + PhpStorm + ... installed.
+python scripts/build.py --target intellij --plugin-version 1.2.3 --production
+
+# VS Code VSIX for one platform (scaffold extension)
+python scripts/build.py --target vscode --vscode-target darwin-arm64
+
+# CLI release matrix + IntelliJ + VS Code
+python scripts/build.py --target all --preset full
+```
+
+| Wizard choice | Output |
+|---------------|--------|
+| CLI (single platform) | **`build/foxxy`** or **`build/foxxy.exe`** |
+| CLI (all release) | **`dist/foxxy_<version>_<os>_<arch>.{tar.gz,zip}`** + **`dist/SHA256SUMS`** |
+| IntelliJ | **`editors/intellij/build/distributions/*.zip`** |
+| VS Code | **`editors/vscode/*.vsix`** (one per **`--vscode-target`**) |
+
+**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory`), **`gateway`**
+(adds **`gateway.telegram`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
+requires **`http`**).
+
+Run **`python scripts/build.py --help`** for the full flag list (Russian descriptions).
+
 
 Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../external/memory/README.md)).
 

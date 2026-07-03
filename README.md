@@ -101,6 +101,10 @@ make build TAGS="http ui scheduler memory"
 make install   # copies build/foxxy to ~/.local/bin or /usr/local/bin
 ```
 
+On **Windows** (or without GNU Make), use the interactive wizard instead:
+**`python scripts/build.py`** — Russian console menus for CLI binary, IntelliJ plugin, VS Code VSIX,
+build tags, and cross-platform targets. See **[`docs/build.md`](docs/build.md#interactive-build-wizard)**.
+
 Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** and put the **`foxxy`** binary on **`PATH`**.
 
 Bootstrap the config: **`mkdir -p ~/.coddy && cp config.example.yaml ~/.coddy/config.yaml`**.

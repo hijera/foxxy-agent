@@ -13,6 +13,7 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.util.execution.ParametersListUtil
+import dev.foxxy.intellij.FoxxyBundle
 import dev.foxxy.intellij.binary.FoxxyBinaryResolver
 import dev.foxxy.intellij.settings.FoxxySettings
 import java.net.HttpURLConnection
@@ -43,7 +44,7 @@ class FoxxyProcessManager(private val project: Project) : Disposable {
             onReady(url)
             return
         }
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Starting Foxxy", false) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, FoxxyBundle.message("process.task.starting"), false) {
             override fun run(indicator: ProgressIndicator) {
                 try {
                     val ready = startAndWait(indicator)
@@ -68,10 +69,7 @@ class FoxxyProcessManager(private val project: Project) : Disposable {
 
         val settings = FoxxySettings.getInstance().state
         val binary = FoxxyBinaryResolver.resolveExisting()
-            ?: throw IllegalStateException(
-                "Bundled foxxy binary not found. Reinstall the Foxxy plugin " +
-                    "or set a custom binary path in Settings | Tools | Foxxy."
-            )
+            ?: throw IllegalStateException(FoxxyBundle.message("process.error.binaryNotFound"))
 
         val host = settings.host.ifBlank { "127.0.0.1" }
         val port = PortUtil.pick(settings.fixedPort)
@@ -83,7 +81,7 @@ class FoxxyProcessManager(private val project: Project) : Disposable {
         if (settings.extraArgs.isNotBlank()) cmd.addParameters(ParametersListUtil.parse(settings.extraArgs))
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
-        indicator.text = "Foxxy: launching $host:$port…"
+        indicator.text = FoxxyBundle.message("process.indicator.launching", host, port.toString())
         val h = OSProcessHandler(cmd)
         h.addProcessListener(object : ProcessAdapter() {
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
@@ -111,10 +109,7 @@ class FoxxyProcessManager(private val project: Project) : Disposable {
         var lastError = "timeout"
         while (System.currentTimeMillis() < deadline) {
             if (!isRunning) {
-                throw IllegalStateException(
-                    "Foxxy process exited before becoming ready. Verify the binary is a full build " +
-                        "and config.yaml has a valid provider API key."
-                )
+                throw IllegalStateException(FoxxyBundle.message("process.error.exitedBeforeReady"))
             }
             indicator.checkCanceled()
             try {
@@ -130,7 +125,7 @@ class FoxxyProcessManager(private val project: Project) : Disposable {
             }
             Thread.sleep(300)
         }
-        throw IllegalStateException("Foxxy did not become ready within 30s ($lastError)")
+        throw IllegalStateException(FoxxyBundle.message("process.error.notReady", lastError))
     }
 
     @Synchronized
