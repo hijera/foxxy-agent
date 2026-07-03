@@ -12,12 +12,34 @@
     <script>
       (function () {
         var LIGHT = { light: 1 };
-        var VALID = { dark: 1, light: 1, midnight: 1, "solarized-dark": 1, monokai: 1, nord: 1, "rose-pine": 1 };
+        var VALID = {
+          dark: 1,
+          light: 1,
+          midnight: 1,
+          "solarized-dark": 1,
+          monokai: 1,
+          nord: 1,
+          "rose-pine": 1,
+        };
+        /* IDE embeddings (JCEF) pass ?theme=<id>: it wins over the cookie and
+           is persisted so later loads without the param keep the theme. */
+        var q = location.search.match(/[?&]theme=([^&]+)/);
+        var qt = q && decodeURIComponent(q[1].replace(/\+/g, " "));
+        if (!(qt && VALID[qt])) qt = null;
         var m = document.cookie.match(/(?:^|;\s*)coddy_ui_theme=([^;]+)/);
         var t = m && decodeURIComponent(m[1].replace(/\+/g, " "));
-        var theme = (t && VALID[t]) ? t : "dark";
+        var theme = qt || (t && VALID[t] ? t : "dark");
+        if (qt && qt !== t) {
+          document.cookie =
+            "coddy_ui_theme=" +
+            encodeURIComponent(qt) +
+            "; Path=/; Max-Age=31536000; SameSite=Lax" +
+            (location.protocol === "https:" ? "; Secure" : "");
+        }
         document.documentElement.dataset.theme = theme;
-        document.documentElement.style.colorScheme = LIGHT[theme] ? "light" : "dark";
+        document.documentElement.style.colorScheme = LIGHT[theme]
+          ? "light"
+          : "dark";
       })();
     </script>
   </head>

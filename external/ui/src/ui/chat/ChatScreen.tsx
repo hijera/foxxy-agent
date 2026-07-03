@@ -307,7 +307,9 @@ export function ChatScreen(props: {
             <div className="chat-scroll-tail" aria-hidden />
           </div>
 
-          <div className="chat-bottom">
+          {/* Composer here always renders composer-wrap-docked (isEmpty={false});
+              the marker class replaces :has(), unsupported in JCEF Chromium 104 */}
+          <div className="chat-bottom chat-bottom--docked">
             <div className="chat-bottom-inner" ref={composerHostRef}>
               <Composer
                 value={props.draft}

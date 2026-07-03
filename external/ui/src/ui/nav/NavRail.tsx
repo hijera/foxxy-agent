@@ -251,7 +251,10 @@ export function NavRail(props: {
         )}
 
         <div className="rail-middle">
-          <div className="rail-tip-host">
+          {/* --active marker replaces :has(.is-active), unsupported in JCEF Chromium 104 */}
+          <div
+            className={`rail-tip-host${props.historyOpen ? " rail-tip-host--active" : ""}`}
+          >
             <a
               href={appNavHrefHistory()}
               className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
@@ -275,7 +278,9 @@ export function NavRail(props: {
           </div>
 
           {showScheduler ? (
-            <div className="rail-tip-host">
+            <div
+              className={`rail-tip-host${props.schedulerOpen ? " rail-tip-host--active" : ""}`}
+            >
               <a
                 href={appNavHrefScheduler()}
                 className={`${navBtnCls} ${props.schedulerOpen ? "is-active" : ""}`}
@@ -301,7 +306,9 @@ export function NavRail(props: {
 
           <div className="rail-spacer rail-spacer-between" aria-hidden />
 
-          <div className="rail-tip-host">
+          <div
+            className={`rail-tip-host${props.settingsOpen ? " rail-tip-host--active" : ""}`}
+          >
             <a
               href={appNavHrefSettings()}
               className={`${navBtnCls} ${props.settingsOpen ? "is-active" : ""}`}

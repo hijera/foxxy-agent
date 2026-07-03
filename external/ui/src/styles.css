@@ -582,6 +582,7 @@ body {
   /* Do not set overflow-x on html/body: any non-visible horizontal overflow on ancestors breaks position:sticky for mobile chat chrome. */
   html {
     height: auto !important;
+    min-height: 100vh;
     min-height: 100svh;
   }
 
@@ -589,10 +590,12 @@ body {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     height: auto !important;
+    min-height: 100vh;
     min-height: 100svh;
   }
 
   #root {
+    min-height: 100vh;
     min-height: 100svh;
     height: auto;
     overflow: visible;
@@ -823,9 +826,10 @@ body {
   opacity: 1;
 }
 
-.rail-tip-host:has(.is-active) .rail-tip,
-.rail-tip-host:has(.is-active):hover .rail-tip,
-.rail-tip-host:has(.is-active):focus-within .rail-tip {
+/* Chromium 104 (JCEF) has no :has(); NavRail sets the host marker class */
+.rail-tip-host--active .rail-tip,
+.rail-tip-host--active:hover .rail-tip,
+.rail-tip-host--active:focus-within .rail-tip {
   opacity: 0;
 }
 
@@ -1719,8 +1723,9 @@ a.rail-brand {
   padding-inline: var(--coddy-chat-scrollbar-gutter);
 }
 
-/* Full-width vignette above the docked composer (no side gaps vs narrow card stripe) */
-.chat-bottom:has(.composer-wrap-docked)::before {
+/* Full-width vignette above the docked composer (no side gaps vs narrow card stripe).
+   Chromium 104 (JCEF) has no :has(); ChatScreen sets chat-bottom--docked. */
+.chat-bottom--docked::before {
   content: "";
   position: absolute;
   left: var(--coddy-chat-scrollbar-gutter);
@@ -2885,7 +2890,6 @@ a.rail-brand {
   z-index: 0;
 }
 
-.composer-wrap:has(.slash-menu--sheet),
 .composer-wrap-context-sheet {
   z-index: var(--coddy-z-slash-command);
 }
@@ -3630,14 +3634,17 @@ textarea#composer {
 
 .context-breakdown-menu--sheet.context-breakdown-menu--above-composer .context-breakdown-menu-scroll {
   min-height: 0;
+  max-height: min(36vh, calc(100vh - var(--context-sheet-bottom, 120px) - 16px));
   max-height: min(36vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 16px));
 }
 
 .slash-menu--sheet.slash-menu--above-composer {
+  max-height: min(42vh, calc(100vh - var(--context-sheet-bottom, 120px) - 16px));
   max-height: min(42vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 16px));
 }
 
 .slash-menu--sheet.slash-menu--above-composer .slash-menu-scroll {
+  max-height: min(40vh, calc(100vh - var(--context-sheet-bottom, 120px) - 24px));
   max-height: min(40vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 24px));
 }
 
@@ -3883,6 +3890,7 @@ textarea#composer {
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
+    min-height: 100vh;
     min-height: 100svh;
     height: auto !important;
     max-height: none !important;
@@ -4056,7 +4064,7 @@ textarea#composer {
     flex-shrink: 0;
   }
 
-  .chat-bottom:has(.composer-wrap-docked) {
+  .chat-bottom--docked {
     position: fixed;
     left: 0;
     right: 0;
@@ -4068,11 +4076,11 @@ textarea#composer {
     pointer-events: none;
   }
 
-  .chat-bottom:has(.composer-wrap-docked) .chat-bottom-inner {
+  .chat-bottom--docked .chat-bottom-inner {
     pointer-events: auto;
   }
 
-  .chat-bottom:has(.composer-wrap-docked)::before {
+  .chat-bottom--docked::before {
     display: none;
   }
 

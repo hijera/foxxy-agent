@@ -9,11 +9,16 @@ This page captures the original UI requirements and the intended end state. It i
 - UI must work over the same origin as `coddy http`.
 - UI copy is English.
 - Favicon matches [coddy.dev](https://coddy.dev/) (**`/coddy-favicon.svg`**, same mark as **`docs/assets/coddy-logo-mark-flat.svg`**, plus PNG/ICO fallbacks embedded with the SPA).
+- **Browser baseline: Chromium 104** (JCEF in PhpStorm/IntelliJ 2022.3.3 — see [`docs/intellij-embedding.md`](intellij-embedding.md)). Shipped CSS/JS must not use features newer than Chromium 104: no **`:has()`**, **`oklch()`**/**`oklab()`**, **`@container`**, or native CSS nesting; **`dvh`**/**`svh`** only with a preceding **`vh`** fallback for the same property; no **`Array.prototype.toSorted`**, **`Promise.withResolvers`**, **`URL.canParse`** and similar post-104 JS APIs.
+- **`color-mix()`** is allowed in `styles.css` **sources** only in the build-resolvable form (**`in srgb`**, arguments statically resolvable per theme — hex/rgb()/`transparent`/`var()` chains). `external/ui/postcss-resolve-color-mix.mjs` compiles every occurrence to Chromium-104-safe literals or per-theme **`--cmix-*`** variables; the build fails on unresolvable expressions.
+- **`npm --prefix external/ui run check:compat`** (part of **`build:go`**) scans the built bundle and fails on baseline regressions.
 
 ## Appearance (light / dark theme)
 
 - **Default:** dark theme on first visit.
 - **Cookie:** **`coddy_ui_theme`** with values **`dark`** or **`light`** (path **`/`**, **`SameSite=Lax`**).
+- **`?theme=<id>` query parameter** (IDE embeddings): accepted values are all 7 theme ids; precedence **query > cookie > default**. Applied by the inline bootstrap script in **`index.html`** before first paint and persisted to the cookie. Contract-tested in **`themeCssContract.test.ts`** (the inline **`VALID`** map must stay in sync with **`UI_THEME_IDS`**).
+- **`window.foxxyUi`** global API (**`external/ui/src/ui/theme/foxxyUiApi.ts`**, installed in **`main.tsx`**): **`setTheme`** / **`getTheme`** / **`getThemes`** / **`onThemeChange`** — lets a host (IntelliJ plugin via JCEF `executeJavaScript`) switch themes live. See [`docs/intellij-embedding.md`](intellij-embedding.md).
 - **Toggle:** **Settings** (**`#/settings`**) → **Appearance** → **Dark** / **Light** (**`data-testid="theme-toggle-dark"`**, **`theme-toggle-light`**).
 - **Settings sub-panels (Appearance / Skills) are mutually exclusive** — opening one closes the other. Only one sub-panel may be expanded at a time.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.

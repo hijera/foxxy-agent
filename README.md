@@ -36,7 +36,7 @@
 | **Settings — Appearance** | |
 | ![Settings Appearance](docs/assets/screenshot-fullhd-settings-appearance.png) | |
 
-Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`foxxy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
+Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`foxxy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md). The UI targets **Chromium 104** (JCEF) and supports IDE-driven theme switching for embedding in an IntelliJ IDEA / PhpStorm plugin: [`docs/intellij-embedding.md`](docs/intellij-embedding.md).
 
 </details>
 

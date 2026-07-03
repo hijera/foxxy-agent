@@ -37,7 +37,11 @@ export function readAppliedUiTheme(): UiThemeMode {
 }
 
 export function bootstrapUiThemeFromCookie(): UiThemeMode {
-  const mode = resolveUiThemeMode(readUiThemeCookie());
+  const stored = readUiThemeCookie();
+  // No cookie (e.g. JCEF embeddings without persistent cookies): keep the
+  // theme the index.html bootstrap script already applied from ?theme=.
+  const mode =
+    stored !== null ? resolveUiThemeMode(stored) : readAppliedUiTheme();
   applyUiTheme(mode);
   return mode;
 }

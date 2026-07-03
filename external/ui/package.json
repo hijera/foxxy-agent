@@ -9,7 +9,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "build:go": "vite build && node scripts-sync-to-go.mjs",
+    "build:go": "vite build && node scripts-check-chromium104.mjs && node scripts-sync-to-go.mjs",
+    "check:compat": "node scripts-check-chromium104.mjs",
     "fmt": "prettier -w ."
   },
   "keywords": [],
@@ -24,6 +25,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^26.1.0",
+    "postcss": "^8.5.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.11",

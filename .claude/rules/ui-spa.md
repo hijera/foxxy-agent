@@ -7,6 +7,13 @@ paths:
 # Embedded UI (`external/ui`)
 
 - Rebuild **`go:embed`** assets after UI changes: **`make build TAGS="http ui"`** (runs **`ui-build`**).
+- **Chromium 104 baseline (JCEF / PhpStorm 2022.3.3, see `docs/intellij-embedding.md`)** — shipped CSS/JS must not use features newer than Chromium 104:
+  - **No `:has()`**, **`oklch()`/`oklab()`**, **`@container`**, or native CSS nesting. Where `:has()` would express parent state, set a marker class from React instead (existing examples: **`rail-tip-host--active`** in `NavRail.tsx`, **`chat-bottom--docked`** in `ChatScreen.tsx`).
+  - **`dvh`/`svh`/`lvh`** only with a preceding same-property **`vh`** fallback declaration.
+  - **`color-mix()`** in `styles.css` only in the build-resolvable form: **`in srgb`**, arguments limited to hex / `rgb()`/`rgba()` / `transparent` / `white` / `black` / `var()` chains that resolve statically per theme. `postcss-resolve-color-mix.mjs` compiles them at build time (per-theme **`--cmix-*`** vars); theme variables consumed by mixes are **frozen at build time** — do not mutate `--text`/`--accent` etc. from JS expecting mixed colors to update.
+  - **No post-104 JS APIs** in shipped code: `Array.prototype.toSorted/toReversed`, `Object.groupBy`, `Promise.withResolvers`, `URL.canParse`, `AbortSignal.any`, `Array.fromAsync`, `URLPattern`.
+  - **`npm run check:compat`** (part of **`build:go`**) scans `dist/` and fails the build on violations.
+- **Theme host API** — the inline bootstrap in `index.html` honors **`?theme=<id>`** (query > cookie > `dark`, persisted to cookie); **`window.foxxyUi`** (`ui/theme/foxxyUiApi.ts`, installed in `main.tsx`) exposes `setTheme`/`getTheme`/`getThemes`/`onThemeChange` for the IntelliJ plugin. Keep the inline **`VALID`** map in `index.html` in sync with **`UI_THEME_IDS`** (`themeCookie.ts`) — contract-tested in `themeCssContract.test.ts`.
 - **Thinking disclosure row** - duration must sit **next to** the **thinking** label, not at the trailing edge of the column. Markup keeps **`.thinking-dur`** inside **`.thinking-left`** in **`ThinkingMessage.tsx`**. Styles use **`.thinking-left { gap: 0 5px; }`** in **`styles.css`**. Do not drive label vs timer spacing with **`justify-content: space-between`** on **`summary.thinking-summary`**.
 - **Composer context ring** (indicator left of Send in **`Composer.tsx`**)
   - The ring itself is **only** a stroked arc (relative context fill). Do **not** place a numeric percent label inside or on top of it. Percent usage and token counts belong in the tooltip only.
