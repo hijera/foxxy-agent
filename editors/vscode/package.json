@@ -1,0 +1,75 @@
+{
+  "name": "foxxy-vscode",
+  "displayName": "Foxxy",
+  "description": "Run the full foxxy agent inside VS Code, embedded in a webview.",
+  "version": "0.1.0",
+  "publisher": "foxxy",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "foxxy.openPanel",
+        "title": "Foxxy: Open Panel"
+      },
+      {
+        "command": "foxxy.restart",
+        "title": "Foxxy: Restart Agent"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "foxxy",
+          "title": "Foxxy",
+          "icon": "media/foxxy.svg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Foxxy",
+      "properties": {
+        "foxxy.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override the bundled foxxy executable with a path to a full-feature build."
+        },
+        "foxxy.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host the foxxy http server binds to."
+        },
+        "foxxy.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Port for foxxy http (0 = pick a free port automatically)."
+        },
+        "foxxy.home": {
+          "type": "string",
+          "default": "",
+          "description": "State directory for sessions/config (foxxy --home; default ~/.coddy)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "prepare-binary": "node scripts/prepare-binary.mjs",
+    "compile": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js",
+    "build": "npm run prepare-binary && npm run compile",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}

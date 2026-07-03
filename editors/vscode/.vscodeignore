@@ -1,0 +1,9 @@
+.vscode/**
+src/**
+scripts/**
+node_modules/**
+tsconfig.json
+**/*.map
+**/*.ts
+.gitignore
+# Keep: out/** (compiled extension) and foxxy-bin/** (bundled binary) ship in the VSIX.

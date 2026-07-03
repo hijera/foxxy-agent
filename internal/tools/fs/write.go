@@ -49,6 +49,12 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 
 	path := ResolvePath(args.Path, env.CWD)
 
+	// Capture prior content for the edit hook (best-effort; nil when the file is new).
+	var before []byte
+	if env != nil && env.OnFileEdit != nil {
+		before, _ = os.ReadFile(path)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("write mkdir: %w", err)
 	}
@@ -56,6 +62,8 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 	if err := os.WriteFile(path, []byte(args.Content), 0o644); err != nil {
 		return "", fmt.Errorf("write: %w", err)
 	}
+
+	notifyFileEdit(env, "write", path, before, []byte(args.Content))
 
 	return fmt.Sprintf("wrote %d bytes to %s", len(args.Content), path), nil
 }

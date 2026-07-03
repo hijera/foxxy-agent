@@ -316,6 +316,15 @@ export function Settings(props: {
         </div>
 
         <div className="scheduler-drawer-footer settings-footer-actions">
+          <a
+            className="settings-footer-link"
+            href="/docs/"
+            target="_blank"
+            rel="noopener"
+            data-testid="settings-api-docs-link"
+          >
+            API docs
+          </a>
           <button
             type="button"
             className="settings-btn settings-btn-icon"

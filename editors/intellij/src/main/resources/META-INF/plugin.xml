@@ -1,0 +1,40 @@
+<idea-plugin>
+    <id>dev.foxxy.intellij</id>
+    <name>Foxxy</name>
+    <vendor email="hebopine981@gmail.com">Foxxy</vendor>
+
+    <description><![CDATA[
+        <p>Run the full <b>Foxxy</b> agent inside any JetBrains IDE (IntelliJ IDEA, PhpStorm,
+        WebStorm, PyCharm, GoLand, etc.).</p>
+        <p>The plugin launches the <code>foxxy http</code> process scoped to the current project
+        and embeds the complete Foxxy web UI in a tool window via JCEF: chat, sessions/history,
+        scheduler, settings (API keys), skills browser, plan mode, model &amp; reasoning selection,
+        and memory.</p>
+        <p>The <code>foxxy</code> binary is built from source and bundled with the plugin — no
+        download step. You can point the plugin at a custom <code>foxxy</code> binary in
+        Settings | Tools | Foxxy.</p>
+    ]]></description>
+
+    <!-- Platform-only dependency: installs in every IntelliJ-based IDE. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="dev.foxxy.intellij.settings.FoxxySettings"/>
+        <projectService serviceImplementation="dev.foxxy.intellij.process.FoxxyProcessManager"/>
+        <projectService serviceImplementation="dev.foxxy.intellij.diff.FoxxyIdeDiffService"/>
+
+        <applicationConfigurable
+                parentId="tools"
+                id="dev.foxxy.intellij.settings.FoxxyConfigurable"
+                displayName="Foxxy"
+                instance="dev.foxxy.intellij.settings.FoxxyConfigurable"/>
+
+        <toolWindow
+                id="Foxxy"
+                anchor="right"
+                icon="/icons/foxxyToolWindow.svg"
+                factoryClass="dev.foxxy.intellij.ui.FoxxyToolWindowFactory"/>
+
+        <notificationGroup id="Foxxy" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>

@@ -15,6 +15,7 @@ import (
 	"github.com/hijera/foxxy-agent/internal/acp"
 	"github.com/hijera/foxxy-agent/internal/config"
 	"github.com/hijera/foxxy-agent/internal/session"
+	toolfs "github.com/hijera/foxxy-agent/internal/tools/fs"
 )
 
 // Sender implements acp.UpdateSender for HTTP (streaming SSE or silent non-stream).
@@ -29,6 +30,7 @@ type Sender struct {
 	created    int64
 	model      string
 	sessionDir string
+	cwd        string
 }
 
 // NewSender creates a bridge. Pass w=nil when stream is false.
@@ -56,14 +58,28 @@ func (s *Sender) SetSessionDir(dir string) {
 	s.sessionDir = strings.TrimSpace(dir)
 }
 
+// SetCWD records the session working directory so edit previews can resolve relative paths.
+func (s *Sender) SetCWD(cwd string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cwd = strings.TrimSpace(cwd)
+}
+
 func wireBridgeSession(bridge *Sender, st *session.State) {
 	if bridge != nil && st != nil {
 		bridge.SetSessionDir(st.GetPersistedSessionDir())
+		bridge.SetCWD(st.GetCWD())
 	}
 }
 
 // SendSessionUpdate forwards agent chunks to SSE when streaming.
-func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
+func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
+	// file_edit events target native editor clients on a side channel, independent of the
+	// OpenAI-shaped composer stream, so they fire even when this bridge is not streaming.
+	if u, ok := update.(acp.FileEditUpdate); ok {
+		s.broadcastEditApplied(sessionID, u)
+		return nil
+	}
 	if !s.stream || s.w == nil {
 		return nil
 	}
@@ -87,6 +103,18 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 	default:
 		return nil
 	}
+}
+
+// broadcastEditApplied fans a filesystem write out to connected native editor clients.
+func (s *Sender) broadcastEditApplied(sessionID string, u acp.FileEditUpdate) {
+	ideEvents.broadcast(ideEvent{
+		Type:       "edit_applied",
+		ToolCallID: u.ToolCallID,
+		SessionID:  sessionID,
+		Path:       u.Path,
+		Before:     u.Before,
+		After:      u.After,
+	})
 }
 
 func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
@@ -178,6 +206,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if sd != "" {
 		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
 	}
+	s.broadcastEditProposed(sid, tcid, toolName, argsJSON)
 	ch := registerPermissionWait(sid, tcid, sd)
 	defer unregisterPermissionWait(sid, tcid, sd)
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
@@ -195,6 +224,30 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	case <-ctx.Done():
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
+}
+
+// broadcastEditProposed computes the diff a pending filesystem write would produce and
+// pushes it to native editor clients so they can render an inline Accept/Reject preview.
+// No-op for non-write tools or when no IDE client is connected.
+func (s *Sender) broadcastEditProposed(sessionID, toolCallID, toolName, argsJSON string) {
+	if !ideEvents.hasSubscribers() {
+		return
+	}
+	s.mu.Lock()
+	cwd := s.cwd
+	s.mu.Unlock()
+	absPath, before, after, ok, err := toolfs.EditPreview(toolName, argsJSON, cwd)
+	if !ok || err != nil {
+		return
+	}
+	ideEvents.broadcast(ideEvent{
+		Type:       "edit_proposed",
+		ToolCallID: toolCallID,
+		SessionID:  sessionID,
+		Path:       absPath,
+		Before:     string(before),
+		After:      string(after),
+	})
 }
 
 // RequestQuestion emits a composer SSE question event and waits for POST /coddy/sessions/{id}/question.

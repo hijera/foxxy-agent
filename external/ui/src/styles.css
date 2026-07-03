@@ -1539,42 +1539,16 @@ a.rail-brand {
 .hero {
   flex: 1;
   display: grid;
-  align-content: center;
+  /* Dock the hero title + composer toward the bottom of the empty screen so
+     the input field sits low (matching the active-chat composer position)
+     instead of floating in the vertical center. */
+  align-content: end;
   justify-items: center;
-  padding: 18px 0 10px;
+  padding: 18px 0 32px;
 }
 
 .hero-composer {
   width: min(720px, 100%);
-}
-
-.hero-footer {
-  position: fixed;
-  bottom: 16px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.78rem;
-  color: color-mix(in srgb, var(--text) 35%, var(--coddy-blend-base));
-  pointer-events: none;
-}
-
-.hero-footer a {
-  color: inherit;
-  text-decoration: none;
-  pointer-events: auto;
-}
-
-.hero-footer a:hover {
-  color: color-mix(in srgb, var(--text) 65%, var(--coddy-blend-base));
-  text-decoration: underline;
-}
-
-.hero-footer-sep {
-  opacity: 0.5;
 }
 
 .hero-title {
@@ -3125,6 +3099,43 @@ a.rail-brand {
     0 -14px 40px rgba(11, 11, 12, 0.38),
     0 -4px 18px rgba(11, 11, 12, 0.32),
     0 0 1px rgba(11, 11, 12, 0.2);
+}
+
+/*
+ * IDE embedding (JCEF) — flatter, more native host look.
+ * Triggered by ?embed=intellij which sets <html data-embed="intellij">.
+ * Drops the frosted-glass halo, tightens corners, and uses a solid panel
+ * background + 1px border so the composer reads as an IDE input field rather
+ * than a floating glass card. Also flattens the docked vignette above it.
+ */
+[data-embed="intellij"] .composer-card {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-canvas-gradient-top));
+  border: 1px solid color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+[data-embed="intellij"] .composer-wrap-docked .composer-card,
+[data-embed="intellij"] .hero-composer .composer-card {
+  box-shadow: none;
+}
+
+[data-embed="intellij"] .chat-bottom--docked::before {
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0%,
+    color-mix(in srgb, var(--text) 4%, transparent) 100%
+  );
+}
+
+[data-embed="intellij"] .hero {
+  padding-bottom: 12px;
+}
+
+[data-embed="intellij"] .hero-title {
+  margin-bottom: 12px;
 }
 
 textarea#composer::placeholder {
@@ -4818,6 +4829,20 @@ textarea#composer {
 
 .settings.drawer .settings-footer-actions {
   flex-shrink: 0;
+}
+
+.settings-footer-link {
+  margin-right: auto;
+  align-self: center;
+  font-size: 13px;
+  text-decoration: none;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  padding: 0 4px;
+}
+
+.settings-footer-link:hover {
+  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  text-decoration: underline;
 }
 
 .settings-lead-pane .settings-theme-block {

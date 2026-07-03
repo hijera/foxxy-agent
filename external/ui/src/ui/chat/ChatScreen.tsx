@@ -241,11 +241,6 @@ export function ChatScreen(props: {
               {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
             />
           </div>
-          <div className="hero-footer">
-            <a href="https://github.com/hijera/foxxy-agent" target="_blank" rel="noopener">GitHub</a>
-            <span className="hero-footer-sep" aria-hidden>|</span>
-            <a href="/docs/" target="_blank" rel="noopener">API docs</a>
-          </div>
         </div>
       ) : (
         <div

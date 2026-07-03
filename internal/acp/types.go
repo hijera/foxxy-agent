@@ -316,6 +316,7 @@ const (
 	UpdateTypeMemoryPhase             = "memory_phase"
 	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
+	UpdateTypeFileEdit                = "file_edit"
 )
 
 // AvailableCommand is one slash command advertised to ACP clients.
@@ -378,6 +379,18 @@ type ToolCallStatusUpdate struct {
 type ToolCallResultItem struct {
 	Type    string       `json:"type"` // "content"
 	Content ContentBlock `json:"content"`
+}
+
+// FileEditUpdate reports that a filesystem write tool applied a change to a file.
+// It carries the full before/after content so native editor clients (e.g. the IntelliJ
+// plugin) can render a diff without re-reading disk. Not part of the OpenAI-shaped stream.
+type FileEditUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "file_edit"
+	ToolCallID    string `json:"toolCallId,omitempty"`
+	ToolName      string `json:"toolName"` // "write", "edit", "apply_patch"
+	Path          string `json:"path"`     // absolute path
+	Before        string `json:"before"`   // content before the write ("" when created)
+	After         string `json:"after"`    // content after the write ("" when deleted)
 }
 
 // ModeUpdate notifies the client that the current mode changed.
@@ -467,19 +480,19 @@ type QuestionOption struct {
 
 // QuestionPrompt is one interactive question with optional header and multiple choice flags.
 type QuestionPrompt struct {
-	Header    string           `json:"header,omitempty"`
-	Question  string           `json:"question"`
-	Options   []QuestionOption `json:"options"`
-	Multiple  bool             `json:"multiple,omitempty"`
-	Custom    bool             `json:"custom,omitempty"`
+	Header   string           `json:"header,omitempty"`
+	Question string           `json:"question"`
+	Options  []QuestionOption `json:"options"`
+	Multiple bool             `json:"multiple,omitempty"`
+	Custom   bool             `json:"custom,omitempty"`
 }
 
 // QuestionRequestParams are the parameters for session/request_question.
 type QuestionRequestParams struct {
-	SessionID   string           `json:"sessionId"`
-	RequestID   string           `json:"requestId"`
-	ToolCallID  string           `json:"toolCallId,omitempty"`
-	Questions   []QuestionPrompt `json:"questions"`
+	SessionID  string           `json:"sessionId"`
+	RequestID  string           `json:"requestId"`
+	ToolCallID string           `json:"toolCallId,omitempty"`
+	Questions  []QuestionPrompt `json:"questions"`
 }
 
 // QuestionResult is the client's response to session/request_question.

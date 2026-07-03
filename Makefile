@@ -1,4 +1,4 @@
-.PHONY: build build-acp test lint clean install print-version
+.PHONY: build build-acp test lint clean install print-version intellij-build intellij-run
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -98,3 +98,17 @@ clean:
 # Run the linter (requires golangci-lint).
 lint:
 	golangci-lint run ./...
+
+# ---- Editor plugins ----
+# Build the JetBrains plugin from the repo root. Requires Go, Node/npm, and a JDK 17 on PATH.
+# The Gradle build cross-compiles the bundled foxxy binary for every desktop target and packs
+# them into one plugin zip under editors/intellij/build/distributions/.
+# Version defaults to the embedded VERSION; override with `make intellij-build PLUGIN_VERSION=1.2.3`.
+PLUGIN_VERSION ?= $(VERSION)
+
+intellij-build:
+	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon buildPlugin -Pproduction=true -PpluginVersion="$(PLUGIN_VERSION)"
+
+# Launch a sandbox IDE with the plugin (host-platform binary only; fast dev loop).
+intellij-run:
+	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon runIde

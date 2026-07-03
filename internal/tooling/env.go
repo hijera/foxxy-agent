@@ -60,6 +60,11 @@ type Env struct {
 
 	// SendDesignPlanUpdate publishes a design plan preview via session/update plan. Optional.
 	SendDesignPlanUpdate func(doc plans.Document)
+
+	// OnFileEdit is called after a filesystem write tool successfully applies a change,
+	// with the resolved absolute path and the full before/after content. Optional; wired by
+	// the runner so native editor clients can render a diff. Tools must nil-check before use.
+	OnFileEdit func(toolName, absPath string, before, after []byte)
 }
 
 // CommandAllowed returns true if the given shell command matches an entry

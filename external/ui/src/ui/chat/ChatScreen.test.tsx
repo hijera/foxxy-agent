@@ -31,6 +31,32 @@ test("empty hero shows headline with accent span", () => {
   expect(getByRole("textbox")).toHaveFocus();
 });
 
+test("empty hero no longer surfaces the GitHub or API docs footer links", () => {
+  const { container } = render(
+    <ChatScreen
+      title=""
+      sessionId=""
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  // The whole hero-footer block (GitHub + API docs) was removed so the empty
+  // screen is unbranded; docs moved into Settings.
+  expect(container.querySelector(".hero-footer")).toBeNull();
+  expect(container.querySelector('a[href^="https://github.com/"]')).toBeNull();
+  expect(container.querySelector('a[href="/docs/"]')).toBeNull();
+});
+
 test("active chat wraps title in chat-title-column aligned with composer column", () => {
   const { container } = render(
     <ChatScreen

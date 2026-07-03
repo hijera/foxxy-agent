@@ -70,23 +70,10 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	}
 
 	content := string(data)
-	old := args.OldString
-	replaceAll := args.ReplaceAll != nil && *args.ReplaceAll
 
-	var out string
-	if old == "" {
-		out = args.NewString
-	} else if replaceAll {
-		if !strings.Contains(content, old) {
-			return "", fmt.Errorf("edit: oldString not found in file")
-		}
-		out = strings.ReplaceAll(content, old, args.NewString)
-	} else {
-		idx := strings.Index(content, old)
-		if idx < 0 {
-			return "", fmt.Errorf("edit: oldString not found in file")
-		}
-		out = content[:idx] + args.NewString + content[idx+len(old):]
+	out, err := applyEditToContent(content, args)
+	if err != nil {
+		return "", err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -96,5 +83,29 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 		return "", fmt.Errorf("edit: write: %w", err)
 	}
 
+	notifyFileEdit(env, "edit", path, data, []byte(out))
+
 	return fmt.Sprintf("edited %s (%d bytes written)", path, len(out)), nil
+}
+
+// applyEditToContent computes the result of an edit against content without touching disk.
+// Shared by executeEdit and the preview path so the preview matches the eventual write.
+func applyEditToContent(content string, args editArgs) (string, error) {
+	old := args.OldString
+	replaceAll := args.ReplaceAll != nil && *args.ReplaceAll
+
+	if old == "" {
+		return args.NewString, nil
+	}
+	if replaceAll {
+		if !strings.Contains(content, old) {
+			return "", fmt.Errorf("edit: oldString not found in file")
+		}
+		return strings.ReplaceAll(content, old, args.NewString), nil
+	}
+	idx := strings.Index(content, old)
+	if idx < 0 {
+		return "", fmt.Errorf("edit: oldString not found in file")
+	}
+	return content[:idx] + args.NewString + content[idx+len(old):], nil
 }

@@ -40,6 +40,13 @@
         document.documentElement.style.colorScheme = LIGHT[theme]
           ? "light"
           : "dark";
+        /* IDE embeddings (JCEF) pass ?embed=intellij so the SPA can adopt a
+           flatter, more native host-IDE look (see docs/intellij-embedding.md). */
+        var e = location.search.match(/[?&]embed=([^&]+)/);
+        var et = e && decodeURIComponent(e[1].replace(/\+/g, " "));
+        if (et && /^[a-z0-9_-]+$/i.test(et)) {
+          document.documentElement.dataset.embed = et;
+        }
       })();
     </script>
   </head>

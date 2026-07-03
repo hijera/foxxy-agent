@@ -71,6 +71,8 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 		return "", fmt.Errorf("apply_patch write: %w", err)
 	}
 
+	notifyFileEdit(env, "apply_patch", path, data, []byte(patched))
+
 	return fmt.Sprintf("patch applied successfully to %s", path), nil
 }
 

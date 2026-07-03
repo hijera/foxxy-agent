@@ -174,8 +174,27 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
+	a.wireFileEditHook(toolEnv)
 
 	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+}
+
+// wireFileEditHook connects Env.OnFileEdit to the update sender so filesystem writes are
+// surfaced as acp.FileEditUpdate events (consumed by native editor clients for diffs).
+func (a *Agent) wireFileEditHook(env *tools.Env) {
+	if a.server == nil {
+		return
+	}
+	env.OnFileEdit = func(toolName, absPath string, before, after []byte) {
+		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.FileEditUpdate{
+			SessionUpdate: acp.UpdateTypeFileEdit,
+			ToolCallID:    env.ToolCallID,
+			ToolName:      toolName,
+			Path:          absPath,
+			Before:        string(before),
+			After:         string(after),
+		})
+	}
 }
 
 // maxEmptyAssistantContinuations bounds how many times the ReAct loop re-prompts a model

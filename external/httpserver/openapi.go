@@ -527,6 +527,23 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/ide/events": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Stream structured file-edit events for native editor clients",
+					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /coddy/sessions/{id}/permission`**.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "SSE stream (text/event-stream) of edit events",
+							"content": map[string]interface{}{
+								"text/event-stream": map[string]interface{}{
+									"schema": map[string]string{"type": "string"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",

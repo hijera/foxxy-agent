@@ -91,12 +91,12 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 }
 
 func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
-	return &tools.Env{
+	env := &tools.Env{
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		SessionID:                    a.state.GetID(),
-		SessionDir:                   sessionDir,
+		SessionID:        a.state.GetID(),
+		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {
 			if sessionDir == "" {
 				return nil
@@ -120,6 +120,8 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			a.state.AppendPlanDocument(doc)
 		},
 	}
+	a.wireFileEditHook(env)
+	return env
 }
 
 // continueReAct runs the ReAct loop using messages already on the session (no new user turn).

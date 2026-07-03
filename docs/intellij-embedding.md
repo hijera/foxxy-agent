@@ -114,6 +114,26 @@ Any of the 7 theme ids can be substituted for `light`/`dark` — e.g. map the
 IDE's Darcula to `midnight` if that fits the plugin's visual language
 better.
 
+## Embed mode (`?embed=intellij`)
+
+Pass `&embed=intellij` on the initial URL to opt the SPA into a flatter, more
+native host-IDE look. The SPA mirrors the value into
+`<html data-embed="intellij">` (validated as `[a-z0-9_-]+`, lowercased) before
+first paint, and CSS overrides keyed on `[data-embed="intellij"]` then:
+
+- flatten the composer card (6px radius, solid 1px border, no frosted-glass
+  halo or backdrop blur) so it reads as an IDE input field;
+- drop the docked vignette above the composer;
+- tighten hero/composer spacing.
+
+Only the visual chrome changes; behaviour and the `window.foxxyUi` theme
+contract are unchanged. Other embeddings may pass their own id, but
+`intellij` is the only id the shipped CSS currently specialises.
+
+```text
+http://127.0.0.1:<port>/?theme=dark&embed=intellij
+```
+
 ## Verifying against real Chromium 104
 
 Playwright 1.24 bundles Chromium 104. To smoke-test the built UI without an

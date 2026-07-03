@@ -139,3 +139,14 @@ jobs:
     with:
       tag: ${{ needs.release.outputs.tag }}
     secrets: inherit
+
+  intellij-plugin:
+    name: IntelliJ plugin
+    needs: release
+    if: needs.release.outputs.skip != 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/intellij-plugin.yaml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
