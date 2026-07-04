@@ -8,6 +8,8 @@ export type SectionDescriptor = {
   id: string;
   /** Tab label. */
   label: string;
+  /** Short (3–5 word) blurb shown under the label on the mobile tile grid. */
+  description?: string | undefined;
   kind: SectionKind;
   /** Config key for array/object sections. */
   schemaKey?: string | undefined;
@@ -35,12 +37,38 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 };
 
 /**
+ * Section ids that have a curated i18n blurb (`settings.sectionDesc.<id>`) for
+ * the mobile tile grid. Schema `description` strings are full sentences (or
+ * missing), so these short 3–5 word summaries keep the tiles readable; unmapped
+ * keys fall back to the schema description.
+ */
+const SECTION_DESC_IDS = new Set([
+  "appearance",
+  "providers",
+  "models",
+  "agent",
+  "tools",
+  "mcp_servers",
+  "skills",
+  "memory",
+  "system",
+]);
+
+/** Resolve a tile blurb: curated i18n summary first, then the schema description. */
+function descFor(id: string, sub?: JsonSchema): string | undefined {
+  if (SECTION_DESC_IDS.has(id)) {
+    return t(`settings.sectionDesc.${id}`);
+  }
+  return sub?.description ?? undefined;
+}
+
+/**
  * deriveSettingsSections turns the root config JSON Schema into ordered tab
  * descriptors. Top-level schema properties map 1:1 to tabs (using the schema's
  * `x-foxxycode-property-order` and each property's `title`), except that the rarely
  * edited tail keys are folded into a single "System" tab and a synthetic
- * client-side "Appearance" tab is appended. The Appearance tab is present even
- * when no schema is available (theme is purely client-side).
+ * client-side "Appearance" tab is placed first (the default tab). The Appearance
+ * tab is present even when no schema is available (theme is purely client-side).
  */
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
@@ -48,6 +76,7 @@ export function deriveSettingsSections(
   const appearance: SectionDescriptor = {
     id: "appearance",
     label: t("settings.section.appearance"),
+    description: descFor("appearance"),
     kind: "appearance",
   };
 
@@ -76,6 +105,7 @@ export function deriveSettingsSections(
         out.push({
           id: "system",
           label: t("settings.section.system"),
+          description: descFor("system"),
           kind: "group",
           childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
         });
@@ -84,20 +114,33 @@ export function deriveSettingsSections(
       return;
     }
     if (key === "skills") {
-      out.push({ id: key, label: sub.title || key, kind: "skills", schemaKey: key });
+      out.push({
+        id: key,
+        label: sub.title || key,
+        description: descFor(key, sub),
+        kind: "skills",
+        schemaKey: key,
+      });
       return;
     }
     if (key in ARRAY_LABEL_FIELDS) {
       out.push({
         id: key,
         label: sub.title || key,
+        description: descFor(key, sub),
         kind: "array",
         schemaKey: key,
         labelField: ARRAY_LABEL_FIELDS[key],
       });
       return;
     }
-    out.push({ id: key, label: sub.title || key, kind: "object", schemaKey: key });
+    out.push({
+      id: key,
+      label: sub.title || key,
+      description: descFor(key, sub),
+      kind: "object",
+      schemaKey: key,
+    });
   };
 
   for (const key of order) {
@@ -108,6 +151,5 @@ export function deriveSettingsSections(
     emit(key);
   }
 
-  out.push(appearance);
-  return out;
+  return [appearance, ...out];
 }

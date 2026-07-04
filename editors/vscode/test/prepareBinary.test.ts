@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { goToVscodeTarget, TARGETS } from "../scripts/prepare-binary.mjs";
+import { goToVscodeTarget, normalizeToGoTarget, TARGETS } from "../scripts/prepare-binary.mjs";
 
 describe("prepare-binary.mjs", () => {
   it("exposes all 5 desktop targets", () => {
@@ -14,5 +14,17 @@ describe("prepare-binary.mjs", () => {
     expect(goToVscodeTarget("darwin", "amd64")).toBe("darwin-x64");
     expect(goToVscodeTarget("darwin", "arm64")).toBe("darwin-arm64");
     expect(goToVscodeTarget("windows", "amd64")).toBe("win32-x64");
+  });
+
+  it("normalizes Go and vsce targets to Go GOOS/GOARCH", () => {
+    // vsce targets
+    expect(normalizeToGoTarget("win32-x64")).toEqual({ goos: "windows", goarch: "amd64" });
+    expect(normalizeToGoTarget("linux-arm64")).toEqual({ goos: "linux", goarch: "arm64" });
+    expect(normalizeToGoTarget("darwin-x64")).toEqual({ goos: "darwin", goarch: "amd64" });
+    // Go targets pass through unchanged
+    expect(normalizeToGoTarget("windows-amd64")).toEqual({ goos: "windows", goarch: "amd64" });
+    expect(normalizeToGoTarget("linux-amd64")).toEqual({ goos: "linux", goarch: "amd64" });
+    // malformed input throws
+    expect(() => normalizeToGoTarget("win32")).toThrow();
   });
 });

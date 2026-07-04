@@ -24,6 +24,8 @@ export class ProcessManager {
   private child: ChildProcess | null = null;
   private _baseUrl: string | null = null;
   private starting: Promise<StartResult> | null = null;
+  /** Rejects the in-flight `startAndWait` when spawn fails or the process exits early. */
+  private startPromiseReject: ((e: Error) => void) | null = null;
 
   constructor(private readonly opts: ProcessManagerOptions) {}
 
@@ -50,51 +52,74 @@ export class ProcessManager {
     return this.start();
   }
 
-  private async startAndWait(): Promise<StartResult> {
+  private startAndWait(): Promise<StartResult> {
     this.stopInternal();
 
     const { settings, extensionPath, workspaceRoot, log } = this.opts;
     const binary = resolveExisting(extensionPath, settings.binaryPath);
-    if (!binary) throw new Error(t("process.error.binaryNotFound"));
+    if (!binary) return Promise.reject(new Error(t("process.error.binaryNotFound")));
 
-    const host = settings.host && settings.host.trim() !== "" ? settings.host.trim() : "127.0.0.1";
-    const port = await pickFreePort(settings.port);
+    return pickFreePort(settings.port).then((port) => {
+      const host = settings.host && settings.host.trim() !== "" ? settings.host.trim() : "127.0.0.1";
 
-    const args = ["http", "-H", host, "-P", String(port)];
-    if (workspaceRoot) args.push("--cwd", workspaceRoot);
-    if (settings.home && settings.home.trim() !== "") args.push("--home", settings.home.trim());
-    if (settings.extraArgs && settings.extraArgs.trim() !== "") {
-      args.push(...splitArgs(settings.extraArgs));
-    }
-
-    log?.(`[foxxycode] launching ${binary} ${args.join(" ")}`);
-    const child = spawn(binary, args, {
-      cwd: workspaceRoot ?? undefined,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    this.child = child;
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-        if (line.length) log?.(`[foxxycode] ${line}`);
+      const args = ["http", "-H", host, "-P", String(port)];
+      if (workspaceRoot) args.push("--cwd", workspaceRoot);
+      if (settings.home && settings.home.trim() !== "") args.push("--home", settings.home.trim());
+      if (settings.extraArgs && settings.extraArgs.trim() !== "") {
+        args.push(...splitArgs(settings.extraArgs));
       }
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-        if (line.length) log?.(`[foxxycode] ${line}`);
-      }
-    });
-    child.on("exit", (code) => {
-      log?.(`[foxxycode] process exited code=${code}`);
-      this.child = null;
-      this._baseUrl = null;
-    });
 
-    const baseUrl = `http://${host}:${port}/`;
-    await this.waitForReady(baseUrl);
-    this._baseUrl = baseUrl;
-    return { baseUrl };
+      log?.(`[foxxycode] launching ${binary} ${args.join(" ")}`);
+      const child = spawn(binary, args, {
+        cwd: workspaceRoot ?? undefined,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      this.child = child;
+
+      const baseUrl = `http://${host}:${port}/`;
+
+      return new Promise<StartResult>((resolve, reject) => {
+        this.startPromiseReject = reject;
+
+        child.stdout.on("data", (chunk: Buffer) => {
+          for (const line of chunk.toString("utf8").split(/\r?\n/)) {
+            if (line.length) log?.(`[foxxycode] ${line}`);
+          }
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          for (const line of chunk.toString("utf8").split(/\r?\n/)) {
+            if (line.length) log?.(`[foxxycode] ${line}`);
+          }
+        });
+        child.on("error", (err: Error) => {
+          log?.(`[foxxycode] spawn error: ${err.message}`);
+          this.child = null;
+          this._baseUrl = null;
+          this.rejectStartPromise(
+            new Error(`${t("process.error.exitedBeforeReady")} — ${err.message}`),
+          );
+        });
+        child.on("exit", (code) => {
+          log?.(`[foxxycode] process exited code=${code}`);
+          this.child = null;
+          this._baseUrl = null;
+          if (this.startPromiseReject) {
+            this.rejectStartPromise(new Error(t("process.error.exitedBeforeReady")));
+          }
+        });
+
+        void this.waitForReady(baseUrl)
+          .then(() => {
+            this.startPromiseReject = null;
+            this._baseUrl = baseUrl;
+            resolve({ baseUrl });
+          })
+          .catch((e: Error) => {
+            this.rejectStartPromise(e);
+          });
+      });
+    });
   }
 
   /** Polls `GET /v1/models` until 2xx-4xx (server accepting requests), 30s deadline. */
@@ -115,6 +140,12 @@ export class ProcessManager {
       await sleep(300);
     }
     throw new Error(t("process.error.notReady", lastError));
+  }
+
+  private rejectStartPromise(err: Error): void {
+    const rej = this.startPromiseReject;
+    this.startPromiseReject = null;
+    rej?.(err);
   }
 
   stop(): void {

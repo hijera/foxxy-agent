@@ -41,6 +41,8 @@ export function SettingsSection(props: {
   schema: JsonSchema;
   doc: Record<string, unknown>;
   setDoc: (next: Record<string, unknown>) => void;
+  /** Desktop shows the edited item's name on the array-section back button. */
+  isMobileShell?: boolean;
 }) {
   const { t } = useT();
   const { section, schema, doc, setDoc } = props;
@@ -96,6 +98,7 @@ export function SettingsSection(props: {
         onChange={(v) => setKey(key, v)}
         labelField={section.labelField}
         fieldOverride={override}
+        backLabelUsesItemName={!props.isMobileShell}
       />
     );
   }

@@ -208,12 +208,12 @@
   "scripts": {
     "prepare-binary": "node scripts/prepare-binary.mjs",
     "prepare-binary:target": "node scripts/prepare-binary.mjs --target",
-    "compile": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --external:diff --outfile=out/extension.js --sourcemap",
+    "compile": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --sourcemap",
     "build": "npm run prepare-binary && npm run compile",
     "build:target": "node scripts/prepare-binary.mjs --target",
-    "package": "vsce package",
-    "package:universal": "vsce package -o foxxycode-vscode-%npm_package_version%.vsix",
-    "package:target": "vsce package --target %npm_config_vsce_target% -o foxxycode-vscode-%npm_config_vsce_target%-%npm_package_version%.vsix",
+    "package": "npm run prepare-binary && npm run compile && vsce package",
+    "package:universal": "npm run prepare-binary && npm run compile && vsce package -o foxxycode-vscode-%npm_package_version%.vsix",
+    "package:target": "npm run build:target && npm run compile && vsce package --target %npm_config_vsce_target% -o foxxycode-vscode-%npm_config_vsce_target%-%npm_package_version%.vsix",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

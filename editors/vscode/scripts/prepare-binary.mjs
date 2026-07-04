@@ -8,7 +8,12 @@
 // Usage:
 //   node scripts/prepare-binary.mjs                       # build ALL 5 targets (universal VSIX)
 //   node scripts/prepare-binary.mjs --target linux-amd64  # build ONE target (platform-specific VSIX)
+//   node scripts/prepare-binary.mjs --target              # ONE target from $npm_config_vsce_target
 //   node scripts/prepare-binary.mjs --help
+//
+// `--target` accepts a Go target (linux-amd64) or a vsce target (linux-x64); with no
+// value it falls back to $npm_config_vsce_target, the same value `package:target` feeds
+// to `vsce package --target`, so one flag drives both the Go build and the VSIX.
 //
 // Universal mode produces one VSIX that runs on every desktop target by bundling all
 // binaries; platform-specific mode (paired with `vsce package --target <vsce-target>`)
@@ -38,17 +43,37 @@ export function goToVscodeTarget(goos, goarch) {
   return `${os}-${arch}`;
 }
 
-function parseArgs(argv) {
-  const i = argv.indexOf("--target");
-  if (i !== -1 && argv[i + 1]) {
-    const [goos, goarch] = argv[i + 1].split("-");
-    if (!goos || !goarch) {
-      throw new Error(`--target expects <goos>-<goarch>, got "${argv[i + 1]}"`);
-    }
-    return { mode: "single", goos, goarch };
+// Normalize a target token to Go GOOS/GOARCH, accepting either a Go target
+// (`windows-amd64`) or a vsce target (`win32-x64`) so callers can reuse the same
+// `npm_config_vsce_target` value that drives `vsce package --target`.
+export function normalizeToGoTarget(token) {
+  const [rawOs, rawArch] = String(token).split("-");
+  if (!rawOs || !rawArch) {
+    throw new Error(`target expects <os>-<arch>, got "${token}"`);
   }
+  const goos = rawOs === "win32" ? "windows" : rawOs;
+  const goarch = rawArch === "x64" ? "amd64" : rawArch;
+  return { goos, goarch };
+}
+
+function parseArgs(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     return { mode: "help" };
+  }
+  const i = argv.indexOf("--target");
+  if (i !== -1) {
+    // Target value comes from the positional arg when given, else from the
+    // npm_config_vsce_target env var (set by `npm run … --vsce_target=win32-x64`),
+    // so a single source of truth drives both the Go build and `vsce package`.
+    const positional = argv[i + 1] && !argv[i + 1].startsWith("-") ? argv[i + 1] : undefined;
+    const raw = positional ?? process.env.npm_config_vsce_target;
+    if (!raw) {
+      throw new Error(
+        "--target needs a value: pass `--target <os>-<arch>` (e.g. windows-amd64) or set " +
+          "npm_config_vsce_target (e.g. `npm run package:target --vsce_target=win32-x64`).",
+      );
+    }
+    return { mode: "single", ...normalizeToGoTarget(raw) };
   }
   return { mode: "all" };
 }

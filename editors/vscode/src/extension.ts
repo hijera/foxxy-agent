@@ -44,9 +44,10 @@ let activationOutput: vscode.OutputChannel | null = null;
 let currentUrl: string | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
-  refreshLocale();
   activationOutput = vscode.window.createOutputChannel("FoxxyCode");
   context.subscriptions.push(activationOutput);
+  activationOutput.appendLine(`[foxxycode] activate (ext=${context.extensionPath})`);
+  refreshLocale();
 
   const workspaceRoot = currentWorkspaceRoot();
   const log = (line: string): void => activationOutput?.appendLine(line);

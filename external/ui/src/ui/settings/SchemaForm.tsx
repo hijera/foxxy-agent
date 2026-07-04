@@ -6,6 +6,29 @@ import {
   providerApiKeyFieldPlaceholder,
 } from "./providerApiKeyPlaceholder";
 
+/** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
+export function IconTrash(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 /**
  * FieldOverride lets a caller replace the default control for a specific field.
  * `path` is the dotted key path relative to the SchemaForm root (array indices are
@@ -193,35 +216,39 @@ function SchemaField(props: {
         <ul className="settings-array">
           {arr.map((row, i) => (
             <li key={i} className="settings-array-row">
-              <SchemaField
-                name={`${name}[${i}]`}
-                schema={itemSchema}
-                value={row}
-                path={path}
-                fieldOverride={fieldOverride}
-                parentObj={
-                  row !== null &&
-                  row !== undefined &&
-                  typeof row === "object" &&
-                  !Array.isArray(row)
-                    ? (row as Record<string, unknown>)
-                    : undefined
-                }
-                onChange={(nv) => {
-                  const next = [...arr];
-                  next[i] = nv;
-                  onChange(next);
-                }}
-              />
+              <div className="settings-array-row-field">
+                <SchemaField
+                  name={`${name}[${i}]`}
+                  schema={itemSchema}
+                  value={row}
+                  path={path}
+                  fieldOverride={fieldOverride}
+                  parentObj={
+                    row !== null &&
+                    row !== undefined &&
+                    typeof row === "object" &&
+                    !Array.isArray(row)
+                      ? (row as Record<string, unknown>)
+                      : undefined
+                  }
+                  onChange={(nv) => {
+                    const next = [...arr];
+                    next[i] = nv;
+                    onChange(next);
+                  }}
+                />
+              </div>
               <button
                 type="button"
-                className="settings-btn settings-btn-danger"
+                className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
+                aria-label={t("settings.remove")}
+                title={t("settings.remove")}
                 onClick={() => {
                   const next = arr.filter((_, j) => j !== i);
                   onChange(next);
                 }}
               >
-                Remove
+                <IconTrash />
               </button>
             </li>
           ))}

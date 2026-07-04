@@ -788,6 +788,8 @@ export function App() {
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
+  // Active Settings section id from `#/settings/<section>` (null = default/grid).
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -1138,6 +1140,7 @@ export function App() {
     }
     if (p.branch === "settings") {
       setSettingsRoute(true);
+      setSettingsSection(p.section);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setSessionsOpen(false);
@@ -3311,6 +3314,7 @@ export function App() {
             <Settings
               onClose={onCloseSettings}
               onConfigSaved={() => setModelsEpoch((e) => e + 1)}
+              initialSection={settingsSection}
             />
           </div>
         ) : null}
