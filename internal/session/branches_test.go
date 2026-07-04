@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // writeMsgs writes a messages.json for a session directly (test helper).

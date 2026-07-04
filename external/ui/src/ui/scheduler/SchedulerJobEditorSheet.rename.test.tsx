@@ -37,7 +37,7 @@ afterEach(() => {
 test("edit mode can rename job_id via PATCH", async () => {
   schedulerPatchJob.mockResolvedValue({
     ok: true,
-    data: { object: "coddy.scheduler_job", job_id: "new-id" },
+    data: { object: "foxxycode.scheduler_job", job_id: "new-id" },
   });
   const onSaved = vi.fn();
   render(

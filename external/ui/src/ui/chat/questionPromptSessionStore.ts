@@ -1,12 +1,12 @@
 import { parseQuestionToolQuestionsFromArgs } from "./questionToolDisplay";
-import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
+import type { FoxxyCodeQuestionPayload, QuestionResolvedState } from "./questionTypes";
 import type { TranscriptItem } from "./types";
 
-const STORAGE_PREFIX = "coddy_qp_v1:";
+const STORAGE_PREFIX = "foxxycode_qp_v1:";
 
 export type StoredQuestionPromptRecord = {
   requestId: string;
-  payload: CoddyQuestionPayload;
+  payload: FoxxyCodeQuestionPayload;
   resolved?: QuestionResolvedState | undefined;
 };
 
@@ -28,7 +28,7 @@ export function loadQuestionPromptRecords(sessionId: string): StoredQuestionProm
       if (!row || typeof row !== "object") continue;
       const o = row as Record<string, unknown>;
       const requestId = String(o.requestId ?? "").trim();
-      const payload = o.payload as CoddyQuestionPayload | undefined;
+      const payload = o.payload as FoxxyCodeQuestionPayload | undefined;
       if (!requestId || !payload?.requestId) continue;
       out.push({
         requestId,
@@ -90,7 +90,7 @@ export function clearQuestionPromptRecords(sessionId: string): void {
 }
 
 /** Rebuild tool arguments JSON so Question rows parse after reload. */
-export function questionToolArgsJsonFromPayload(payload: CoddyQuestionPayload): string {
+export function questionToolArgsJsonFromPayload(payload: FoxxyCodeQuestionPayload): string {
   return JSON.stringify({ questions: payload.questions });
 }
 

@@ -3,7 +3,7 @@ package tools_test
 import (
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 func TestCommandAllowed(t *testing.T) {

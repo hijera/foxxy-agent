@@ -7,8 +7,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // Start is a no-op when built without messenger gateway tags.

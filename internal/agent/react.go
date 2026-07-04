@@ -13,15 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/mcp"
-	"github.com/hijera/foxxy-agent/internal/permission"
-	"github.com/hijera/foxxy-agent/internal/plans"
-	"github.com/hijera/foxxy-agent/internal/session"
-	"github.com/hijera/foxxy-agent/internal/skills"
-	"github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/permission"
+	"github.com/hijera/foxxycode-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -124,7 +124,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
 
-	// Restore existing plan via session/update if one was set by coddy todo tools in a previous turn.
+	// Restore existing plan via session/update if one was set by foxxycode todo tools in a previous turn.
 	if existing := a.state.GetPlan(); len(existing) > 0 {
 		if err := a.sendPlan(a.state.GetID(), existing); err != nil {
 			a.log.Warn("failed to restore plan", "error", err)
@@ -232,7 +232,7 @@ func (a *Agent) runReActLoop(
 		}
 
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
-		// state after coddy_todo_* tools in the same user turn.
+		// state after foxxycode_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
 			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
 		}
@@ -794,7 +794,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
-// Hydrated attachments become **<coddy_attachment path="..." name="...">…</coddy_attachment>**
+// Hydrated attachments become **<foxxycode_attachment path="..." name="...">…</foxxycode_attachment>**
 // with file body inside CDATA so the SPA can strip tags for display while the model retains full context.
 func contentBlocksToText(blocks []acp.ContentBlock) string {
 	var parts []string
@@ -832,14 +832,14 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 		name = pathFwd
 	}
 	var b strings.Builder
-	b.WriteString(`<coddy_attachment path="`)
+	b.WriteString(`<foxxycode_attachment path="`)
 	b.WriteString(xmlEscapedAttr(pathFwd))
 	b.WriteString(`" name="`)
 	b.WriteString(xmlEscapedAttr(name))
 	b.WriteString(`">`)
 	b.WriteByte('\n')
 	b.WriteString(wrapXMLCDATA(res.Text))
-	b.WriteString("\n</coddy_attachment>")
+	b.WriteString("\n</foxxycode_attachment>")
 	return b.String()
 }
 
@@ -905,7 +905,7 @@ func sessionStatePtr(s SessionState) *session.State {
 // uploaded files were saved.  Returns an empty string when no part has a
 // FilePath set (e.g. sessions without a persistent directory).
 // The tag is stripped from the user-visible bubble by the SPA's
-// stripCoddyAttachmentsForUserDisplay function.
+// stripFoxxyCodeAttachmentsForUserDisplay function.
 func filePathsNote(parts []llm.ImagePart) string {
 	var lines []string
 	for _, p := range parts {
@@ -922,11 +922,11 @@ func filePathsNote(parts []llm.ImagePart) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("<coddy_session_assets>Uploaded files saved to session assets (read-only). You can read or copy them:\n")
+	b.WriteString("<foxxycode_session_assets>Uploaded files saved to session assets (read-only). You can read or copy them:\n")
 	for _, l := range lines {
 		b.WriteString(l)
 		b.WriteByte('\n')
 	}
-	b.WriteString("</coddy_session_assets>")
+	b.WriteString("</foxxycode_session_assets>")
 	return b.String()
 }

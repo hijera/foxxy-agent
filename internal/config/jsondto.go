@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ConfigJSON is the JSON shape for GET/PUT /coddy/config (snake_case keys match YAML).
+// ConfigJSON is the JSON shape for GET/PUT /foxxycode/config (snake_case keys match YAML).
 type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
@@ -181,7 +181,7 @@ type SchedulerJSON struct {
 	RetainSessions int    `json:"retain_sessions,omitempty"`
 }
 
-// ConfigToJSONDTO copies a loaded Config into ConfigJSON (for GET /coddy/config).
+// ConfigToJSONDTO copies a loaded Config into ConfigJSON (for GET /foxxycode/config).
 func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	if c == nil {
 		return &ConfigJSON{}

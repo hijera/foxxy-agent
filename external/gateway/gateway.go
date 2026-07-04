@@ -1,6 +1,6 @@
 //go:build gateway || gateway.telegram
 
-// Package gateway provides a pluggable messenger gateway for Coddy Agent.
+// Package gateway provides a pluggable messenger gateway for FoxxyCode Agent.
 // Build with -tags gateway (all adapters) or -tags gateway.telegram (Telegram only).
 package gateway
 

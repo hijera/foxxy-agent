@@ -18,11 +18,11 @@ import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { consumeComposerSseReader } from "./chat/consumeComposerSse";
 import {
-  parseCoddyPermissionPayload,
+  parseFoxxyCodePermissionPayload,
   type PermissionResolvedState,
 } from "./chat/permissionTypes";
 import {
-  parseCoddyQuestionPayload,
+  parseFoxxyCodeQuestionPayload,
   type QuestionResolvedState,
 } from "./chat/questionTypes";
 import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
@@ -93,8 +93,8 @@ import { extractAtFileAttachments } from "./skills/draftAt";
 import {
   extractSessionAssetsXml,
   parseSessionAssetFiles,
-  stripCoddyAttachmentsForUserDisplay,
-} from "./skills/stripCoddyAttachments";
+  stripFoxxyCodeAttachmentsForUserDisplay,
+} from "./skills/stripFoxxyCodeAttachments";
 import {
   migrateWorkspaceAtRecents,
   recordWorkspaceAtRecent,
@@ -119,15 +119,15 @@ import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { t } from "./i18n/i18n";
 
-const HDR = "X-Coddy-Session-ID";
+const HDR = "X-FoxxyCode-Session-ID";
 
-async function markCoddySessionActivityRead(id: string): Promise<void> {
+async function markFoxxyCodeSessionActivityRead(id: string): Promise<void> {
   const t = id.trim();
   if (!t) {
     return;
   }
   try {
-    await fetch(`/coddy/sessions/${encodeURIComponent(t)}`, {
+    await fetch(`/foxxycode/sessions/${encodeURIComponent(t)}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -160,7 +160,7 @@ type ToolCallStatusUpdate = {
   status?: string;
   content?: Array<{ type: string; content: { type: string; text?: string } }>;
   _meta?: {
-    coddy?: {
+    foxxycode?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
     };
   };
@@ -188,7 +188,7 @@ function readMessageCreatedAtUTC(m: Record<string, unknown>): string | undefined
 }
 
 function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
-  const p = u._meta?.coddy?.toolResultPreview;
+  const p = u._meta?.foxxycode?.toolResultPreview;
   return !!(p && p.truncated === true);
 }
 
@@ -656,7 +656,7 @@ export function App() {
         return;
       }
       const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/coddy/sessions/${encodeURIComponent(key)}/stats`,
+        `/foxxycode/sessions/${encodeURIComponent(key)}/stats`,
         { headers: { [HDR]: key } },
       );
       if (!statsRes.ok) {
@@ -682,7 +682,7 @@ export function App() {
     const key = sid.trim();
     if (!key) return;
     if (viewedSessionIdRef.current.trim() !== key) return;
-    void markCoddySessionActivityRead(key);
+    void markFoxxyCodeSessionActivityRead(key);
   }, []);
   const tokenBaselineRef = useRef<{
     input: number;
@@ -782,7 +782,7 @@ export function App() {
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [modelsEpoch, setModelsEpoch] = useState(0);
   const [sessionsOpen, setSessionsOpen] = useState(false);
-  /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
+  /** null until first probe of /foxxycode/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
     boolean | null
   >(null);
@@ -818,7 +818,7 @@ export function App() {
   /**
    * Raw model/reasoning stored on the opened session. Held until the backends
    * list (`llmModelIds`) is available so the restore survives whichever of
-   * `/v1/models` and `/coddy/sessions/.../messages` resolves first on reload.
+   * `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
     sid: string;
@@ -836,7 +836,7 @@ export function App() {
 
   const handleComposerSseQuestion = useCallback(
     (raw: Record<string, unknown>) => {
-      const p = parseCoddyQuestionPayload(raw);
+      const p = parseFoxxyCodeQuestionPayload(raw);
       if (!p) return;
       const key = p.sessionId.trim();
       if (!key) return;
@@ -877,7 +877,7 @@ export function App() {
 
   const handleComposerSsePermission = useCallback(
     (raw: Record<string, unknown>) => {
-      const p = parseCoddyPermissionPayload(raw);
+      const p = parseFoxxyCodePermissionPayload(raw);
       if (!p) return;
       const key = p.sessionId.trim();
       if (!key) return;
@@ -1030,7 +1030,7 @@ export function App() {
     if (!t) {
       return;
     }
-    await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+    await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: t }),
@@ -1108,7 +1108,7 @@ export function App() {
       viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
       setSessionLoading(true);
-      void markCoddySessionActivityRead(p.sessionId);
+      void markFoxxyCodeSessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setSessionsOpen(!!p.historyOpen);
@@ -1185,7 +1185,7 @@ export function App() {
       viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
-      void markCoddySessionActivityRead(id);
+      void markFoxxyCodeSessionActivityRead(id);
     },
     [],
   );
@@ -1257,7 +1257,7 @@ export function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const r = await fetch("/coddy/scheduler/jobs");
+        const r = await fetch("/foxxycode/scheduler/jobs");
         if (cancelled) {
           return;
         }
@@ -1286,7 +1286,7 @@ export function App() {
   useEffect(() => {
     void (async () => {
       const res = await fetchJSON<{ items?: Array<{ name: string }> }>(
-        "/coddy/slash-commands?page=1&page_size=200",
+        "/foxxycode/slash-commands?page=1&page_size=200",
       );
       if (res.ok && res.data?.items) {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
@@ -1356,7 +1356,7 @@ export function App() {
       });
       setModelInfos(rows);
       const backends = raw
-        .filter((r) => r.ownedBy !== "coddy")
+        .filter((r) => r.ownedBy !== "foxxycode")
         .map((r) => r.id);
       setLlmModelIds(backends);
       const defaultYaml = (res.data.default_agent_model || "").trim();
@@ -1523,7 +1523,7 @@ export function App() {
         sessions: SessionRow[];
         nextCursor?: string | null;
         hasMore?: boolean;
-      }>(`/coddy/sessions?${ps.toString()}`, {
+      }>(`/foxxycode/sessions?${ps.toString()}`, {
         headers,
       });
       if (!reset) {
@@ -1556,7 +1556,7 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetchJSON<Record<string, unknown>>("/coddy/config", {
+      const res = await fetchJSON<Record<string, unknown>>("/foxxycode/config", {
         headers,
       });
       if (res.ok && res.data) {
@@ -1584,7 +1584,7 @@ export function App() {
     setPermissionPendingSids(ids);
   }, [sessions, items, sessionId]);
 
-  // /coddy/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
+  // /foxxycode/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
   useEffect(() => {
     const sid = sessionId.trim();
     if (!sid || !toolsPermissionPolicy) {
@@ -1656,7 +1656,7 @@ export function App() {
         userTurnIndex?: number;
         createdAt?: string;
       }>;
-    }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages`, {
+    }>(`/foxxycode/sessions/${encodeURIComponent(sid)}/messages`, {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
     if (!res.ok || !res.data) {
@@ -1876,7 +1876,7 @@ export function App() {
 
     // Enrich tool calls with persisted previews when available.
     const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(
-      `/coddy/sessions/${encodeURIComponent(sid)}/tool-calls`,
+      `/foxxycode/sessions/${encodeURIComponent(sid)}/tool-calls`,
       {
         headers: sid === sessionId ? headers : { [HDR]: sid },
       },
@@ -1973,7 +1973,7 @@ export function App() {
     let withBranches = applied;
     try {
       const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-        `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/branches`,
         { headers: sid === sessionId ? headers : { [HDR]: sid } },
       );
       if (brRes.ok && brRes.data?.branchPoints?.length) {
@@ -2113,7 +2113,7 @@ export function App() {
     }
     armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
     clearQuestionPromptRecords(id);
-    await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
+    await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers,
     });
@@ -2141,7 +2141,7 @@ export function App() {
     let data: { newSessionId?: string; error?: { message?: string } } = {};
     try {
       const res = await fetch(
-        `/coddy/sessions/${encodeURIComponent(sourceSid)}/branches`,
+        `/foxxycode/sessions/${encodeURIComponent(sourceSid)}/branches`,
         {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
@@ -2200,7 +2200,7 @@ export function App() {
           // After streaming completes, inject the branch_nav so the user can navigate threads.
           try {
             const brRes = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-              `/coddy/sessions/${encodeURIComponent(branchSid)}/branches`,
+              `/foxxycode/sessions/${encodeURIComponent(branchSid)}/branches`,
               { headers: { [HDR]: branchSid } },
             );
             if (brRes.ok && brRes.data?.branchPoints?.length) {
@@ -2239,7 +2239,7 @@ export function App() {
           sessionId,
           async (sid) => {
             const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-              `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
+              `/foxxycode/sessions/${encodeURIComponent(sid)}/branches`,
               { headers: { [HDR]: sid } },
             );
             return r.ok ? (r.data ?? null) : null;
@@ -2260,7 +2260,7 @@ export function App() {
       if (exists) {
         const sess = list?.find((s) => s.id === sessionId);
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-          `/coddy/sessions/${encodeURIComponent(sessionId)}/stats`,
+          `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
           { headers },
         );
         if (lifecycle.signal.aborted) {
@@ -2428,7 +2428,7 @@ export function App() {
 
     try {
       const res = await fetch(
-        `/coddy/sessions/${encodeURIComponent(key)}/composer-stream`,
+        `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
         { headers: { [HDR]: key }, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
@@ -2461,7 +2461,7 @@ export function App() {
       const syncAssistantFromServer = async () => {
         try {
           const res2 = await fetchJSON<{ messages: Array<any> }>(
-            `/coddy/sessions/${encodeURIComponent(key)}/messages`,
+            `/foxxycode/sessions/${encodeURIComponent(key)}/messages`,
             { headers: { [HDR]: key } },
           );
           if (!res2.ok || !res2.data?.messages) return false;
@@ -2824,7 +2824,7 @@ export function App() {
       const syncAssistantFromServer = async () => {
         try {
           const res2 = await fetchJSON<{ messages: Array<any> }>(
-            `/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`,
+            `/foxxycode/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
           if (!res2.ok || !res2.data?.messages) return false;
@@ -2978,7 +2978,7 @@ export function App() {
     const sid = sessionId.trim();
     if (!sid) return;
     // Always send the server-side cancel so Stop works even after page reload.
-    void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
+    void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
       method: "POST",
       headers: { [HDR]: sid },
     });
@@ -3028,7 +3028,7 @@ export function App() {
       if (!sid) {
         return;
       }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ selectedReasoning: lv }),
@@ -3049,7 +3049,7 @@ export function App() {
       if (!sid || !llmModelIds.includes(mid)) {
         return;
       }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ selectedModelId: mid }),
@@ -3383,7 +3383,7 @@ export function App() {
             if (!sid) return;
             try {
               await fetch(
-                `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
                 {
                   method: "DELETE",
                   headers,
@@ -3402,7 +3402,7 @@ export function App() {
           }}
           onEdit={(content, userMsgIdx) => {
             const assetNote = extractSessionAssetsXml(content);
-            setDraft(stripCoddyAttachmentsForUserDisplay(content));
+            setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
             setEditingUserMsgIdx(userMsgIdx);
             setEditingAssetNote(assetNote);
             setEditingFiles(parseSessionAssetFiles(content));
@@ -3437,7 +3437,7 @@ export function App() {
               result?: string;
               meta?: { status?: string; kind?: string; name?: string };
             }>(
-              `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+              `/foxxycode/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
               { headers },
             );
             if (!det.ok || !det.data) return;

@@ -23,6 +23,6 @@ test("pinned chat title head stays opaque so transcript does not bleed through",
   expect(block![0]).toMatch(/position:\s*sticky/);
   // ... and paints an opaque canvas-colored backing (no see-through).
   expect(block![0]).toMatch(
-    /background[^;]*var\(--coddy-canvas-gradient-top\)/,
+    /background[^;]*var\(--foxxycode-canvas-gradient-top\)/,
   );
 });

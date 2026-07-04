@@ -39,12 +39,12 @@ func NewLoader(dirs []string) *Loader {
 }
 
 // LoadAll discovers and loads all skills from configured directories.
-// cwd is the session working directory (${CWD}). agentHome is CODDY_HOME (${CODDY_HOME}).
+// cwd is the session working directory (${CWD}). agentHome is FOXXYCODE_HOME (${FOXXYCODE_HOME}).
 // installDir is used to read the .disabled file; empty string skips disable filtering.
 //
 // Directory priority: later entries in Dirs override earlier ones — a skill with the
 // same canonical name found in a later directory replaces the one from an earlier directory.
-// This means ${CWD}/.coddy/skills (last by default) has the highest priority.
+// This means ${CWD}/.foxxycode/skills (last by default) has the highest priority.
 func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill, error) {
 	var disabled map[string]struct{}
 	if len(installDir) > 0 && installDir[0] != "" {
@@ -246,10 +246,10 @@ func parseFrontmatter(data []byte) (string, *frontmatter) {
 	return body, &fm
 }
 
-// expandPath resolves ${CODDY_HOME}, ${CWD}, and ~ in a path.
+// expandPath resolves ${FOXXYCODE_HOME}, ${CWD}, and ~ in a path.
 func expandPath(path, cwd, agentHome string) string {
 	if agentHome != "" {
-		path = strings.ReplaceAll(path, "${CODDY_HOME}", agentHome)
+		path = strings.ReplaceAll(path, "${FOXXYCODE_HOME}", agentHome)
 	}
 	path = strings.ReplaceAll(path, "${CWD}", cwd)
 	if strings.HasPrefix(path, "~/") {
@@ -261,7 +261,7 @@ func expandPath(path, cwd, agentHome string) string {
 	return path
 }
 
-// ExpandConfiguredPath resolves ${CODDY_HOME}, ${CWD}, and ~ the same way as skill loading.
+// ExpandConfiguredPath resolves ${FOXXYCODE_HOME}, ${CWD}, and ~ the same way as skill loading.
 func ExpandConfiguredPath(path, cwd, agentHome string) string {
 	return expandPath(path, cwd, agentHome)
 }

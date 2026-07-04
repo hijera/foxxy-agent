@@ -30,7 +30,7 @@ type MemoryTurnTraceJSON struct {
 	RecallText          string `json:"recallText,omitempty"`
 	RecallReasoningText string `json:"recallReasoningText,omitempty"`
 	RecallDurationMs    int64  `json:"recallDurationMs,omitempty"`
-	// RecallReadPaths are scope:relative paths read via coddy_memory_read during recall (deduped).
+	// RecallReadPaths are scope:relative paths read via foxxycode_memory_read during recall (deduped).
 	RecallReadPaths []string `json:"recallReadPaths,omitempty"`
 
 	// PersistFinalText is persisted under JSON key persistJudgeText for backward compatibility with older traces.

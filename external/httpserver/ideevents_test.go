@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func recvIdeEvent(t *testing.T, ch chan ideEvent) ideEvent {

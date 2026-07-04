@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/plans"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // PlanListTool lists design plan files in the session bundle.

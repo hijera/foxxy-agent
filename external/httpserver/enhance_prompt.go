@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // enhancePromptInstruction mirrors the legacy single-completion prompt-rewrite
@@ -37,7 +37,7 @@ func cleanEnhancedPrompt(text string) string {
 	return stripped
 }
 
-func (s *Server) coddyEnhancePromptPost(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeEnhancePromptPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
@@ -82,7 +82,7 @@ func (s *Server) coddyEnhancePromptPost(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "coddy.enhance_prompt",
+		"object": "foxxycode.enhance_prompt",
 		"text":   enhanced,
 	})
 }

@@ -16,7 +16,7 @@ func DefaultFactory() *Factory {
 		NewMarkdownProvider(SourceCodex, ".codex/rules"),
 		NewMarkdownProvider(SourceClaude, ".claude/rules"),
 		NewMarkdownProvider(SourceCursor, ".cursor/rules"),
-		NewMarkdownProvider(SourceCoddy, ".coddy/rules"),
+		NewMarkdownProvider(SourceFoxxyCode, ".foxxycode/rules"),
 	)
 }
 
@@ -41,7 +41,7 @@ func (f *Factory) Providers() []Provider {
 // sourceRank for dedupe: higher wins.
 func sourceRank(s Source) int {
 	switch s {
-	case SourceCoddy:
+	case SourceFoxxyCode:
 		return 4
 	case SourceCursor:
 		return 3

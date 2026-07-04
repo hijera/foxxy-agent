@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 const branchesFile = "branches.json"

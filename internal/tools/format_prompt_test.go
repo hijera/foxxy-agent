@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 func TestFormatDefinitionsForPrompt(t *testing.T) {

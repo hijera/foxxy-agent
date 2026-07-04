@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const turnLockFileName = ".coddy-turn.lock"
+const turnLockFileName = ".foxxycode-turn.lock"
 
 type turnLockMeta struct {
 	PID     int    `json:"pid"`

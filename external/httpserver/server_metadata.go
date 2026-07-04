@@ -7,9 +7,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/plans"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // metadataResponse builds OpenAI-style extension metadata for the effective YAML model selector.

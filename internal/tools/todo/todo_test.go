@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/session"
-	apptools "github.com/hijera/foxxy-agent/internal/tools"
-	"github.com/hijera/foxxy-agent/internal/tools/todo"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	apptools "github.com/hijera/foxxycode-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
 type mockSender struct {
@@ -149,9 +149,9 @@ func TestItemUpdateRequiresMutation(t *testing.T) {
 	}
 }
 
-func TestCoddyTodoToolsRegistered(t *testing.T) {
+func TestFoxxyCodeTodoToolsRegistered(t *testing.T) {
 	r := newRegistry()
-	for _, name := range todo.AllCoddyTodoToolNames {
+	for _, name := range todo.AllFoxxyCodeTodoToolNames {
 		if _, ok := r.Get(name); !ok {
 			t.Errorf("%q missing from registry", name)
 		}

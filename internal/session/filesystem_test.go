@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 func TestFileStoreRoundTripUILog(t *testing.T) {

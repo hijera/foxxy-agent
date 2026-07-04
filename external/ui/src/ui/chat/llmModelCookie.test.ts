@@ -1,12 +1,12 @@
 import { expect, test } from "vitest";
 import {
-  CODDY_LLM_MODEL_COOKIE,
+  FOXXYCODE_LLM_MODEL_COOKIE,
   readLlmModelCookie,
   writeLlmModelCookie,
 } from "./llmModelCookie";
 
 test("write then read llm model cookie", () => {
-  document.cookie = `${CODDY_LLM_MODEL_COOKIE}=; Max-Age=0; Path=/`;
+  document.cookie = `${FOXXYCODE_LLM_MODEL_COOKIE}=; Max-Age=0; Path=/`;
   Object.defineProperty(window, "location", {
     value: new URL("http://127.0.0.1:5173/"),
     configurable: true,

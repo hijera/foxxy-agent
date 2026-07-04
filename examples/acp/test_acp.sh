@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full ACP stdio e2e. Expects ./build/coddy (examples/build_coddy.sh links scheduler with HTTP for one binary).
+# Full ACP stdio e2e. Expects ./build/foxxycode (examples/build_foxxycode.sh links scheduler with HTTP for one binary).
 
 set -euo pipefail
 
@@ -8,13 +8,13 @@ cd "$ROOT"
 
 ACP_DIR="$ROOT/examples/acp"
 
-export CODDY_BIN="${CODDY_BIN:-$ROOT/build/coddy}"
-export CODDY_CONFIG="${CODDY_CONFIG:-$ROOT/examples/config.demo.yaml}"
-export SESSION_ROOT="${SESSION_ROOT:-/tmp/coddy-examples-acp}"
+export FOXXYCODE_BIN="${FOXXYCODE_BIN:-$ROOT/build/foxxycode}"
+export FOXXYCODE_CONFIG="${FOXXYCODE_CONFIG:-$ROOT/examples/config.demo.yaml}"
+export SESSION_ROOT="${SESSION_ROOT:-/tmp/foxxycode-examples-acp}"
 export SESSION_ID="${SESSION_ID:-example-acp}"
 
-if [[ ! -x "$CODDY_BIN" ]]; then
-  echo "binary not found, run: ./examples/build_coddy.sh" >&2
+if [[ ! -x "$FOXXYCODE_BIN" ]]; then
+  echo "binary not found, run: ./examples/build_foxxycode.sh" >&2
   exit 1
 fi
 

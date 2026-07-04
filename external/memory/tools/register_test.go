@@ -5,8 +5,8 @@ package memtools
 import (
 	"testing"
 
-	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
-	"github.com/hijera/foxxy-agent/internal/config"
+	memstorage "github.com/hijera/foxxycode-agent/external/memory/storage"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func testMemoryStore(t *testing.T) (*memstorage.Store, *config.MemoryConfig) {

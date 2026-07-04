@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func TestNewWritesToStdoutAndFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "coddy.log")
+	path := filepath.Join(dir, "foxxycode.log")
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -55,7 +55,7 @@ func TestNewWritesToStdoutAndFile(t *testing.T) {
 
 func TestNewJSONFormat(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "coddy.log")
+	path := filepath.Join(dir, "foxxycode.log")
 	slogLog, closer, err := New(config.Logger{
 		Level:   config.LogLevelInfo,
 		Outputs: []string{config.LogOutputFile},

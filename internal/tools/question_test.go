@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	apptools "github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	apptools "github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 type fakeSender struct {

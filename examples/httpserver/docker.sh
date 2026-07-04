@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke coddy http inside docker compose (see repo docker-compose.dev.yml). Needs docker and docker compose.
+# Smoke foxxycode http inside docker compose (see repo docker-compose.dev.yml). Needs docker and docker compose.
 
 set -euo pipefail
 
@@ -19,7 +19,7 @@ fi
 PORT="${PORT:-12345}"
 export PORT
 
-TMP_DIR="$(mktemp -d -t coddy-docker-http-XXXXXX)"
+TMP_DIR="$(mktemp -d -t foxxycode-docker-http-XXXXXX)"
 cleanup() {
   docker compose -f docker-compose.dev.yml down -v --remove-orphans >/dev/null 2>&1 || true
   if [[ "${KEEP_TMP:-0}" != "1" ]]; then
@@ -28,13 +28,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-CODDY_CWD="${CODDY_CWD:-$TMP_DIR/workspace}"
-CODDY_HOME="${CODDY_HOME:-$TMP_DIR/coddy_home}"
-CODDY_CONFIG="${CODDY_CONFIG:-$TMP_DIR/config.yaml}"
+FOXXYCODE_CWD="${FOXXYCODE_CWD:-$TMP_DIR/workspace}"
+FOXXYCODE_HOME="${FOXXYCODE_HOME:-$TMP_DIR/foxxycode_home}"
+FOXXYCODE_CONFIG="${FOXXYCODE_CONFIG:-$TMP_DIR/config.yaml}"
 
-mkdir -p "$CODDY_CWD" "$CODDY_HOME"
+mkdir -p "$FOXXYCODE_CWD" "$FOXXYCODE_HOME"
 
-python3 - "$ROOT/examples/config.demo.yaml" "$CODDY_CONFIG" "$PORT" <<'PY'
+python3 - "$ROOT/examples/config.demo.yaml" "$FOXXYCODE_CONFIG" "$PORT" <<'PY'
 from __future__ import annotations
 
 import sys
@@ -54,20 +54,20 @@ raw = raw.replace('file: "__E2E_LOG_PATH__"', 'file: ""')
 open(dst_path, "w", encoding="utf-8").write(raw)
 PY
 
-if [[ ! -f "$CODDY_CONFIG" ]]; then
-  echo "config path is not a file: $CODDY_CONFIG" >&2
-  ls -la "$(dirname "$CODDY_CONFIG")" >&2 || true
+if [[ ! -f "$FOXXYCODE_CONFIG" ]]; then
+  echo "config path is not a file: $FOXXYCODE_CONFIG" >&2
+  ls -la "$(dirname "$FOXXYCODE_CONFIG")" >&2 || true
   exit 1
 fi
 
-if [[ ! -s "$CODDY_CONFIG" ]]; then
-  echo "config file is empty: $CODDY_CONFIG" >&2
+if [[ ! -s "$FOXXYCODE_CONFIG" ]]; then
+  echo "config file is empty: $FOXXYCODE_CONFIG" >&2
   exit 1
 fi
 
-export CODDY_CWD CODDY_HOME CODDY_CONFIG
+export FOXXYCODE_CWD FOXXYCODE_HOME FOXXYCODE_CONFIG
 
-docker compose -f docker-compose.dev.yml up -d --build coddy
+docker compose -f docker-compose.dev.yml up -d --build foxxycode
 
 ready=0
 for _ in $(seq 1 120); do
@@ -80,7 +80,7 @@ done
 if [[ "$ready" != 1 ]]; then
   echo "http server did not become ready on port ${PORT}" >&2
   docker compose -f docker-compose.dev.yml ps -a || true
-  docker compose -f docker-compose.dev.yml logs coddy || true
+  docker compose -f docker-compose.dev.yml logs foxxycode || true
   exit 1
 fi
 

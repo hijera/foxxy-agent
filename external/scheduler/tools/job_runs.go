@@ -7,17 +7,17 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func jobRunsTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name: toolJobRuns,
-			Description: "Lists recent persisted scheduler runs for a job_id (metadata only). Each row includes session_id; read full turns with normal session tools or HTTP /coddy/sessions/{session_id}/messages. " +
+			Description: "Lists recent persisted scheduler runs for a job_id (metadata only). Each row includes session_id; read full turns with normal session tools or HTTP /foxxycode/sessions/{session_id}/messages. " +
 				"Use when the user wants history, audit, or to debug a recurring job. Optional limit (default 50, max 100).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -42,7 +42,7 @@ func jobRunsTool(cfg *config.Config) *tooling.Tool {
 				return "", err
 			}
 			wrap := map[string]interface{}{
-				"object": "coddy.scheduler_job_runs",
+				"object": "foxxycode.scheduler_job_runs",
 				"job_id": strings.TrimSpace(in.JobID),
 				"runs":   runs,
 			}

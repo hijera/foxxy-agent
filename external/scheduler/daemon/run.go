@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/external/scheduler/storage"
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/agent"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
-	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/external/scheduler/storage"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 // schedulerSkillsLoadGateForTest runs immediately before skills.LoadAll when non-nil (daemon tests).

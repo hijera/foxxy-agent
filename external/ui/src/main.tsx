@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import "./styles.css";
 import { App } from "./ui/App";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
-import { installFoxxyUiApi } from "./ui/theme/foxxyUiApi";
+import { installFoxxyCodeUiApi } from "./ui/theme/foxxycodeUiApi";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
@@ -11,7 +11,7 @@ import { I18nProvider } from "./ui/i18n/I18nProvider";
 bootstrapUiThemeFromCookie();
 const bootLocale = bootstrapUiLocaleFromUrlOrCookie();
 initLocale(bootLocale);
-installFoxxyUiApi();
+installFoxxyCodeUiApi();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

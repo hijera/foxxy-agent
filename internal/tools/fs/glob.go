@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 const globMaxFiles = 100
@@ -102,7 +102,7 @@ func executeGlob(ctx context.Context, argsJSON string, env *tooling.Env) (string
 			paths = append(paths, line)
 		}
 	}
-	// Hide Coddy's own session store (before the cap) so other sessions' files
+	// Hide FoxxyCode's own session store (before the cap) so other sessions' files
 	// neither leak into results nor crowd out real workspace files.
 	paths = dropStorePaths(paths, sessionStoreRoot(env.SessionDir))
 	if len(paths) == 0 {

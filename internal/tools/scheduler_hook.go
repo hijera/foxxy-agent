@@ -3,8 +3,8 @@
 package tools
 
 import (
-	"github.com/hijera/foxxy-agent/external/scheduler/tools"
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/external/scheduler/tools"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func registerSchedulerTools(r *Registry, cfg *config.Config) {

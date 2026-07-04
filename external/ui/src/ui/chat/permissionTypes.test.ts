@@ -1,12 +1,12 @@
 import { expect, test } from "vitest";
 
 import {
-  parseCoddyPermissionPayload,
+  parseFoxxyCodePermissionPayload,
   permissionBodyText,
 } from "./permissionTypes";
 
-test("parseCoddyPermissionPayload accepts composer SSE shape", () => {
-  const p = parseCoddyPermissionPayload({
+test("parseFoxxyCodePermissionPayload accepts composer SSE shape", () => {
+  const p = parseFoxxyCodePermissionPayload({
     sessionId: "sess_abc",
     toolCall: {
       toolCallId: "call_1",

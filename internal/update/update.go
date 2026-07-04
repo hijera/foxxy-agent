@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/version"
+	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
 // ErrUpdateAvailable is returned from Run when CheckOnly is set and a newer release exists.
@@ -64,7 +64,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	cmp := CompareSemver(opts.CurrentVersion, latest)
 	if cmp >= 0 && opts.TargetVersion == "" {
-		_, _ = fmt.Fprintf(out, "foxxy is up to date (%s)\n", opts.CurrentVersion)
+		_, _ = fmt.Fprintf(out, "foxxycode is up to date (%s)\n", opts.CurrentVersion)
 		return nil
 	}
 	if opts.CheckOnly {
@@ -90,7 +90,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	if !opts.Yes {
-		_, _ = fmt.Fprintf(out, "Update foxxy %s -> %s (%s)? [y/N] ", opts.CurrentVersion, latest, dest)
+		_, _ = fmt.Fprintf(out, "Update foxxycode %s -> %s (%s)? [y/N] ", opts.CurrentVersion, latest, dest)
 		line, err := readYesNo(os.Stdin)
 		if err != nil {
 			return err

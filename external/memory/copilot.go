@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
-	memtools "github.com/hijera/foxxy-agent/external/memory/tools"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	memstorage "github.com/hijera/foxxycode-agent/external/memory/storage"
+	memtools "github.com/hijera/foxxycode-agent/external/memory/tools"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 //go:embed prompts/copilot.md
@@ -28,7 +28,7 @@ type BeforeTurnOutcome struct {
 	Persist     PersistOutcome
 }
 
-// PersistOutcome is structured data when coddy_memory_save completed in the same pass.
+// PersistOutcome is structured data when foxxycode_memory_save completed in the same pass.
 type PersistOutcome struct {
 	Saved        bool
 	Scope        string

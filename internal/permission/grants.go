@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/session"
-	toolfs "github.com/hijera/foxxy-agent/internal/tools/fs"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 )
 
 // WriteGrantKeys returns persisted keys for filesystem tools (toolName|absolutePath). Empty if none.

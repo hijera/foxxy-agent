@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
-	toolfs "github.com/hijera/foxxy-agent/internal/tools/fs"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 )
 
 // Sender implements acp.UpdateSender for HTTP (streaming SSE or silent non-stream).
@@ -175,7 +175,7 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 	return nil
 }
 
-// RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /coddy/sessions/{id}/permission.
+// RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /foxxycode/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	if s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
@@ -250,7 +250,7 @@ func (s *Sender) broadcastEditProposed(sessionID, toolCallID, toolName, argsJSON
 	})
 }
 
-// RequestQuestion emits a composer SSE question event and waits for POST /coddy/sessions/{id}/question.
+// RequestQuestion emits a composer SSE question event and waits for POST /foxxycode/sessions/{id}/question.
 func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	if !s.stream || s.w == nil {
 		return nil, fmt.Errorf("question tool requires streaming responses")
@@ -276,19 +276,19 @@ func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequest
 	}
 }
 
-// WriteCoddyMetaSSE emits a named event with Coddy response metadata (effective model). No-op when not streaming.
-func (s *Sender) WriteCoddyMetaSSE(metadata map[string]string) error {
+// WriteFoxxyCodeMetaSSE emits a named event with FoxxyCode response metadata (effective model). No-op when not streaming.
+func (s *Sender) WriteFoxxyCodeMetaSSE(metadata map[string]string) error {
 	if !s.stream || s.w == nil || len(metadata) == 0 {
 		return nil
 	}
 	payload := map[string]interface{}{"metadata": metadata}
-	return s.writeNamedEventJSON("coddy_meta", payload)
+	return s.writeNamedEventJSON("foxxycode_meta", payload)
 }
 
-// FinishStream writes coddy_meta (when metadata non-nil), then [DONE] for SSE.
+// FinishStream writes foxxycode_meta (when metadata non-nil), then [DONE] for SSE.
 func (s *Sender) FinishStreamWithMetadata(meta map[string]string) error {
 	if s.stream && s.w != nil && len(meta) > 0 {
-		_ = s.WriteCoddyMetaSSE(meta)
+		_ = s.WriteFoxxyCodeMetaSSE(meta)
 	}
 	return s.FinishStream()
 }

@@ -1,9 +1,9 @@
 {
-  "name": "foxxy-vscode",
-  "displayName": "Foxxy",
-  "description": "Run the full foxxy agent inside VS Code, embedded in a webview.",
+  "name": "foxxycode-vscode",
+  "displayName": "FoxxyCode",
+  "description": "Run the full foxxycode agent inside VS Code, embedded in a webview.",
   "version": "0.1.0",
-  "publisher": "foxxy",
+  "publisher": "foxxycode",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -16,45 +16,45 @@
   "contributes": {
     "commands": [
       {
-        "command": "foxxy.openPanel",
-        "title": "Foxxy: Open Panel"
+        "command": "foxxycode.openPanel",
+        "title": "FoxxyCode: Open Panel"
       },
       {
-        "command": "foxxy.restart",
-        "title": "Foxxy: Restart Agent"
+        "command": "foxxycode.restart",
+        "title": "FoxxyCode: Restart Agent"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "foxxy",
-          "title": "Foxxy",
-          "icon": "media/foxxy.svg"
+          "id": "foxxycode",
+          "title": "FoxxyCode",
+          "icon": "media/foxxycode.svg"
         }
       ]
     },
     "configuration": {
-      "title": "Foxxy",
+      "title": "FoxxyCode",
       "properties": {
-        "foxxy.binaryPath": {
+        "foxxycode.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Override the bundled foxxy executable with a path to a full-feature build."
+          "description": "Override the bundled foxxycode executable with a path to a full-feature build."
         },
-        "foxxy.host": {
+        "foxxycode.host": {
           "type": "string",
           "default": "127.0.0.1",
-          "description": "Host the foxxy http server binds to."
+          "description": "Host the foxxycode http server binds to."
         },
-        "foxxy.port": {
+        "foxxycode.port": {
           "type": "number",
           "default": 0,
-          "description": "Port for foxxy http (0 = pick a free port automatically)."
+          "description": "Port for foxxycode http (0 = pick a free port automatically)."
         },
-        "foxxy.home": {
+        "foxxycode.home": {
           "type": "string",
           "default": "",
-          "description": "State directory for sessions/config (foxxy --home; default ~/.coddy)."
+          "description": "State directory for sessions/config (foxxycode --home; default ~/.foxxycode)."
         }
       }
     }

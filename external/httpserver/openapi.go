@@ -7,37 +7,37 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/hijera/foxxy-agent/internal/version"
+	"github.com/hijera/foxxycode-agent/internal/version"
 	"gopkg.in/yaml.v3"
 )
 
-// openAPISpec builds the OpenAPI 3 document for the Coddy HTTP gateway.
+// openAPISpec builds the OpenAPI 3 document for the FoxxyCode HTTP gateway.
 // Keep this in sync with routes registered in New.
 func openAPISpec() map[string]interface{} {
 	ver := version.Get()
 	doc := map[string]interface{}{
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
-			"title": "Coddy HTTP API",
-			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent** and **plan** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
+			"title": "FoxxyCode HTTP API",
+			"description": "OpenAI-compatible endpoints backed by FoxxyCode sessions and agents. **`GET /v1/models`** returns one list: **agent** and **plan** first (**`owned_by`**: **`foxxycode`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
 				"Classify POST **model** values: **agent** / **plan** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
 				"**`metadata.model`** may appear only on agent/plan requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
 				"**`metadata.reasoning`** (optional, agent/plan only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). " +
-				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
-				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
+				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: foxxycode_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
+				"Optional header **X-FoxxyCode-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
 		},
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as coddy http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
-					"description": "Returns **agent**, then **plan** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
+					"description": "Returns **agent**, then **plan** (**`owned_by`**: **`foxxycode`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
 						"Optional **`default_agent_model`** echoes configured **`agent.model`** for clients that default **`metadata.model`** on profile requests. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
@@ -61,12 +61,12 @@ func openAPISpec() map[string]interface{} {
 					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
 						"Optional **`metadata`** on agent/plan only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: coddy_meta`** before **`[DONE]`**). Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: foxxycode_meta`** before **`[DONE]`**). Otherwise JSON. " +
 						"The last entry in **messages** must have role **user**.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
 						map[string]interface{}{
-							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
 							"description": "Existing session id. If absent, the server may create a new session.",
 						},
@@ -83,7 +83,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion or streamed events. SSE may include **`event: coddy_meta`** (final metadata map) before **`data: [DONE]`**.",
+							"description": "Completion or streamed events. SSE may include **`event: foxxycode_meta`** (final metadata map) before **`data: [DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -94,7 +94,7 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type":        "string",
 										"format":      "binary",
-										"description": "Server-Sent Events stream (OpenAI-compatible chunk lines, optional coddy_meta).",
+										"description": "Server-Sent Events stream (OpenAI-compatible chunk lines, optional foxxycode_meta).",
 									},
 								},
 							},
@@ -114,7 +114,7 @@ func openAPISpec() map[string]interface{} {
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
-							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
 							"description": "Existing session id. If absent, the server creates a session for this turn.",
 						},
@@ -131,7 +131,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**, **`coddy_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**, **`foxxycode_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -181,13 +181,13 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions": map[string]interface{}{
+			"/foxxycode/sessions": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**.",
-					"parameters": append(coddyPagingParams(), map[string]interface{}{
+					"parameters": append(foxxycodePagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
@@ -204,11 +204,11 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/describe": map[string]interface{}{
+			"/foxxycode/describe": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Generate a short text description",
 					"description": "Accepts arbitrary text and returns a short phrase describing what it is about. If the input is 3 words or fewer, the response echoes them.",
-					"operationId": "coddyDescribe",
+					"operationId": "foxxycodeDescribe",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -231,7 +231,7 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object": map[string]string{"type": "string", "example": "coddy.describe"},
+											"object": map[string]string{"type": "string", "example": "foxxycode.describe"},
 											"short":  map[string]string{"type": "string"},
 										},
 										"required": []string{"object", "short"},
@@ -245,11 +245,11 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/enhance-prompt": map[string]interface{}{
+			"/foxxycode/enhance-prompt": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enhance a draft prompt",
 					"description": "Rewrites a user's draft prompt into a clearer, more specific, and more effective prompt. The draft is treated only as source text to improve, never as a request to answer.",
-					"operationId": "coddyEnhancePrompt",
+					"operationId": "foxxycodeEnhancePrompt",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -272,7 +272,7 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"object": map[string]string{"type": "string", "example": "coddy.enhance_prompt"},
+											"object": map[string]string{"type": "string", "example": "foxxycode.enhance_prompt"},
 											"text":   map[string]string{"type": "string"},
 										},
 										"required": []string{"object", "text"},
@@ -286,16 +286,16 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/slash-commands": map[string]interface{}{
+			"/foxxycode/slash-commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List slash commands from skills (paginated)",
 					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
-						"When **X-Coddy-Session-ID** is set (existing session), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
+						"When **X-FoxxyCode-Session-ID** is set (existing session), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
 					"operationId": "listSlashCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
-							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
 							"description": "Optional session whose cwd scopes skill path expansion.",
 						},
@@ -323,7 +323,7 @@ func openAPISpec() map[string]interface{} {
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
-										"$ref": "#/components/schemas/CoddySlashCommandsPage",
+										"$ref": "#/components/schemas/FoxxyCodeSlashCommandsPage",
 									},
 								},
 							},
@@ -334,7 +334,7 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/workspace/files": map[string]interface{}{
+			"/foxxycode/workspace/files": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List workspace files under session cwd (paginated)",
 					"description": "**`page`** (1-based) and **`page_size`** (1 to 200) are required. **Case-insensitive** **`prefix`** substring filter over **`path_rel`** (non-empty substring required; omit or blank **`prefix`** yields an empty **`items`** page without scanning). " +
@@ -342,7 +342,7 @@ func openAPISpec() map[string]interface{} {
 					"operationId": "listWorkspaceFiles",
 					"parameters": []interface{}{
 						map[string]interface{}{
-							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
 							"schema":      map[string]string{"type": "string"},
 							"description": "Session whose **cwd** is the listing root.",
 						},
@@ -378,7 +378,7 @@ func openAPISpec() map[string]interface{} {
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
-										"$ref": "#/components/schemas/CoddyWorkspaceFilesPage",
+										"$ref": "#/components/schemas/FoxxyCodeWorkspaceFilesPage",
 									},
 								},
 							},
@@ -389,11 +389,11 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/config/schema": map[string]interface{}{
+			"/foxxycode/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "JSON Schema for Coddy YAML configuration (UI)",
-					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/coddy/config` and returned by **GET** `/coddy/config`. Includes **`providers[].name`** pattern, optional **`x-coddy-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
-					"operationId": "coddyConfigSchemaGet",
+					"summary":     "JSON Schema for FoxxyCode YAML configuration (UI)",
+					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/foxxycode/config` and returned by **GET** `/foxxycode/config`. Includes **`providers[].name`** pattern, optional **`x-foxxycode-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
+					"operationId": "foxxycodeConfigSchemaGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "JSON Schema (draft 2020-12)",
@@ -407,17 +407,17 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/config": map[string]interface{}{
+			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
 					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers).",
-					"operationId": "coddyConfigGet",
+					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Configuration JSON (ConfigJSON)",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigJSON"},
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigJSON"},
 								},
 							},
 						},
@@ -427,12 +427,12 @@ func openAPISpec() map[string]interface{} {
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
 					"description": "Validates the body, writes **config.yaml** atomically, reloads in-process config. On reload failure after write, restores **config.yaml.bak** to the primary path.",
-					"operationId": "coddyConfigPut",
+					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
 							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigJSON"},
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigJSON"},
 							},
 						},
 					},
@@ -441,7 +441,7 @@ func openAPISpec() map[string]interface{} {
 							"description": "`{\"ok\":true}` on success",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigValidateResponse"},
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigValidateResponse"},
 								},
 							},
 						},
@@ -450,16 +450,16 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/config/validate": map[string]interface{}{
+			"/foxxycode/config/validate": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Validate configuration JSON without writing",
-					"description": "Runs the same validation as **PUT** `/coddy/config` without persisting.",
-					"operationId": "coddyConfigValidatePost",
+					"description": "Runs the same validation as **PUT** `/foxxycode/config` without persisting.",
+					"operationId": "foxxycodeConfigValidatePost",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
 							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigJSON"},
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigJSON"},
 							},
 						},
 					},
@@ -468,7 +468,7 @@ func openAPISpec() map[string]interface{} {
 							"description": "`{\"ok\":true}`",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigValidateResponse"},
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigValidateResponse"},
 								},
 							},
 						},
@@ -476,14 +476,14 @@ func openAPISpec() map[string]interface{} {
 							"description": "`{\"ok\":false,\"error\":\"...\"}`",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyConfigValidateResponse"},
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeConfigValidateResponse"},
 								},
 							},
 						},
 					},
 				},
 			},
-			"/coddy/sessions/{id}/activity": map[string]interface{}{
+			"/foxxycode/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
 					"description": "Returns **turnActive** (exclusive turn lock held), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI.",
@@ -501,7 +501,7 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions/{id}": map[string]interface{}{
+			"/foxxycode/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
 					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
@@ -535,14 +535,14 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions/{id}/messages": map[string]interface{}{
+			"/foxxycode/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
 					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
-						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows.",
+						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -553,10 +553,10 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions/{id}/composer-stream": map[string]interface{}{
+			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -568,10 +568,10 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/ide/events": map[string]interface{}{
+			"/foxxycode/ide/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Stream structured file-edit events for native editor clients",
-					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /coddy/sessions/{id}/permission`**.",
+					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /foxxycode/sessions/{id}/permission`**.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "SSE stream (text/event-stream) of edit events",
@@ -585,10 +585,10 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions/{id}/permission": map[string]interface{}{
+			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`**, or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`**, or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -623,10 +623,10 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions/{id}/question": map[string]interface{}{
+			"/foxxycode/sessions/{id}/question": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Answer a pending interactive question from a streaming ReAct turn",
-					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and **`answers`** is an array of string arrays (one row per question, entries are selected labels or custom text). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and **`answers`** is an array of string arrays (one row per question, entries are selected labels or custom text). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -666,10 +666,10 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/skills": map[string]interface{}{
+			"/foxxycode/skills": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List skills",
-					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`).",
+					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.foxxycode/skills/.disabled`).",
 					"operationId": "listSkills",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -686,7 +686,7 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/skills/{name}/enable": map[string]interface{}{
+			"/foxxycode/skills/{name}/enable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Enable a skill",
 					"description": "Removes **{name}** from the disabled list so the skill is loaded on the next session turn.",
@@ -704,7 +704,7 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/providers/{name}/models": map[string]interface{}{
+			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
 					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**). The provider is resolved from the saved config, so its credentials (`api_key` / `api_key_command` / `NAME_API_KEY`) and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
@@ -723,7 +723,7 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/skills/{name}/disable": map[string]interface{}{
+			"/foxxycode/skills/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a skill",
 					"description": "Adds **{name}** to the disabled list so the skill is skipped during loading. The skill files are not removed.",
@@ -741,10 +741,10 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/coddy/sessions/{id}/cancel": map[string]interface{}{
+			"/foxxycode/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",
-					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. When assistant tokens were already streamed, the server persists that partial **assistant** message for the interrupted turn before the turn ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **foxxycode** process holding the turn can observe cooperative cancel. When assistant tokens were already streamed, the server persists that partial **assistant** message for the interrupted turn before the turn ends. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -787,18 +787,18 @@ func openAPISpec() map[string]interface{} {
 				"SkillList": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"object": map[string]string{"type": "string", "example": "coddy.skills_list"},
+						"object": map[string]string{"type": "string", "example": "foxxycode.skills_list"},
 						"items": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/SkillRow"},
 						},
 					},
 				},
-				"CoddyConfigJSON": map[string]interface{}{
+				"FoxxyCodeConfigJSON": map[string]interface{}{
 					"type":        "object",
-					"description": "Coddy configuration as JSON (same logical fields as **config.yaml**). See **GET** `/coddy/config/schema` for the machine-readable JSON Schema.",
+					"description": "FoxxyCode configuration as JSON (same logical fields as **config.yaml**). See **GET** `/foxxycode/config/schema` for the machine-readable JSON Schema.",
 				},
-				"CoddyConfigValidateResponse": map[string]interface{}{
+				"FoxxyCodeConfigValidateResponse": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"ok":    map[string]string{"type": "boolean"},
@@ -821,7 +821,7 @@ func openAPISpec() map[string]interface{} {
 									"id":                 map[string]string{"type": "string"},
 									"object":             map[string]string{"type": "string", "example": "model"},
 									"created":            map[string]string{"type": "integer", "format": "int64"},
-									"owned_by":           map[string]string{"type": "string", "example": "coddy"},
+									"owned_by":           map[string]string{"type": "string", "example": "foxxycode"},
 									"max_context_tokens": map[string]string{"type": "integer"},
 									"multimodal":         map[string]string{"type": "boolean"},
 									"reasoning_levels": map[string]interface{}{
@@ -855,16 +855,16 @@ func openAPISpec() map[string]interface{} {
 						},
 						"reasoning": map[string]interface{}{
 							"type":        "string",
-							"description": "Coddy transcript extension persisted model reasoning alongside assistant replies.",
+							"description": "FoxxyCode transcript extension persisted model reasoning alongside assistant replies.",
 						},
 						"reasoning_duration_ms": map[string]interface{}{
 							"type":        "integer",
 							"format":      "int64",
-							"description": "Wall-clock thinking span (ms). Coddy persists this for UI restores.",
+							"description": "Wall-clock thinking span (ms). FoxxyCode persists this for UI restores.",
 						},
 						"model": map[string]interface{}{
 							"type":        "string",
-							"description": "YAML `models[].model` selector persisted on assistant replies (Coddy extension).",
+							"description": "YAML `models[].model` selector persisted on assistant replies (FoxxyCode extension).",
 						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
@@ -948,7 +948,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"inline_files": map[string]interface{}{
 							"type":        "array",
-							"description": "Supported for all modes. For **`agent`** / **`plan`**: each file is saved to `~/.coddy/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<coddy_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
+							"description": "Supported for all modes. For **`agent`** / **`plan`**: each file is saved to `~/.foxxycode/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<foxxycode_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
 						},
 					},
@@ -1017,7 +1017,7 @@ func openAPISpec() map[string]interface{} {
 						"status": map[string]string{"type": "string", "example": "completed"},
 					},
 				},
-				"CoddySlashCommandRow": map[string]interface{}{
+				"FoxxyCodeSlashCommandRow": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"name":        map[string]string{"type": "string", "description": "Slash command id (text after `/`)."},
@@ -1025,13 +1025,13 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"name", "description"},
 				},
-				"CoddySlashCommandsPage": map[string]interface{}{
+				"FoxxyCodeSlashCommandsPage": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"object": map[string]string{"type": "string", "example": "coddy.slash_commands_page"},
+						"object": map[string]string{"type": "string", "example": "foxxycode.slash_commands_page"},
 						"items": map[string]interface{}{
 							"type":  "array",
-							"items": map[string]interface{}{"$ref": "#/components/schemas/CoddySlashCommandRow"},
+							"items": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeSlashCommandRow"},
 						},
 						"total":     map[string]string{"type": "integer", "description": "Row count after prefix filter."},
 						"has_more":  map[string]string{"type": "boolean"},
@@ -1040,7 +1040,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
 				},
-				"CoddyWorkspaceFileRow": map[string]interface{}{
+				"FoxxyCodeWorkspaceFileRow": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"name": map[string]string{"type": "string"},
@@ -1055,13 +1055,13 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"name", "path_rel", "kind"},
 				},
-				"CoddyWorkspaceFilesPage": map[string]interface{}{
+				"FoxxyCodeWorkspaceFilesPage": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"object": map[string]string{"type": "string", "example": "coddy.workspace_files_page"},
+						"object": map[string]string{"type": "string", "example": "foxxycode.workspace_files_page"},
 						"items": map[string]interface{}{
 							"type":  "array",
-							"items": map[string]interface{}{"$ref": "#/components/schemas/CoddyWorkspaceFileRow"},
+							"items": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeWorkspaceFileRow"},
 						},
 						"total":     map[string]string{"type": "integer"},
 						"has_more":  map[string]string{"type": "boolean"},
@@ -1091,7 +1091,7 @@ func errorResponseRef() map[string]interface{} {
 	}
 }
 
-func coddyPagingParams() []interface{} {
+func foxxycodePagingParams() []interface{} {
 	return []interface{}{
 		map[string]interface{}{
 			"name": "limit", "in": "query", "schema": map[string]string{"type": "string"},

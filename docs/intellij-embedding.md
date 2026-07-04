@@ -1,6 +1,6 @@
 # Embedding the UI in an IntelliJ / PhpStorm plugin (JCEF)
 
-The foxxy-agent web UI is designed to run inside JCEF (the Chromium browser
+The foxxycode-agent web UI is designed to run inside JCEF (the Chromium browser
 embedded in JetBrains IDEs) as part of an IntelliJ IDEA / PhpStorm plugin.
 
 ## Supported browser baseline
@@ -46,7 +46,7 @@ HTTP host does not.
 
 The UI has 7 built-in themes: `dark` (default), `light`, `midnight`,
 `solarized-dark`, `monokai`, `nord`, `rose-pine`. The active theme is the
-`data-theme` attribute on `<html>`, persisted in the `coddy_ui_theme`
+`data-theme` attribute on `<html>`, persisted in the `foxxycode_ui_theme`
 cookie.
 
 JCEF does not propagate the IDE look-and-feel to `prefers-color-scheme`, so
@@ -68,12 +68,12 @@ Cookie persistence inside JCEF depends on the plugin's client/cache
 configuration, so **always pass `?theme=` on load** and use the JS API below
 for live switching; the UI stays themed even when cookies are not persisted.
 
-### 2. `window.foxxyUi` JS API (live switching)
+### 2. `window.foxxycodeUi` JS API (live switching)
 
-Registered by the SPA at startup (`external/ui/src/ui/theme/foxxyUiApi.ts`):
+Registered by the SPA at startup (`external/ui/src/ui/theme/foxxycodeUiApi.ts`):
 
 ```ts
-window.foxxyUi: {
+window.foxxycodeUi: {
   version: 1;
   setTheme(theme: string): boolean;   // applies + persists; false on unknown ids
   getTheme(): string;                 // currently applied theme id
@@ -89,14 +89,14 @@ window.foxxyUi: {
 updates `data-theme`, `color-scheme`, the cookie, and every subscribed React
 component re-renders.
 
-`setLocale` updates `<html lang>`, the `coddy_ui_lang` cookie, and re-renders
+`setLocale` updates `<html lang>`, the `foxxycode_ui_lang` cookie, and re-renders
 every component that uses the i18n provider (same path as changing language in
-Settings | Tools | Foxxy in the plugin).
+Settings | Tools | FoxxyCode in the plugin).
 
 ## UI language (`?lang=` and `setLocale`)
 
 Supported SPA locales: `en` (default), `ru`. The active locale is the `lang`
-attribute on `<html>`, persisted in the `coddy_ui_lang` cookie.
+attribute on `<html>`, persisted in the `foxxycode_ui_lang` cookie.
 
 ### 1. `?lang=` query parameter (initial load, pre-first-paint)
 
@@ -107,7 +107,7 @@ http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
 Precedence: query parameter > cookie > default (`en`). A valid query value is
 applied before the first paint and written to the cookie.
 
-The Foxxy IntelliJ plugin maps **Settings | Tools | Foxxy → Language**
+The FoxxyCode IntelliJ plugin maps **Settings | Tools | FoxxyCode → Language**
 (`system` / `en` / `ru`) to `?lang=en` or `?lang=ru` on every JCEF load
 (`system` follows `Locale.getDefault()`, Russian when the JVM default language
 is `ru`).
@@ -118,7 +118,7 @@ When the user changes language in plugin settings, call:
 
 ```kotlin
 browser.cefBrowser.executeJavaScript(
-    "window.foxxyUi && window.foxxyUi.setLocale('${spaLang}')",
+    "window.foxxycodeUi && window.foxxycodeUi.setLocale('${spaLang}')",
     browser.cefBrowser.url,
     0,
 )
@@ -143,19 +143,19 @@ project.messageBus.connect(disposable).subscribe(
     LafManagerListener.TOPIC,
     LafManagerListener {
         browser.cefBrowser.executeJavaScript(
-            "window.foxxyUi && window.foxxyUi.setTheme('${ideTheme()}')",
+            "window.foxxycodeUi && window.foxxycodeUi.setTheme('${ideTheme()}')",
             browser.cefBrowser.url,
             0,
         )
     },
 )
 
-// Follow Foxxy plugin language changes (Settings | Tools | Foxxy > Language).
+// Follow FoxxyCode plugin language changes (Settings | Tools | FoxxyCode > Language).
 project.messageBus.connect(disposable).subscribe(
-    FoxxyLanguageListener.TOPIC,
-    FoxxyLanguageListener {
+    FoxxyCodeLanguageListener.TOPIC,
+    FoxxyCodeLanguageListener {
         browser.cefBrowser.executeJavaScript(
-            "window.foxxyUi && window.foxxyUi.setLocale('${spaLang()}')",
+            "window.foxxycodeUi && window.foxxycodeUi.setLocale('${spaLang()}')",
             browser.cefBrowser.url,
             0,
         )
@@ -179,7 +179,7 @@ first paint, and CSS overrides keyed on `[data-embed="intellij"]` then:
 - drop the docked vignette above the composer;
 - tighten hero/composer spacing.
 
-Only the visual chrome changes; behaviour and the `window.foxxyUi` theme
+Only the visual chrome changes; behaviour and the `window.foxxycodeUi` theme
 contract are unchanged. Other embeddings may pass their own id, but
 `intellij` is the only id the shipped CSS currently specialises.
 
@@ -196,5 +196,5 @@ IDE:
 cd external/ui && npm run build:go
 # in a scratch directory:
 npm i playwright@1.24 && npx playwright install chromium
-# drive http://127.0.0.1:<port>/ served by `coddy http` (build tag "http ui")
+# drive http://127.0.0.1:<port>/ served by `foxxycode http` (build tag "http ui")
 ```

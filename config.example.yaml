@@ -1,9 +1,9 @@
 # .env file support
-# If $CODDY_HOME/.env exists, it is loaded at startup before config.yaml is parsed.
+# If $FOXXYCODE_HOME/.env exists, it is loaded at startup before config.yaml is parsed.
 # Variables already set in the process environment are NOT overridden — .env is a fallback only.
 # Use it to keep secrets out of config.yaml without touching your shell profile:
 #
-#   ~/.coddy/.env
+#   ~/.foxxycode/.env
 #   ──────────────
 #   OPENAI_API_KEY=sk-...
 #   TELEGRAM_BOT_TOKEN=8992982910:AAF...
@@ -73,7 +73,7 @@ agent:
 
 sessions:
   # Directory to store session bundles.
-  # Leave empty to use default $CODDY_HOME/sessions.
+  # Leave empty to use default $FOXXYCODE_HOME/sessions.
   dir: ""
 
 prompts:
@@ -89,7 +89,7 @@ prompts:
 skills:
   # dirs is the list of directories scanned for skills and rules.
   # Searched in order. When empty, defaults are
-  # ${CODDY_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
+  # ${FOXXYCODE_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
   dirs: []
 
 mcp_servers: []
@@ -137,32 +137,32 @@ tools:
 #   port: 8080
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
-# Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
+# Jobs live under scheduler.dir (${FOXXYCODE_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
 # (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,
 # basename.lock during a run.
-# Enable with scheduler.enabled and/or coddy acp|http -scheduler-enabled.
+# Enable with scheduler.enabled and/or foxxycode acp|http -scheduler-enabled.
 # scheduler:
 #   enabled: false
-#   dir: ""              # empty = ${CODDY_HOME}/scheduler
+#   dir: ""              # empty = ${FOXXYCODE_HOME}/scheduler
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
 # Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enabled.
-# Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
+# Stores markdown under memory.dir (default ${FOXXYCODE_HOME}/memory) and <session cwd>/memory (project). Injects text into the
 # same {{.Memory}} section as session notes; main agent never sees memory_* tools.
 # memory.model is used ONLY for recall + persist LLM calls. Set it to an exact models[].model id when you want memory
 # pinned independently of agent.model (example: "rpa/gpt-oss:120b"). Leave empty to reuse the session or agent default model.
 # memory:
 #   enabled: false
 #   model: ""
-#   dir: "" # default ${CODDY_HOME}/memory when empty
+#   dir: "" # default ${FOXXYCODE_HOME}/memory when empty
 #   recall_max_turns: 6
 #   persist_max_turns: 12
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
-# Run the bot with: coddy gateway --config config.yaml
+# Run the bot with: foxxycode gateway --config config.yaml
 # gateways:
 #   telegram:
 #     enabled: false
@@ -191,7 +191,7 @@ logger:
   level: "info"
   # outputs: ["stderr"]          # default when omitted
   # outputs: ["stdout", "file"] # example: tee to console and file
-  # file: "${CODDY_HOME}/coddy.log"  # required when outputs includes "file"
+  # file: "${FOXXYCODE_HOME}/foxxycode.log"  # required when outputs includes "file"
   format: "text"
   rotation:
     max_size_mb: 0

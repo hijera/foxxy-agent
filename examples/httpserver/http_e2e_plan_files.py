@@ -3,7 +3,7 @@
 
 Mirrors ``examples/acp/acp_e2e_plan_files.py`` over ``POST /v1/responses``.
 
-Environment: ``BASE_URL`` (ends with ``/v1``), ``MODEL``, ``WORK_DIR``, ``CODDY_HOME``.
+Environment: ``BASE_URL`` (ends with ``/v1``), ``MODEL``, ``WORK_DIR``, ``FOXXYCODE_HOME``.
 """
 
 from __future__ import annotations
@@ -72,16 +72,16 @@ def stream_responses(
 
     events: list[tuple[str, str]] = []
     with urllib.request.urlopen(req, timeout=deadline_s + 30) as resp:
-        # The server only echoes X-Coddy-Session-ID when it creates a new session; when we
+        # The server only echoes X-FoxxyCode-Session-ID when it creates a new session; when we
         # reuse a session (header sent on the request) fall back to the id we provided.
         sid = (
-            resp.headers.get("X-Coddy-Session-Id")
-            or resp.headers.get("X-Coddy-Session-ID")
-            or (headers or {}).get("X-Coddy-Session-ID")
+            resp.headers.get("X-FoxxyCode-Session-Id")
+            or resp.headers.get("X-FoxxyCode-Session-ID")
+            or (headers or {}).get("X-FoxxyCode-Session-ID")
             or ""
         ).strip()
         if not sid:
-            raise RuntimeError("missing X-Coddy-Session-ID header")
+            raise RuntimeError("missing X-FoxxyCode-Session-ID header")
 
         deadline = time.time() + deadline_s
         for ev, data in sse_events(resp):
@@ -114,9 +114,9 @@ def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
     work = Path(os.environ.get("WORK_DIR", "")).resolve()
-    home = Path(os.environ.get("CODDY_HOME", "")).resolve()
+    home = Path(os.environ.get("FOXXYCODE_HOME", "")).resolve()
     if not work.is_dir() or not home.is_dir():
-        print("WORK_DIR and CODDY_HOME must point to existing directories", file=sys.stderr)
+        print("WORK_DIR and FOXXYCODE_HOME must point to existing directories", file=sys.stderr)
         return 2
 
     try:
@@ -161,7 +161,7 @@ def main() -> int:
                 "metadata": {"model": yaml_model, "runPlanSlug": PLAN_SLUG},
                 "input": "Implement the plan.",
             },
-            headers={"X-Coddy-Session-ID": sid},
+            headers={"X-FoxxyCode-Session-ID": sid},
         )
         run_titles = tool_titles_from_sse(run_events)
         if "write" not in run_titles and "run_command" not in run_titles:

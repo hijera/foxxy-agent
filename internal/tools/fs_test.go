@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 func makeEnv(t *testing.T) *tools.Env {

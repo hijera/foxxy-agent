@@ -8,7 +8,7 @@ WORKDIR /ui
 COPY external/ui/package.json external/ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit
 COPY external/ui/ ./
-COPY docs/assets/coddy-logo-mark-flat.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
+COPY docs/assets/foxxycode-logo-mark-flat.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
 RUN npm run build:go
 
 
@@ -41,31 +41,31 @@ RUN mkdir -p /out \
 	go build \
 	-tags="$GO_TAGS" \
 	-trimpath \
-	-ldflags "-s -w -X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}" \
-	-o /out/foxxy \
-	./cmd/coddy/; \
+	-ldflags "-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
+	-o /out/foxxycode \
+	./cmd/foxxycode/; \
 	else \
 	go build \
 	-trimpath \
-	-ldflags "-s -w -X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}" \
-	-o /out/foxxy \
-	./cmd/coddy/; \
+	-ldflags "-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
+	-o /out/foxxycode \
+	./cmd/foxxycode/; \
 	fi \
 	&& cp /etc/ssl/certs/ca-certificates.crt /out/ssl-certs/ca-certificates.crt
 
 
 FROM scratch
 
-COPY --from=build /out/foxxy /bin/foxxy
+COPY --from=build /out/foxxycode /bin/foxxycode
 COPY --from=build /out/ssl-certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /workspace
 
-ENV CODDY_HOME=/home/user/.coddy
-ENV CODDY_CWD=/workspace
-ENV CODDY_CONFIG=/home/user/.coddy.yaml
+ENV FOXXYCODE_HOME=/home/user/.foxxycode
+ENV FOXXYCODE_CWD=/workspace
+ENV FOXXYCODE_CONFIG=/home/user/.foxxycode.yaml
 
 EXPOSE 12345
 
-ENTRYPOINT ["/bin/foxxy"]
+ENTRYPOINT ["/bin/foxxycode"]
 CMD ["http","-H","0.0.0.0","-P","12345"]

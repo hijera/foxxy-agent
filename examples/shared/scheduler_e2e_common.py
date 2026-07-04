@@ -51,16 +51,16 @@ def same_id(a: Any, b: Any) -> bool:
         return False
 
 
-def default_coddy_bin() -> str:
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+def default_foxxycode_bin() -> str:
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def load_e2e_config(work: Path) -> str:
     if not CONFIG_DEMO.is_file():
         raise FileNotFoundError(f"missing shared config: {CONFIG_DEMO}")
     raw = CONFIG_DEMO.read_text(encoding="utf-8")
-    log_path = (work / "coddy-e2e-global.log").resolve()
+    log_path = (work / "foxxycode-e2e-global.log").resolve()
     if "__E2E_LOG_PATH__" not in raw:
         raise ValueError(f"{CONFIG_DEMO} must set logger.file to __E2E_LOG_PATH__ for e2e")
     return raw.replace("__E2E_LOG_PATH__", str(log_path))
@@ -99,7 +99,7 @@ def rpc_call(
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -283,12 +283,12 @@ STEP 1 - Run exactly this shell via run_command tool (choose the project's run_c
 bash -lc 'echo {PHASE1_NEEDLE} > {PHASE1_MARKER}'
 Verify file {PHASE1_MARKER} exists in cwd before continuing.
 
-STEP 2 - Call tool coddy_scheduler_job_create exactly once. Use these JSON arguments verbatim (one tool call): {create_json}
+STEP 2 - Call tool foxxycode_scheduler_job_create exactly once. Use these JSON arguments verbatim (one tool call): {create_json}
 
 STEP 3 - Reply single line OK when both steps succeeded.
 """
 
-    glo = (work / "coddy-e2e-global.log").resolve()
+    glo = (work / "foxxycode-e2e-global.log").resolve()
 
     try:
         r0, _ = rpc_call(
@@ -369,15 +369,15 @@ def model_from_demo() -> str:
 
 
 def resolve_scheduler_global_log(home: Path, work: Path) -> Path:
-    """Prefer CODDY_HOME/e2e.log (examples harness); else workdir global log."""
-    for p in (home / "e2e.log", work / "coddy-e2e-global.log"):
+    """Prefer FOXXYCODE_HOME/e2e.log (examples harness); else workdir global log."""
+    for p in (home / "e2e.log", work / "foxxycode-e2e-global.log"):
         if p.is_file():
             return p
     return home / "e2e.log"
 
 
 def run_http_scheduler_agent_e2e_existing(base_v1: str, home: Path, work: Path) -> int:
-    """Drive scheduler via HTTP chat against an already running coddy http (same home or cwd as process).
+    """Drive scheduler via HTTP chat against an already running foxxycode http (same home or cwd as process).
 
     Expects BASE_URL-style ``base_v1`` ending in ``/v1``, scheduler dir under ``home/scheduler``,
     and job side effects under ``work``.
@@ -388,11 +388,11 @@ def run_http_scheduler_agent_e2e_existing(base_v1: str, home: Path, work: Path) 
         return 12
 
     yaml_model = os.environ.get("MODEL", "").strip() or model_from_demo()
-    profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
+    profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     create_json = jd(job_create_args())
     compound_prompt = f"""Working directory MUST be: {work}
 STEP 1: run_command bash -lc 'echo {PHASE1_NEEDLE} > {PHASE1_MARKER}'
-STEP 2: coddy_scheduler_job_create JSON arguments exactly (one call): {create_json}
+STEP 2: foxxycode_scheduler_job_create JSON arguments exactly (one call): {create_json}
 STEP 3: reply OK
 """
 
@@ -489,9 +489,9 @@ def run_http(binary: Path, cfg_path: Path, home: Path, work: Path, port: int) ->
             proc.kill()
 
 
-def validate_coddy_scheduler_bin(bin_path: Path, *, need_http_help: bool) -> int | None:
+def validate_foxxycode_scheduler_bin(bin_path: Path, *, need_http_help: bool) -> int | None:
     if not bin_path.is_file() and shutil.which(str(bin_path)) is None:
-        print(f"CODDY_BIN not executable: {bin_path}", flush=True)
+        print(f"FOXXYCODE_BIN not executable: {bin_path}", flush=True)
         return 99
 
     proc_help = subprocess.run([str(bin_path), "acp", "--help"], capture_output=True, text=True)

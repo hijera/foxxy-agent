@@ -65,7 +65,7 @@ function fmtInt(n: number | undefined): string {
   return Math.max(0, Math.trunc(n)).toLocaleString(getLocale());
 }
 
-/** Short label for **`models[].model`** ids (Coddy profile IDs use displayMode elsewhere). */
+/** Short label for **`models[].model`** ids (FoxxyCode profile IDs use displayMode elsewhere). */
 function displayLlmId(id: string, modelFallback: string): string {
   const m = id || "";
   const i = m.lastIndexOf("/");
@@ -92,11 +92,11 @@ export function Composer(props: {
   isEmpty: boolean;
   /** Empty-state composer refocuses when this increments (e.g. each New Chat). */
   focusEpoch?: number;
-  /** When set, slash command requests send X-Coddy-Session-ID for cwd-scoped skills. */
+  /** When set, slash command requests send X-FoxxyCode-Session-ID for cwd-scoped skills. */
   sessionId?: string;
   mode: string;
   modes: string[];
-  /** Configured backends (`owned_by` != **`coddy`**). Omitted when empty. */
+  /** Configured backends (`owned_by` != **`foxxycode`**). Omitted when empty. */
   llmModels?: string[];
   /** Selected **`models[].model`** id (`metadata.model` on profile requests). */
   llmModel?: string;
@@ -449,9 +449,9 @@ export function Composer(props: {
       const headers: Record<string, string> = {};
       const sid = (props.sessionId || "").trim();
       if (sid) {
-        headers["X-Coddy-Session-ID"] = sid;
+        headers["X-FoxxyCode-Session-ID"] = sid;
       }
-      const res = await fetch(`/coddy/slash-commands?${sp.toString()}`, {
+      const res = await fetch(`/foxxycode/slash-commands?${sp.toString()}`, {
         headers,
       });
       if (!res.ok) {
@@ -477,9 +477,9 @@ export function Composer(props: {
       const headers: Record<string, string> = {};
       const sid = (props.sessionId || "").trim();
       if (sid) {
-        headers["X-Coddy-Session-ID"] = sid;
+        headers["X-FoxxyCode-Session-ID"] = sid;
       }
-      const res = await fetch(`/coddy/workspace/files?${sp.toString()}`, {
+      const res = await fetch(`/foxxycode/workspace/files?${sp.toString()}`, {
         headers,
       });
       if (!res.ok) {
@@ -509,9 +509,9 @@ export function Composer(props: {
       };
       const sid = (props.sessionId || "").trim();
       if (sid) {
-        headers["X-Coddy-Session-ID"] = sid;
+        headers["X-FoxxyCode-Session-ID"] = sid;
       }
-      const res = await fetch("/coddy/enhance-prompt", {
+      const res = await fetch("/foxxycode/enhance-prompt", {
         method: "POST",
         headers,
         body: JSON.stringify({ text: draft }),

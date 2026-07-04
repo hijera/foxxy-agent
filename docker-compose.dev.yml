@@ -1,34 +1,34 @@
-# Build Coddy from the local Dockerfile (for development and smoke tests).
+# Build FoxxyCode from the local Dockerfile (for development and smoke tests).
 # See docs/docker.md
 #
 #   docker compose -f docker-compose.dev.yml build
 #   docker compose -f docker-compose.dev.yml up -d --build
 
 services:
-  foxxy:
+  foxxycode:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: ${CODDY_VERSION:-dev}
-        BUILD_TAGS: ${CODDY_BUILD_TAGS:-http,scheduler,ui,memory}
-    image: foxxy-agent:${CODDY_VERSION:-dev}
+        VERSION: ${FOXXYCODE_VERSION:-dev}
+        BUILD_TAGS: ${FOXXYCODE_BUILD_TAGS:-http,scheduler,ui,memory}
+    image: foxxycode-agent:${FOXXYCODE_VERSION:-dev}
     ports:
-      - "${CODDY_HTTP_PORT:-12345}:12345"
+      - "${FOXXYCODE_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
     environment:
-      CODDY_HOME: /home/user/.coddy
-      CODDY_CWD: /workspace
-      CODDY_CONFIG: /home/user/.coddy.yaml
+      FOXXYCODE_HOME: /home/user/.foxxycode
+      FOXXYCODE_CWD: /workspace
+      FOXXYCODE_CONFIG: /home/user/.foxxycode.yaml
       OPENAI_API_KEY: ${OPENAI_API_KEY-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY-}
     volumes:
-      - ${CODDY_CONFIG-./config.yaml}:/home/user/.coddy.yaml:ro
-      - ${CODDY_CWD-./workspace}:/workspace
-      - ${CODDY_HOME-./coddy_home}:/home/user/.coddy
+      - ${FOXXYCODE_CONFIG-./config.yaml}:/home/user/.foxxycode.yaml:ro
+      - ${FOXXYCODE_CWD-./workspace}:/workspace
+      - ${FOXXYCODE_HOME-./foxxycode_home}:/home/user/.foxxycode
     healthcheck:
-      test: ["CMD", "/bin/foxxy", "--version"]
+      test: ["CMD", "/bin/foxxycode", "--version"]
       interval: 5s
       timeout: 3s
       retries: 20

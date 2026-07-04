@@ -1,5 +1,5 @@
-import type { CoddyPermissionPayload, PermissionResolvedState } from "./permissionTypes";
-import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
+import type { FoxxyCodePermissionPayload, PermissionResolvedState } from "./permissionTypes";
+import type { FoxxyCodeQuestionPayload, QuestionResolvedState } from "./questionTypes";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -11,13 +11,13 @@ export type TranscriptItem =
   | {
       id: string;
       type: "permission_prompt";
-      payload: CoddyPermissionPayload;
+      payload: FoxxyCodePermissionPayload;
       resolved?: PermissionResolvedState;
     }
   | {
       id: string;
       type: "question_prompt";
-      payload: CoddyQuestionPayload;
+      payload: FoxxyCodeQuestionPayload;
       resolved?: QuestionResolvedState;
     }
   | {
@@ -122,6 +122,6 @@ export type TranscriptItem =
       persistTitle?: string;
       /** Markdown body written when PersistSaved (from server, may be truncated). */
       persistSavedBody?: string;
-      /** scope:relative paths read via coddy_memory_read during recall. */
+      /** scope:relative paths read via foxxycode_memory_read during recall. */
       recallReadPaths?: string[];
     };

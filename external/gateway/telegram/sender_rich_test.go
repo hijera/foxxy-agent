@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 // capturingServer records every Bot API call (endpoint + form values).

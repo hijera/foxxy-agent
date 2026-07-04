@@ -1,11 +1,11 @@
 //go:build scheduler
 
-// Package schedtools registers coddy_scheduler_* tools when scheduler is enabled.
+// Package schedtools registers foxxycode_scheduler_* tools when scheduler is enabled.
 package schedtools
 
 import (
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // RegisterTools registers scheduler maintenance tools (requires cfg.Scheduler enabled).

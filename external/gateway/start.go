@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/hijera/foxxy-agent/external/gateway/telegram"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/external/gateway/telegram"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // Start builds all enabled gateway adapters and runs the hub. Blocks until ctx is cancelled.

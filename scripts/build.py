@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive and non-interactive build wizard for Foxxy Agent."""
+"""Interactive and non-interactive build wizard for FoxxyCode Agent."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-VERSION_PKG = "github.com/hijera/foxxy-agent/internal/version.Version"
+VERSION_PKG = "github.com/hijera/foxxycode-agent/internal/version.Version"
 
 ALL_TAGS = ("http", "ui", "scheduler", "memory", "gateway.telegram", "gateway")
 
@@ -107,7 +107,7 @@ def host_platform() -> tuple[str, str]:
 
 
 def bin_name(goos: str) -> str:
-    return "foxxy.exe" if goos == "windows" else "foxxy"
+    return "foxxycode.exe" if goos == "windows" else "foxxycode"
 
 
 def which(cmd: str) -> Optional[str]:
@@ -261,7 +261,7 @@ def go_build_one(
             ldflags(version, strip),
             "-o",
             str(out_path),
-            "./cmd/coddy/",
+            "./cmd/foxxycode/",
         ]
     )
     env = {"GOOS": goos, "GOARCH": goarch, "CGO_ENABLED": "0"}
@@ -293,7 +293,7 @@ def pack_archive(ui: UI, binary: Path, archive_path: Path, goos: str, dry_run: b
 
 
 def write_sha256sums(ui: UI, dist_dir: Path, dry_run: bool) -> None:
-    archives = sorted(dist_dir.glob("foxxy_*.tar.gz")) + sorted(dist_dir.glob("foxxy_*.zip"))
+    archives = sorted(dist_dir.glob("foxxycode_*.tar.gz")) + sorted(dist_dir.glob("foxxycode_*.zip"))
     if not archives:
         return
     sums_path = dist_dir / "SHA256SUMS"
@@ -344,7 +344,7 @@ def build_target_cli(ui: UI, opts: BuildOptions) -> None:
     for goos, goarch in targets:
         ui.info(f"Сборка CLI: {goos}/{goarch} теги=[{', '.join(tags) or 'нет'}]")
         if opts.all_release or opts.archive:
-            stem = f"foxxy_{version}_{goos}_{goarch}"
+            stem = f"foxxycode_{version}_{goos}_{goarch}"
             staging = dist_dir / "_staging" / stem
             out = staging / bin_name(goos)
         else:
@@ -938,7 +938,7 @@ def prompt_platform(ui: UI) -> tuple[list[tuple[str, str]], bool, bool]:
 
 def interactive_menu(ui: UI) -> None:
     host = host_platform()
-    print("=== Мастер сборки Foxxy ===")
+    print("=== Мастер сборки FoxxyCode ===")
     ui.info(f"Текущая платформа: {host[0]}/{host[1]} (host)")
     ui.info(f"Корень репозитория: {REPO_ROOT}")
 
@@ -946,7 +946,7 @@ def interactive_menu(ui: UI) -> None:
         ui,
         "Выберите цель сборки:",
         [
-            ("1", "CLI-бинарник foxxy (standalone)"),
+            ("1", "CLI-бинарник foxxycode (standalone)"),
             ("2", "Плагин IntelliJ (JetBrains IDE)"),
             ("3", "Расширение VS Code (VSIX)"),
             ("4", "Всё сразу (CLI для всех платформ + оба плагина)"),
@@ -1042,7 +1042,7 @@ def interactive_menu(ui: UI) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Универсальный мастер сборки Foxxy Agent (CLI, IntelliJ, VS Code).",
+        description="Универсальный мастер сборки FoxxyCode Agent (CLI, IntelliJ, VS Code).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Примеры:

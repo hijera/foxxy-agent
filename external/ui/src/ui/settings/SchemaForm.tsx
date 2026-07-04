@@ -32,8 +32,8 @@ export type JsonSchema = {
   minimum?: number;
   maximum?: number;
   pattern?: string;
-  "x-coddy-property-order"?: string[];
-  "x-coddy-provider-api-key-env-placeholder"?: boolean;
+  "x-foxxycode-property-order"?: string[];
+  "x-foxxycode-provider-api-key-env-placeholder"?: boolean;
 };
 
 function entriesInSchemaOrder(
@@ -92,7 +92,7 @@ export function defaultForSchema(s: JsonSchema): unknown {
     const o: Record<string, unknown> = {};
     for (const [k, sub] of entriesInSchemaOrder(
       s.properties,
-      s["x-coddy-property-order"],
+      s["x-foxxycode-property-order"],
     )) {
       if (sub.default !== undefined) {
         o[k] = sub.default;
@@ -139,7 +139,7 @@ function SchemaField(props: {
   }
   let ph = placeholderFromDefault(schema);
   if (
-    schema["x-coddy-provider-api-key-env-placeholder"] === true &&
+    schema["x-foxxycode-provider-api-key-env-placeholder"] === true &&
     parentObj
   ) {
     const pname =
@@ -163,7 +163,7 @@ function SchemaField(props: {
         <div className="settings-nested">
           {entriesInSchemaOrder(
             schema.properties,
-            schema["x-coddy-property-order"],
+            schema["x-foxxycode-property-order"],
           ).map(([k, sub]) => (
             <SchemaField
               key={k}
@@ -371,7 +371,7 @@ export function SchemaForm(props: {
     <div className="settings-schema-root">
       {entriesInSchemaOrder(
         schema.properties,
-        schema["x-coddy-property-order"],
+        schema["x-foxxycode-property-order"],
       ).map(([k, sub]) => (
         <SchemaField
           key={k}

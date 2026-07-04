@@ -3,11 +3,11 @@
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
 #     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
-#     http     OpenAI-compatible gateway (foxxy http)
+#     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
-#     memory          long-term memory copilot and /coddy memory REST (see external/memory/)
-#     gateway.telegram  Telegram bot gateway only (foxxy gateway; see external/gateway/)
+#     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
+#     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
@@ -26,13 +26,13 @@ VERSION := $(shell \
 	elif desc=$$(git describe --tags --dirty 2>/dev/null); then echo $$desc; \
 	elif desc=$$(git describe --tags --always --dirty 2>/dev/null); then echo $$desc; \
 	else echo dev; fi)
-LDFLAGS := -X github.com/hijera/foxxy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/hijera/foxxycode-agent/internal/version.Version=$(VERSION)
 
 TAGS ?=
 BUILD_DIR := build
-BINARY := $(BUILD_DIR)/foxxy
+BINARY := $(BUILD_DIR)/foxxycode
 
-# Default tag set for `make install` when build/foxxy is missing (matches Docker BUILD_TAGS).
+# Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
 FULL_TAGS := http ui scheduler memory
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
@@ -51,10 +51,10 @@ ui-build:
 	npm --prefix external/ui install --no-fund --no-audit
 	npm --prefix external/ui run build:go
 
-# Build the foxxy CLI (skills commands + ACP entrypoint; optional modules via TAGS).
+# Build the foxxycode CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
 	@mkdir -p $(BUILD_DIR)
-	go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/coddy/
+	go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/foxxycode/
 
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:
@@ -63,7 +63,7 @@ print-version:
 # Install binary: /usr/local/bin for root, ~/.local/bin for regular users.
 INSTALL_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/bin,$(HOME)/.local/bin)
 
-# Install build/foxxy onto PATH. Reuses an existing binary; builds FULL_TAGS only when missing.
+# Install build/foxxycode onto PATH. Reuses an existing binary; builds FULL_TAGS only when missing.
 install:
 	@mkdir -p $(INSTALL_DIR)
 	@if [ ! -f $(BINARY) ]; then \
@@ -72,8 +72,8 @@ install:
 	else \
 		echo "Installing existing $(BINARY)"; \
 	fi
-	cp $(BINARY) $(INSTALL_DIR)/foxxy
-	@echo "Installed to $(INSTALL_DIR)/foxxy"
+	cp $(BINARY) $(INSTALL_DIR)/foxxycode
+	@echo "Installed to $(INSTALL_DIR)/foxxycode"
 
 # Run all tests.
 test:
@@ -101,7 +101,7 @@ lint:
 
 # ---- Editor plugins ----
 # Build the JetBrains plugin from the repo root. Requires Go, Node/npm, and a JDK 17 on PATH.
-# The Gradle build cross-compiles the bundled foxxy binary for every desktop target and packs
+# The Gradle build cross-compiles the bundled foxxycode binary for every desktop target and packs
 # them into one plugin zip under editors/intellij/build/distributions/.
 # Version defaults to the embedded VERSION; override with `make intellij-build PLUGIN_VERSION=1.2.3`.
 PLUGIN_VERSION ?= $(VERSION)

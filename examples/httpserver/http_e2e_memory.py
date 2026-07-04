@@ -39,11 +39,11 @@ def assistant_text(chat_completion: dict[str, Any]) -> str:
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
-    profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
+    profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     work = Path(os.environ.get("WORK_DIR", "")).resolve()
-    home = Path(os.environ.get("CODDY_HOME", "")).resolve()
+    home = Path(os.environ.get("FOXXYCODE_HOME", "")).resolve()
     if not work.is_dir() or not home.is_dir():
-        print("WORK_DIR and CODDY_HOME must point to existing directories", file=sys.stderr)
+        print("WORK_DIR and FOXXYCODE_HOME must point to existing directories", file=sys.stderr)
         return 2
 
     global_mem = home / "memory"
@@ -70,9 +70,9 @@ def main() -> int:
     if code != 200:
         print("chat 1 failed", file=sys.stderr)
         return 1
-    sid = (headers.get("X-Coddy-Session-Id") or headers.get("X-Coddy-Session-ID") or "").strip()
+    sid = (headers.get("X-FoxxyCode-Session-Id") or headers.get("X-FoxxyCode-Session-ID") or "").strip()
     if not sid:
-        print("missing X-Coddy-Session-ID", file=sys.stderr)
+        print("missing X-FoxxyCode-Session-ID", file=sys.stderr)
         return 1
 
     code, cc2, _ = http_json(
@@ -89,7 +89,7 @@ def main() -> int:
                 }
             ],
         },
-        {"X-Coddy-Session-ID": sid},
+        {"X-FoxxyCode-Session-ID": sid},
     )
     if code != 200 or not assistant_text(cc2):
         print("chat 2 failed", file=sys.stderr)

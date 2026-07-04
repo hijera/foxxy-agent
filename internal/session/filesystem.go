@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tools/todo"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
 const (
@@ -122,7 +122,7 @@ type SessionMeta struct {
 	PermissionMode string `json:"permissionMode,omitempty"`
 }
 
-// ExcludedFromComposerSessionList reports whether this session should not appear on default composer UI lists (GET /coddy/sessions).
+// ExcludedFromComposerSessionList reports whether this session should not appear on default composer UI lists (GET /foxxycode/sessions).
 func (m SessionMeta) ExcludedFromComposerSessionList(sessionFolderName string) bool {
 	if m.SchedulerRun {
 		return true
@@ -462,7 +462,7 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
-			text := stripCoddySessionAssetsXML(strings.TrimSpace(msg.Content))
+			text := stripFoxxyCodeSessionAssetsXML(strings.TrimSpace(msg.Content))
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -473,10 +473,10 @@ func deriveSessionTitle(s *State) string {
 	return ""
 }
 
-// stripCoddySessionAssetsXML removes <coddy_session_assets>...</coddy_session_assets> blocks from s.
-func stripCoddySessionAssetsXML(s string) string {
-	const open = "<coddy_session_assets>"
-	const close = "</coddy_session_assets>"
+// stripFoxxyCodeSessionAssetsXML removes <foxxycode_session_assets>...</foxxycode_session_assets> blocks from s.
+func stripFoxxyCodeSessionAssetsXML(s string) string {
+	const open = "<foxxycode_session_assets>"
+	const close = "</foxxycode_session_assets>"
 	for {
 		start := strings.Index(strings.ToLower(s), strings.ToLower(open))
 		if start < 0 {

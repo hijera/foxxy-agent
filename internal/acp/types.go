@@ -4,10 +4,10 @@ package acp
 const ProtocolVersion = 1
 
 // AgentName is the agent's identifier.
-const AgentName = "coddy-agent"
+const AgentName = "foxxycode-agent"
 
 // AgentTitle is the human-readable agent name.
-const AgentTitle = "Coddy Agent"
+const AgentTitle = "FoxxyCode Agent"
 
 // ---- JSON-RPC 2.0 base types ----
 
@@ -372,7 +372,7 @@ type ToolCallStatusUpdate struct {
 	ToolCallID    string                 `json:"toolCallId"`
 	Status        string                 `json:"status"` // "in_progress", "completed", "failed", "cancelled"
 	Content       []ToolCallResultItem   `json:"content,omitempty"`
-	Meta          map[string]interface{} `json:"_meta,omitempty"` // ACP extensibility; Coddy uses coddy.toolResultPreview for truncated previews
+	Meta          map[string]interface{} `json:"_meta,omitempty"` // ACP extensibility; FoxxyCode uses foxxycode.toolResultPreview for truncated previews
 }
 
 // ToolCallResultItem wraps content in a tool call result.
@@ -421,7 +421,7 @@ type MemoryPhaseUpdate struct {
 	Status        string `json:"status"` // "started" | "completed"
 	UserTurnIndex int    `json:"userTurnIndex,omitempty"`
 	DurationMs    int64  `json:"durationMs,omitempty"`
-	// Recall-only populates when Phase is recall and Status is completed (coddy_memory_read paths).
+	// Recall-only populates when Phase is recall and Status is completed (foxxycode_memory_read paths).
 	RecallReadPaths []string `json:"recallReadPaths,omitempty"`
 	// Persist-only populates when Phase is persist and Status is completed.
 	PersistSaved        bool   `json:"persistSaved,omitempty"`

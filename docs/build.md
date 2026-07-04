@@ -1,4 +1,4 @@
-# Building Coddy from source
+# Building FoxxyCode from source
 
 This page is the detailed reference for local builds. For a short version, see [Installation](../README.md#installation) in the root **README**.
 
@@ -57,8 +57,8 @@ python scripts/build.py --target all --preset full
 
 | Wizard choice | Output |
 |---------------|--------|
-| CLI (single platform) | **`build/foxxy`** or **`build/foxxy.exe`** |
-| CLI (all release) | **`dist/foxxy_<version>_<os>_<arch>.{tar.gz,zip}`** + **`dist/SHA256SUMS`** |
+| CLI (single platform) | **`build/foxxycode`** or **`build/foxxycode.exe`** |
+| CLI (all release) | **`dist/foxxycode_<version>_<os>_<arch>.{tar.gz,zip}`** + **`dist/SHA256SUMS`** |
 | IntelliJ | **`editors/intellij/build/distributions/*.zip`** |
 | VS Code | **`editors/vscode/*.vsix`** (one per **`--vscode-target`**) |
 
@@ -77,7 +77,7 @@ The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are contro
 make build TAGS="http ui scheduler memory"
 ```
 
-Output: **`build/coddy`**.
+Output: **`build/foxxycode`**.
 
 Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`make build`**, which runs **`ui-build`** automatically when **`TAGS`** contains both **`http`** and **`ui`**):
 
@@ -85,22 +85,22 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
 go build -tags=http,ui,scheduler,memory \
-  -ldflags "-X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}" \
-  -o build/coddy \
-  ./cmd/coddy/
+  -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
+  -o build/foxxycode \
+  ./cmd/foxxycode/
 ```
 
 The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
 ## Install on your PATH
 
-**`make install`** copies **`build/coddy`** onto your **`PATH`**:
+**`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
 
-- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory"`**), it is installed as-is without rebuilding.
+- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory"`**), it is installed as-is without rebuilding.
 - If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory"`** first.
 
-- **root** - **`/usr/local/bin/coddy`**
-- **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**)
+- **root** - **`/usr/local/bin/foxxycode`**
+- **non-root** - **`~/.local/bin/foxxycode`** (ensure that directory is on **`PATH`**)
 
 ```bash
 make build TAGS="http ui scheduler memory"
@@ -109,11 +109,11 @@ make install
 
 ## Update from GitHub Releases
 
-See **[docs/update.md](update.md)** for **`coddy update`**, release asset names, and how that differs from **`make install`**.
+See **[docs/update.md](update.md)** for **`foxxycode update`**, release asset names, and how that differs from **`make install`**.
 
 ## Lean build (ACP-focused, smaller binary)
 
-Plain **`make build`** (empty **`TAGS`**) omits **`external/httpserver`**, the embedded UI, **`external/scheduler`**, and **`external/memory`**. You still get **`coddy acp`**, core tools, and MCP.
+Plain **`make build`** (empty **`TAGS`**) omits **`external/httpserver`**, the embedded UI, **`external/scheduler`**, and **`external/memory`**. You still get **`foxxycode acp`**, core tools, and MCP.
 
 ```bash
 make build
@@ -126,7 +126,7 @@ Use this when you only need stdio ACP and want fewer dependencies and no **`npm`
 The Makefile sets:
 
 ```text
-LDFLAGS := -X github.com/hijera/foxxy-agent/internal/version.Version=$(VERSION)
+LDFLAGS := -X github.com/hijera/foxxycode-agent/internal/version.Version=$(VERSION)
 ```
 
 **`VERSION`** is resolved from git (tag at **HEAD**, else **`git describe`**, else **`dev`**). Print the same value the next **`make build`** would embed:
@@ -140,9 +140,9 @@ Manual one-liner aligned with **`make build`**:
 ```bash
 go build \
   -tags=http,ui,scheduler,memory \
-  -ldflags "-X github.com/hijera/foxxy-agent/internal/version.Version=$(make -s print-version)" \
-  -o build/coddy \
-  ./cmd/coddy/
+  -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=$(make -s print-version)" \
+  -o build/foxxycode \
+  ./cmd/foxxycode/
 ```
 
 ## **`TAGS` vs `go build -tags`**
@@ -165,11 +165,11 @@ Order does not matter for these tags.
 
 | Tag | Enables | Documentation |
 |-----|---------|----------------|
-| **`memory`** | Long-term memory copilot; with **`http`**, **`/coddy/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enabled`** | [`external/memory/README.md`](../external/memory/README.md) |
-| **`http`** | **`coddy http`**, OpenAI-shaped REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](http-api.md) · [`external/httpserver/`](../external/httpserver/) |
+| **`memory`** | Long-term memory copilot; with **`http`**, **`/foxxycode/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enabled`** | [`external/memory/README.md`](../external/memory/README.md) |
+| **`http`** | **`foxxycode http`**, OpenAI-shaped REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](http-api.md) · [`external/httpserver/`](../external/httpserver/) |
 | **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/ui.md`](ui.md) · [`DESIGN.md`](../DESIGN.md) |
-| **`scheduler`** | Scheduler daemon hooks, **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](scheduler.md) · [`external/scheduler/README.md`](../external/scheduler/README.md) |
-| **`gateway.telegram`** | **`coddy gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
+| **`scheduler`** | Scheduler daemon hooks, **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/scheduler.md`](scheduler.md) · [`external/scheduler/README.md`](../external/scheduler/README.md) |
+| **`gateway.telegram`** | **`foxxycode gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
 
 **`make test`** exercises tag combinations (see **`test`** target in [`Makefile`](../Makefile)).
@@ -180,11 +180,11 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 
 | Archive | Platform |
 |---------|----------|
-| **`coddy_X.Y.Z_linux_amd64.tar.gz`** | Linux x86_64 |
-| **`coddy_X.Y.Z_linux_arm64.tar.gz`** | Linux arm64 |
-| **`coddy_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`coddy.exe`**) |
-| **`coddy_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
-| **`coddy_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
+| **`foxxycode_X.Y.Z_linux_amd64.tar.gz`** | Linux x86_64 |
+| **`foxxycode_X.Y.Z_linux_arm64.tar.gz`** | Linux arm64 |
+| **`foxxycode_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`foxxycode.exe`**) |
+| **`foxxycode_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
+| **`foxxycode_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
 | **`SHA256SUMS`** | Checksums for the archives above |
 
 Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memory`**. Manual run after a tag exists:
@@ -196,7 +196,7 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 ## **`go install` from upstream**
 
 ```bash
-go install github.com/hijera/foxxy-agent/cmd/coddy@latest
+go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```
 
 That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory"`** (or **`go build -tags=...`** as above).

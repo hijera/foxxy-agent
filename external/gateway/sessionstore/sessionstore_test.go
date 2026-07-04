@@ -5,8 +5,8 @@ package sessionstore_test
 import (
 	"testing"
 
-	"github.com/hijera/foxxy-agent/external/gateway/sessionstore"
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func TestSessionKey_Private(t *testing.T) {

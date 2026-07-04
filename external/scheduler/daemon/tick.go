@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	schedservice "github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/external/scheduler/storage"
-	"github.com/hijera/foxxy-agent/internal/config"
+	schedservice "github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/external/scheduler/storage"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // lastSeenScheduleByPath tracks the prior schedule string per job file so we can drop stale
-// spawn-dedupe entries when the operator edits the cron expression without restarting coddy.
+// spawn-dedupe entries when the operator edits the cron expression without restarting foxxycode.
 var lastSeenScheduleByPath = map[string]string{}
 
 func jobRunnableForTick(fm *storage.JobFrontmatter) bool {

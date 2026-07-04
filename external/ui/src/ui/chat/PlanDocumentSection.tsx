@@ -7,7 +7,7 @@ import { planEditorBody } from "./planContent";
 
 type PlanBodyView = "markdown" | "preview";
 
-const HDR = "X-Coddy-Session-ID";
+const HDR = "X-FoxxyCode-Session-ID";
 
 export type PlanDocumentSectionProps = {
   sessionId: string;
@@ -139,7 +139,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
       setSaveError("");
       try {
         const res = await fetch(
-          `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(props.slug)}`,
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(props.slug)}`,
           {
             method: "PUT",
             headers: {

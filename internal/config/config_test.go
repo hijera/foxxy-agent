@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
-func TestResolveCODDYHomeEnv(t *testing.T) {
+func TestResolveFOXXYCODEHomeEnv(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, tmp)
-	t.Setenv(config.EnvCODDYCWD, "")
-	t.Setenv(config.EnvCODDYConfig, "")
+	t.Setenv(config.EnvFOXXYCODEHome, tmp)
+	t.Setenv(config.EnvFOXXYCODECWD, "")
+	t.Setenv(config.EnvFOXXYCODEConfig, "")
 
 	p, err := config.Resolve(config.CLIPaths{})
 	if err != nil {
@@ -39,9 +39,9 @@ func TestExpandPathHelpers(t *testing.T) {
 			t.Fatalf("got %q want %q", got, want)
 		}
 	})
-	t.Run("ExpandCODDYHomeOnlyLeavesCWD", func(t *testing.T) {
+	t.Run("ExpandFOXXYCODEHomeOnlyLeavesCWD", func(t *testing.T) {
 		p := config.Paths{Home: "/h", CWD: "/launch"}
-		s := config.ExpandCODDYHomeOnly("${CODDY_HOME}/x ${CWD}/y", p)
+		s := config.ExpandFOXXYCODEHomeOnly("${FOXXYCODE_HOME}/x ${CWD}/y", p)
 		if s != "/h/x ${CWD}/y" {
 			t.Fatalf("got %q", s)
 		}
@@ -50,7 +50,7 @@ func TestExpandPathHelpers(t *testing.T) {
 
 func TestLoadFromYAML_EndToEnd(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 
 	content := `
 providers:
@@ -68,14 +68,14 @@ agent:
   max_turns: 7
 
 prompts:
-  dir: "/tmp/coddy-e2e-prompts"
+  dir: "/tmp/foxxycode-e2e-prompts"
 
 skills:
   dirs:
-    - "${CODDY_HOME}/extra"
+    - "${FOXXYCODE_HOME}/extra"
 
 sessions:
-  dir: "${CODDY_HOME}/mysess"
+  dir: "${FOXXYCODE_HOME}/mysess"
 
 tools:
   permission_mode: ask
@@ -114,7 +114,7 @@ logger:
 		t.Errorf("agent.llm_retry_max default: got %d", cfg.Agent.LLMRetryMax)
 	}
 
-	wantPrompts := filepath.Clean("/tmp/coddy-e2e-prompts")
+	wantPrompts := filepath.Clean("/tmp/foxxycode-e2e-prompts")
 	if got := cfg.Prompts.ResolvedDir("/ignored-cwd"); got != wantPrompts {
 		t.Errorf("prompts.ResolvedDir: got %q want %q", got, wantPrompts)
 	}
@@ -149,7 +149,7 @@ logger:
 
 func TestLoadFromCLIUsesCwdConfigWhenHomeConfigMissing(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 	cwdDir := t.TempDir()
 	t.Chdir(cwdDir)
 
@@ -186,12 +186,12 @@ agent:
 
 func TestLoadFromCLIWhenConfigMissing_AppliesDefaults(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 	cfgPath := filepath.Join(home, "empty.yaml")
 	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(config.EnvCODDYConfig, cfgPath)
+	t.Setenv(config.EnvFOXXYCODEConfig, cfgPath)
 
 	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {
@@ -228,7 +228,7 @@ agent:
 
 logger:
   level: "info"
-  file: "/tmp/coddy-legacy.log"
+  file: "/tmp/foxxycode-legacy.log"
 `
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "config.yaml")
@@ -245,7 +245,7 @@ logger:
 	if cfg.Logger.Outputs[0] != config.LogOutputStderr || cfg.Logger.Outputs[1] != config.LogOutputFile {
 		t.Fatalf("unexpected outputs: %v", cfg.Logger.Outputs)
 	}
-	if cfg.Logger.File != "/tmp/coddy-legacy.log" {
+	if cfg.Logger.File != "/tmp/foxxycode-legacy.log" {
 		t.Fatalf("file: %q", cfg.Logger.File)
 	}
 }
@@ -365,7 +365,7 @@ func TestLoadExplicitMissingFileReturnsError(t *testing.T) {
 
 func TestMemoryEnabledFalseFromYAML(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 	content := `
 providers:
   - name: openai
@@ -398,8 +398,8 @@ memory:
 
 func TestRecoverFromBackupRestoresPrimary(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
-	t.Setenv(config.EnvCODDYConfig, "")
+	t.Setenv(config.EnvFOXXYCODEHome, home)
+	t.Setenv(config.EnvFOXXYCODEConfig, "")
 
 	lastGood := `
 providers:
@@ -442,7 +442,7 @@ agent:
 
 func TestSchedulerEffectiveEnabledAndDefaults(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 	content := `
 providers:
   - name: openai

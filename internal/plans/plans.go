@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 const (
 	DirName          = "plans"
 	FileSuffix       = ".plan.md"
-	MetaPlanSlug     = "coddy.dev/planSlug"
-	MetaPlanKind     = "coddy.dev/planKind"
-	MetaRunPlanSlug  = "coddy.dev/runPlanSlug"
+	MetaPlanSlug     = "foxxycode.dev/planSlug"
+	MetaPlanKind     = "foxxycode.dev/planKind"
+	MetaRunPlanSlug  = "foxxycode.dev/runPlanSlug"
 	PlanKindDesign   = "design"
 	defaultPlanName  = "Plan"
 	maxSlugLen       = 64

@@ -1,6 +1,6 @@
 # Messenger Gateway
 
-The messenger gateway lets you drive a Coddy agent directly from a chat application such as Telegram. The agent runs the same ReAct loop, tools, and skills as in the HTTP UI or ACP mode — the gateway is only a transport layer.
+The messenger gateway lets you drive a FoxxyCode agent directly from a chat application such as Telegram. The agent runs the same ReAct loop, tools, and skills as in the HTTP UI or ACP mode — the gateway is only a transport layer.
 
 ## Contents
 
@@ -38,10 +38,10 @@ Telegram / future messengers
     Hub (goroutine per adapter, auto-restart)
          │
          ▼
-  sessionstore               ← maps chat+user context → Coddy session ID
+  sessionstore               ← maps chat+user context → FoxxyCode session ID
          │                     /clear command replaces the stored ID
          ▼
-  session.Manager            ← shared with coddy acp / coddy http
+  session.Manager            ← shared with foxxycode acp / foxxycode http
     HandleSessionPromptWithSender(...)
          │
          ▼
@@ -76,7 +76,7 @@ make build TAGS="gateway"
 make build TAGS="http ui scheduler memory gateway"
 ```
 
-Without either tag the `coddy gateway` subcommand is present in the binary but returns a "not compiled" error when invoked — all other subcommands are unaffected.
+Without either tag the `foxxycode gateway` subcommand is present in the binary but returns a "not compiled" error when invoked — all other subcommands are unaffected.
 
 ---
 
@@ -102,7 +102,7 @@ Send any message to [@userinfobot](https://t.me/userinfobot). It will reply with
 
 **Step 3 — add the gateway config**
 
-In `~/.coddy/config.yaml` (or wherever your `config.yaml` lives), add:
+In `~/.foxxycode/config.yaml` (or wherever your `config.yaml` lives), add:
 
 ```yaml
 gateways:
@@ -118,7 +118,7 @@ gateways:
 
 ```bash
 make build TAGS="gateway.telegram"
-./build/coddy gateway --config ~/.coddy/config.yaml
+./build/foxxycode gateway --config ~/.foxxycode/config.yaml
 ```
 
 Open Telegram, find your bot, send a message. The agent replies in the same chat.
@@ -127,7 +127,7 @@ Open Telegram, find your bot, send a message. The agent replies in the same chat
 
 ## Configuration reference
 
-All gateway config lives under the `gateways` key in `config.yaml`. When running `coddy http` with the bundled UI, the same fields are editable under **Settings → Messenger gateways → Telegram**; the `gateways` block round-trips through `GET`/`PUT /coddy/config`, so saving settings in the UI preserves it (the bot token is shown in full — use only on trusted networks).
+All gateway config lives under the `gateways` key in `config.yaml`. When running `foxxycode http` with the bundled UI, the same fields are editable under **Settings → Messenger gateways → Telegram**; the `gateways` block round-trips through `GET`/`PUT /foxxycode/config`, so saving settings in the UI preserves it (the bot token is shown in full — use only on trusted networks).
 
 ```yaml
 gateways:
@@ -272,24 +272,24 @@ gateways:
 ## Running the gateway
 
 ```bash
-coddy gateway [flags]
+foxxycode gateway [flags]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--config` | `$CODDY_HOME/config.yaml` | Path to config file |
-| `--home` | `~/.coddy` | Agent state directory (`CODDY_HOME`) |
+| `--config` | `$FOXXYCODE_HOME/config.yaml` | Path to config file |
+| `--home` | `~/.foxxycode` | Agent state directory (`FOXXYCODE_HOME`) |
 | `--cwd` | process cwd | Default session working directory |
-| `--sessions-dir` | `$CODDY_HOME/sessions` | Where session bundles are stored |
+| `--sessions-dir` | `$FOXXYCODE_HOME/sessions` | Where session bundles are stored |
 | `--log-level` | from config | `debug\|info\|warn\|error` |
 
 Typical production invocation:
 
 ```bash
-coddy gateway \
-  --config /etc/coddy/config.yaml \
-  --home /var/lib/coddy \
-  --sessions-dir /var/lib/coddy/sessions
+foxxycode gateway \
+  --config /etc/foxxycode/config.yaml \
+  --home /var/lib/foxxycode \
+  --sessions-dir /var/lib/foxxycode/sessions
 ```
 
 The process blocks until `SIGINT` or `SIGTERM`. Each adapter runs in its own goroutine with automatic restart on error (5-second backoff). Send `Ctrl+C` for a clean shutdown.
@@ -299,11 +299,11 @@ The process blocks until `SIGINT` or `SIGTERM`. Each adapter runs in its own gor
 ```yaml
 services:
   gateway:
-    image: ghcr.io/hijera/foxxy-agent   # build with gateway tag, see below
-    command: ["coddy", "gateway", "--config", "/config/config.yaml"]
+    image: ghcr.io/hijera/foxxycode-agent   # build with gateway tag, see below
+    command: ["foxxycode", "gateway", "--config", "/config/config.yaml"]
     volumes:
       - ./config.yaml:/config/config.yaml:ro
-      - coddy_home:/var/lib/coddy
+      - foxxycode_home:/var/lib/foxxycode
     environment:
       - TELEGRAM_BOT_TOKEN
     restart: unless-stopped
@@ -323,7 +323,7 @@ Every user who starts a private conversation with the bot gets their own isolate
 
 In a group the bot **only responds** when explicitly addressed. It will react to:
 
-1. A message that **@mentions** the bot (`@coddy_agent_bot hello`)
+1. A message that **@mentions** the bot (`@foxxycode_agent_bot hello`)
 2. A **direct reply** to a previous bot message
 3. The `/clear` command
 
@@ -359,10 +359,10 @@ import (
     "context"
     "fmt"
 
-    "github.com/hijera/foxxy-agent/external/gateway"
-    "github.com/hijera/foxxy-agent/external/gateway/access"
-    "github.com/hijera/foxxy-agent/external/gateway/sessionstore"
-    "github.com/hijera/foxxy-agent/internal/config"
+    "github.com/hijera/foxxycode-agent/external/gateway"
+    "github.com/hijera/foxxycode-agent/external/gateway/access"
+    "github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
+    "github.com/hijera/foxxycode-agent/internal/config"
 )
 
 type Bot struct {
@@ -480,10 +480,10 @@ sender.Flush()
         │  (Telegram-compatible markdown; headers, double-star bold, and tables
         │   converted to Telegram legacy format)
         ▼
-Session bundle written to disk ($CODDY_HOME/sessions/<id>/)
+Session bundle written to disk ($FOXXYCODE_HOME/sessions/<id>/)
 ```
 
-**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly, without re-sending the one-time formatting hint to sessions that already received it.
+**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$FOXXYCODE_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly, without re-sending the one-time formatting hint to sessions that already received it.
 
 **`/clear` flow:**
 
@@ -493,7 +493,7 @@ manager.ForgetLiveSession(oldID)   → drops the in-memory session (disk persist
 Next message → EnsureHTTPSession creates a fresh session for the new ID
 ```
 
-The old session files remain on disk under the old ID. Use `coddy sessions list` to inspect them.
+The old session files remain on disk under the old ID. Use `foxxycode sessions list` to inspect them.
 
 ---
 

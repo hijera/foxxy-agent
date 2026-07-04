@@ -4,15 +4,15 @@
 
 Resolved locations use environment variables and flags (see README). In short:
 
-- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, and **`scheduler/`** when using the optional cron scheduler.
-- **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
-- **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
+- **`FOXXYCODE_HOME`** - agent state directory. Default **`~/.foxxycode`**. Holds `config.yaml`, `sessions/`, `skills/`, and **`scheduler/`** when using the optional cron scheduler.
+- **`FOXXYCODE_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
+- **`FOXXYCODE_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 
-If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
+If no **`--config`** is given, the loader uses **`$FOXXYCODE_HOME/config.yaml`** (default home **`~/.foxxycode`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
-When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /coddy/config`** route (see **`docs/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
+When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /foxxycode/config`** route (see **`docs/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
-The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
+The `foxxycode acp` subcommand also accepts **`--home`** (override `FOXXYCODE_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$FOXXYCODE_HOME/sessions`**).
 
 ## Full Configuration Schema
 
@@ -93,7 +93,7 @@ prompts:
   #   {{.CWD}}      - session working directory
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
-  #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
+  #   {{.TodoList}} - current session todo checklist as markdown lines (empty until foxxycode todo tools update state)
   #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enabled is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
@@ -105,7 +105,7 @@ prompts:
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:
-  # Empty = default $CODDY_HOME/sessions. Supports ${CODDY_HOME} and ~ in path.
+  # Empty = default $FOXXYCODE_HOME/sessions. Supports ${FOXXYCODE_HOME} and ~ in path.
   dir: ""
 
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
@@ -115,7 +115,7 @@ memory:
   # Exact id from models[]. Used only for recall and persist tool-calling passes, not for the main assistant model.
   # Example: "rpa/gpt-oss:120b". Empty means fall back to agent.model / session override.
   model: ""
-  dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
+  dir: "" # long-term memory root; empty = $FOXXYCODE_HOME/memory. Supports ${FOXXYCODE_HOME} and ~ when set.
   recall_max_turns: 6
   persist_max_turns: 12
   copilot_max_tokens: 4096
@@ -128,20 +128,20 @@ skills:
   # directories, the version from the last matching directory wins.
   # Default dirs (lowest → highest priority):
   #   ~/.agents/skills          - global skills, shared with npx skills / npx skillsbd
-  #   ${CODDY_HOME}/skills      - coddy-specific; may contain symlinks to ~/.agents/skills
-  #   ${CWD}/.coddy/skills      - project-local; overrides everything above
-  # ${CODDY_HOME} and ${CWD} expand at runtime (per-session cwd for ${CWD}).
+  #   ${FOXXYCODE_HOME}/skills      - foxxycode-specific; may contain symlinks to ~/.agents/skills
+  #   ${CWD}/.foxxycode/skills      - project-local; overrides everything above
+  # ${FOXXYCODE_HOME} and ${CWD} expand at runtime (per-session cwd for ${CWD}).
   dirs:
     - "~/.agents/skills"
-    - "${CODDY_HOME}/skills"
-    - "${CWD}/.coddy/skills"
+    - "${FOXXYCODE_HOME}/skills"
+    - "${CWD}/.foxxycode/skills"
 
 # Project rules (Go: config.Rules, internal/config/rules.go)
-# Discovered from .coddy/rules, .cursor/rules, .claude/rules, .codex/rules under session CWD.
+# Discovered from .foxxycode/rules, .cursor/rules, .claude/rules, .codex/rules under session CWD.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: coddy, cursor, claude, codex
+  systems: []   # optional: foxxycode, cursor, claude, codex
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
@@ -207,7 +207,7 @@ The built-in `ssh_run_command` tool lets the agent run commands on remote hosts 
 
 **Authentication order:**
 1. **SSH agent** — if `SSH_AUTH_SOCK` is set and reachable, the agent is used first. This covers YubiKeys, 1Password SSH agent, gpg-agent, and standard `ssh-agent` setups.
-2. **Key files** — Coddy always looks in the current OS user's `~/.ssh` directory. Key names tried in order: `id_ed25519`, `id_rsa`, `id_ecdsa`, `id_dsa`. Keys protected by a passphrase are silently skipped.
+2. **Key files** — FoxxyCode always looks in the current OS user's `~/.ssh` directory. Key names tried in order: `id_ed25519`, `id_rsa`, `id_ecdsa`, `id_dsa`. Keys protected by a passphrase are silently skipped.
 
 Both sources are active simultaneously — if the agent is available and has keys, files still act as a fallback if the agent declines.
 
@@ -228,28 +228,28 @@ The tool requires user permission (same as `run_command`) and returns combined s
 
 ## HTTP gateway (optional build)
 
-The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
+The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`foxxycode http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
 
 ## Scheduler (optional build)
 
-The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
+The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`foxxycode acp -scheduler-enabled`** / **`foxxycode http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
 
-Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent` or `plan`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
+Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`foxxycode`** was started), **`model`**, **`mode`** (`agent` or `plan`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
 **`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
 
-When the scheduler is effectively enabled, **`coddy_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`coddy_scheduler_jobs_list`**, **`coddy_scheduler_job_get`**, **`coddy_scheduler_job_create`**, **`coddy_scheduler_job_replace`**, **`coddy_scheduler_job_patch`**, **`coddy_scheduler_job_delete`**, **`coddy_scheduler_job_pause`**, **`coddy_scheduler_job_resume`**, **`coddy_scheduler_job_run`**, **`coddy_scheduler_job_cancel`**, **`coddy_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/coddy/scheduler`** (see **`docs/http-api.md`**).
+When the scheduler is effectively enabled, **`foxxycode_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`foxxycode_scheduler_jobs_list`**, **`foxxycode_scheduler_job_get`**, **`foxxycode_scheduler_job_create`**, **`foxxycode_scheduler_job_replace`**, **`foxxycode_scheduler_job_patch`**, **`foxxycode_scheduler_job_delete`**, **`foxxycode_scheduler_job_pause`**, **`foxxycode_scheduler_job_resume`**, **`foxxycode_scheduler_job_run`**, **`foxxycode_scheduler_job_cancel`**, **`foxxycode_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/foxxycode/scheduler`** (see **`docs/http-api.md`**).
 
 ## Messenger Gateway (`gateways`)
 
-Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). The `coddy gateway` subcommand reads this block.
+Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). The `foxxycode gateway` subcommand reads this block.
 
 ```yaml
 # Messenger gateways (external/gateway/; build with -tags gateway.telegram or -tags gateway).
 # Full guide: docs/gateway.md
 gateways:
   telegram:
-    # Set to true to activate the Telegram adapter when coddy gateway starts.
+    # Set to true to activate the Telegram adapter when foxxycode gateway starts.
     enabled: false
 
     # Bot token from @BotFather. Never hard-code; always use an env reference.
@@ -301,10 +301,10 @@ See **[docs/gateway.md](gateway.md)** for the full configuration guide, running 
 
 ## `.env` file
 
-If **`$CODDY_HOME/.env`** exists, it is read at startup **before** `config.yaml` is parsed. This lets you keep all secrets in one place without touching shell profiles or Docker compose environment blocks.
+If **`$FOXXYCODE_HOME/.env`** exists, it is read at startup **before** `config.yaml` is parsed. This lets you keep all secrets in one place without touching shell profiles or Docker compose environment blocks.
 
 ```sh
-# ~/.coddy/.env
+# ~/.foxxycode/.env
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 TELEGRAM_BOT_TOKEN=8992982910:AAF...
@@ -323,7 +323,7 @@ providers:
 
 - Variables that are **already set** in the process environment are **never overridden** — the process environment always wins. `.env` is a fallback only.
 - A missing `.env` is silently ignored (not an error).
-- The file is resolved relative to the effective `CODDY_HOME` (`~/.coddy` by default, or the path from `--home` / `CODDY_HOME` env var).
+- The file is resolved relative to the effective `FOXXYCODE_HOME` (`~/.foxxycode` by default, or the path from `--home` / `FOXXYCODE_HOME` env var).
 
 **Supported syntax:**
 
@@ -346,10 +346,10 @@ The agent resolves these at startup.
 
 Special variables in YAML (before parse) and in path strings:
 
-- **`${CODDY_HOME}`** - resolved `CODDY_HOME` directory
+- **`${FOXXYCODE_HOME}`** - resolved `FOXXYCODE_HOME` directory
 - **`${CWD}`** in **`skills.dirs`** is resolved at skill load time using the **session** working directory (ACP `session/new` cwd)
 
-Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expanded using the process **`CODDY_CWD`** and **`CODDY_HOME`** when the file is read. For paths that must follow the session cwd, leave **`${CWD}`** in **`skills.dirs`** so it is not baked in at parse time (defaults do this when **`dirs`** is empty).
+Inside the raw config file body, **`${CWD}`** and **`${FOXXYCODE_HOME}`** are expanded using the process **`FOXXYCODE_CWD`** and **`FOXXYCODE_HOME`** when the file is read. For paths that must follow the session cwd, leave **`${CWD}`** in **`skills.dirs`** so it is not baked in at parse time (defaults do this when **`dirs`** is empty).
 
 ## Model Provider Reference
 

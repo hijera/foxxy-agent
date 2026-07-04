@@ -15,14 +15,14 @@ import (
 	"testing"
 	"time"
 
-	// Register LaunchManualJob (same as cmd/coddy linking scheduler).
-	_ "github.com/hijera/foxxy-agent/external/scheduler"
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	// Register LaunchManualJob (same as cmd/foxxycode linking scheduler).
+	_ "github.com/hijera/foxxycode-agent/external/scheduler"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
-func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
+func TestFoxxyCodeSchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	cwd := filepath.Join(root, "cwd")
@@ -54,7 +54,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	ts := httptest.NewServer(New(cfg, mgr, log, cwd).Handler())
 	defer ts.Close()
 
-	r0, err := http.Get(ts.URL + "/coddy/scheduler/jobs")
+	r0, err := http.Get(ts.URL + "/foxxycode/scheduler/jobs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 
 	payload := strings.NewReader(`{"job_id":"demo","description":"Demo","schedule":"0 9 * * 1","body":"Say hello."}`)
-	rPost, err := http.Post(ts.URL+"/coddy/scheduler/jobs", "application/json", payload)
+	rPost, err := http.Post(ts.URL+"/foxxycode/scheduler/jobs", "application/json", payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		t.Fatalf("create status=%d body=%s", rPost.StatusCode, bPost)
 	}
 
-	rG, err := http.Get(ts.URL + "/coddy/scheduler/jobs/demo")
+	rG, err := http.Get(ts.URL + "/foxxycode/scheduler/jobs/demo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		t.Fatalf("get demo %d %s", rG.StatusCode, bG)
 	}
 
-	rRuns, err := http.Get(ts.URL + "/coddy/scheduler/jobs/demo/runs")
+	rRuns, err := http.Get(ts.URL + "/foxxycode/scheduler/jobs/demo/runs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		t.Fatalf("runs empty list %d %s", rRuns.StatusCode, bRuns)
 	}
 
-	badURL := ts.URL + "/coddy/scheduler/jobs/" + url.PathEscape("a/b")
+	badURL := ts.URL + "/foxxycode/scheduler/jobs/" + url.PathEscape("a/b")
 	rBad, err := http.Get(badURL)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 
 	putBody := strings.NewReader(`{"description":"Demo2","schedule":"0 10 * * 1","paused":false,"body":"Next."}`)
-	reqPut, err := http.NewRequest(http.MethodPut, ts.URL+"/coddy/scheduler/jobs/demo", putBody)
+	reqPut, err := http.NewRequest(http.MethodPut, ts.URL+"/foxxycode/scheduler/jobs/demo", putBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 
 	patchRename := strings.NewReader(`{"job_id":"demo-renamed"}`)
-	reqRename, err := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/scheduler/jobs/demo", patchRename)
+	reqRename, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/scheduler/jobs/demo", patchRename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	if renameOut["job_id"] != "demo-renamed" {
 		t.Fatalf("rename response job_id=%q", renameOut["job_id"])
 	}
-	rRenamed, err := http.Get(ts.URL + "/coddy/scheduler/jobs/demo-renamed")
+	rRenamed, err := http.Get(ts.URL + "/foxxycode/scheduler/jobs/demo-renamed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	if rRenamed.StatusCode != http.StatusOK {
 		t.Fatalf("get renamed %d %s", rRenamed.StatusCode, bRenamed)
 	}
-	rOld, err := http.Get(ts.URL + "/coddy/scheduler/jobs/demo")
+	rOld, err := http.Get(ts.URL + "/foxxycode/scheduler/jobs/demo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 
 	patchPaused := strings.NewReader(`{"paused":true}`)
-	reqP, err := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/scheduler/jobs/demo-renamed", patchPaused)
+	reqP, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/scheduler/jobs/demo-renamed", patchPaused)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		t.Fatalf("pause %d", rP.StatusCode)
 	}
 
-	runReq, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/scheduler/jobs/demo-renamed/run", nil)
+	runReq, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/scheduler/jobs/demo-renamed/run", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	if err := os.WriteFile(lockPath, []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	delReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/scheduler/jobs/demo-renamed", nil)
+	delReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/scheduler/jobs/demo-renamed", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 	_ = os.Remove(lockPath)
 
-	rmReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/scheduler/jobs/demo-renamed", nil)
+	rmReq, err := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/scheduler/jobs/demo-renamed", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		t.Fatalf("delete demo %d", rmRes.StatusCode)
 	}
 
-	rRuns404, err := http.Get(ts.URL + "/coddy/scheduler/jobs/demo-renamed/runs")
+	rRuns404, err := http.Get(ts.URL + "/foxxycode/scheduler/jobs/demo-renamed/runs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	if err := store.Save(&ss); err != nil {
 		t.Fatal(err)
 	}
-	ls, err := http.Get(ts.URL + "/coddy/sessions")
+	ls, err := http.Get(ts.URL + "/foxxycode/sessions")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 		}
 	}
 
-	lsw, err := http.Get(ts.URL + "/coddy/sessions?include_scheduler=true")
+	lsw, err := http.Get(ts.URL + "/foxxycode/sessions?include_scheduler=true")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestCoddySchedulerHTTPJobsEnvelopeCRUDPauseRunConflict(t *testing.T) {
 	}
 }
 
-func TestCoddySchedulerCancelClearsStaleLock(t *testing.T) {
+func TestFoxxyCodeSchedulerCancelClearsStaleLock(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	cwd := filepath.Join(root, "cwd")
@@ -330,7 +330,7 @@ func TestCoddySchedulerCancelClearsStaleLock(t *testing.T) {
 	defer ts.Close()
 
 	payload := strings.NewReader(`{"job_id":"demo","description":"Demo","schedule":"0 9 * * 1","body":"Say hello."}`)
-	rPost, err := http.Post(ts.URL+"/coddy/scheduler/jobs", "application/json", payload)
+	rPost, err := http.Post(ts.URL+"/foxxycode/scheduler/jobs", "application/json", payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestCoddySchedulerCancelClearsStaleLock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/scheduler/jobs/demo/cancel", nil)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/scheduler/jobs/demo/cancel", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

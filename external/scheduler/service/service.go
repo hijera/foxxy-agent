@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/storage"
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/external/scheduler/storage"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // Service centralizes scheduler job CRUD, run tracking, and HTTP or tool adapters.

@@ -27,7 +27,7 @@ replaces every `<select>` with an editable combobox.
   auth) or `{base}/v1/models` (Anthropic, `x-api-key` + `anthropic-version`),
   reuses the existing per-provider proxy HTTP client, applies a 15s timeout, and
   de-duplicates and sorts results. Non-2xx responses return a typed error.
-- `external/httpserver/providers_models_http.go`: new `GET /coddy/providers/{name}/models`.
+- `external/httpserver/providers_models_http.go`: new `GET /foxxycode/providers/{name}/models`.
   The provider is resolved from the **saved** config, so its credentials
   (`api_key` / `api_key_command` / `NAME_API_KEY` env) and `proxy` apply
   server-side without exposing secrets. Returns `{ok:true, models:[{id,name}]}` on
@@ -88,9 +88,9 @@ replaces every `<select>` with an editable combobox.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/coddy/providers/{name}/models` | Fetch a saved provider's advertised models. `200 {ok:true, models:[{id,name}]}` on success; `200 {ok:false, error, models:[]}` on upstream failure; `404` for an unknown provider. |
+| GET | `/foxxycode/providers/{name}/models` | Fetch a saved provider's advertised models. `200 {ok:true, models:[{id,name}]}` on success; `200 {ok:false, error, models:[]}` on upstream failure; `404` for an unknown provider. |
 
-No breaking changes to existing endpoints. `PUT /coddy/config` and per-section saves
+No breaking changes to existing endpoints. `PUT /foxxycode/config` and per-section saves
 both send a complete, valid config document (non-UI keys such as `httpserver` are
 preserved).
 
@@ -115,7 +115,7 @@ preserved).
   binary:
   ```
   cd external/ui && npm run build:go   # vite build + sync to the embed location
-  cd ../.. && go build -tags "http ui" -o build/coddy.exe ./cmd/coddy/
+  cd ../.. && go build -tags "http ui" -o build/foxxycode.exe ./cmd/foxxycode/
   ```
 - In Firefox, `scrollbar-width` only supports `auto | thin | none`, so the thin
   scrollbars are as thin as the browser allows (custom pixel widths apply to

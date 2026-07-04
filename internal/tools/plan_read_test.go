@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/plans"
-	"github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 func TestPlanReadReturnsDesignPlanContent(t *testing.T) {

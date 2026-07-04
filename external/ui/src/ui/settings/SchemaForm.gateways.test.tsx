@@ -39,7 +39,7 @@ const gatewaysSchema: JsonSchema = {
               },
             },
           },
-          "x-coddy-property-order": [
+          "x-foxxycode-property-order": [
             "enabled",
             "token",
             "rich_messages",

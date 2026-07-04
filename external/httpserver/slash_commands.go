@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/session"
-	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 type slashListCacheEntry struct {
@@ -66,7 +66,7 @@ func (s *Server) listSkillSummariesCached(cwdAbs string) ([]skills.SkillSummary,
 }
 
 func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
-	sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID"))
 	if sid == "" {
 		cwd, err := session.EffectiveSessionCWD("", s.defaultCWD)
 		if err != nil {
@@ -81,7 +81,7 @@ func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (st
 		return ap, true
 	}
 	if err := session.ValidateFolderSessionID(sid); err != nil {
-		http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"invalid X-FoxxyCode-Session-ID"}}`, http.StatusBadRequest)
 		return "", false
 	}
 	st := s.mgr.SessionByID(sid)
@@ -110,7 +110,7 @@ func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (st
 	return ap, true
 }
 
-func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
@@ -149,7 +149,7 @@ func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":    "coddy.slash_commands_page",
+		"object":    "foxxycode.slash_commands_page",
 		"items":     pageItems,
 		"total":     total,
 		"has_more":  hasMore,

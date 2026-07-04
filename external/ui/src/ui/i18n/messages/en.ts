@@ -1,11 +1,11 @@
-/** English UI strings for the Coddy SPA. Keys use dot notation grouped by area. */
+/** English UI strings for the FoxxyCode SPA. Keys use dot notation grouped by area. */
 export const messagesEn: Record<string, string> = {
   "nav.ariaLabel": "Nav",
   "nav.useNarrowSidebar": "Use narrow sidebar",
   "nav.useWideSidebar": "Use wide sidebar",
   "nav.wideSidebarTooltip": "Wide sidebar",
-  "nav.homeAriaLabel": "Coddy agent home",
-  "nav.brandTitle": "Coddy",
+  "nav.homeAriaLabel": "FoxxyCode agent home",
+  "nav.brandTitle": "FoxxyCode",
   "nav.brandSub": "agent",
   "nav.newChatTooltip": "New Chat",
   "nav.history": "History",

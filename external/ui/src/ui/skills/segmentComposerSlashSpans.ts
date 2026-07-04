@@ -11,20 +11,20 @@ export type ComposerSlashSegment =
 const INVOKED_SLASH = /([\s]|^)(\/[a-zA-Z0-9][a-zA-Z0-9_-]*)/g;
 
 const LEGACY_SKILL_LINK =
-  /\[\/([a-zA-Z0-9][a-zA-Z0-9_-]*)\]\(coddy-skill:([a-zA-Z0-9][a-zA-Z0-9_-]*)\)/g;
+  /\[\/([a-zA-Z0-9][a-zA-Z0-9_-]*)\]\(foxxycode-skill:([a-zA-Z0-9][a-zA-Z0-9_-]*)\)/g;
 
-export function stripCoddySkillMarkdownLinks(text: string): string {
+export function stripFoxxyCodeSkillMarkdownLinks(text: string): string {
   return text.replace(LEGACY_SKILL_LINK, (full, label: string, href: string) =>
     label === href ? `/${label}` : full,
   );
 }
 
-/** Display-only Markdown for user bubbles (`Markdown.tsx` renders chips from `coddy-skill:` autolinks). */
+/** Display-only Markdown for user bubbles (`Markdown.tsx` renders chips from `foxxycode-skill:` autolinks). */
 export function slugSlashesForUserBubbleMarkdown(raw: string): string {
-  const s = stripCoddySkillMarkdownLinks(raw);
+  const s = stripFoxxyCodeSkillMarkdownLinks(raw);
   return s.replace(INVOKED_SLASH, (_full, lead: string, literal: string) => {
     const nm = literal.startsWith("/") ? literal.slice(1) : literal;
-    return `${lead}[/${nm}](coddy-skill:${nm})`;
+    return `${lead}[/${nm}](foxxycode-skill:${nm})`;
   });
 }
 

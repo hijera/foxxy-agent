@@ -1,7 +1,7 @@
 // Package version provides the application version string.
 // The Version variable is injected at build time via -ldflags (see Makefile print-version target):
 //
-//	go build -ldflags "-X github.com/hijera/foxxy-agent/internal/version.Version=$(make -s print-version)"
+//	go build -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=$(make -s print-version)"
 //
 //	Otherwise run `make build` from the repository. Without -X the value stays "dev".
 package version

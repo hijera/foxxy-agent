@@ -58,7 +58,7 @@ func TestRemoveKnownHost(t *testing.T) {
 	})
 
 	t.Run("missing file is a no-op", func(t *testing.T) {
-		if err := removeKnownHost("/tmp/coddy-test-nonexistent-kh", "host"); err != nil {
+		if err := removeKnownHost("/tmp/foxxycode-test-nonexistent-kh", "host"); err != nil {
 			t.Errorf("removeKnownHost(missing) error = %v, want nil", err)
 		}
 	})

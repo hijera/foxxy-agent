@@ -1,8 +1,8 @@
 package session
 
 import (
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/rules"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/rules"
 )
 
 // DiscoverRules loads project rules from cwd using config.

@@ -5,12 +5,12 @@ Uses /v1/responses with stream=true and asserts that events include:
 - event tool_call
 - event tool_call_update
 
-Then checks CODDY_HOME/sessions/<sessionId>/tool_calls/<toolCallId> contains:
+Then checks FOXXYCODE_HOME/sessions/<sessionId>/tool_calls/<toolCallId> contains:
 - args.json
 - result.md
 - meta.json
 
-Environment: BASE_URL (ends with /v1), MODEL, WORK_DIR, CODDY_HOME.
+Environment: BASE_URL (ends with /v1), MODEL, WORK_DIR, FOXXYCODE_HOME.
 """
 
 from __future__ import annotations
@@ -57,11 +57,11 @@ def sse_events(resp: Any) -> Iterable[tuple[str, str]]:
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
-    profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
+    profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     work = Path(os.environ.get("WORK_DIR", "")).resolve()
-    home = Path(os.environ.get("CODDY_HOME", "")).resolve()
+    home = Path(os.environ.get("FOXXYCODE_HOME", "")).resolve()
     if not work.is_dir() or not home.is_dir():
-        print("WORK_DIR and CODDY_HOME must point to existing directories", file=sys.stderr)
+        print("WORK_DIR and FOXXYCODE_HOME must point to existing directories", file=sys.stderr)
         return 2
 
     marker = work / "HTTP_TOOLCALLS_E2E.marker"
@@ -95,9 +95,9 @@ STEP 2 - Reply single line OK when done.
 
     try:
         with urllib.request.urlopen(req, timeout=300) as resp:
-            sid = (resp.headers.get("X-Coddy-Session-Id") or resp.headers.get("X-Coddy-Session-ID") or "").strip()
+            sid = (resp.headers.get("X-FoxxyCode-Session-Id") or resp.headers.get("X-FoxxyCode-Session-ID") or "").strip()
             if not sid:
-                print("missing X-Coddy-Session-ID header", file=sys.stderr)
+                print("missing X-FoxxyCode-Session-ID header", file=sys.stderr)
                 return 1
 
             deadline = time.time() + 240

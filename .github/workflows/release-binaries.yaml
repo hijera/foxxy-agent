@@ -116,18 +116,18 @@ jobs:
         run: |
           set -euo pipefail
           DIST="${GITHUB_WORKSPACE}/dist"
-          LDFLAGS="-s -w -X github.com/hijera/foxxy-agent/internal/version.Version=${VERSION}"
+          LDFLAGS="-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}"
           rm -rf "$DIST"
           mkdir -p "$DIST"
 
           build_target() {
             local goos="$1"
             local goarch="$2"
-            local stem="foxxy_${VERSION}_${goos}_${goarch}"
+            local stem="foxxycode_${VERSION}_${goos}_${goarch}"
             local bindir="$DIST/_staging/${stem}"
-            local binname="foxxy"
+            local binname="foxxycode"
             if [ "$goos" = "windows" ]; then
-              binname="foxxy.exe"
+              binname="foxxycode.exe"
             fi
             mkdir -p "$bindir"
             GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
@@ -136,7 +136,7 @@ jobs:
               -trimpath \
               -ldflags "$LDFLAGS" \
               -o "$bindir/$binname" \
-              ./cmd/coddy/
+              ./cmd/foxxycode/
             if [ "$goos" = "windows" ]; then
               (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
             else
@@ -151,7 +151,7 @@ jobs:
           build_target darwin arm64
 
           rm -rf "$DIST/_staging"
-          (cd "$DIST" && sha256sum foxxy_*.tar.gz foxxy_*.zip > SHA256SUMS)
+          (cd "$DIST" && sha256sum foxxycode_*.tar.gz foxxycode_*.zip > SHA256SUMS)
           ls -la "$DIST"
 
       - name: Upload assets to GitHub Release

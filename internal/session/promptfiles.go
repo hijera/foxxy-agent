@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 // MaxPromptAttachmentBytes caps how much of each file may be inlined into prompts.

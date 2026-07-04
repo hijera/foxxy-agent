@@ -1,6 +1,6 @@
 package todo
 
-import "github.com/hijera/foxxy-agent/internal/acp"
+import "github.com/hijera/foxxycode-agent/internal/acp"
 
 // PlanHasIncompleteItems reports whether the list has any item not marked completed.
 // An empty slice means there is no active list.

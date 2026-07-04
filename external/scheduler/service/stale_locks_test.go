@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func TestStaleLockGraceFromConfig(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // SavePartsToAssets decodes every ImagePart DataURL and writes it to

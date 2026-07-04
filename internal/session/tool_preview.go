@@ -34,7 +34,7 @@ func toolResultPreviewMeta(truncated bool, totalLines, contentLines int) map[str
 		return nil
 	}
 	return map[string]interface{}{
-		"coddy": map[string]interface{}{
+		"foxxycode": map[string]interface{}{
 			"toolResultPreview": map[string]interface{}{
 				"truncated":    true,
 				"totalLines":   totalLines,
@@ -50,7 +50,7 @@ func PreviewToolResultForSessionUpdate(_ /* toolName */, fullResult string) (dis
 	return prev, toolResultPreviewMeta(trunc, tl, ToolHTTPUserPreviewContentLines)
 }
 
-// PreviewToolResultSnippet matches PreviewToolResultForSessionUpdate (Coddy REST list rows).
+// PreviewToolResultSnippet matches PreviewToolResultForSessionUpdate (FoxxyCode REST list rows).
 func PreviewToolResultSnippet(_ /* toolName */, full string) (snippet string, truncated bool, totalLines int) {
 	snip, tl, trunc := PreviewToolOutputForHTTPUser(full)
 	return snip, trunc, tl

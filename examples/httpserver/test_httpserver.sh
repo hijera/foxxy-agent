@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full HTTP gateway e2e. Expects repo ./build/coddy from examples/build_coddy.sh (TAGS include http, scheduler, memory).
+# Full HTTP gateway e2e. Expects repo ./build/foxxycode from examples/build_foxxycode.sh (TAGS include http, scheduler, memory).
 # Optional Docker smoke: examples/httpserver/docker.sh (from repo root).
 
 set -euo pipefail
@@ -7,9 +7,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-CODDY_CFG_SRC="${CODDY_CONFIG:-$ROOT/examples/config.demo.yaml}"
+FOXXYCODE_CFG_SRC="${FOXXYCODE_CONFIG:-$ROOT/examples/config.demo.yaml}"
 PORT="${1:-19876}"
-BIN="${ROOT}/build/coddy"
+BIN="${ROOT}/build/foxxycode"
 HTTP_DIR="$ROOT/examples/httpserver"
 
 if ! command -v timeout >/dev/null 2>&1; then
@@ -17,35 +17,35 @@ if ! command -v timeout >/dev/null 2>&1; then
   exit 1
 fi
 if [[ ! -x "$BIN" ]]; then
-  echo "binary not found, run: ./examples/build_coddy.sh" >&2
+  echo "binary not found, run: ./examples/build_foxxycode.sh" >&2
   exit 1
 fi
 
 cleanup() { kill "$HTTP_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
-HOME_DIR="$(mktemp -d -t coddy-http-home-XXXXXX)"
-WORK_DIR="$(mktemp -d -t coddy-http-work-XXXXXX)"
-export CODDY_HOME="$HOME_DIR"
+HOME_DIR="$(mktemp -d -t foxxycode-http-home-XXXXXX)"
+WORK_DIR="$(mktemp -d -t foxxycode-http-work-XXXXXX)"
+export FOXXYCODE_HOME="$HOME_DIR"
 export WORK_DIR
 export BASE_URL="http://127.0.0.1:$PORT/v1"
 export MODEL="${MODEL:-rpa/gpt-oss:120b}"
 
 LOG_F="$HOME_DIR/e2e.log"
 CFG="$HOME_DIR/config.resolved.yaml"
-sed "s|__E2E_LOG_PATH__|$LOG_F|g" "$CODDY_CFG_SRC" >"$CFG"
-export CODDY_CONFIG="$CFG"
+sed "s|__E2E_LOG_PATH__|$LOG_F|g" "$FOXXYCODE_CFG_SRC" >"$CFG"
+export FOXXYCODE_CONFIG="$CFG"
 : >"$LOG_F"
 
 mkdir -p "$HOME_DIR/skills_fixture"
-cp -a "$ROOT/examples/skills_fixture/coddy_slash_demo" "$HOME_DIR/skills_fixture/"
-mkdir -p "$WORK_DIR/.coddy"
-cp -a "$ROOT/examples/rules_fixture/.coddy/rules" "$WORK_DIR/.coddy/"
+cp -a "$ROOT/examples/skills_fixture/foxxycode_slash_demo" "$HOME_DIR/skills_fixture/"
+mkdir -p "$WORK_DIR/.foxxycode"
+cp -a "$ROOT/examples/rules_fixture/.foxxycode/rules" "$WORK_DIR/.foxxycode/"
 echo 'package main
 
 func main() {}' >"$WORK_DIR/main.go"
 
-"$BIN" http --config "$CODDY_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" --scheduler-enabled -H 127.0.0.1 -P "$PORT" &
+"$BIN" http --config "$FOXXYCODE_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" --scheduler-enabled -H 127.0.0.1 -P "$PORT" &
 HTTP_PID=$!
 if ! kill -0 "$HTTP_PID" 2>/dev/null; then
   echo "http server failed to start" >&2

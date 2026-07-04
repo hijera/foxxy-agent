@@ -5,7 +5,7 @@ package httpserver
 import (
 	"net/http"
 
-	"github.com/hijera/foxxy-agent/external/ui"
+	"github.com/hijera/foxxycode-agent/external/ui"
 )
 
 func mountEmbeddedSPARoot(mux *http.ServeMux) {
@@ -19,7 +19,7 @@ func uiEmbeddedSPAHandler(root http.FileSystem) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/", "/index.html", "/app.js", "/styles.css",
-			"/coddy-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png":
+			"/foxxycode-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png":
 			w.Header().Set("Cache-Control", "no-cache")
 		default:
 		}

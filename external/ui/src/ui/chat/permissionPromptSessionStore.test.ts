@@ -10,7 +10,7 @@ import type { TranscriptItem } from "./types";
 const SID = "sess_perm_store_test";
 
 afterEach(() => {
-  window.localStorage.removeItem(`coddy_pp_v1:${SID}`);
+  window.localStorage.removeItem(`foxxycode_pp_v1:${SID}`);
 });
 
 test("mergePermissionPromptsIntoTranscript restores from localStorage", () => {

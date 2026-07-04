@@ -1,14 +1,14 @@
-# Coddy embedded UI specification
+# FoxxyCode embedded UI specification
 
 This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract.
 
 ## Constraints
 
-- UI ships as static assets embedded into the `coddy` binary (build tag `http`).
+- UI ships as static assets embedded into the `foxxycode` binary (build tag `http`).
 - Runtime has no auth and no API key checks for the UI.
-- UI must work over the same origin as `coddy http`.
+- UI must work over the same origin as `foxxycode http`.
 - UI copy is English.
-- Favicon matches [coddy.dev](https://coddy.dev/) (**`/coddy-favicon.svg`**, same mark as **`docs/assets/coddy-logo-mark-flat.svg`**, plus PNG/ICO fallbacks embedded with the SPA).
+- Favicon matches [foxxycode.dev](https://foxxycode.dev/) (**`/foxxycode-favicon.svg`**, same mark as **`docs/assets/foxxycode-logo-mark-flat.svg`**, plus PNG/ICO fallbacks embedded with the SPA).
 - **Browser baseline: Chromium 104** (JCEF in PhpStorm/IntelliJ 2022.3.3 — see [`docs/intellij-embedding.md`](intellij-embedding.md)). Shipped CSS/JS must not use features newer than Chromium 104: no **`:has()`**, **`oklch()`**/**`oklab()`**, **`@container`**, or native CSS nesting; **`dvh`**/**`svh`** only with a preceding **`vh`** fallback for the same property; no **`Array.prototype.toSorted`**, **`Promise.withResolvers`**, **`URL.canParse`** and similar post-104 JS APIs.
 - **`color-mix()`** is allowed in `styles.css` **sources** only in the build-resolvable form (**`in srgb`**, arguments statically resolvable per theme — hex/rgb()/`transparent`/`var()` chains). `external/ui/postcss-resolve-color-mix.mjs` compiles every occurrence to Chromium-104-safe literals or per-theme **`--cmix-*`** variables; the build fails on unresolvable expressions.
 - **`npm --prefix external/ui run check:compat`** (part of **`build:go`**) scans the built bundle and fails on baseline regressions.
@@ -16,9 +16,9 @@ This page captures the original UI requirements and the intended end state. It i
 ## Appearance (light / dark theme)
 
 - **Default:** dark theme on first visit.
-- **Cookie:** **`coddy_ui_theme`** with values **`dark`** or **`light`** (path **`/`**, **`SameSite=Lax`**).
+- **Cookie:** **`foxxycode_ui_theme`** with values **`dark`** or **`light`** (path **`/`**, **`SameSite=Lax`**).
 - **`?theme=<id>` query parameter** (IDE embeddings): accepted values are all 7 theme ids; precedence **query > cookie > default**. Applied by the inline bootstrap script in **`index.html`** before first paint and persisted to the cookie. Contract-tested in **`themeCssContract.test.ts`** (the inline **`VALID`** map must stay in sync with **`UI_THEME_IDS`**).
-- **`window.foxxyUi`** global API (**`external/ui/src/ui/theme/foxxyUiApi.ts`**, installed in **`main.tsx`**): **`setTheme`** / **`getTheme`** / **`getThemes`** / **`onThemeChange`** — lets a host (IntelliJ plugin via JCEF `executeJavaScript`) switch themes live. See [`docs/intellij-embedding.md`](intellij-embedding.md).
+- **`window.foxxycodeUi`** global API (**`external/ui/src/ui/theme/foxxycodeUiApi.ts`**, installed in **`main.tsx`**): **`setTheme`** / **`getTheme`** / **`getThemes`** / **`onThemeChange`** — lets a host (IntelliJ plugin via JCEF `executeJavaScript`) switch themes live. See [`docs/intellij-embedding.md`](intellij-embedding.md).
 - **Toggle:** **Settings** (**`#/settings`**) → **Appearance** → **Dark** / **Light** (**`data-testid="theme-toggle-dark"`**, **`theme-toggle-light`**).
 - **Settings sub-panels (Appearance / Skills) are mutually exclusive** — opening one closes the other. Only one sub-panel may be expanded at a time.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
@@ -28,12 +28,12 @@ This page captures the original UI requirements and the intended end state. It i
 
 Desktop layout
 
-- **Brand** is **typography only** (**Coddy** and **agent**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
+- **Brand** is **typography only** (**FoxxyCode** and **agent**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
 - Desktop nav is a **vertical panel** with rounding on the **right** edge (not a full-height center-pill). On **`min-width: 1920px`**, the wide rail header includes an icon with **horizontal lines** used **only** to **collapse** to narrow rail, not as a global navigation drawer.
 - Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**).
 - **Brand**, **History**, **Scheduler** (when linked), **Settings**, and each row in the **History** list use real fragment **`href`** values (**`#/`**, **`#/history`**, **`#/scheduler`**, **`#/scheduler/new`** (new job editor), **`#/settings`**, **`#/s/<sessionId>`**) so **middle-click** or **Ctrl/Cmd-click** opens a **new browser tab** on the same origin while another tab can keep streaming.
 - Sessions list is **always** a **drawer overlay** with backdrop at **all** breakpoints and rail widths (**no** inline column beside the rail that would shrink the chat area). The panel heading and related chrome use the copy **History**.
-- Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default)
+- Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`foxxycode_nav_rail`** cookie (**`narrow`** default)
 - Main chat area with streamed assistant output
 - Right rail is out of scope for the current milestone
 
@@ -43,12 +43,12 @@ Wide screens
 
 Mobile layout
 
-- On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--coddy-mobile-top-inset`**) while **`body`** scrolls the chat.
+- On mobile the left rail becomes a top bar to preserve horizontal space; the top bar is **`position: fixed`** at the viewport top (**`shell-main`** is padded with **`--foxxycode-mobile-top-inset`**) while **`body`** scrolls the chat.
 - On mobile the brand stays on a single line.
 
 Header links
 
-- GitHub link to `https://github.com/hijera/foxxy-agent` (**new tab**, `rel=noopener`).
+- GitHub link to `https://github.com/hijera/foxxycode-agent` (**new tab**, `rel=noopener`).
 - API docs link to `/docs/` (**new tab**, `rel=noopener`).
 - Links live in the nav rail for this milestone.
 
@@ -63,9 +63,9 @@ Narrow-rail tooltips (desktop)
 - Session id is persisted in the URL fragment.
   - Recommended format `#/s/<sessionId>`
 - Unsent composer text may be kept as a client-only draft session.
-  - Draft sessions use `#/draft/<draftId>` and are stored in `localStorage` under `coddy_draft_sessions_v1`.
+  - Draft sessions use `#/draft/<draftId>` and are stored in `localStorage` under `foxxycode_draft_sessions_v1`.
   - History rows show a `Draft:` title prefix.
-- Session id is sent in the `X-Coddy-Session-ID` header for chat transport.
+- Session id is sent in the `X-FoxxyCode-Session-ID` header for chat transport.
 - Session id validation matches `internal/session/ValidateFolderSessionID`.
 - Session persisted files live under the session directory and are deleted together when the session is deleted.
   - `tool_calls/` tool call history
@@ -73,19 +73,19 @@ Narrow-rail tooltips (desktop)
 
 ### Parallel sessions and generation cancel
 
-- Several sessions may **stream at once**, each with its own **`POST /v1/responses`** and **`X-Coddy-Session-ID`**. The app keeps a **per-session shadow** transcript so rapid hash switches do not mis-route SSE updates; see **`pickStreamMutationBase`** in **`external/ui/src/ui/chat/streamMutationBase.ts`**.
-- **Stop** uses **`POST /coddy/sessions/{id}/cancel`** and **`AbortSignal`** on the streaming **`fetch`**. The server persists **partial** assistant **`content`** for that turn when tokens had already arrived. **`GET /coddy/sessions/{id}/messages`** may return an older snapshot briefly; the UI **merges** with local shadow or visible rows when the response is only a prefix (**`mergeTranscriptPreferLocalSuffix`**, **`keepLocalTranscriptIfServerEmpty`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). The transcript is cleared on fetch failure **only** when the failed load targets the **currently viewed** session so Stop does not wipe the chat.
+- Several sessions may **stream at once**, each with its own **`POST /v1/responses`** and **`X-FoxxyCode-Session-ID`**. The app keeps a **per-session shadow** transcript so rapid hash switches do not mis-route SSE updates; see **`pickStreamMutationBase`** in **`external/ui/src/ui/chat/streamMutationBase.ts`**.
+- **Stop** uses **`POST /foxxycode/sessions/{id}/cancel`** and **`AbortSignal`** on the streaming **`fetch`**. The server persists **partial** assistant **`content`** for that turn when tokens had already arrived. **`GET /foxxycode/sessions/{id}/messages`** may return an older snapshot briefly; the UI **merges** with local shadow or visible rows when the response is only a prefix (**`mergeTranscriptPreferLocalSuffix`**, **`keepLocalTranscriptIfServerEmpty`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). The transcript is cleared on fetch failure **only** when the failed load targets the **currently viewed** session so Stop does not wipe the chat.
 
 Session title
 
 - UI shows the session title in the chat header.
 - When the title is missing, UI shows `New chat`.
-- Title is editable inline. On blur the UI saves via `PATCH /coddy/sessions/{id}`.
+- Title is editable inline. On blur the UI saves via `PATCH /foxxycode/sessions/{id}`.
 
 ### Per-session model
 
-- **New chat** defaults **Model** from cookie **`coddy_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
-- **Opening a session** restores **Model** from **`GET /coddy/sessions/{id}/messages`** field **`model`** (session override on disk), not from the cookie.
+- **New chat** defaults **Model** from cookie **`foxxycode_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
+- **Opening a session** restores **Model** from **`GET /foxxycode/sessions/{id}/messages`** field **`model`** (session override on disk), not from the cookie.
 - Changing **Model** writes the cookie (default for the next **New chat**) and **`PATCH`** **`selectedModelId`** on the active session. ReAct turns still send **`metadata.model`** on **`POST /v1/responses`**.
 - **Many models / long names** — backend ids are **`vendor/model`**. When more than one vendor is configured the menu groups rows under an uppercase vendor header and each row shows only the model name (full id stays in the row tooltip). On desktop the list scrolls with a ~5-row cap. When there are **more than 5** backends a **filter input** appears at the top (auto-focused) that matches the vendor, model name, or full id (case-insensitive); **Enter** picks the first match, **Escape** closes, and an empty result shows a “No models match …” notice. Filter/group/threshold logic is in **`chat/llmModelMenu.ts`** (unit-tested in **`llmModelMenu.test.ts`**; menu wiring covered by **`ComposerModelMenu.test.tsx`**).
 - **Mobile sheet** — on narrow/mobile shells (the **`max-width: 1199px`** shell-stack breakpoint) the **Mode** / **Model** / **Reasoning** menus open as a **full-width bottom sheet** over a dimmed scrim — the same pattern as the slash (**`/`**) and **`@`** pickers — instead of a cramped anchored dropdown. The filter and grouping still apply inside the sheet. Desktop keeps the anchored dropdown.
@@ -93,12 +93,12 @@ Session title
 ### Per-session reasoning level
 
 - A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
-- **New chat** defaults the level from cookie **`coddy_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /coddy/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
+- **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /foxxycode/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
 ## Session list
 
-- **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).
+- **History** panel lists sessions via `GET /foxxycode/sessions` (still a **drawer**, not a persistent second column).
 - Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
 - Optional **`q`** query string (**title substring or first **`user`** message content substring only**, case insensitive; **not** full-chat search). Search input updates use client debouncing.
 - Indicators
@@ -106,19 +106,19 @@ Session title
   - A violet dot appears only when a background session completed while it was not the active chat.
   - A question mark icon appears when a session is waiting for user permission.
 - CRUD
-  - Rename via `PATCH /coddy/sessions/{id}` setting `title`.
-  - Delete via `DELETE /coddy/sessions/{id}`.
+  - Rename via `PATCH /foxxycode/sessions/{id}` setting `title`.
+  - Delete via `DELETE /foxxycode/sessions/{id}`.
   - Create new chat starts on the home screen. Session id is created only on first send.
 
 Session rename UX
 
 - Title rename is done only in the chat header.
-- On blur the UI saves via `PATCH /coddy/sessions/{id}`.
+- On blur the UI saves via `PATCH /foxxycode/sessions/{id}`.
 
 Session delete UX
 
 - Each row has a trash icon button.
-- Clicking delete shows one confirm dialog and then calls `DELETE /coddy/sessions/{id}`.
+- Clicking delete shows one confirm dialog and then calls `DELETE /foxxycode/sessions/{id}`.
 - If the deleted session is **not** the one currently shown in the main chat, remove it from the list (and refresh from the server) and **keep the History drawer open**. Do not change the URL or clear the transcript for the session that stayed on screen.
 - If the deleted session **is** the one currently shown, navigate to **new chat** (empty start screen, session hash cleared), **close** the History drawer, and clear composer-related state as for a normal home transition.
 - For a short interval after the user confirms delete, **ignore** shell **backdrop** pointer-driven close so a stray event from the native confirm does not dismiss History or alter the route.
@@ -149,7 +149,7 @@ Context ring and breakdown popover
 
 - **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
 - **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet + scrim as slash / **`@`** pickers (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**). **Escape** or **Close** dismisses; hover tooltip returns when closed.
-- Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`).
+- Legend keys map to **`contextBreakdown`** on **`GET /foxxycode/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`).
 
 Shape and glyphs
 
@@ -162,7 +162,7 @@ Shape and glyphs
 Behavior (unchanged summary)
 
 - **Enter** submits when idle and not generating; **`Shift+Enter`** newline. No submit while **`generating`**.
-- **Stop**: **`POST /coddy/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. The server may append a **partial** assistant message for that turn. **`GET /coddy/sessions/{id}/messages`** can lag; the bundled UI merges server rows with local shadow or on-screen items (**`transcriptServerSnapshot.ts`**). Details in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/http-api.md`**.
+- **Stop**: **`POST /foxxycode/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. The server may append a **partial** assistant message for that turn. **`GET /foxxycode/sessions/{id}/messages`** can lag; the bundled UI merges server rows with local shadow or on-screen items (**`transcriptServerSnapshot.ts`**). Details in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/http-api.md`**.
 
 Regression
 
@@ -173,16 +173,16 @@ Regression
 - The paperclip button (**`data-testid="composer-file-input"`** hidden `<input type="file">` triggered by a visible icon button) appears in the composer **only** when the active model has **`multimodal: true`** from **`GET /v1/models`**. The flag is derived from **`models[].multimodal`** in YAML config and propagated through **`ModelInfo.multimodal`** → **`llmModelMultimodal`** in **`App.tsx`** → **`Composer`** prop.
 - Attached files are held in **`attachedFiles: File[]`** state on **`Composer`**. Preview chips appear above the composer input showing file name and type icon.
 - On send, **`App.tsx`** reads each file as a data URL via **`FileReader`** and includes **`inline_files: [{name, data_url}]`** in the **`POST /v1/responses`** body.
-- **Agent / plan turns**: the server writes each file to **`~/.coddy/sessions/<id>/assets/`** (permissions **`0o444`**) and injects a **`<coddy_session_assets>`** XML block into the user message so the agent can **`read`** or **`cp`** those paths. Duplicate asset names get **`_1`**, **`_2`** suffixes (see `internal/session/assets.go` **`SavePartsToAssets`**).
+- **Agent / plan turns**: the server writes each file to **`~/.foxxycode/sessions/<id>/assets/`** (permissions **`0o444`**) and injects a **`<foxxycode_session_assets>`** XML block into the user message so the agent can **`read`** or **`cp`** those paths. Duplicate asset names get **`_1`**, **`_2`** suffixes (see `internal/session/assets.go` **`SavePartsToAssets`**).
 - **Direct YAML model turns**: each file becomes an **`image_url`** content part sent inline to the provider.
-- The user bubble strips the XML annotation via **`stripCoddyAttachmentsForUserDisplay`** in **`stripCoddyAttachments.ts`** and shows file chips (**`msg-user-files`** / **`msg-user-file-chip`** CSS classes). **`parseSessionAssetFiles`** re-derives chip metadata on page reload.
-- After a **`PUT /coddy/config`** save in Settings, **`App.tsx`** bumps **`modelsEpoch`** → re-fetches **`/v1/models`** so the attachment button appears or disappears without a page reload.
+- The user bubble strips the XML annotation via **`stripFoxxyCodeAttachmentsForUserDisplay`** in **`stripFoxxyCodeAttachments.ts`** and shows file chips (**`msg-user-files`** / **`msg-user-file-chip`** CSS classes). **`parseSessionAssetFiles`** re-derives chip metadata on page reload.
+- After a **`PUT /foxxycode/config`** save in Settings, **`App.tsx`** bumps **`modelsEpoch`** → re-fetches **`/v1/models`** so the attachment button appears or disappears without a page reload.
 
 | Case | Expected | Automated check |
 |------|----------|-----------------|
 | FA1 | Paperclip visible only when `llmModelMultimodal` is true | `Composer.test.tsx` |
-| FA2 | File chips render in user bubble after send | `stripCoddyAttachments.test.ts` |
-| FA3 | Chips persist on reload via `parseSessionAssetFiles` | `stripCoddyAttachments.test.ts` |
+| FA2 | File chips render in user bubble after send | `stripFoxxyCodeAttachments.test.ts` |
+| FA3 | Chips persist on reload via `parseSessionAssetFiles` | `stripFoxxyCodeAttachments.test.ts` |
 
 ## Composer slash skills and mirror caret
 
@@ -190,7 +190,7 @@ Authoritative narrative and visual tokens live in **`DESIGN.md`** (slash picker,
 
 Wire and draft
 
-- **`textarea#composer`** holds **plain text** only. Invoked skills appear as **`/<name>`** tokens (space after picker selection). The UI **must not** persist **`[/<name>](coddy-skill:<name>)`** in the draft.
+- **`textarea#composer`** holds **plain text** only. Invoked skills appear as **`/<name>`** tokens (space after picker selection). The UI **must not** persist **`[/<name>](foxxycode-skill:<name>)`** in the draft.
 - First user turn on **`POST /v1/responses`** carries the same plain slash tokens as the composer value (no client-side markdown injection for skills in the request body).
 
 Picker and segmentation
@@ -205,9 +205,9 @@ Mirror and caret alignment
 
 Transcript vs composer
 
-- **`user_message`** bubbles render **plain text** only (**`msg-user-body`**, **`white-space: pre-wrap`**). No Markdown pipeline, no transcript skill chips (**`coddy-skill-span`**). Slash tokens such as **`/path/to`** and YAML blocks stay exactly as persisted, with line breaks preserved.
+- **`user_message`** bubbles render **plain text** only (**`msg-user-body`**, **`white-space: pre-wrap`**). No Markdown pipeline, no transcript skill chips (**`foxxycode-skill-span`**). Slash tokens such as **`/path/to`** and YAML blocks stay exactly as persisted, with line breaks preserved.
 - Composer mirror chips (**`composer-skill-chip`**) apply **only** while editing **`#composer`**, not in the transcript.
-- Persisted user turns may carry hydrated attachments as **`coddy_attachment`** XML with **`path`**, **`name`**, and CDATA file bodies (**`internal/agent`**). **`stripCoddyAttachmentsForUserDisplay`** replaces each XML block with a compact **`@path`** **only when** that path is **not** already present as an **`@`** mention in the surrounding text (**avoids duplication** because the persisted turn already repeats the **`@`** in the user text plus the hydrated block).
+- Persisted user turns may carry hydrated attachments as **`foxxycode_attachment`** XML with **`path`**, **`name`**, and CDATA file bodies (**`internal/agent`**). **`stripFoxxyCodeAttachmentsForUserDisplay`** replaces each XML block with a compact **`@path`** **only when** that path is **not** already present as an **`@`** mention in the surrounding text (**avoids duplication** because the persisted turn already repeats the **`@`** in the user text plus the hydrated block).
 
 Verification use cases
 
@@ -217,18 +217,18 @@ Verification use cases
 | UC2 | Mid-line menu open after whitespace | **`draftSlash.test.ts`** (`slashMenuDraftAtCaret works after whitespace mid-line`) |
 | UC3 | **`x/foo`** no chip for **`/foo`** | **`segmentComposerSlashSpans.test.ts`** (`segmentComposerSlashSpans skips letter before slash`) |
 | UC4 | Line-leading **`/foo`** chip | **`segmentComposerSlashSpans.test.ts`** (`segmentComposerSlashSpans line start slash`) |
-| UC5 | **`stripCoddySkillMarkdownLinks`** on legacy paste | **`segmentComposerSlashSpans.test.ts`** (`stripCoddySkillMarkdownLinks restores plain slash token`) |
-| UC6 | User bubble keeps **`hi /demo there`** plain (no **`coddy-skill-span`**) | **`UserMessage.test.tsx`** |
+| UC5 | **`stripFoxxyCodeSkillMarkdownLinks`** on legacy paste | **`segmentComposerSlashSpans.test.ts`** (`stripFoxxyCodeSkillMarkdownLinks restores plain slash token`) |
+| UC6 | User bubble keeps **`hi /demo there`** plain (no **`foxxycode-skill-span`**) | **`UserMessage.test.tsx`** |
 | UC7 | Multiline YAML / paths keep **`\\n`** layout in **`user-message-body`** | **`UserMessage.test.tsx`** |
 | UC7b | Display-only **`slugSlashes`** (plain **`/`** and legacy mix) | **`segmentComposerSlashSpans.test.ts`** (`slugSlashesForUserBubbleMarkdown …`; composer / legacy only, not transcript) |
-| UC8 | Live **`coddy http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
-| UC9 | User bubble hides **`coddy_attachment`** bodies, shows **`@path`** only | **`UserMessage.test.tsx`**, **`stripCoddyAttachments.test.ts`** |
+| UC8 | Live **`foxxycode http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
+| UC9 | User bubble hides **`foxxycode_attachment`** bodies, shows **`@path`** only | **`UserMessage.test.tsx`**, **`stripFoxxyCodeAttachments.test.ts`** |
 
 ## Composer **`@`** workspace files
 
 - **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** only. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFilePathsFromText`** (**`internal/session/at_paths_extract.go`**) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
-- **`@`** menu uses **`GET /coddy/workspace/files`** with **`dirs=true`** so **`kind`** **`dir`** rows drill down. Choosing a **`dir`** inserts **`@`** + **`path_rel`** (often ending in **`/`**) without hydrating file body. Choosing a **`file`** inserts **`@`** + **`path_rel`** plus a trailing ASCII space where appropriate. **`Composer`** defers two **`updatePickerMenus`** ticks after a row choice so the workspace dropdown does not immediately reopen (trailing space and **`MENU_PATH_CHAR`** still satisfy **`atMenuDraftAtCaret`** until the user edits again).
-- Empty **`@`** prefix (caret right after **`@`**) loads recent rows from **`localStorage`** (**`workspaceAtRecents`**), keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), with no extra banner line (**`Type after @ to search`** only when the list is empty). Entries come from **`@`** row picks and **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-Coddy-Session-ID`**).
+- **`@`** menu uses **`GET /foxxycode/workspace/files`** with **`dirs=true`** so **`kind`** **`dir`** rows drill down. Choosing a **`dir`** inserts **`@`** + **`path_rel`** (often ending in **`/`**) without hydrating file body. Choosing a **`file`** inserts **`@`** + **`path_rel`** plus a trailing ASCII space where appropriate. **`Composer`** defers two **`updatePickerMenus`** ticks after a row choice so the workspace dropdown does not immediately reopen (trailing space and **`MENU_PATH_CHAR`** still satisfy **`atMenuDraftAtCaret`** until the user edits again).
+- Empty **`@`** prefix (caret right after **`@`**) loads recent rows from **`localStorage`** (**`workspaceAtRecents`**), keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), with no extra banner line (**`Type after @ to search`** only when the list is empty). Entries come from **`@`** row picks and **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-FoxxyCode-Session-ID`**).
 - Fenced code blocks and Markdown blockquote lines suppress **`@`** menu parity with **`draftSlash`** ( **`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`** ).
 - Mirror **`@`** styling uses **`segmentComposerMirrorSpans`** (**`composer-at-chip-inline`**, **`data-testid="composer-at-chip"`**). **`listAtPathSpans`** (**`draftAt.ts`**) chips every completed **`@path`** atom even when prose follows (**`draftAt`** parity with **`extractAtFileAttachments`**), while text after the caret that is still inside **`MENU_PATH`** stays on the active token until the **`atMenuDraftAtCaret`** lexer breaks out.
 - **`@`** search with zero matches keeps the picker open (**`No files`**) instead of collapsing the menu (**`composer-at-chip-inline`** hides for **`atNoMatch`**, same **`atIdx`**, **`prefix`** as the stale filter).
@@ -238,7 +238,7 @@ Verification use cases
 | Case | Expected | Automated check |
 | --- | --- | --- |
 | AT1 | Spaces inside paths ( **`readme copy.md`** ) work in picker draft and hydrate when attached | **`draftAt.test.ts`**, **`session/promptfiles_test.go`** (**`hello world.txt`**) |
-| AT2 | **Prefix** substring filter (**case-insensitive**), empty **prefix** returns empty **`items`** on server | **`TestCoddyWorkspaceFilesGetPagingAndPrefixes`** |
+| AT2 | **Prefix** substring filter (**case-insensitive**), empty **prefix** returns empty **`items`** on server | **`TestFoxxyCodeWorkspaceFilesGetPagingAndPrefixes`** |
 | AT3 | Prose **`see @note.txt`** does not merge **`and`** into the path segment | **`draftAt.test.ts`** (**`extractAtFileAttachments`** connector words) |
 | AT4 | **`@`** inside **`session/prompt`** text alone still hydrates (no duplicate when **`attachments`** or **`resource`** already has body text) | **`TestHydratePromptContentBlocksExpandsAtInText`**, **`at_paths_extract_test.go`** |
 | AT5 | Picker second column shows **`parent/`** for nested **`path_rel`**, empty at workspace root (**`workspacePickRowSubtitle`**) | **`workspacePickRowSubtitle.test.ts`** |
@@ -257,7 +257,7 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 - `tool_call`
   - A single tool execution row, same disclosure chrome as **thinking** / **memory** (**chevron**, **`thinking-label`** with the tool name or kind, **`thinking-dur`** for duration or **`-`**).
   - While **`pending`** or **`in_progress`**, the summary label uses a **`...`** suffix (for example **`read_file...`**). **`startedAtMs`** drives a live duration until the tool finishes.
-  - Details show arguments and streamed result when expanded. The **result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline), monospace, muted grey (**`.tool-result-raw`**). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, no **Load more** link and no fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), **overflow-y** hidden until **Load more**. **Load more results** (**`data-testid="tool-result-more-link"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then **overflow-y auto** and **Hide** (**`data-testid="tool-result-hide-link"`** ); **Hide** restores the clipped preview without a second GET while **fullResultText** stays in memory.
+  - Details show arguments and streamed result when expanded. The **result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline), monospace, muted grey (**`.tool-result-raw`**). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, no **Load more** link and no fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), **overflow-y** hidden until **Load more**. **Load more results** (**`data-testid="tool-result-more-link"`**) performs **GET `/foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, then **overflow-y auto** and **Hide** (**`data-testid="tool-result-hide-link"`** ); **Hide** restores the clipped preview without a second GET while **fullResultText** stays in memory.
 
 ## Tool call card (bundled SPA, current)
 
@@ -265,14 +265,14 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 
 | Concern | Current behaviour |
 | --- | --- |
-| Component | **`ToolCallMessage.tsx`** - **`thinking-row coddy-tool-call-row`**, **`details.thinking-details.coddy-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
+| Component | **`ToolCallMessage.tsx`** - **`thinking-row foxxycode-tool-call-row`**, **`details.thinking-details.foxxycode-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
 | Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**, **`thinking-label`**, **`thinking-dur`**), **`aria-label="Tool summary"`** |
-| Args | **`pre.tool-block`**, **`aria-label="Tool arguments"`** (inside **`thinking-body coddy-tool-call-body`**) |
+| Args | **`pre.tool-block`**, **`aria-label="Tool arguments"`** (inside **`thinking-body foxxycode-tool-call-body`**) |
 | Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
-| List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
-| Full text | First **Load more** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
-| CSS | **`styles.css`**: **`.coddy-tool-call-row`**, **`.coddy-tool-call-body`**, **`thinking-details:not([open])` body hidden**, plus **`.tool-result-raw`** and viewport / toggle classes above |
+| List merge | **`App.tsx`** **`loadMessages`** merges **`GET /foxxycode/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
+| Full text | First **Load more** only - **`GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
+| CSS | **`styles.css`**: **`.foxxycode-tool-call-row`**, **`.foxxycode-tool-call-body`**, **`thinking-details:not([open])` body hidden**, plus **`.tool-result-raw`** and viewport / toggle classes above |
 
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.
@@ -282,7 +282,7 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 - UI must show token counters while the agent is working.
 - Counters update when SSE event `token_usage` arrives.
 - Update granularity is per completed backend model call, not per generated token.
-- UI restores token counters after restart via `GET /coddy/sessions/{id}/stats`.
+- UI restores token counters after restart via `GET /foxxycode/sessions/{id}/stats`.
 
 ## Markdown rendering
 
@@ -319,8 +319,8 @@ Transcript type **`plan_document`** renders **`PlanDocumentSection`** in the mai
 Data and API:
 
 - Persisted in **`messages.json`**; hydrated fields include **`slug`**, **`name`**, **`overview`**, **`content`**, optional **`body`**, **`path`**, **`discarded`**.
-- Body edit: **`PUT /coddy/sessions/{id}/plans/{slug}`** with **`{ "body": "<markdown>" }`** (debounced autosave).
-- Discard: **`DELETE /coddy/sessions/{id}/plans/{slug}`** sets **`discarded: true`**; card remains visible, controls disabled.
+- Body edit: **`PUT /foxxycode/sessions/{id}/plans/{slug}`** with **`{ "body": "<markdown>" }`** (debounced autosave).
+- Discard: **`DELETE /foxxycode/sessions/{id}/plans/{slug}`** sets **`discarded: true`**; card remains visible, controls disabled.
 - Run plan: client triggers implementation run (metadata / prompt; see **`docs/acp-protocol.md`**).
 
 UI requirements:
@@ -337,7 +337,7 @@ Automated checks:
 
 ## Plan and todo list (legacy rail)
 
-- Optional right-rail plan entries (if present in a build) use **`GET /coddy/sessions/{id}/plan`**, **`PUT`**, **`POST .../plan/archive`**.
+- Optional right-rail plan entries (if present in a build) use **`GET /foxxycode/sessions/{id}/plan`**, **`PUT`**, **`POST .../plan/archive`**.
 - Distinct from the **`plan_document`** transcript card above.
 
 ## Long term memory
@@ -349,7 +349,7 @@ Memory tree roots
 
 Tree API
 
-- `GET /coddy/sessions/{id}/memory/tree`
+- `GET /foxxycode/sessions/{id}/memory/tree`
   - Without `root` returns the roots list.
   - With `root` and optional `path` lists children.
 - Only `.md` and `.txt` files are listed.
@@ -357,8 +357,8 @@ Tree API
 
 File API
 
-- `GET /coddy/sessions/{id}/memory/file` reads.
-- `PUT /coddy/sessions/{id}/memory/file` writes.
+- `GET /foxxycode/sessions/{id}/memory/file` reads.
+- `PUT /foxxycode/sessions/{id}/memory/file` writes.
 
 ## Swagger
 
@@ -435,10 +435,10 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then the token usage HUD shows the persisted totals
 
 - Memory copilot row (Playwright MCP)
-  - Given **`memory.enabled: true`** on the **`coddy http`** process and at least one Markdown file under global or workspace memory so recall can run
+  - Given **`memory.enabled: true`** on the **`foxxycode http`** process and at least one Markdown file under global or workspace memory so recall can run
   - When the user sends a chat message that completes a full ReAct turn
   - Then an element with **`data-testid="memory-copilot-row"`** appears after that user bubble for the turn (grey **memory** foldout, same visual language as **thinking** per `DESIGN.md`)
   - When the user opens the details element
-  - Then the streamed **memory** body shows the text merged into the main agent prompt for that turn (and optional saved-note preview when the copilot wrote `coddy_memory_save`)
+  - Then the streamed **memory** body shows the text merged into the main agent prompt for that turn (and optional saved-note preview when the copilot wrote `foxxycode_memory_save`)
 
-For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/coddy http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.
+For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/foxxycode http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.

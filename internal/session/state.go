@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/mcp"
-	"github.com/hijera/foxxy-agent/internal/plans"
-	"github.com/hijera/foxxy-agent/internal/rules"
-	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/rules"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 // Mode is the current operating mode of a session.
@@ -85,7 +85,7 @@ type State struct {
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
-	// Scheduler run metadata (cron / coddy_scheduler_job_run); written to session.json when SchedulerRun is true.
+	// Scheduler run metadata (cron / foxxycode_scheduler_job_run); written to session.json when SchedulerRun is true.
 	SchedulerRun        bool
 	SchedulerJobID      string
 	SchedulerStartedAt  string // RFC3339 UTC

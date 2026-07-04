@@ -34,7 +34,7 @@ def http_json(method: str, url: str, body: dict[str, Any] | None, headers: dict[
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
-    profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
+    profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     work = Path(os.environ.get("WORK_DIR", "")).resolve()
     if not work.is_dir():
         print("WORK_DIR must point to an existing directory", file=sys.stderr)
@@ -68,9 +68,9 @@ The file must include the final checklist and one sentence recap.
         print("bad chat completion code", code, file=sys.stderr)
         return 1
     _ = cc
-    _sid = (headers.get("X-Coddy-Session-Id") or headers.get("X-Coddy-Session-ID") or "").strip()
+    _sid = (headers.get("X-FoxxyCode-Session-Id") or headers.get("X-FoxxyCode-Session-ID") or "").strip()
     if not _sid:
-        print("missing X-Coddy-Session-ID header", file=sys.stderr)
+        print("missing X-FoxxyCode-Session-ID header", file=sys.stderr)
         return 1
 
     deadline = time.time() + 240

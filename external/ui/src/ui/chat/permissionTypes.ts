@@ -1,12 +1,12 @@
 /** Payload for tool permission SSE (matches acp.PermissionRequestParams). */
 
-export type CoddyPermissionOption = {
+export type FoxxyCodePermissionOption = {
   optionId: string;
   name: string;
   kind: string;
 };
 
-export type CoddyPermissionPayload = {
+export type FoxxyCodePermissionPayload = {
   sessionId: string;
   toolCall: {
     toolCallId: string;
@@ -17,7 +17,7 @@ export type CoddyPermissionPayload = {
       content?: { type?: string; text?: string };
     }>;
   };
-  options: CoddyPermissionOption[];
+  options: FoxxyCodePermissionOption[];
 };
 
 export type PermissionResolvedState = {
@@ -25,7 +25,7 @@ export type PermissionResolvedState = {
   summaryLine: string;
 };
 
-export function permissionBodyText(payload: CoddyPermissionPayload): string {
+export function permissionBodyText(payload: FoxxyCodePermissionPayload): string {
   const blocks = payload.toolCall.content;
   if (!Array.isArray(blocks)) return "";
   for (const b of blocks) {
@@ -35,9 +35,9 @@ export function permissionBodyText(payload: CoddyPermissionPayload): string {
   return "";
 }
 
-export function parseCoddyPermissionPayload(
+export function parseFoxxyCodePermissionPayload(
   raw: Record<string, unknown>,
-): CoddyPermissionPayload | null {
+): FoxxyCodePermissionPayload | null {
   const sessionId = typeof raw.sessionId === "string" ? raw.sessionId.trim() : "";
   const tcRaw = raw.toolCall;
   if (!sessionId || !tcRaw || typeof tcRaw !== "object") return null;
@@ -45,7 +45,7 @@ export function parseCoddyPermissionPayload(
   const toolCallId =
     typeof tc.toolCallId === "string" ? tc.toolCallId.trim() : "";
   if (!toolCallId) return null;
-  const options: CoddyPermissionOption[] = [];
+  const options: FoxxyCodePermissionOption[] = [];
   if (Array.isArray(raw.options)) {
     for (const o of raw.options) {
       if (!o || typeof o !== "object") continue;

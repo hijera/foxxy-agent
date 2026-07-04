@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 func newProviderModelsServer(t *testing.T, cfg *config.Config) *httptest.Server {
@@ -30,7 +30,7 @@ func newProviderModelsServer(t *testing.T, cfg *config.Config) *httptest.Server 
 func TestProviderModelsUnknownProvider404(t *testing.T) {
 	ts := newProviderModelsServer(t, &config.Config{})
 
-	res, err := http.Get(ts.URL + "/coddy/providers/nope/models")
+	res, err := http.Get(ts.URL + "/foxxycode/providers/nope/models")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestProviderModelsHappyPath(t *testing.T) {
 		},
 	})
 
-	res, err := http.Get(ts.URL + "/coddy/providers/openai/models")
+	res, err := http.Get(ts.URL + "/foxxycode/providers/openai/models")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestProviderModelsUpstreamErrorReturnsOKFalse(t *testing.T) {
 		},
 	})
 
-	res, err := http.Get(ts.URL + "/coddy/providers/openai/models")
+	res, err := http.Get(ts.URL + "/foxxycode/providers/openai/models")
 	if err != nil {
 		t.Fatal(err)
 	}

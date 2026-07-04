@@ -16,7 +16,7 @@ async function delay(ms: number): Promise<void> {
   });
 }
 
-/** Fire-and-forget: POST `/coddy/describe` without blocking, then PATCH title when describe and session ID are ready. */
+/** Fire-and-forget: POST `/foxxycode/describe` without blocking, then PATCH title when describe and session ID are ready. */
 export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
   const fetchFn = deps.fetchImpl ?? fetch;
   const trimmed = deps.userText.trim();
@@ -27,7 +27,7 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
   void (async () => {
     let describeRes: Response;
     try {
-      describeRes = await fetchFn("/coddy/describe", {
+      describeRes = await fetchFn("/foxxycode/describe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: trimmed }),
@@ -67,7 +67,7 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
     for (let attempt = 0; attempt < 40; attempt++) {
       let patchRes: Response;
       try {
-        patchRes = await fetchFn(`/coddy/sessions/${encodeURIComponent(sid)}`, {
+        patchRes = await fetchFn(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: short }),

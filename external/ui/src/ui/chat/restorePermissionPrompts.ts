@@ -1,6 +1,6 @@
 import { DEFAULT_PERMISSION_OPTIONS } from "./permissionDefaults";
 import { resolvedPermissionToolCallIds } from "./permissionPromptSessionStore";
-import type { CoddyPermissionPayload } from "./permissionTypes";
+import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { stablePermissionPromptItemId } from "./transcriptItemIds";
 import type { TranscriptItem } from "./types";
 import {
@@ -33,7 +33,7 @@ export function buildPermissionPayloadFromToolCall(
     kind?: string | undefined;
     argsText?: string | undefined;
   },
-): CoddyPermissionPayload {
+): FoxxyCodePermissionPayload {
   const toolCallId = row.toolCallId.trim();
   const toolName = toolNameFromRow(row.title, row.kind);
   const args = (row.argsText || "").trim();

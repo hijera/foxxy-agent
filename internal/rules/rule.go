@@ -9,7 +9,7 @@ import (
 type Source string
 
 const (
-	SourceCoddy  Source = "coddy"
+	SourceFoxxyCode  Source = "foxxycode"
 	SourceCursor Source = "cursor"
 	SourceClaude Source = "claude"
 	SourceCodex  Source = "codex"

@@ -2,17 +2,17 @@ package todo
 
 // LLM-visible tool identifiers (ACP / prompt surface).
 const (
-	ToolNamePlanRead    = "coddy_todo_plan_read"
-	ToolNamePlanReplace = "coddy_todo_plan_replace"
-	ToolNamePlanArchive = "coddy_todo_plan_archive"
-	ToolNameItemAdd     = "coddy_todo_item_add"
-	ToolNameItemRemove  = "coddy_todo_item_remove"
-	ToolNameItemUpdate  = "coddy_todo_item_update"
-	ToolNameItemMove    = "coddy_todo_item_move"
+	ToolNamePlanRead    = "foxxycode_todo_plan_read"
+	ToolNamePlanReplace = "foxxycode_todo_plan_replace"
+	ToolNamePlanArchive = "foxxycode_todo_plan_archive"
+	ToolNameItemAdd     = "foxxycode_todo_item_add"
+	ToolNameItemRemove  = "foxxycode_todo_item_remove"
+	ToolNameItemUpdate  = "foxxycode_todo_item_update"
+	ToolNameItemMove    = "foxxycode_todo_item_move"
 )
 
-// AllCoddyTodoToolNames lists every built-in coddy todo/plan tool name.
-var AllCoddyTodoToolNames = []string{
+// AllFoxxyCodeTodoToolNames lists every built-in foxxycode todo/plan tool name.
+var AllFoxxyCodeTodoToolNames = []string{
 	ToolNamePlanRead,
 	ToolNamePlanReplace,
 	ToolNamePlanArchive,

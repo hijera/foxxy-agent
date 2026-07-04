@@ -101,7 +101,7 @@ func TestValidateProviderNamePattern(t *testing.T) {
 
 func TestLoadYAMLProviderEmptyAPIKeyStoredEmptyResolveUsesEnv(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(EnvCODDYHome, home)
+	t.Setenv(EnvFOXXYCODEHome, home)
 	t.Setenv("RPA_API_KEY", "secret")
 
 	yml := `

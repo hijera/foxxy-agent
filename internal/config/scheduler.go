@@ -11,7 +11,7 @@ import (
 type SchedulerConfig struct {
 	Enabled bool `yaml:"enabled"`
 
-	// Dir is the filesystem root containing *.md job definitions. Empty defaults to ${CODDY_HOME}/scheduler.
+	// Dir is the filesystem root containing *.md job definitions. Empty defaults to ${FOXXYCODE_HOME}/scheduler.
 	Dir string `yaml:"dir"`
 
 	// MaxQueue caps concurrent scheduled sub-agent runs (default 10). When saturated, pending jobs are skipped until a slot frees.
@@ -41,11 +41,11 @@ func (c *Config) SchedulerScanRoots() []string {
 	return []string{filepath.Clean(d)}
 }
 
-// Normalize trims scheduler paths using CODDY_HOME expansion.
+// Normalize trims scheduler paths using FOXXYCODE_HOME expansion.
 func (s *SchedulerConfig) Normalize(p Paths) {
 	s.Dir = strings.TrimSpace(s.Dir)
 	if s.Dir != "" {
-		s.Dir = filepath.Clean(ExpandCODDYHomeOnly(s.Dir, p))
+		s.Dir = filepath.Clean(ExpandFOXXYCODEHomeOnly(s.Dir, p))
 	}
 	s.Timeout = strings.TrimSpace(s.Timeout)
 }

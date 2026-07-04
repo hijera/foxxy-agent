@@ -13,7 +13,7 @@ func ResolvePath(path, cwd string) string {
 	return filepath.Join(cwd, path)
 }
 
-// sessionStoreRoot returns the Coddy session-store root (the parent of the active
+// sessionStoreRoot returns the FoxxyCode session-store root (the parent of the active
 // session bundle <root>/<id>). Filesystem search tools hide this directory so that
 // other sessions' transcripts can never leak into the current session's context.
 // Returns "" when disk persistence is off (no SessionDir).

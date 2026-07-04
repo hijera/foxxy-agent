@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 const pendingPermissionFileName = "pending_permission.json"
 
-// PendingPermissionRecord is persisted while the agent waits on POST /coddy/sessions/{id}/permission.
+// PendingPermissionRecord is persisted while the agent waits on POST /foxxycode/sessions/{id}/permission.
 type PendingPermissionRecord struct {
 	Version   int                          `json:"version"`
 	SessionID string                       `json:"sessionId"`

@@ -12,12 +12,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/mcp"
-	"github.com/hijera/foxxy-agent/internal/skills"
-	"github.com/hijera/foxxy-agent/internal/version"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
+	"github.com/hijera/foxxycode-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
 // AgentRunner is a function that runs the ReAct loop for a prompt turn.
@@ -478,7 +478,7 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 // PromptRunOpts configures HandleSessionPromptWithSender for HTTP streaming paths that
 // acquire the turn lock before committing SSE headers.
 type PromptRunOpts struct {
-	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy http SSE).
+	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. foxxycode http SSE).
 	SkipTurnLock bool
 }
 

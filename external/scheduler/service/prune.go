@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 type schedRunEntry struct {

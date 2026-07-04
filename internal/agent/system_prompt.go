@@ -4,13 +4,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/prompts"
-	"github.com/hijera/foxxy-agent/internal/session"
-	"github.com/hijera/foxxy-agent/internal/skills"
-	"github.com/hijera/foxxy-agent/internal/tools"
-	"github.com/hijera/foxxy-agent/internal/tools/todo"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
 func joinNonEmptyPromptBlocks(parts ...string) string {

@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // GrepTool returns the grep built-in (ripgrep content search).
@@ -108,7 +108,7 @@ func executeGrep(ctx context.Context, argsJSON string, env *tooling.Env) (string
 		return "", fmt.Errorf("grep rg: %s", stderr.String())
 	}
 
-	// Hide Coddy's own session store so other sessions' transcripts never leak in.
+	// Hide FoxxyCode's own session store so other sessions' transcripts never leak in.
 	return grepResultOrEmpty(dropStoreLines(stdout.String(), storeRoot)), nil
 }
 

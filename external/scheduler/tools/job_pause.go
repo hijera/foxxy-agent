@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func jobPauseTool(cfg *config.Config) *tooling.Tool {
@@ -19,7 +19,7 @@ func jobPauseTool(cfg *config.Config) *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: toolJobPause,
 			Description: "Pauses ONE scheduler job (sets frontmatter paused:true). Cron ticks and asynchronous manual runs will not execute until resumed. " +
-				"This does NOT cancel an active run-in-progress (see coddy_scheduler_job_cancel); it only blocks future executions. Requires permission.",
+				"This does NOT cancel an active run-in-progress (see foxxycode_scheduler_job_cancel); it only blocks future executions. Requires permission.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

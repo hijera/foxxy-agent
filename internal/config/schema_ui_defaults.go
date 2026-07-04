@@ -34,8 +34,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		Skills: SkillsJSON{
 			Dirs: []string{
 				"~/.agents/skills",
-				"${CODDY_HOME}/skills",
-				"${CWD}/.coddy/skills",
+				"${FOXXYCODE_HOME}/skills",
+				"${CWD}/.foxxycode/skills",
 			},
 		},
 		MCPServers: []MCPServerJSON{},
@@ -62,7 +62,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
-			Dir:            "${CODDY_HOME}/scheduler",
+			Dir:            "${FOXXYCODE_HOME}/scheduler",
 			MaxQueue:       10,
 			Timeout:        "30m",
 			RetainSessions: 5,

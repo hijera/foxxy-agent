@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // --- patch.go: unified diff / v4a patch ------------------------------------
@@ -113,8 +113,8 @@ func TestApplyUnifiedDiff_deleteOutOfRangeReturnsError(t *testing.T) {
 
 // --- paths.go / grep.go / glob.go: session-store hiding --------------------
 
-// buildStoreTree lays out a workspace that also contains Coddy's own session store,
-// mirroring the real ~/.coddy layout where config.yaml sits next to sessions/<id>/.
+// buildStoreTree lays out a workspace that also contains FoxxyCode's own session store,
+// mirroring the real ~/.foxxycode layout where config.yaml sits next to sessions/<id>/.
 // It returns the root and the active session dir.
 func buildStoreTree(t *testing.T) (root, sessionDir string) {
 	t.Helper()
@@ -141,17 +141,17 @@ func TestSessionStoreRootAndIsWithinDir(t *testing.T) {
 	if got := sessionStoreRoot(""); got != "" {
 		t.Fatalf("empty SessionDir should disable filtering, got %q", got)
 	}
-	root := sessionStoreRoot("/home/u/.coddy/sessions/sess_abc")
-	if root != "/home/u/.coddy/sessions" {
+	root := sessionStoreRoot("/home/u/.foxxycode/sessions/sess_abc")
+	if root != "/home/u/.foxxycode/sessions" {
 		t.Fatalf("store root = %q", root)
 	}
-	if !isWithinDir("/home/u/.coddy/sessions/sess_x/messages.json", root) {
+	if !isWithinDir("/home/u/.foxxycode/sessions/sess_x/messages.json", root) {
 		t.Fatal("store file should be within store root")
 	}
-	if isWithinDir("/home/u/.coddy/config.yaml", root) {
+	if isWithinDir("/home/u/.foxxycode/config.yaml", root) {
 		t.Fatal("sibling config must not be treated as within the store")
 	}
-	if isWithinDir("/home/u/.coddy/sessions-archive/x", root) {
+	if isWithinDir("/home/u/.foxxycode/sessions-archive/x", root) {
 		t.Fatal("prefix-similar sibling dir must not match")
 	}
 }

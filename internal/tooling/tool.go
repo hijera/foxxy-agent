@@ -3,7 +3,7 @@ package tooling
 import (
 	"context"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // Tool is a callable tool that the agent can invoke.

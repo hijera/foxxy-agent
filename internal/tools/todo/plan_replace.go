@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // PlanReplaceTool replaces the full todo plan from a markdown checklist.
@@ -18,7 +18,7 @@ func PlanReplaceTool() *tooling.Tool {
 			Description: "Replace the entire todo plan from a markdown checklist. " +
 				"Use for bulk edits, imports, or reordering. " +
 				"Each line becomes a plan entry. Items marked with [x] are completed. " +
-				"Cannot replace while any item is still incomplete - run coddy_todo_plan_archive first. " +
+				"Cannot replace while any item is still incomplete - run foxxycode_todo_plan_archive first. " +
 				"Markdown must not be empty.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 const composerStreamWaitDeadline = 30 * time.Second
 
-// coddySessionComposerStream streams the same SSE bytes as POST /v1/responses for an in-flight composer turn.
-func (s *Server) coddySessionComposerStream(w http.ResponseWriter, r *http.Request) {
+// foxxycodeSessionComposerStream streams the same SSE bytes as POST /v1/responses for an in-flight composer turn.
+func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
@@ -27,12 +27,12 @@ func (s *Server) coddySessionComposerStream(w http.ResponseWriter, r *http.Reque
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
-	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	hdr := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID"))
 	if hdr != "" && hdr != id {
-		http.Error(w, `{"error":{"message":"X-Coddy-Session-ID does not match path id"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"X-FoxxyCode-Session-ID does not match path id"}}`, http.StatusBadRequest)
 		return
 	}
-	if s.coddyEnsureLoaded(w, r, id) == nil {
+	if s.foxxycodeEnsureLoaded(w, r, id) == nil {
 		return
 	}
 

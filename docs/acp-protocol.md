@@ -2,7 +2,7 @@
 
 ## Overview
 
-Coddy implements ACP as the **wire contract for the harness**. ACP standardizes how clients (for example editors, scripts, or orchestrators) talk to an agent process. The stock configuration presents a **coding agent**, but transports and RPC methods are generic harness surface area - initialize, session lifecycle, `session/prompt`, permission flows, and MCP-related options.
+FoxxyCode implements ACP as the **wire contract for the harness**. ACP standardizes how clients (for example editors, scripts, or orchestrators) talk to an agent process. The stock configuration presents a **coding agent**, but transports and RPC methods are generic harness surface area - initialize, session lifecycle, `session/prompt`, permission flows, and MCP-related options.
 
 Reference: https://agentclientprotocol.com/protocol/overview
 
@@ -62,9 +62,9 @@ stderr -> agent logs (not protocol messages)
 }
 ```
 
-## Stdio clients (Coddy-specific)
+## Stdio clients (FoxxyCode-specific)
 
-Hand-written scripts that drive **`coddy acp`** over a pipe should implement the following behaviors. Reference harness: **`examples/acp/acp_e2e_todo.py`**.
+Hand-written scripts that drive **`foxxycode acp`** over a pipe should implement the following behaviors. Reference harness: **`examples/acp/acp_e2e_todo.py`**.
 
 1. **Nil `result` and `omitempty`** - JSON-RPC success payloads are produced with `result` omitted when the Go handler returns a **`nil`** pointer (for example **`session/set_mode`**). A response line may contain only **`jsonrpc`**, **`id`**, and neither **`result`** nor **`error`**. Treat any object with a matching **`id`** and no **`method`** as the completion of your outstanding request.
 2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** or **`session/request_question`** in between by writing a client response with the same **`id`**.
@@ -135,8 +135,8 @@ Negotiate protocol version and exchange capabilities.
     }
   },
   "agentInfo": {
-    "name": "coddy-agent",
-    "title": "Coddy Agent",
+    "name": "foxxycode-agent",
+    "title": "FoxxyCode Agent",
     "version": "0.1.0"
   },
   "authMethods": []
@@ -164,7 +164,7 @@ Create a new conversation session.
 
 **Response result:**
 
-Coddy returns both **Session Config Options** (preferred by modern ACP clients) and the legacy **`modes`** field for compatibility. Clients that support `configOptions` should use them for mode and model selection.
+FoxxyCode returns both **Session Config Options** (preferred by modern ACP clients) and the legacy **`modes`** field for compatibility. Clients that support `configOptions` should use them for mode and model selection.
 
 ```json
 {
@@ -271,9 +271,9 @@ Reloads a persisted session by `sessionId`. The agent restores `session.json` an
 
 Lists persisted sessions found under the configured sessions root (see README). Optional `cwd` filters by the stored working directory. The response includes `sessionId`, `cwd`, `title`, and `updatedAt` per entry.
 
-### Disk layout (Coddy)
+### Disk layout (FoxxyCode)
 
-When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
+When the process is started with a writable sessions root (default **`$FOXXYCODE_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
 
 - `session.json` - id, cwd, mode, model override, permission mode override (`permissionMode`), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
 - `messages.json` - LLM message history (roles user, assistant, tool)
@@ -282,35 +282,35 @@ When the process is started with a writable sessions root (default **`$CODDY_HOM
 - `todos/archive/todo-<nanos>.md` - archived list when a completed list is replaced
 - `plans/<slug>.plan.md` - design plan files (YAML frontmatter + markdown body), written in plan mode via **`plan_write`**
 
-The server always advertises **`loadSession`** when a store is configured (`coddy acp` and **`coddy http`** open a **`FileStore`** at startup).
+The server always advertises **`loadSession`** when a store is configured (`foxxycode acp` and **`foxxycode http`** open a **`FileStore`** at startup).
 
 ### Design plans (plan mode)
 
 Plan mode uses standard ACP only. The agent saves files with tools **`plan_write`** / **`plan_list`** (not JSON-RPC extensions).
 
-After **`plan_write`**, Coddy publishes:
+After **`plan_write`**, FoxxyCode publishes:
 
 - **`session/update`** with `sessionUpdate: "plan"` and checklist **`entries`** from the file frontmatter (preview for any ACP client)
-- **`_meta`** on that update: `coddy.dev/planSlug`, `coddy.dev/planKind: "design"` (opt-in; distinguishes design plans from live todo checklist updates)
+- **`_meta`** on that update: `foxxycode.dev/planSlug`, `foxxycode.dev/planKind: "design"` (opt-in; distinguishes design plans from live todo checklist updates)
 - A persisted **`plan_document`** row in **`messages.json`** for the bundled UI (also visible as assistant markdown in chat when the model summarizes the plan)
 
-**Run plan** (start implementation) without a custom `_coddy/*` method:
+**Run plan** (start implementation) without a custom `_foxxycode/*` method:
 
-1. **Coddy-aware** - `session/prompt` with `_meta`:
+1. **FoxxyCode-aware** - `session/prompt` with `_meta`:
 
 ```json
 {
   "sessionId": "sess_…",
   "prompt": [{ "type": "text", "text": "Implement the plan." }],
-  "_meta": { "coddy.dev/runPlanSlug": "my-feature" }
+  "_meta": { "foxxycode.dev/runPlanSlug": "my-feature" }
 }
 ```
 
-Coddy switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan.
+FoxxyCode switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan.
 
 2. **Portable** - client sets `mode` to **agent**, then `session/prompt` referencing `@plans/<slug>.plan.md` or text like *implement the plan my-feature*.
 
-HTTP **`POST /v1/responses`** accepts the same hook via JSON **`metadata.runPlanSlug`** (bundled UI). CRUD for plan files is HTTP-only under **`/coddy/sessions/{id}/plans`** (not part of core ACP).
+HTTP **`POST /v1/responses`** accepts the same hook via JSON **`metadata.runPlanSlug`** (bundled UI). CRUD for plan files is HTTP-only under **`/foxxycode/sessions/{id}/plans`** (not part of core ACP).
 
 ### `session/prompt`
 
@@ -327,7 +327,7 @@ Send a user message, starts the ReAct loop.
     }
   ],
   "_meta": {
-    "coddy.dev/runPlanSlug": "optional-slug-for-run-plan"
+    "foxxycode.dev/runPlanSlug": "optional-slug-for-run-plan"
   }
 }
 ```
@@ -355,7 +355,7 @@ Cancel an ongoing prompt turn (notification).
 }
 ```
 
-For a writable session bundle, Coddy also writes a small on-disk cancel signal so another **`coddy`** process (for example **`coddy http`** while **`coddy acp`** runs the turn) can observe cooperative cancellation between poll ticks during the turn. The in-process turn still ends via the same **`TurnCtx`** cancel hook when the session is loaded in this process.
+For a writable session bundle, FoxxyCode also writes a small on-disk cancel signal so another **`foxxycode`** process (for example **`foxxycode http`** while **`foxxycode acp`** runs the turn) can observe cooperative cancellation between poll ticks during the turn. The in-process turn still ends via the same **`TurnCtx`** cancel hook when the session is loaded in this process.
 
 ### `session/set_mode`
 
@@ -417,7 +417,7 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 
 ### `available_commands_update` - Slash commands from skills
 
-After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+After **`session/new`** and **`session/load`**, FoxxyCode derives slash commands from the same **`ListSkills`** pipeline as **`GET /foxxycode/slash-commands`**. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
 
 ```json
 {
@@ -474,7 +474,7 @@ Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancel
 
 When `memory.enabled` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
 
-Current protocol uses a single phase name **`memory`** (starts before the main agent, finishes when the copilot text is ready). Legacy sessions may still replay **`recall`** / **`persist`** from older traces. Status: `started` | `completed`. `durationMs` is set on `completed`. When a note was written with **`coddy_memory_save`**, **`persistSaved`**, **`persistTitle`**, **`persistRelativePath`**, and optional **`persistSavedBody`** may be set on **`completed`**.
+Current protocol uses a single phase name **`memory`** (starts before the main agent, finishes when the copilot text is ready). Legacy sessions may still replay **`recall`** / **`persist`** from older traces. Status: `started` | `completed`. `durationMs` is set on `completed`. When a note was written with **`foxxycode_memory_save`**, **`persistSaved`**, **`persistTitle`**, **`persistRelativePath`**, and optional **`persistSavedBody`** may be set on **`completed`**.
 
 ```json
 {

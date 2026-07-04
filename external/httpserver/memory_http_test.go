@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 func TestMemoryTreeRejectsTraversal(t *testing.T) {
@@ -23,7 +23,7 @@ func TestMemoryTreeRejectsTraversal(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	u := ts.URL + "/coddy/sessions/" + sid + "/memory/tree?root=global&path=" + url.QueryEscape("../etc/passwd")
+	u := ts.URL + "/foxxycode/sessions/" + sid + "/memory/tree?root=global&path=" + url.QueryEscape("../etc/passwd")
 	r, err := http.Get(u)
 	if err != nil {
 		t.Fatal(err)

@@ -3,7 +3,7 @@ package todo
 import (
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 // ParsePlanMarkdown parses a markdown checklist string into PlanEntry values.

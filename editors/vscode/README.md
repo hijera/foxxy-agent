@@ -1,4 +1,4 @@
-# Foxxy for VS Code (scaffold)
+# FoxxyCode for VS Code (scaffold)
 
 > **Status: scaffolding only.** The directory, manifest, and build script exist so the extension
 > slots in beside the [JetBrains plugin](../intellij) without any restructuring. The activation
@@ -8,7 +8,7 @@
 ## Intended design
 
 Same contract as the IntelliJ client (see [../README.md](../README.md)): bundle a full-feature
-`foxxy` binary, start `foxxy http --cwd <workspace>` on a free port, and embed the foxxy SPA in a
+`foxxycode` binary, start `foxxycode http --cwd <workspace>` on a free port, and embed the foxxycode SPA in a
 `WebviewPanel`.
 
 ## Build model
@@ -27,13 +27,13 @@ npx vsce package --target darwin-arm64
 ```
 
 `scripts/prepare-binary.mjs` runs the **same** `GOOS/GOARCH go build -tags "http ui scheduler
-memory" ./cmd/coddy/` cross-compile the Gradle build uses, from the repo root. There is no separate
+memory" ./cmd/foxxycode/` cross-compile the Gradle build uses, from the repo root. There is no separate
 Go source — the repo root is the single source of truth.
 
 ## Next steps to implement
 
-1. Port the binary resolver (os/arch → `foxxy-bin/<os>-<arch>/foxxy[.exe]`) and process manager
-   from `../intellij/src/main/kotlin/dev/foxxy/intellij/{binary,process}`.
-2. Implement the webview panel + theme sync (map VS Code color theme → `?theme=` / `window.foxxyUi`).
+1. Port the binary resolver (os/arch → `foxxycode-bin/<os>-<arch>/foxxycode[.exe]`) and process manager
+   from `../intellij/src/main/kotlin/dev/foxxycode/intellij/{binary,process}`.
+2. Implement the webview panel + theme sync (map VS Code color theme → `?theme=` / `window.foxxycodeUi`).
 3. Add a `.github/workflows/vscode-plugin.yaml` matrix (one job per `vsce --target`) mirroring
    `intellij-plugin.yaml`, and wire it into `tag-on-merge.yaml`.

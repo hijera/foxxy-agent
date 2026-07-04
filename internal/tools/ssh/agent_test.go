@@ -32,7 +32,7 @@ func TestAgentAuth_NoSocket(t *testing.T) {
 func TestAgentAuth_BadSocket(t *testing.T) {
 	// Point SSH_AUTH_SOCK at a path that does not exist.
 	orig := os.Getenv("SSH_AUTH_SOCK")
-	if err := os.Setenv("SSH_AUTH_SOCK", "/tmp/coddy-test-nonexistent.sock"); err != nil {
+	if err := os.Setenv("SSH_AUTH_SOCK", "/tmp/foxxycode-test-nonexistent.sock"); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

@@ -1,8 +1,8 @@
 # ReAct Agent: Design Specification
 
-## Role in Coddy
+## Role in FoxxyCode
 
-Coddy is modeled as **harness plus execution engine**. This document specifies that engine -
+FoxxyCode is modeled as **harness plus execution engine**. This document specifies that engine -
 
 - the **ReAct loop** in `internal/agent` that turns prompts and tools into streamed turns,
 - default **coding-agent** behavior - tool registry, `agent` and `plan` modes, permission gates.
@@ -56,7 +56,7 @@ Working directory: {{.CWD}}
 
 The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**.
 
-Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
+Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, FoxxyCode reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
 
 ### Tool Calling via Function Calling API
 
@@ -127,7 +127,7 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**.
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`foxxycode_todo_plan_*`** and **`foxxycode_todo_item_*`** tools surfaced in **`Tools`**.
 
 Representative builtins (excluding MCP-namespaced tools):
 
@@ -135,12 +135,12 @@ Representative builtins (excluding MCP-namespaced tools):
 - `search_web`, `extract_page_content`
 - `run_command`, `apply_diff`
 - Filesystem mutations: **`mkdir`**, **`rm`**, **`rmdir`**, **`touch`**, **`mv`** (subset may require permission paths)
-- Session checklist: **`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**, **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**, **`coddy_todo_item_update`**, **`coddy_todo_item_move`**
+- Session checklist: **`foxxycode_todo_plan_read`**, **`foxxycode_todo_plan_replace`**, **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**, **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**
 - All MCP server tools (names **`serverName__toolName`**)
 
 ### Plan Mode
 
-Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no built-in writes or **coddy** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
+Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no built-in writes or **foxxycode** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
 
 Representative builtins exposed to the LLM (registry allowlist):
 

@@ -6,4 +6,4 @@ tsconfig.json
 **/*.map
 **/*.ts
 .gitignore
-# Keep: out/** (compiled extension) and foxxy-bin/** (bundled binary) ship in the VSIX.
+# Keep: out/** (compiled extension) and foxxycode-bin/** (bundled binary) ship in the VSIX.

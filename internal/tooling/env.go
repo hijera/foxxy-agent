@@ -3,8 +3,8 @@ package tooling
 import (
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/plans"
 )
 
 // Env provides environmental context to tool execution.

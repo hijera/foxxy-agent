@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // RemoveTool removes a file or directory (recursive optional, similar to rm / rm -r).

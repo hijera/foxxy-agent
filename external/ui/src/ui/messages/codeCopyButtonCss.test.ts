@@ -25,5 +25,5 @@ test("code-block copy button background is theme-aware (not a dark blob on light
   expect(base![0]).not.toMatch(/background:\s*rgba\(\s*20,\s*20,\s*22/);
   expect(hover![0]).not.toMatch(/background:\s*rgba\(\s*20,\s*20,\s*22/);
   // Derives from the shared glass-panel token so it flips with the theme.
-  expect(base![0]).toMatch(/background:[^;]*var\(--coddy-glass-panel-bg\)/);
+  expect(base![0]).toMatch(/background:[^;]*var\(--foxxycode-glass-panel-bg\)/);
 });

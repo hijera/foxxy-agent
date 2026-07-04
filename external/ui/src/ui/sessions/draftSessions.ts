@@ -1,6 +1,6 @@
 import type { SessionRow } from "./types";
 
-const STORAGE_KEY = "coddy_draft_sessions_v1";
+const STORAGE_KEY = "foxxycode_draft_sessions_v1";
 const DRAFT_ID_PREFIX = "draft_";
 
 export type ClientDraftSession = {

@@ -1,6 +1,6 @@
 //go:build gateway || gateway.telegram
 
-// Package sessionstore maps stable messenger chat/user keys to Coddy session IDs.
+// Package sessionstore maps stable messenger chat/user keys to FoxxyCode session IDs.
 // Each unique (gateway, chatID, userID, isolation) combination yields a single session ID
 // that is replaced when the user sends /clear.
 //
@@ -18,10 +18,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
-// Store maps session keys to Coddy session IDs.
+// Store maps session keys to FoxxyCode session IDs.
 type Store struct {
 	mu       sync.Mutex
 	data     map[string]string
@@ -61,7 +61,7 @@ func SessionKey(gateway string, chatID, userID int64, mode config.IsolationMode,
 	}
 }
 
-// Get returns the Coddy session ID for key, creating a new random one when absent.
+// Get returns the FoxxyCode session ID for key, creating a new random one when absent.
 func (s *Store) Get(key string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

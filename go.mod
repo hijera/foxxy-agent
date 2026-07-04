@@ -1,4 +1,4 @@
-module github.com/hijera/foxxy-agent
+module github.com/hijera/foxxycode-agent
 
 go 1.25.0
 

@@ -1,14 +1,14 @@
-import type { CoddyPermissionPayload, PermissionResolvedState } from "./permissionTypes";
+import type { FoxxyCodePermissionPayload, PermissionResolvedState } from "./permissionTypes";
 import { restorePermissionPromptsForPendingTools } from "./restorePermissionPrompts";
 import { stablePermissionPromptItemId } from "./transcriptItemIds";
 import type { TranscriptItem } from "./types";
 import type { ToolsPermissionPolicy } from "./toolsPermissionPolicy";
 
-const STORAGE_PREFIX = "coddy_pp_v1:";
+const STORAGE_PREFIX = "foxxycode_pp_v1:";
 
 export type StoredPermissionPromptRecord = {
   toolCallId: string;
-  payload: CoddyPermissionPayload;
+  payload: FoxxyCodePermissionPayload;
   resolved?: PermissionResolvedState | undefined;
 };
 
@@ -32,7 +32,7 @@ export function loadPermissionPromptRecords(
       if (!row || typeof row !== "object") continue;
       const o = row as Record<string, unknown>;
       const toolCallId = String(o.toolCallId ?? "").trim();
-      const payload = o.payload as CoddyPermissionPayload | undefined;
+      const payload = o.payload as FoxxyCodePermissionPayload | undefined;
       if (!toolCallId || !payload?.toolCall?.toolCallId) continue;
       out.push({
         toolCallId,

@@ -1,21 +1,21 @@
 /**
  * Payload for interactive question tool (matches server SSE and POST /question).
  */
-export type CoddyQuestionOption = { label: string; description?: string };
+export type FoxxyCodeQuestionOption = { label: string; description?: string };
 
-export type CoddyQuestionItem = {
+export type FoxxyCodeQuestionItem = {
   header?: string;
   question: string;
-  options: CoddyQuestionOption[];
+  options: FoxxyCodeQuestionOption[];
   multiple?: boolean;
   custom?: boolean;
 };
 
-export type CoddyQuestionPayload = {
+export type FoxxyCodeQuestionPayload = {
   sessionId: string;
   requestId: string;
   toolCallId?: string;
-  questions: CoddyQuestionItem[];
+  questions: FoxxyCodeQuestionItem[];
 };
 
 /** Stored on the transcript row after POST /question succeeds. */
@@ -34,15 +34,15 @@ export function letterForOptionIndex(i: number): string {
   return String(i + 1);
 }
 
-function normQuestions(raw: unknown): CoddyQuestionItem[] {
+function normQuestions(raw: unknown): FoxxyCodeQuestionItem[] {
   if (!Array.isArray(raw)) return [];
-  const out: CoddyQuestionItem[] = [];
+  const out: FoxxyCodeQuestionItem[] = [];
   for (const q of raw) {
     if (!q || typeof q !== "object") continue;
     const o = q as Record<string, unknown>;
     const question = typeof o.question === "string" ? o.question.trim() : "";
     const optsRaw = o.options;
-    const options: CoddyQuestionOption[] = [];
+    const options: FoxxyCodeQuestionOption[] = [];
     if (Array.isArray(optsRaw)) {
       for (const op of optsRaw) {
         if (!op || typeof op !== "object") continue;
@@ -68,9 +68,9 @@ function normQuestions(raw: unknown): CoddyQuestionItem[] {
   return out;
 }
 
-export function parseCoddyQuestionPayload(
+export function parseFoxxyCodeQuestionPayload(
   raw: Record<string, unknown>,
-): CoddyQuestionPayload | null {
+): FoxxyCodeQuestionPayload | null {
   const sessionId = String(raw.sessionId || "").trim();
   const requestId = String(raw.requestId || "").trim();
   const questions = normQuestions(raw.questions);

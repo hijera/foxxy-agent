@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 func TestCountUserTurns(t *testing.T) {

@@ -1,12 +1,12 @@
 ---
-description: Layers and dependency direction for Coddy Agent
+description: Layers and dependency direction for FoxxyCode Agent
 paths:
   - "**/*.go"
 ---
 
 # Architecture
 
-**Coddy** is a Go CLI and ACP harness. Keep dependencies flowing **inward**: higher layers orchestrate lower ones; shared types stay shallow.
+**FoxxyCode** is a Go CLI and ACP harness. Keep dependencies flowing **inward**: higher layers orchestrate lower ones; shared types stay shallow.
 
 ## Rough layers (low to high)
 
@@ -16,11 +16,11 @@ paths:
 4. **`internal/tools`**, **`internal/permission`**, **`internal/skills`** - capabilities and policies.
 5. **`internal/agent`** - ReAct-style loop assembling the above.
 6. **`internal/acp`** - ACP protocol server on top of the agent and session manager.
-7. **`cmd/coddy`** - CLI entrypoints and wiring.
+7. **`cmd/foxxycode`** - CLI entrypoints and wiring.
 
 ## Optional build tags
 
-- **`memory`** - **`external/memory`** long-term memory copilot and HTTP session memory routes; **`//go:build memory`**. Recommended together with **`http`** for `/coddy/sessions/.../memory/*`. Default full binary in README and Docker includes **`memory`**.
+- **`memory`** - **`external/memory`** long-term memory copilot and HTTP session memory routes; **`//go:build memory`**. Recommended together with **`http`** for `/foxxycode/sessions/.../memory/*`. Default full binary in README and Docker includes **`memory`**.
 - **`external/httpserver`** - OpenAI-shaped HTTP API; **`//go:build http`**. Embedded SPA uses **`//go:build http && ui`** with **`external/ui`**. Keep handler registration and **`openapi.go`** in sync.
 - **`external/scheduler`** (**`daemon/`**, **`storage/`**, **`service/`** schedservice, **`tools/`** schedtools) - cron and related tools; scheduler tag.
 

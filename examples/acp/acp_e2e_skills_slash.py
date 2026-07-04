@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""ACP e2e: slash skills catalog and ``/coddy_slash_demo`` skill body on agent turns.
+"""ACP e2e: slash skills catalog and ``/foxxycode_slash_demo`` skill body on agent turns.
 
 Mirrors ``examples/httpserver/http_e2e_skills_slash.py`` over stdio JSON-RPC:
 
-1. After ``session/new``, an ``available_commands_update`` lists the fixture command ``coddy_slash_demo``.
-2. A ``session/prompt`` starting with ``/coddy_slash_demo`` yields assistant text containing ``DEMO_SKILL_TOKEN:z7k9-demo-slash``.
+1. After ``session/new``, an ``available_commands_update`` lists the fixture command ``foxxycode_slash_demo``.
+2. A ``session/prompt`` starting with ``/foxxycode_slash_demo`` yields assistant text containing ``DEMO_SKILL_TOKEN:z7k9-demo-slash``.
 3. A control turn must not repeat that token.
 
-Uses a disposable ``CODDY_HOME`` with ``examples/skills_fixture/coddy_slash_demo`` copied under ``skills_fixture/`` (same layout as the HTTP harness).
+Uses a disposable ``FOXXYCODE_HOME`` with ``examples/skills_fixture/foxxycode_slash_demo`` copied under ``skills_fixture/`` (same layout as the HTTP harness).
 
-Environment: ``CODDY_BIN``, ``SESSION_ROOT`` (optional).
+Environment: ``FOXXYCODE_BIN``, ``SESSION_ROOT`` (optional).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 
-FIXTURE_SLASH_NAME = "coddy_slash_demo"
+FIXTURE_SLASH_NAME = "foxxycode_slash_demo"
 VERIFICATION_TOKEN = "DEMO_SKILL_TOKEN:z7k9-demo-slash"
 
 
@@ -45,12 +45,12 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def default_coddy_bin() -> str:
-    p = repo_root() / "build" / "coddy"
+def default_foxxycode_bin() -> str:
+    p = repo_root() / "build" / "foxxycode"
     if p.is_file():
         return str(p)
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def rpc_call(
@@ -71,7 +71,7 @@ def rpc_call(
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -149,17 +149,17 @@ def main() -> int:
         print("missing", src_cfg, file=sys.stderr)
         return 2
 
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
-    session_root = os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp")
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
+    session_root = os.environ.get("SESSION_ROOT", "/tmp/foxxycode-examples-acp")
     session_id = os.environ.get("SESSION_ID", f"acp-skills-slash-{os.getpid()}")
 
-    home = tempfile.mkdtemp(prefix="coddy-acp-skills-home-")
-    work = tempfile.mkdtemp(prefix="coddy-acp-skills-work-")
+    home = tempfile.mkdtemp(prefix="foxxycode-acp-skills-home-")
+    work = tempfile.mkdtemp(prefix="foxxycode-acp-skills-work-")
     log_f = Path(home) / "e2e.log"
     log_f.write_text("", encoding="utf-8")
 
-    fixture_src = examples_dir / "skills_fixture" / "coddy_slash_demo"
-    fixture_dst = Path(home) / "skills_fixture" / "coddy_slash_demo"
+    fixture_src = examples_dir / "skills_fixture" / "foxxycode_slash_demo"
+    fixture_dst = Path(home) / "skills_fixture" / "foxxycode_slash_demo"
     fixture_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(fixture_src, fixture_dst, dirs_exist_ok=True)
 
@@ -198,7 +198,7 @@ def main() -> int:
         stderr=sys.stderr,
         text=True,
         bufsize=1,
-        env={**os.environ, "CODDY_HOME": home},
+        env={**os.environ, "FOXXYCODE_HOME": home},
     )
     assert proc.stdin is not None
     nid = [1]

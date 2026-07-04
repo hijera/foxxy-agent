@@ -123,11 +123,11 @@ test("summary matches thinking-row pattern: chevron, tool name, duration", () =>
       onFetchToolCallFull={vi.fn()}
     />,
   );
-  const row = container.querySelector(".thinking-row.coddy-tool-call-row");
+  const row = container.querySelector(".thinking-row.foxxycode-tool-call-row");
   expect(row).toBeTruthy();
   expect(
     container.querySelector(
-      ".thinking-row.coddy-tool-call-row .thinking-chevron",
+      ".thinking-row.foxxycode-tool-call-row .thinking-chevron",
     ),
   ).toBeTruthy();
   expect(screen.getByText("glob")).toBeInTheDocument();

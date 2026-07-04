@@ -71,7 +71,7 @@ test("renders memory copilot foldout", () => {
   render(<MessageList items={items} />);
 
   expect(screen.getByTestId("memory-copilot-row")).toBeTruthy();
-  expect(document.querySelector(".coddy-memory-recall")).toBeTruthy();
+  expect(document.querySelector(".foxxycode-memory-recall")).toBeTruthy();
   expect(screen.getByText("fact")).toBeInTheDocument();
   expect(screen.getByText(/No durable fact to persist/)).toBeInTheDocument();
 });
@@ -101,7 +101,7 @@ test("tool call message uses thinking-row wrapper next to thinking row", () => {
 
   const wrapper = screen.getByText("write_file").closest(".thinking-row");
   expect(wrapper).toBeTruthy();
-  expect(wrapper).toHaveClass("coddy-tool-call-row");
+  expect(wrapper).toHaveClass("foxxycode-tool-call-row");
 
   // Tool and thinking are sibling foldout rows (same stack rhythm as messages-inner gap).
   expect(wrapper?.nextElementSibling).toHaveClass("thinking-row");

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """HTTP e2e: merged model list mirrors config, profiles can steer LLM via metadata.model.
 
-Prerequisites: ``coddy http`` is already listening (same host/port as BASE_URL).
+Prerequisites: ``foxxycode http`` is already listening (same host/port as BASE_URL).
 
-Uses ``examples/config.demo.yaml`` (or ``CODDY_CONFIG``). One ``models[].model`` row is enough; when multiple exist, picks a different selector than ``agent.model`` when possible for the metadata echo check.
+Uses ``examples/config.demo.yaml`` (or ``FOXXYCODE_CONFIG``). One ``models[].model`` row is enough; when multiple exist, picks a different selector than ``agent.model`` when possible for the metadata echo check.
 
 Environment:
 
 - ``BASE_URL`` - base for OpenAI-compatible routes (default ``http://127.0.0.1:19876/v1``).
-- ``CODDY_CONFIG`` - same YAML the server was started with (default repo ``examples/config.demo.yaml``).
+- ``FOXXYCODE_CONFIG`` - same YAML the server was started with (default repo ``examples/config.demo.yaml``).
 
 The script verifies:
 
-1. ``GET /v1/models`` lists ``agent`` and ``plan`` with ``owned_by`` ``coddy`` and every YAML
+1. ``GET /v1/models`` lists ``agent`` and ``plan`` with ``owned_by`` ``foxxycode`` and every YAML
    model row with ``owned_by`` equal to the provider prefix.
 2. Direct completion rejects a body that includes ``metadata.model`` (HTTP 400).
 3. ``POST /v1/responses`` with ``model=agent`` and ``metadata.model`` set to a configured selector (not
@@ -77,9 +77,9 @@ def provider_prefix(model_id: str) -> str:
 
 
 def main() -> int:
-    cfg_path = Path(os.environ.get("CODDY_CONFIG", str(default_config_path()))).expanduser()
+    cfg_path = Path(os.environ.get("FOXXYCODE_CONFIG", str(default_config_path()))).expanduser()
     if not cfg_path.is_file():
-        print("CODDY_CONFIG not found:", cfg_path, file=sys.stderr)
+        print("FOXXYCODE_CONFIG not found:", cfg_path, file=sys.stderr)
         return 1
     raw = cfg_path.read_text(encoding="utf-8")
     yaml_models = parse_models_from_yaml(raw)
@@ -109,7 +109,7 @@ def main() -> int:
         if row is None:
             print("missing profile", need, blob, file=sys.stderr)
             return 1
-        if row.get("owned_by") != "coddy":
+        if row.get("owned_by") != "foxxycode":
             print("bad owned_by for", need, row, file=sys.stderr)
             return 1
 
@@ -152,7 +152,7 @@ def main() -> int:
         print("bad profile completion", code, live, file=sys.stderr)
         return 1
 
-    sid = (hdr.get("X-Coddy-Session-Id") or hdr.get("X-Coddy-Session-ID") or "").strip()
+    sid = (hdr.get("X-FoxxyCode-Session-Id") or hdr.get("X-FoxxyCode-Session-ID") or "").strip()
     md = live.get("metadata") or {}
     if md.get("model") != alt:
         print("metadata.model mismatch", md, "want", alt, file=sys.stderr)
@@ -162,7 +162,7 @@ def main() -> int:
     if alt != agent_default:
         extra: dict[str, str] = {}
         if sid:
-            extra["X-Coddy-Session-ID"] = sid
+            extra["X-FoxxyCode-Session-ID"] = sid
         code2, sw, _ = http_json(
             "POST",
             f"{base}/responses",

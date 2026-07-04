@@ -113,7 +113,7 @@ import (
     "fmt"
     "net/http"
 
-    "github.com/hijera/foxxy-agent/internal/llm"
+    "github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // fetchURLTool returns a tool that performs an HTTP GET request.
@@ -301,7 +301,7 @@ import (
     "fmt"
     "os/exec"
 
-    "github.com/hijera/foxxy-agent/internal/llm"
+    "github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 func gitLogTool() *Tool {
@@ -400,18 +400,18 @@ Before submitting a new tool, verify:
 
 ## Built-in Plan / Todo Tools
 
-Seven **`coddy_`** tools (`internal/tools/todo`) drive the checklist. Plan mutations emit
+Seven **`foxxycode_`** tools (`internal/tools/todo`) drive the checklist. Plan mutations emit
 `session/update` with **`plan`** payloads. They are registered for every session but **only advertised to the LLM in `agent` mode** (plan mode hides them via `ToolSet`).
 
 | Tool name | Purpose |
 |-----------|---------|
-| **`coddy_todo_plan_read`** | Return the markdown checklist rendering of the active plan (`{}`). |
-| **`coddy_todo_plan_replace`** | Swap the entire plan (`markdown`). Rejected while any row is unfinished unless you **`coddy_todo_plan_archive`** first. Completed lists archive **`todos/active.md`** before swapping. |
-| **`coddy_todo_plan_archive`** | Mark every unfinished row **`completed`**, write **`todos/archive/plan_<unix_seconds>.md`** when **`SessionDir`**, clear in-memory plan, emit empty **`plan`**. |
-| **`coddy_todo_item_add`** | Append or insert (`content`, optional `status`, optional `after_index`; `-1` prepends). |
-| **`coddy_todo_item_remove`** | Drop a row (`index`). |
-| **`coddy_todo_item_update`** | Mutate (`index` plus **`content`** and/or **`status`**). Status enum is `pending`, `in_progress`, `completed`, `failed`, `cancelled`. |
-| **`coddy_todo_item_move`** | Re-order (`from_index`, `to_index`; indices apply after deletion semantics). |
+| **`foxxycode_todo_plan_read`** | Return the markdown checklist rendering of the active plan (`{}`). |
+| **`foxxycode_todo_plan_replace`** | Swap the entire plan (`markdown`). Rejected while any row is unfinished unless you **`foxxycode_todo_plan_archive`** first. Completed lists archive **`todos/active.md`** before swapping. |
+| **`foxxycode_todo_plan_archive`** | Mark every unfinished row **`completed`**, write **`todos/archive/plan_<unix_seconds>.md`** when **`SessionDir`**, clear in-memory plan, emit empty **`plan`**. |
+| **`foxxycode_todo_item_add`** | Append or insert (`content`, optional `status`, optional `after_index`; `-1` prepends). |
+| **`foxxycode_todo_item_remove`** | Drop a row (`index`). |
+| **`foxxycode_todo_item_update`** | Mutate (`index` plus **`content`** and/or **`status`**). Status enum is `pending`, `in_progress`, `completed`, `failed`, `cancelled`. |
+| **`foxxycode_todo_item_move`** | Re-order (`from_index`, `to_index`; indices apply after deletion semantics). |
 
 Example wholesale replace:
 

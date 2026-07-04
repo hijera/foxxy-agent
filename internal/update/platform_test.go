@@ -8,14 +8,14 @@ func TestAssetFileName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "foxxy_0.9.3_linux_amd64.tar.gz" {
+	if got != "foxxycode_0.9.3_linux_amd64.tar.gz" {
 		t.Fatalf("got %q", got)
 	}
 	got, err = AssetFileName("1.0.0", "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "foxxy_1.0.0_windows_amd64.zip" {
+	if got != "foxxycode_1.0.0_windows_amd64.zip" {
 		t.Fatalf("got %q", got)
 	}
 }

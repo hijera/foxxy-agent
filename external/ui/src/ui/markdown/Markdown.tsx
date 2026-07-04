@@ -167,12 +167,12 @@ export function Markdown(props: { text: string }) {
       ),
       a: (p: AProps) => {
         const href = typeof p.href === "string" ? p.href : "";
-        if (href.startsWith("coddy-skill:")) {
-          const name = href.slice("coddy-skill:".length);
+        if (href.startsWith("foxxycode-skill:")) {
+          const name = href.slice("foxxycode-skill:".length);
           return (
             <span
-              className="coddy-skill-chip"
-              data-testid="coddy-skill-span"
+              className="foxxycode-skill-chip"
+              data-testid="foxxycode-skill-span"
               data-skill-name={name}
             >
               {p.children as any}
@@ -196,7 +196,7 @@ export function Markdown(props: { text: string }) {
   );
 
   const urlTransform = useCallback((url: string, key: string, node: any) => {
-    if (url.startsWith("coddy-skill:")) {
+    if (url.startsWith("foxxycode-skill:")) {
       return url;
     }
     return defaultUrlTransform(url, key, node);

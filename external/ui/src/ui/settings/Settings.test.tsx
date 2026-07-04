@@ -9,7 +9,7 @@ afterEach(() => {
 
 function mockConfigFetch(ok = true) {
   const fetchMock = vi.fn().mockImplementation(async (path: string) => {
-    if (path === "/coddy/config/schema") {
+    if (path === "/foxxycode/config/schema") {
       const body = ok
         ? { type: "object", properties: {} }
         : { type: "object", properties: {} };
@@ -19,7 +19,7 @@ function mockConfigFetch(ok = true) {
         json: async () => body,
       } as unknown as Response;
     }
-    if (path === "/coddy/config") {
+    if (path === "/foxxycode/config") {
       return {
         ok,
         status: ok ? 200 : 500,

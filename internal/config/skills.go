@@ -11,27 +11,27 @@ type Skills struct {
 	Dirs []string `yaml:"dirs"`
 }
 
-// ManagedDir returns the directory used for coddy-managed skills (enable/disable state,
-// UI-installed skills). Always resolves to ${CODDY_HOME}/skills or ~/.coddy/skills.
-func (c *Skills) ManagedDir(coddyHome string) string {
-	if coddyHome != "" {
-		return filepath.Join(coddyHome, "skills")
+// ManagedDir returns the directory used for foxxycode-managed skills (enable/disable state,
+// UI-installed skills). Always resolves to ${FOXXYCODE_HOME}/skills or ~/.foxxycode/skills.
+func (c *Skills) ManagedDir(foxxycodeHome string) string {
+	if foxxycodeHome != "" {
+		return filepath.Join(foxxycodeHome, "skills")
 	}
-	return expandSkillsHome("~/.coddy/skills")
+	return expandSkillsHome("~/.foxxycode/skills")
 }
 
 // ApplyDefaults fills empty Dirs during config load.
-func (c *Skills) ApplyDefaults(coddyHome string, expandCODDYHome func(string) string) {
+func (c *Skills) ApplyDefaults(foxxycodeHome string, expandFOXXYCODEHome func(string) string) {
 	if len(c.Dirs) == 0 {
 		c.Dirs = []string{
 			"~/.agents/skills",
-			"${CODDY_HOME}/skills",
-			"${CWD}/.coddy/skills",
+			"${FOXXYCODE_HOME}/skills",
+			"${CWD}/.foxxycode/skills",
 		}
 		return
 	}
 	for i := range c.Dirs {
-		c.Dirs[i] = expandCODDYHome(c.Dirs[i])
+		c.Dirs[i] = expandFOXXYCODEHome(c.Dirs[i])
 	}
 }
 

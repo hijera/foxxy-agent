@@ -3,7 +3,7 @@ import { act, render, screen } from "@testing-library/react";
 import React from "react";
 import { I18nProvider, useT } from "./I18nProvider";
 import { initLocale, setLocale } from "./i18n";
-import { CODDY_UI_LANG_COOKIE } from "./localeCookie";
+import { FOXXYCODE_UI_LANG_COOKIE } from "./localeCookie";
 
 function Probe() {
   const { t } = useT();
@@ -12,12 +12,12 @@ function Probe() {
 
 describe("I18nProvider", () => {
   beforeEach(() => {
-    document.cookie = `${CODDY_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
     initLocale("en");
   });
 
   afterEach(() => {
-    document.cookie = `${CODDY_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
     initLocale("en");
   });
 

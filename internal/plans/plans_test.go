@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/plans"
 )
 
 func TestValidateSlug(t *testing.T) {

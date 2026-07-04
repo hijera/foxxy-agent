@@ -1,13 +1,13 @@
 package tools
 
 import (
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/tooling"
-	toolfs "github.com/hijera/foxxy-agent/internal/tools/fs"
-	"github.com/hijera/foxxy-agent/internal/tools/shell"
-	toolssh "github.com/hijera/foxxy-agent/internal/tools/ssh"
-	"github.com/hijera/foxxy-agent/internal/tools/todo"
-	toolweb "github.com/hijera/foxxy-agent/internal/tools/web"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
+	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
+	"github.com/hijera/foxxycode-agent/internal/tools/shell"
+	toolssh "github.com/hijera/foxxycode-agent/internal/tools/ssh"
+	"github.com/hijera/foxxycode-agent/internal/tools/todo"
+	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
 
 // Re-export tooling types used by agent, session wiring, and tests.

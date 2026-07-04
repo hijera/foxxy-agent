@@ -1,4 +1,4 @@
-export const CODDY_UI_LANG_COOKIE = "coddy_ui_lang";
+export const FOXXYCODE_UI_LANG_COOKIE = "foxxycode_ui_lang";
 
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
@@ -17,11 +17,11 @@ export function readUiLocaleCookie(): UiLocale | null {
   const parts = document.cookie.split(";");
   for (const p of parts) {
     const s = p.trim();
-    if (!s.startsWith(`${CODDY_UI_LANG_COOKIE}=`)) {
+    if (!s.startsWith(`${FOXXYCODE_UI_LANG_COOKIE}=`)) {
       continue;
     }
     const v = decodeURIComponent(
-      s.slice(CODDY_UI_LANG_COOKIE.length + 1).trim(),
+      s.slice(FOXXYCODE_UI_LANG_COOKIE.length + 1).trim(),
     );
     if (isValidLocale(v)) {
       return v;
@@ -39,5 +39,5 @@ export function writeUiLocaleCookie(locale: UiLocale): void {
     typeof window !== "undefined" && window.location.protocol === "https:"
       ? "; Secure"
       : "";
-  document.cookie = `${CODDY_UI_LANG_COOKIE}=${encodeURIComponent(locale)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+  document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=${encodeURIComponent(locale)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
 }

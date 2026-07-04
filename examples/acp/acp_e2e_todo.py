@@ -6,11 +6,11 @@ Prompt only states high-level rules (bounded cwd, backlog, tooling, synthesized 
 Verifies:
 
 - backlog shows todo list progressed to zero pending and min completed steps
-- bootstrap checklist (`coddy_todo_plan_replace` or repeated `coddy_todo_item_add`) plus reconcile (typically `coddy_todo_item_update`)
+- bootstrap checklist (`foxxycode_todo_plan_replace` or repeated `foxxycode_todo_item_add`) plus reconcile (typically `foxxycode_todo_item_update`)
 - filesystem side effect from a write-class tool invocation
 - non-trivial synthesized text persisted under cwd (combined size heuristic)
 
-Environment: CODDY_BIN, CODDY_CONFIG, SESSION_ROOT, SESSION_ID.
+Environment: FOXXYCODE_BIN, FOXXYCODE_CONFIG, SESSION_ROOT, SESSION_ID.
 
 Flags: WORK_DIR (--work-dir), --keep-session, --keep-work-dir, --min-completed-items (default 4).
 """
@@ -42,9 +42,9 @@ def same_id(a: Any, b: Any) -> bool:
         return False
 
 
-def default_coddy_bin() -> str:
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+def default_foxxycode_bin() -> str:
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def default_config() -> str:
@@ -70,7 +70,7 @@ def rpc_call(
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -126,7 +126,7 @@ def parse_checklist(md: str) -> tuple[int, int]:
 def checklist_totals(session_root: str, session_id: str) -> tuple[int, int, list[str]]:
     """Completed/pending counts across active.md plus any archived plan snapshots.
 
-    coddy_todo_plan_archive (a valid way to finalize a plan) marks every item completed,
+    foxxycode_todo_plan_archive (a valid way to finalize a plan) marks every item completed,
     writes a snapshot to todos/archive/plan_<unix>.md, then clears active.md. So completed
     items must be counted in the archive too, otherwise a finalized plan reads as zero.
     Pending items only ever live in the active list.
@@ -175,7 +175,7 @@ WRITE_CLASS_TOOLS = frozenset(
 )
 
 # Satisfactory ways to populate the checklist first (models differ).
-INITIAL_PLAN_TOOL_CALLS = frozenset({"coddy_todo_plan_replace", "coddy_todo_item_add"})
+INITIAL_PLAN_TOOL_CALLS = frozenset({"foxxycode_todo_plan_replace", "foxxycode_todo_item_add"})
 
 
 def sum_utf8_regular_files(work: Path) -> int:
@@ -246,9 +246,9 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
-    cfg = os.environ.get("CODDY_CONFIG", default_config())
-    session_root = os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp-e2e")
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
+    cfg = os.environ.get("FOXXYCODE_CONFIG", default_config())
+    session_root = os.environ.get("SESSION_ROOT", "/tmp/foxxycode-examples-acp-e2e")
     session_id = os.environ.get("SESSION_ID", "example-acp-agent-todo-e2e")
 
     if args.work_dir:
@@ -256,7 +256,7 @@ def main() -> None:
         os.makedirs(work, exist_ok=True)
         cleanup_work = False
     else:
-        work = tempfile.mkdtemp(prefix="coddy-acp-e2e-")
+        work = tempfile.mkdtemp(prefix="foxxycode-acp-e2e-")
         cleanup_work = not args.keep_work_dir
 
     os.makedirs(session_root, exist_ok=True)
@@ -301,10 +301,10 @@ Treat the directory as EMPTY except whatever you create. Do not crawl the host r
 Fully autonomously (no clarification questions):
 
 1. Invent a miniature project sized for a single agent episode. The written checklist must contain EXACTLY {args.min_completed_items} items (not fewer, not more). Each checklist line must be plain short English only (no backticks, no embedded status words like in_progress).
-2. Capture that checklist in Coddy session todos via the builtin todo tools (whatever names arrive in-context).
+2. Capture that checklist in FoxxyCode session todos via the builtin todo tools (whatever names arrive in-context).
 3. Execute the plan sequentially: synthesize BOTH narrative-style Markdown notes AND structured JSON authored by YOU, saved with filesystem tools (`write_file`, `mkdir`, optionally `touch`, etc.). Aim for substantive content describing your invented artifact (goals of the miniature project, timestamps, bogus metrics, whimsical names).
 4. Incorporate at least one DIFFERENT class of tooling step from pure todo bookkeeping (listing a directory YOU created inside cwd, benign `run_command`, `read_file`, or `mv` between staged temp files—all paths stay rooted in this cwd).
-5. After EACH substantive accomplishment, reconcile the persisted checklist (`coddy_todo_item_update` or equivalent coddy todo tools) until every checklist row is `[x]`.
+5. After EACH substantive accomplishment, reconcile the persisted checklist (`foxxycode_todo_item_update` or equivalent foxxycode todo tools) until every checklist row is `[x]`.
 6. Close with one terse recap quoting relative paths."""
 
     exit_code = 0
@@ -402,9 +402,9 @@ Fully autonomously (no clarification questions):
             )
             exit_code = max(exit_code, 21)
 
-        if not (seen_tools & {"coddy_todo_item_update"}):
+        if not (seen_tools & {"foxxycode_todo_item_update"}):
             print(
-                "FAIL: expected coddy_todo_item_update to reconcile checklist rows",
+                "FAIL: expected foxxycode_todo_item_update to reconcile checklist rows",
                 file=sys.stderr,
             )
             exit_code = max(exit_code, 22)

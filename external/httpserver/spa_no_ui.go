@@ -4,7 +4,7 @@ package httpserver
 
 import "net/http"
 
-const spaNotEmbeddedResponse = "Coddy HTTP API is running without the embedded web UI (rebuild with -tags \"http ui\").\n"
+const spaNotEmbeddedResponse = "FoxxyCode HTTP API is running without the embedded web UI (rebuild with -tags \"http ui\").\n"
 
 func mountEmbeddedSPARoot(mux *http.ServeMux) {
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

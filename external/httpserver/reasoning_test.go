@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 func reasoningHTTPConfig() *config.Config {
@@ -106,7 +106,7 @@ func TestProfileMetadataPatchReasoning(t *testing.T) {
 	}
 }
 
-func TestCoddySessionPatchSelectedReasoning(t *testing.T) {
+func TestFoxxyCodeSessionPatchSelectedReasoning(t *testing.T) {
 	root := t.TempDir()
 	sessRoot := filepath.Join(root, "sessions")
 	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
@@ -132,9 +132,9 @@ func TestCoddySessionPatchSelectedReasoning(t *testing.T) {
 	defer ts.Close()
 
 	doPatch := func(body string) *http.Response {
-		req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), strings.NewReader(body))
+		req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Coddy-Session-ID", sid)
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -166,7 +166,7 @@ func TestCoddySessionPatchSelectedReasoning(t *testing.T) {
 	}
 
 	// Messages endpoint exposes the effective reasoning for open-session restore.
-	mres, err := http.Get(ts.URL + "/coddy/sessions/" + url.PathEscape(sid) + "/messages")
+	mres, err := http.Get(ts.URL + "/foxxycode/sessions/" + url.PathEscape(sid) + "/messages")
 	if err != nil {
 		t.Fatal(err)
 	}

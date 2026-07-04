@@ -4,26 +4,26 @@ This folder contains reference screenshots used to align the embedded UI with th
 
 ## Navbar (RPA-style references, May 2026)
 
-Implementation note: **Coddy does not render a circle or logo glyph** before the **Coddy agent** brand in the embedded SPA. SVG logos under **`coddy-logo-*.svg`** are for README, **`logo-preview.html`**, and favicon (**`coddy-favicon.svg`** aliases **`coddy-logo-mark-flat.svg`**, same asset as [coddy.dev](https://coddy.dev/) **`assets/coddy-favicon.svg`**). Raster favicons **`favicon-32.png`**, **`favicon.ico`**, **`apple-touch-icon.png`** ship with the embedded SPA at the site root. **`coddy-logo-mark-icon.svg`** is square full-bleed plate fill with no rim stroke or corner radius; **`coddy-logo-mark-icon-2048.png`** is a 2048×2048 raster export; **`coddy-logo-social.svg`** (1280×640) is the GitHub repository social preview with wordmark and tagline, with **`coddy-logo-social-1280x640.png`** and **`coddy-logo-social-640x320.png`** raster exports; **`coddy-logo-mark.svg`** adds halo filters. Some references still show a circle, treat it as layout inspiration only.
+Implementation note: **FoxxyCode does not render a circle or logo glyph** before the **FoxxyCode agent** brand in the embedded SPA. SVG logos under **`foxxycode-logo-*.svg`** are for README, **`logo-preview.html`**, and favicon (**`foxxycode-favicon.svg`** aliases **`foxxycode-logo-mark-flat.svg`**, same asset as [foxxycode.dev](https://foxxycode.dev/) **`assets/foxxycode-favicon.svg`**). Raster favicons **`favicon-32.png`**, **`favicon.ico`**, **`apple-touch-icon.png`** ship with the embedded SPA at the site root. **`foxxycode-logo-mark-icon.svg`** is square full-bleed plate fill with no rim stroke or corner radius; **`foxxycode-logo-mark-icon-2048.png`** is a 2048×2048 raster export; **`foxxycode-logo-social.svg`** (1280×640) is the GitHub repository social preview with wordmark and tagline, with **`foxxycode-logo-social-1280x640.png`** and **`foxxycode-logo-social-640x320.png`** raster exports; **`foxxycode-logo-mark.svg`** adds halo filters. Some references still show a circle, treat it as layout inspiration only.
 
 - `ref-navbar-narrow-tooltips-accent.png` - narrow vertical rail, tooltips right, purple hover on icon
-- `ref-navbar-narrow-icons-only.png` - narrow rail, icons only (Coddy uses History + GitHub + API, not News or Projects)
+- `ref-navbar-narrow-icons-only.png` - narrow rail, icons only (FoxxyCode uses History + GitHub + API, not News or Projects)
 - `ref-navbar-wide-with-labels.png` - wide rail with text labels next to items
 
 ## Playwright MCP (verification, May 2026)
 
-Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
+Captured from local `vite` + `foxxycode http` with `FOXXYCODE_UI_BACKEND`.
 
 - `pw-navbar-1440-narrow.png` - desktop under 1920px width, narrow rail (no widen toggle), no burger
 - `pw-navbar-1440-history-hover.png` - History hover / pressed accent and tooltip styling
-- `pw-navbar-1920-wide-labels.png` - min-width 1920px, wide rail (**rectangular panel**, rounded on the right only), header with **collapse** (stacked lines) plus **Coddy agent** text-only brand, full-width rows icon plus label
+- `pw-navbar-1920-wide-labels.png` - min-width 1920px, wide rail (**rectangular panel**, rounded on the right only), header with **collapse** (stacked lines) plus **FoxxyCode agent** text-only brand, full-width rows icon plus label
 - `pw-navbar-1920-github-hover.png` - wide rail, hover on **GitHub** row (label plus icon pick up accent)
 - `pw-navbar-390-mobile-topbar.png` - max-width 1199px shell, rail as top bar row
 - `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
 
 ## Full HD tour (README, May 2026)
 
-Captured at **1920×1080** via Playwright MCP (`vite` + `coddy http`, `CODDY_UI_BACKEND`).
+Captured at **1920×1080** via Playwright MCP (`vite` + `foxxycode http`, `FOXXYCODE_UI_BACKEND`).
 
 - `screenshot-fullhd-start.png` - new chat / hero start screen (README, above fold)
 - `screenshot-fullhd-chat.png` - active session transcript (`#/s/...`)

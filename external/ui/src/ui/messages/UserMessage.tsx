@@ -1,4 +1,4 @@
-import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
+import { stripFoxxyCodeAttachmentsForUserDisplay } from "../skills/stripFoxxyCodeAttachments";
 import { segmentSlashKnownSpans } from "../skills/segmentComposerSlashSpans";
 import { useT } from "../i18n/I18nProvider";
 import {
@@ -25,7 +25,7 @@ export function UserMessage(props: {
   files?: { name: string; mimeType: string; sizeBytes?: number }[];
 }) {
   const { t } = useT();
-  const display = stripCoddyAttachmentsForUserDisplay(props.content);
+  const display = stripFoxxyCodeAttachmentsForUserDisplay(props.content);
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
     : "";
@@ -63,8 +63,8 @@ export function UserMessage(props: {
                 seg.type === "slash" ? (
                   <span
                     key={i}
-                    className="coddy-skill-chip"
-                    data-testid="coddy-skill-span"
+                    className="foxxycode-skill-chip"
+                    data-testid="foxxycode-skill-span"
                     data-skill-name={seg.name}
                   >
                     {seg.literal}

@@ -62,44 +62,44 @@ func TestParseDotEnvLine(t *testing.T) {
 
 func TestLoadDotEnv_SetsMissingVars(t *testing.T) {
 	dir := t.TempDir()
-	content := "CODDY_TEST_DOTENV_A=hello\nCODDY_TEST_DOTENV_B=world\n"
+	content := "FOXXYCODE_TEST_DOTENV_A=hello\nFOXXYCODE_TEST_DOTENV_B=world\n"
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Ensure vars are unset before the call.
-	_ = os.Unsetenv("CODDY_TEST_DOTENV_A")
-	_ = os.Unsetenv("CODDY_TEST_DOTENV_B")
+	_ = os.Unsetenv("FOXXYCODE_TEST_DOTENV_A")
+	_ = os.Unsetenv("FOXXYCODE_TEST_DOTENV_B")
 
 	loadDotEnv(dir)
 
-	if got := os.Getenv("CODDY_TEST_DOTENV_A"); got != "hello" {
+	if got := os.Getenv("FOXXYCODE_TEST_DOTENV_A"); got != "hello" {
 		t.Errorf("A=%q want hello", got)
 	}
-	if got := os.Getenv("CODDY_TEST_DOTENV_B"); got != "world" {
+	if got := os.Getenv("FOXXYCODE_TEST_DOTENV_B"); got != "world" {
 		t.Errorf("B=%q want world", got)
 	}
 
 	// Cleanup.
-	_ = os.Unsetenv("CODDY_TEST_DOTENV_A")
-	_ = os.Unsetenv("CODDY_TEST_DOTENV_B")
+	_ = os.Unsetenv("FOXXYCODE_TEST_DOTENV_A")
+	_ = os.Unsetenv("FOXXYCODE_TEST_DOTENV_B")
 }
 
 func TestLoadDotEnv_DoesNotOverrideExisting(t *testing.T) {
 	dir := t.TempDir()
-	content := "CODDY_TEST_DOTENV_C=from_file\n"
+	content := "FOXXYCODE_TEST_DOTENV_C=from_file\n"
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.Setenv("CODDY_TEST_DOTENV_C", "from_env"); err != nil {
+	if err := os.Setenv("FOXXYCODE_TEST_DOTENV_C", "from_env"); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Unsetenv("CODDY_TEST_DOTENV_C") }()
+	defer func() { _ = os.Unsetenv("FOXXYCODE_TEST_DOTENV_C") }()
 
 	loadDotEnv(dir)
 
-	if got := os.Getenv("CODDY_TEST_DOTENV_C"); got != "from_env" {
+	if got := os.Getenv("FOXXYCODE_TEST_DOTENV_C"); got != "from_env" {
 		t.Errorf("C=%q want from_env (existing env must not be overridden)", got)
 	}
 }

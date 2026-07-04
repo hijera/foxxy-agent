@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// coddySkillPickRE matches the slash picker insertion form (parity with SPA Composer).
+// foxxycodeSkillPickRE matches the slash picker insertion form (parity with SPA Composer).
 // Name in the label and href must match (checked in collect block; RE2 has no backrefs).
-var coddySkillPickRE = regexp.MustCompile(`\[\/([a-zA-Z0-9][a-zA-Z0-9_-]*)\]\(coddy-skill:([a-zA-Z0-9][a-zA-Z0-9_-]*)\)`)
+var foxxycodeSkillPickRE = regexp.MustCompile(`\[\/([a-zA-Z0-9][a-zA-Z0-9_-]*)\]\(foxxycode-skill:([a-zA-Z0-9][a-zA-Z0-9_-]*)\)`)
 
 // invokedMidLineSlashRE finds /names after line start or ASCII whitespace outside stripped pick spans.
 var invokedMidLineSlashRE = regexp.MustCompile(`(?:^|[\t ])\/([a-zA-Z0-9][a-zA-Z0-9_-]*)`)
@@ -113,9 +113,9 @@ func BuildSlashCatalogMarkdown(sums []SkillSummary) string {
 	return b.String()
 }
 
-// ParseInvokedCommandNames finds coddy-skill markdown links from the SPA picker plus /name tokens
+// ParseInvokedCommandNames finds foxxycode-skill markdown links from the SPA picker plus /name tokens
 // after whitespace or line start outside fenced code and blockquotes. Matches Compose picker output
-// `[/cmd](coddy-skill:cmd)` so full skill bodies are injected for those turns.
+// `[/cmd](foxxycode-skill:cmd)` so full skill bodies are injected for those turns.
 func ParseInvokedCommandNames(text string) []string {
 	lines := strings.Split(text, "\n")
 	inFence := false
@@ -150,12 +150,12 @@ func ParseInvokedCommandNames(text string) []string {
 			continue
 		}
 
-		for _, sm := range coddySkillPickRE.FindAllStringSubmatch(line, -1) {
+		for _, sm := range foxxycodeSkillPickRE.FindAllStringSubmatch(line, -1) {
 			if len(sm) > 2 && sm[1] == sm[2] {
 				appendName(sm[1])
 			}
 		}
-		scratch := coddySkillPickRE.ReplaceAllString(line, " ")
+		scratch := foxxycodeSkillPickRE.ReplaceAllString(line, " ")
 		for _, sm := range invokedMidLineSlashRE.FindAllStringSubmatch(scratch, -1) {
 			if len(sm) > 1 {
 				appendName(sm[1])

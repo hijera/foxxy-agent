@@ -46,9 +46,9 @@ type Message struct {
 	ReasoningDurationMs int64      `json:"reasoning_duration_ms,omitempty"`
 	ToolCalls           []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID          string     `json:"tool_call_id,omitempty"` // for RoleTool messages
-	// Model is the YAML models[].model selector used to generate this assistant message (HTTP/Coddy), if set.
+	// Model is the YAML models[].model selector used to generate this assistant message (HTTP/FoxxyCode), if set.
 	Model string `json:"model,omitempty"`
-	// CreatedAt is RFC3339 timestamp in UTC when the message was appended to history (UI and Coddy REST).
+	// CreatedAt is RFC3339 timestamp in UTC when the message was appended to history (UI and FoxxyCode REST).
 	CreatedAt string `json:"created_at,omitempty"`
 	// PlanDocument holds a persisted design plan snapshot for the bundled UI (excluded from LLM prompts).
 	PlanDocument *PlanDocumentSnapshot `json:"plan_document,omitempty"`

@@ -9,19 +9,19 @@ import (
 
 // Environment variable names for path resolution.
 const (
-	EnvCODDYHome   = "CODDY_HOME"
-	EnvCODDYCWD    = "CODDY_CWD"
-	EnvCODDYConfig = "CODDY_CONFIG"
+	EnvFOXXYCODEHome   = "FOXXYCODE_HOME"
+	EnvFOXXYCODECWD    = "FOXXYCODE_CWD"
+	EnvFOXXYCODEConfig = "FOXXYCODE_CONFIG"
 )
 
 const (
-	defaultHomeDirName = ".coddy"
+	defaultHomeDirName = ".foxxycode"
 	defaultConfigName  = "config.yaml"
 )
 
-// Paths holds resolved CODDY_HOME, process working directory (CODDY_CWD), and config file path.
+// Paths holds resolved FOXXYCODE_HOME, process working directory (FOXXYCODE_CWD), and config file path.
 type Paths struct {
-	// Home is the agent state directory (default ~/.coddy). Holds config.yaml, sessions, skills, logs.
+	// Home is the agent state directory (default ~/.foxxycode). Holds config.yaml, sessions, skills, logs.
 	Home string
 	// CWD is the default agent working directory when the client omits cwd (default: process cwd at resolve time).
 	CWD string
@@ -42,12 +42,12 @@ func Resolve(cli CLIPaths) (Paths, error) {
 
 	switch strings.TrimSpace(cli.Home) {
 	case "":
-		if v := strings.TrimSpace(os.Getenv(EnvCODDYHome)); v != "" {
+		if v := strings.TrimSpace(os.Getenv(EnvFOXXYCODEHome)); v != "" {
 			p.Home = v
 		} else {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				return Paths{}, fmt.Errorf("resolve %s: %w", EnvCODDYHome, err)
+				return Paths{}, fmt.Errorf("resolve %s: %w", EnvFOXXYCODEHome, err)
 			}
 			p.Home = filepath.Join(home, defaultHomeDirName)
 		}
@@ -57,10 +57,10 @@ func Resolve(cli CLIPaths) (Paths, error) {
 
 	switch strings.TrimSpace(cli.CWD) {
 	case "":
-		if v := strings.TrimSpace(os.Getenv(EnvCODDYCWD)); v != "" {
+		if v := strings.TrimSpace(os.Getenv(EnvFOXXYCODECWD)); v != "" {
 			abs, err := filepath.Abs(v)
 			if err != nil {
-				return Paths{}, fmt.Errorf("resolve %s: %w", EnvCODDYCWD, err)
+				return Paths{}, fmt.Errorf("resolve %s: %w", EnvFOXXYCODECWD, err)
 			}
 			p.CWD = abs
 		} else {
@@ -80,7 +80,7 @@ func Resolve(cli CLIPaths) (Paths, error) {
 
 	switch strings.TrimSpace(cli.Config) {
 	case "":
-		if v := strings.TrimSpace(os.Getenv(EnvCODDYConfig)); v != "" {
+		if v := strings.TrimSpace(os.Getenv(EnvFOXXYCODEConfig)); v != "" {
 			p.ConfigPath = v
 		} else {
 			p.ConfigPath = filepath.Join(p.Home, defaultConfigName)
@@ -106,17 +106,17 @@ func Resolve(cli CLIPaths) (Paths, error) {
 	return p, nil
 }
 
-// ExpandPathVars substitutes ${CODDY_HOME} and ${CWD}, then expands ~.
+// ExpandPathVars substitutes ${FOXXYCODE_HOME} and ${CWD}, then expands ~.
 // Use for config file body and paths that intentionally bake in the process working directory.
 func ExpandPathVars(s string, p Paths) string {
-	s = strings.ReplaceAll(s, "${CODDY_HOME}", p.Home)
+	s = strings.ReplaceAll(s, "${FOXXYCODE_HOME}", p.Home)
 	s = strings.ReplaceAll(s, "${CWD}", p.CWD)
 	return expandHome(s)
 }
 
-// ExpandCODDYHomeOnly substitutes ${CODDY_HOME} and expands ~. Leaves ${CWD} for per-session expansion.
-func ExpandCODDYHomeOnly(s string, p Paths) string {
-	s = strings.ReplaceAll(s, "${CODDY_HOME}", p.Home)
+// ExpandFOXXYCODEHomeOnly substitutes ${FOXXYCODE_HOME} and expands ~. Leaves ${CWD} for per-session expansion.
+func ExpandFOXXYCODEHomeOnly(s string, p Paths) string {
+	s = strings.ReplaceAll(s, "${FOXXYCODE_HOME}", p.Home)
 	return expandHome(s)
 }
 

@@ -1,16 +1,16 @@
 //go:build memory
 
-// Package memtools defines coddy_memory_* tools for the memory copilot sub-agent.
+// Package memtools defines foxxycode_memory_* tools for the memory copilot sub-agent.
 package memtools
 
 import (
 	"context"
 	"fmt"
 
-	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	memstorage "github.com/hijera/foxxycode-agent/external/memory/storage"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func toolByName(tools []*tooling.Tool, name string) *tooling.Tool {
@@ -34,7 +34,7 @@ func Exec(ctx context.Context, tools []*tooling.Tool, name, argsJSON string, env
 	return t.Execute(ctx, argsJSON, env)
 }
 
-// ExecTool runs one coddy_memory_* tool (convenience for tests; builds PersistTools each call).
+// ExecTool runs one foxxycode_memory_* tool (convenience for tests; builds PersistTools each call).
 func ExecTool(store *memstorage.Store, mem *config.MemoryConfig, name, inputJSON string) (string, error) {
 	return Exec(context.Background(), PersistTools(store, mem), name, inputJSON, &tooling.Env{})
 }

@@ -1,29 +1,29 @@
 # Run the published image from GitHub Container Registry (no local Dockerfile build).
-# See docs/docker.md and https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent
+# See docs/docker.md and https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent
 #
-#   export CODDY_IMAGE=ghcr.io/hijera/foxxy-agent:TAG   # optional
+#   export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxycode-agent:TAG   # optional
 #   docker compose pull
 #   docker compose up -d
 
 services:
-  foxxy:
-    image: ${CODDY_IMAGE:-ghcr.io/hijera/foxxy-agent:latest}
+  foxxycode:
+    image: ${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxycode-agent:latest}
     ports:
-      - "${CODDY_HTTP_PORT:-12345}:12345"
+      - "${FOXXYCODE_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
     environment:
-      CODDY_HOME: /home/user/.coddy
-      CODDY_CWD: /workspace
-      CODDY_CONFIG: /home/user/.coddy/config.yaml
+      FOXXYCODE_HOME: /home/user/.foxxycode
+      FOXXYCODE_CWD: /workspace
+      FOXXYCODE_CONFIG: /home/user/.foxxycode/config.yaml
       OPENAI_API_KEY: ${OPENAI_API_KEY-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY-}
     volumes:
-      - ${CODDY_CONFIG-./config.yaml}:/home/user/.coddy/config.yaml:ro
-      - ${CODDY_CWD-./workspace}:/workspace
-      - ${CODDY_HOME-./coddy_home}:/home/user/.coddy
+      - ${FOXXYCODE_CONFIG-./config.yaml}:/home/user/.foxxycode/config.yaml:ro
+      - ${FOXXYCODE_CWD-./workspace}:/workspace
+      - ${FOXXYCODE_HOME-./foxxycode_home}:/home/user/.foxxycode
     healthcheck:
-      test: ["CMD", "/bin/foxxy", "--version"]
+      test: ["CMD", "/bin/foxxycode", "--version"]
       interval: 5s
       timeout: 3s
       retries: 20

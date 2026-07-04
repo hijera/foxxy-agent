@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/session"
-	"github.com/hijera/foxxy-agent/internal/skills"
-	"github.com/hijera/foxxy-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 // --- Shared test doubles ---------------------------------------------------
@@ -78,7 +78,7 @@ func TestContentBlocksToText_textAndResource(t *testing.T) {
 		{Type: "resource", Resource: &acp.Resource{URI: "file:///a/b.go", Text: "pkg main"}},
 	}
 	got := contentBlocksToText(blocks)
-	if !strings.Contains(got, `<coddy_attachment path="`) ||
+	if !strings.Contains(got, `<foxxycode_attachment path="`) ||
 		!strings.Contains(got, `name="b.go"`) ||
 		!strings.Contains(got, "<![CDATA[") ||
 		!strings.Contains(got, "pkg main") ||
@@ -291,7 +291,7 @@ func TestComputeContextBreakdownSubtractsParts(t *testing.T) {
 
 func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 	tmp := t.TempDir()
-	rulePath := filepath.Join(tmp, ".coddy", "rules")
+	rulePath := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
 
 func TestBuildSystemPromptMentionOnlyRule(t *testing.T) {
 	tmp := t.TempDir()
-	rulePath := filepath.Join(tmp, ".coddy", "rules")
+	rulePath := filepath.Join(tmp, ".foxxycode", "rules")
 	if err := os.MkdirAll(rulePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +489,7 @@ func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 			t.Errorf("plan toolset should include %q", want)
 		}
 	}
-	for _, forbid := range []string{"write", "coddy_todo_plan_read"} {
+	for _, forbid := range []string{"write", "foxxycode_todo_plan_read"} {
 		if got[forbid] {
 			t.Errorf("plan toolset should not include %q", forbid)
 		}

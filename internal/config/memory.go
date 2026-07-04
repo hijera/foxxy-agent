@@ -12,7 +12,7 @@ type MemoryConfig struct {
 	// Model selects cfg.models entry for the unified memory copilot (before the main agent). Empty uses agent.model.
 	Model string `yaml:"model"`
 
-	// Dir is the long-term memory root under Coddy home semantics. When empty, defaults to $CODDY_HOME/memory.
+	// Dir is the long-term memory root under FoxxyCode home semantics. When empty, defaults to $FOXXYCODE_HOME/memory.
 	Dir string `yaml:"dir"`
 
 	// RecallMaxTurns and PersistMaxTurns bound the single RunBeforeTurn memory copilot loop; the implementation uses max(RecallMaxTurns, PersistMaxTurns) as the round cap.
@@ -33,7 +33,7 @@ func (m *MemoryConfig) Normalize(p Paths) {
 	m.Model = strings.TrimSpace(m.Model)
 	m.Dir = strings.TrimSpace(m.Dir)
 	if m.Dir != "" {
-		m.Dir = filepath.Clean(ExpandCODDYHomeOnly(m.Dir, p))
+		m.Dir = filepath.Clean(ExpandFOXXYCODEHomeOnly(m.Dir, p))
 	}
 }
 

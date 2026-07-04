@@ -1,6 +1,6 @@
 ---
 name: generate-rules
-description: "Scan the codebase and generate or refresh focused project rules under .coddy/rules/"
+description: "Scan the codebase and generate or refresh focused project rules under .foxxycode/rules/"
 ---
 
 # Generate project rules
@@ -16,7 +16,7 @@ Read in order, skimming for patterns:
 3. Top-level directory layout (`ls`) — identify main packages / layers
 4. `internal/` or `src/` root — two or three representative source files per package (not all files)
 5. `*_test.go` / `*.test.*` / `tests/` — understand test strategy and naming
-6. Existing rules under `.cursor/rules/`, `.coddy/rules/`, `.claude/rules/` — read every file to avoid duplicates and understand what is already covered
+6. Existing rules under `.cursor/rules/`, `.foxxycode/rules/`, `.claude/rules/` — read every file to avoid duplicates and understand what is already covered
 7. CI config (`.github/workflows/`, `Dockerfile`, `.pre-commit-config.yaml`) if present
 
 Skip binary, generated, or vendored files.
@@ -40,7 +40,7 @@ Update or skip existing files that already cover a topic well.
 
 Write each confirmed file. Default target directory:
 - `.cursor/rules/` if it already exists in the repo
-- Otherwise `.coddy/rules/`
+- Otherwise `.foxxycode/rules/`
 - Use `.claude/rules/` only if the user explicitly asks
 
 ### Frontmatter
@@ -80,4 +80,4 @@ alwaysApply: true   # or false for manual/reference rules
 
 ## After writing
 
-Report: files created or updated, their type (`always` / `manual`), and how to verify — e.g. `coddy rules list` or open a matching file in chat to confirm the rule is picked up.
+Report: files created or updated, their type (`always` / `manual`), and how to verify — e.g. `foxxycode rules list` or open a matching file in chat to confirm the rule is picked up.

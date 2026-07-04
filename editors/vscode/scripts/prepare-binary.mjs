@@ -1,7 +1,7 @@
-// Cross-compile the foxxy binary for a single target and stage it under
-// editors/vscode/foxxy-bin/<goos>-<goarch>/ for the VSIX to bundle.
+// Cross-compile the foxxycode binary for a single target and stage it under
+// editors/vscode/foxxycode-bin/<goos>-<goarch>/ for the VSIX to bundle.
 //
-// SCAFFOLD: mirrors the Gradle `foxxyGoBuild_*` tasks used by the IntelliJ plugin.
+// SCAFFOLD: mirrors the Gradle `foxxycodeGoBuild_*` tasks used by the IntelliJ plugin.
 // Usage:  node scripts/prepare-binary.mjs [--target <goos>-<goarch>]
 // Default target is the host platform. VS Code ships platform-specific VSIX, so
 // CI would call `vsce package --target <os>-<arch>` once per target, each time
@@ -35,11 +35,11 @@ function parseTarget() {
 }
 
 const { goos, goarch } = parseTarget();
-const binName = goos === "windows" ? "foxxy.exe" : "foxxy";
-const outDir = join(here, "..", "foxxy-bin", `${goos}-${goarch}`);
+const binName = goos === "windows" ? "foxxycode.exe" : "foxxycode";
+const outDir = join(here, "..", "foxxycode-bin", `${goos}-${goarch}`);
 mkdirSync(outDir, { recursive: true });
 
-console.log(`Building foxxy for ${goos}-${goarch} -> ${join(outDir, binName)}`);
+console.log(`Building foxxycode for ${goos}-${goarch} -> ${join(outDir, binName)}`);
 execFileSync(
   "go",
   [
@@ -51,7 +51,7 @@ execFileSync(
     "-s -w",
     "-o",
     join(outDir, binName),
-    "./cmd/coddy/",
+    "./cmd/foxxycode/",
   ],
   {
     cwd: repoRoot,

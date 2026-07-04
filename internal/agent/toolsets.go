@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // ToolSet is an allowlist of tool names passed to the LLM. Empty or nil means unrestricted

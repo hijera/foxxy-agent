@@ -18,15 +18,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 var errSessionNotFound = errors.New("session not found")
 
-var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
+var errInvalidSessionHeader = errors.New("invalid X-FoxxyCode-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
@@ -73,7 +73,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
-	s.registerCoddyRoutes()
+	s.registerFoxxyCodeRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
@@ -198,7 +198,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 			ID:               string(mode),
 			Object:           "model",
 			Created:          0,
-			OwnedBy:          ownedByCoddySession,
+			OwnedBy:          ownedByFoxxyCodeSession,
 			MaxContextTokens: maxCtx,
 		})
 	}
@@ -292,17 +292,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, errInvalidSessionHeader) {
-			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
+			http.Error(w, `{"error":{"message":"invalid X-FoxxyCode-Session-ID"}}`, http.StatusBadRequest)
 			return
 		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
 	if createdNew {
-		w.Header().Set("X-Coddy-Session-ID", sessionID)
+		w.Header().Set("X-FoxxyCode-Session-ID", sessionID)
 	}
 
-	if httpModelIsCoddyProfile(model) {
+	if httpModelIsFoxxyCodeProfile(model) {
 		st.SetMode(model)
 		if _, err := profileMetadataPatch(s.activeCfg(), st, req.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
@@ -318,7 +318,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var bridge *Sender
-	if httpModelIsCoddyProfile(model) {
+	if httpModelIsFoxxyCodeProfile(model) {
 		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		if req.Stream {
@@ -456,7 +456,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
-	sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID"))
 	if sid != "" {
 		if err := session.ValidateFolderSessionID(sid); err != nil {
 			return nil, "", false, errInvalidSessionHeader
@@ -603,17 +603,17 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, errInvalidSessionHeader) {
-			http.Error(w, `{"error":{"message":"invalid X-Coddy-Session-ID"}}`, http.StatusBadRequest)
+			http.Error(w, `{"error":{"message":"invalid X-FoxxyCode-Session-ID"}}`, http.StatusBadRequest)
 			return
 		}
 		http.Error(w, `{"error":{"message":"session unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
 	if createdNew {
-		w.Header().Set("X-Coddy-Session-ID", sid)
+		w.Header().Set("X-FoxxyCode-Session-ID", sid)
 	}
 
-	if httpModelIsCoddyProfile(model) {
+	if httpModelIsFoxxyCodeProfile(model) {
 		st.SetMode(model)
 		if _, err := profileMetadataPatch(s.activeCfg(), st, body.Metadata); err != nil {
 			if errors.Is(err, ErrInvalidMetadataModel) || errors.Is(err, ErrUnknownMetadataModel) {
@@ -627,13 +627,13 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"metadata.model is not allowed for direct completion"}}`, http.StatusBadRequest)
 		return
 	}
-	if len(body.Attachments) > 0 && !httpModelIsCoddyProfile(model) {
+	if len(body.Attachments) > 0 && !httpModelIsFoxxyCodeProfile(model) {
 		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
 		return
 	}
 	// inline_files are supported for both direct YAML calls and agent/plan mode.
 
-	if httpModelIsCoddyProfile(model) {
+	if httpModelIsFoxxyCodeProfile(model) {
 		cwdAbs, err := filepath.Abs(st.GetCWD())
 		if err != nil {
 			s.log.Error("responses prompt cwd", "error", err)

@@ -6,21 +6,21 @@ import {
   permissionPromptTitle,
 } from "./permissionPromptDisplay";
 import type {
-  CoddyPermissionPayload,
+  FoxxyCodePermissionPayload,
   PermissionResolvedState,
 } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
 
-const HDR = "X-Coddy-Session-ID";
+const HDR = "X-FoxxyCode-Session-ID";
 
 export type PermissionPromptSectionProps = {
   itemId: string;
-  payload: CoddyPermissionPayload;
+  payload: FoxxyCodePermissionPayload;
   resolved?: PermissionResolvedState | undefined;
   onResolved: (resolution: PermissionResolvedState) => void;
 };
 
-/** Inline permission gate for streaming permission SSE + POST /coddy/sessions/{id}/permission. */
+/** Inline permission gate for streaming permission SSE + POST /foxxycode/sessions/{id}/permission. */
 export function PermissionPromptSection(props: PermissionPromptSectionProps) {
   const { payload, resolved, onResolved } = props;
   const [submitting, setSubmitting] = useState(false);
@@ -40,7 +40,7 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
       try {
         try {
           await fetch(
-            `/coddy/sessions/${encodeURIComponent(sid)}/permission`,
+            `/foxxycode/sessions/${encodeURIComponent(sid)}/permission`,
             {
               method: "POST",
               headers: {

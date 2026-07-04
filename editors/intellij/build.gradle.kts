@@ -5,7 +5,7 @@ plugins {
     id("org.jetbrains.intellij") version "1.17.4"
 }
 
-group = "dev.foxxy"
+group = "dev.foxxycode"
 // Overridable from CI: ./gradlew buildPlugin -PpluginVersion=1.2.3
 version = (findProperty("pluginVersion") as String?)?.takeIf { it.isNotBlank() } ?: "0.1.1"
 
@@ -14,7 +14,7 @@ repositories {
 }
 
 // ----------------------------------------------------------------------------------
-// foxxy-agent: build the bundled `foxxy` binary from source on every plugin build.
+// foxxycode-agent: build the bundled `foxxycode` binary from source on every plugin build.
 // Mirrors the root `Makefile`: `npm --prefix external/ui run build:go` (SPA for
 // go:embed, tag `ui`) then `go build -tags "http ui scheduler memory"`.
 //
@@ -23,17 +23,17 @@ repositories {
 //
 // Prerequisites for `buildPlugin`/`runIde`: Go (see root go.mod) and Node/npm.
 //
-// Binary layout inside the plugin: foxxy-bin/<os>-<arch>/foxxy[.exe], resolved at
-// runtime by FoxxyBinaryResolver. Dev builds (buildPlugin/runIde) compile only the
+// Binary layout inside the plugin: foxxycode-bin/<os>-<arch>/foxxycode[.exe], resolved at
+// runtime by FoxxyCodeBinaryResolver. Dev builds (buildPlugin/runIde) compile only the
 // host target for speed; production builds (-Pproduction) cross-compile every target
 // so a single plugin zip runs on all desktop platforms.
 // ----------------------------------------------------------------------------------
-val foxxyDir = layout.projectDirectory.dir("../..")
+val foxxycodeDir = layout.projectDirectory.dir("../..")
 val production = project.hasProperty("production")
 
 // Release targets, mirroring .github/workflows/release-binaries.yaml.
 data class BinTarget(val goos: String, val goarch: String) {
-    val binName: String get() = if (goos == "windows") "foxxy.exe" else "foxxy"
+    val binName: String get() = if (goos == "windows") "foxxycode.exe" else "foxxycode"
     val dirName: String get() = "$goos-$goarch"
 }
 
@@ -59,46 +59,46 @@ val hostGoarch: String = when (val a = System.getProperty("os.arch")) {
 val hostTarget = binTargets.firstOrNull { it.goos == hostGoos && it.goarch == hostGoarch }
     ?: BinTarget(hostGoos, hostGoarch)
 
-val foxxyBinRoot = layout.buildDirectory.dir("foxxy-bin")
+val foxxycodeBinRoot = layout.buildDirectory.dir("foxxycode-bin")
 
 // On Windows `npm` is a batch file (npm.cmd); Gradle Exec needs the .cmd extension to launch it.
 val npmCmd = if (System.getProperty("os.name").startsWith("Windows")) "npm.cmd" else "npm"
 
-val foxxyNpmInstall by tasks.registering(Exec::class) {
-    group = "foxxy"
-    description = "Install npm dependencies for the foxxy-agent embedded UI."
-    workingDir(foxxyDir.dir("external/ui"))
+val foxxycodeNpmInstall by tasks.registering(Exec::class) {
+    group = "foxxycode"
+    description = "Install npm dependencies for the foxxycode-agent embedded UI."
+    workingDir(foxxycodeDir.dir("external/ui"))
     commandLine(npmCmd, "install", "--no-fund", "--no-audit")
     // Re-run when the lockfile changes; otherwise Gradle up-to-date cache applies.
-    inputs.file(foxxyDir.file("external/ui/package.json"))
-    inputs.file(foxxyDir.file("external/ui/package-lock.json"))
+    inputs.file(foxxycodeDir.file("external/ui/package.json"))
+    inputs.file(foxxycodeDir.file("external/ui/package-lock.json"))
     outputs.upToDateWhen { true }
 }
 
-val foxxyUiBuild by tasks.registering(Exec::class) {
-    group = "foxxy"
-    description = "Build the foxxy-agent SPA (vite + chromium-104 compat + sync to go:embed)."
-    dependsOn(foxxyNpmInstall)
-    workingDir(foxxyDir)
+val foxxycodeUiBuild by tasks.registering(Exec::class) {
+    group = "foxxycode"
+    description = "Build the foxxycode-agent SPA (vite + chromium-104 compat + sync to go:embed)."
+    dependsOn(foxxycodeNpmInstall)
+    workingDir(foxxycodeDir)
     commandLine(npmCmd, "--prefix", "external/ui", "run", "build:go")
     // The build writes into external/ui/dist and syncs into the Go tree for go:embed.
-    inputs.dir(foxxyDir.dir("external/ui/src"))
-    inputs.file(foxxyDir.file("external/ui/vite.config.ts"))
-    inputs.file(foxxyDir.file("external/ui/package.json"))
+    inputs.dir(foxxycodeDir.dir("external/ui/src"))
+    inputs.file(foxxycodeDir.file("external/ui/vite.config.ts"))
+    inputs.file(foxxycodeDir.file("external/ui/package.json"))
     outputs.upToDateWhen { true }
 }
 
-// One cross-compile task per target. Each writes build/foxxy-bin/<os>-<arch>/foxxy[.exe].
+// One cross-compile task per target. Each writes build/foxxycode-bin/<os>-<arch>/foxxycode[.exe].
 // Always include the host target so dev builds work even on a host arch that is not a
 // release target (e.g. a windows/arm64 dev box).
 val buildTargets = (binTargets + hostTarget).distinct()
-val foxxyBuildTasks = buildTargets.associateWith { t ->
-    tasks.register<Exec>("foxxyGoBuild_${t.goos}_${t.goarch}") {
-        group = "foxxy"
-        description = "Build the foxxy binary for ${t.dirName} (http/ui/scheduler/memory)."
-        dependsOn(foxxyUiBuild)
-        workingDir(foxxyDir)
-        val outFile = foxxyBinRoot.get().dir(t.dirName).file(t.binName)
+val foxxycodeBuildTasks = buildTargets.associateWith { t ->
+    tasks.register<Exec>("foxxycodeGoBuild_${t.goos}_${t.goarch}") {
+        group = "foxxycode"
+        description = "Build the foxxycode binary for ${t.dirName} (http/ui/scheduler/memory)."
+        dependsOn(foxxycodeUiBuild)
+        workingDir(foxxycodeDir)
+        val outFile = foxxycodeBinRoot.get().dir(t.dirName).file(t.binName)
         environment("GOOS", t.goos)
         environment("GOARCH", t.goarch)
         environment("CGO_ENABLED", "0")
@@ -106,29 +106,29 @@ val foxxyBuildTasks = buildTargets.associateWith { t ->
             "go", "build",
             "-tags", "http ui scheduler memory",
             "-trimpath",
-            "-ldflags", "-s -w -X github.com/hijera/foxxy-agent/internal/version.Version=${project.version}",
+            "-ldflags", "-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${project.version}",
             "-o", outFile.asFile.absolutePath,
-            "./cmd/coddy/"
+            "./cmd/foxxycode/"
         )
-        inputs.dir(foxxyDir.dir("cmd"))
-        inputs.dir(foxxyDir.dir("internal"))
-        inputs.dir(foxxyDir.dir("external"))
-        inputs.file(foxxyDir.file("go.mod"))
+        inputs.dir(foxxycodeDir.dir("cmd"))
+        inputs.dir(foxxycodeDir.dir("internal"))
+        inputs.dir(foxxycodeDir.dir("external"))
+        inputs.file(foxxycodeDir.file("go.mod"))
         outputs.file(outFile)
     }
 }
 
 // Fail fast in production if any target binary is missing before it gets packaged.
-val foxxyVerifyBinaries by tasks.registering {
-    group = "foxxy"
-    description = "Verify every release-target foxxy binary is present (production only)."
-    dependsOn(binTargets.map { foxxyBuildTasks.getValue(it) })
+val foxxycodeVerifyBinaries by tasks.registering {
+    group = "foxxycode"
+    description = "Verify every release-target foxxycode binary is present (production only)."
+    dependsOn(binTargets.map { foxxycodeBuildTasks.getValue(it) })
     doLast {
         val missing = binTargets.filter {
-            !foxxyBinRoot.get().dir(it.dirName).file(it.binName).asFile.isFile
+            !foxxycodeBinRoot.get().dir(it.dirName).file(it.binName).asFile.isFile
         }
         require(missing.isEmpty()) {
-            "Missing foxxy binaries for: ${missing.joinToString { it.dirName }}"
+            "Missing foxxycode binaries for: ${missing.joinToString { it.dirName }}"
         }
     }
 }
@@ -167,16 +167,16 @@ tasks {
         enabled = false
     }
 
-    // Bundle the locally-built foxxy binaries into the plugin distribution under foxxy-bin/.
+    // Bundle the locally-built foxxycode binaries into the plugin distribution under foxxycode-bin/.
     // production: all targets (single cross-platform zip). dev: host target only (fast loop).
     prepareSandbox {
         if (production) {
-            dependsOn(foxxyVerifyBinaries)
+            dependsOn(foxxycodeVerifyBinaries)
         } else {
-            dependsOn(foxxyBuildTasks.getValue(hostTarget))
+            dependsOn(foxxycodeBuildTasks.getValue(hostTarget))
         }
-        from(foxxyBinRoot) {
-            into("${intellij.pluginName.get()}/foxxy-bin")
+        from(foxxycodeBinRoot) {
+            into("${intellij.pluginName.get()}/foxxycode-bin")
         }
     }
 }

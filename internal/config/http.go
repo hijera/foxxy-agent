@@ -8,9 +8,9 @@ import (
 
 // HTTPServerConfig controls the optional OpenAI-compatible HTTP gateway (built with -tags http). The embedded SPA requires -tags http,ui.
 type HTTPServerConfig struct {
-	// Host is the default bind address when coddy http does not override -H/--host (e.g. "127.0.0.1"). Empty falls back to 0.0.0.0 in the CLI.
+	// Host is the default bind address when foxxycode http does not override -H/--host (e.g. "127.0.0.1"). Empty falls back to 0.0.0.0 in the CLI.
 	Host string `yaml:"host"`
-	// Port is the default listen port when coddy http does not override -P/--port. Zero falls back to 12345 in the CLI.
+	// Port is the default listen port when foxxycode http does not override -P/--port. Zero falls back to 12345 in the CLI.
 	Port int `yaml:"port"`
 }
 

@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func jobCancelTool(cfg *config.Config) *tooling.Tool {
@@ -40,7 +40,7 @@ func jobCancelTool(cfg *config.Config) *tooling.Tool {
 			if err != nil {
 				return "", err
 			}
-			return fmt.Sprintf(`{"object":"coddy.scheduler_job_cancel","job_id":%q,"cancelled":%v}`, strings.TrimSpace(in.JobID), cancelled), nil
+			return fmt.Sprintf(`{"object":"foxxycode.scheduler_job_cancel","job_id":%q,"cancelled":%v}`, strings.TrimSpace(in.JobID), cancelled), nil
 		},
 	}
 }

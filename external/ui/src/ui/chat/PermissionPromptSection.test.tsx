@@ -1,11 +1,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { PermissionPromptSection } from "./PermissionPromptSection";
-import type { CoddyPermissionPayload } from "./permissionTypes";
+import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 
 afterEach(() => cleanup());
 
-const payload: CoddyPermissionPayload = {
+const payload: FoxxyCodePermissionPayload = {
   sessionId: "sess_x",
   toolCall: {
     toolCallId: "call_1",

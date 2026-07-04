@@ -1,11 +1,11 @@
-/** Russian UI strings for the Coddy SPA. */
+/** Russian UI strings for the FoxxyCode SPA. */
 export const messagesRu: Record<string, string> = {
   "nav.ariaLabel": "Навигация",
   "nav.useNarrowSidebar": "Узкая боковая панель",
   "nav.useWideSidebar": "Широкая боковая панель",
   "nav.wideSidebarTooltip": "Широкая панель",
-  "nav.homeAriaLabel": "Главная Coddy agent",
-  "nav.brandTitle": "Coddy",
+  "nav.homeAriaLabel": "Главная FoxxyCode agent",
+  "nav.brandTitle": "FoxxyCode",
   "nav.brandSub": "агент",
   "nav.newChatTooltip": "Новый чат",
   "nav.history": "История",

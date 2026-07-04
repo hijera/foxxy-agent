@@ -1,5 +1,5 @@
 import { t } from "../i18n/i18n";
-import type { CoddyPermissionPayload } from "./permissionTypes";
+import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
 
 function humanizeKind(kind: string): string {
@@ -14,7 +14,7 @@ function humanizeKind(kind: string): string {
 }
 
 /** Sentence-case title for the permission gate (not RUN: RUN_COMMAND). */
-export function permissionPromptTitle(payload: CoddyPermissionPayload): string {
+export function permissionPromptTitle(payload: FoxxyCodePermissionPayload): string {
   const kind = (payload.toolCall.kind || "").trim();
   const title = (payload.toolCall.title || "").trim();
   if (kind) {
@@ -32,7 +32,7 @@ export function permissionPromptTitle(payload: CoddyPermissionPayload): string {
 
 /** Plain detail text for the quote block (command line, not raw Arguments JSON). */
 export function permissionPromptDetail(
-  payload: CoddyPermissionPayload,
+  payload: FoxxyCodePermissionPayload,
 ): string {
   const body = permissionBodyText(payload);
   if (!body) return "";

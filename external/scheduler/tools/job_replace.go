@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func jobReplaceTool(cfg *config.Config) *tooling.Tool {
@@ -19,7 +19,7 @@ func jobReplaceTool(cfg *config.Config) *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: toolJobReplace,
 			Description: "Replaces ALL fields of an existing scheduler job (PUT semantics). Requires job_id in the payload path sense (tool argument job_id matches file). " +
-				"Dangerous overwrite of description, schedule, paused, cwd, model, mode, and body fields. Prefer coddy_scheduler_job_patch when only a few knobs change.",
+				"Dangerous overwrite of description, schedule, paused, cwd, model, mode, and body fields. Prefer foxxycode_scheduler_job_patch when only a few knobs change.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -46,7 +46,7 @@ func jobReplaceTool(cfg *config.Config) *tooling.Tool {
 			if err := op.ReplaceJob(jobID, in); err != nil {
 				return "", err
 			}
-			return fmt.Sprintf(`{"object":"coddy.scheduler_job_replaced","job_id":%q}`, jobID), nil
+			return fmt.Sprintf(`{"object":"foxxycode.scheduler_job_replaced","job_id":%q}`, jobID), nil
 		},
 	}
 }

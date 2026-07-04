@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/plans"
 )
 
 const runPlanUserText = "Implement the plan."
@@ -57,7 +57,7 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	return &acp.SessionPromptResult{StopReason: acp.StopReason(stopReason)}, nil
 }
 
-// RunPlanSlugFromPromptMeta reads coddy.dev/runPlanSlug from session/prompt _meta.
+// RunPlanSlugFromPromptMeta reads foxxycode.dev/runPlanSlug from session/prompt _meta.
 func RunPlanSlugFromPromptMeta(meta map[string]interface{}) string {
 	if meta == nil {
 		return ""

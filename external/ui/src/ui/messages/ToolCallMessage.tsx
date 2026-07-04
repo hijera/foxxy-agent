@@ -314,12 +314,12 @@ export function ToolCallMessage(props: {
 
   return (
     <div
-      className="thinking-row coddy-tool-call-row"
+      className="thinking-row foxxycode-tool-call-row"
       data-kind={props.kind || ""}
       data-status={props.status}
     >
       <details
-        className="thinking-details coddy-tool-details"
+        className="thinking-details foxxycode-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
       >
         <summary className="thinking-summary" aria-label={t("messages.toolSummaryAriaLabel")}>
@@ -336,9 +336,9 @@ export function ToolCallMessage(props: {
         {hasBody ? (
           <div
             className={[
-              "thinking-body coddy-tool-call-body",
+              "thinking-body foxxycode-tool-call-body",
               showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
-                ? "coddy-tool-call-body--diff"
+                ? "foxxycode-tool-call-body--diff"
                 : "",
             ]
               .filter(Boolean)

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """HTTP scheduler REST API plus on-disk job files (no LLM).
 
-Checks ``GET/POST/PATCH/DELETE /coddy/scheduler/jobs`` and that ``$CODDY_HOME/scheduler/<job_id>.md``
+Checks ``GET/POST/PATCH/DELETE /foxxycode/scheduler/jobs`` and that ``$FOXXYCODE_HOME/scheduler/<job_id>.md``
 appears with expected frontmatter or body, then disappears after delete.
 
-Environment: ``BASE_URL`` (default ``http://127.0.0.1:19876/v1``), ``CODDY_HOME`` (required, absolute).
+Environment: ``BASE_URL`` (default ``http://127.0.0.1:19876/v1``), ``FOXXYCODE_HOME`` (required, absolute).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 
-def coddy_origin(base_v1: str) -> str:
+def foxxycode_origin(base_v1: str) -> str:
     b = base_v1.rstrip("/")
     if b.endswith("/v1"):
         return b[:-3]
@@ -80,23 +80,23 @@ def assert_disk_job(
 
 
 def main() -> int:
-    home_raw = os.environ.get("CODDY_HOME", "").strip()
+    home_raw = os.environ.get("FOXXYCODE_HOME", "").strip()
     if not home_raw:
-        print("CODDY_HOME must be set to the same home the server uses", file=sys.stderr)
+        print("FOXXYCODE_HOME must be set to the same home the server uses", file=sys.stderr)
         return 10
     home = Path(home_raw).expanduser().resolve()
     if not home.is_dir():
-        print("CODDY_HOME is not a directory", home, file=sys.stderr)
+        print("FOXXYCODE_HOME is not a directory", home, file=sys.stderr)
         return 11
 
     base_v1 = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
-    origin = coddy_origin(base_v1)
-    list_url = f"{origin}/coddy/scheduler/jobs"
+    origin = foxxycode_origin(base_v1)
+    list_url = f"{origin}/foxxycode/scheduler/jobs"
 
     code, env = http_json("GET", list_url, None, timeout=30.0)
     if code == 404:
         print(
-            "GET /coddy/scheduler/jobs -> 404 (rebuild with: make build TAGS=\"http scheduler\")",
+            "GET /foxxycode/scheduler/jobs -> 404 (rebuild with: make build TAGS=\"http scheduler\")",
             file=sys.stderr,
         )
         return 2
@@ -107,10 +107,10 @@ def main() -> int:
         )
         return 3
     if code != 200:
-        print("GET /coddy/scheduler/jobs unexpected", code, env, file=sys.stderr)
+        print("GET /foxxycode/scheduler/jobs unexpected", code, env, file=sys.stderr)
         return 1
     if "scheduler" not in env or "jobs" not in env:
-        print("GET /coddy/scheduler/jobs missing envelope keys", env, file=sys.stderr)
+        print("GET /foxxycode/scheduler/jobs missing envelope keys", env, file=sys.stderr)
         return 1
 
     job_id = f"e2e_sched_api_{os.getpid()}"
@@ -130,7 +130,7 @@ def main() -> int:
 
     assert_disk_job(home, job_id, expect_description=description, expect_schedule=schedule, expect_body_substr=body_text)
 
-    one = f"{origin}/coddy/scheduler/jobs/{urllib.parse.quote(job_id, safe='')}"
+    one = f"{origin}/foxxycode/scheduler/jobs/{urllib.parse.quote(job_id, safe='')}"
     code, job = http_json("GET", one, None, timeout=30.0)
     if code != 200 or (job.get("job_id") or "").strip() != job_id:
         print("GET job", code, job, file=sys.stderr)

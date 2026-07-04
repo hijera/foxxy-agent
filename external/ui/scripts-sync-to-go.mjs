@@ -21,7 +21,7 @@ await cp(path.join(dist, "app.js"), path.join(uiRoot, "app.js"));
 
 const docsAssets = path.join(uiRoot, "..", "..", "docs", "assets");
 const faviconFiles = [
-  ["coddy-logo-mark-flat.svg", "coddy-favicon.svg"],
+  ["foxxycode-logo-mark-flat.svg", "foxxycode-favicon.svg"],
   ["favicon-32.png", "favicon-32.png"],
   ["favicon.ico", "favicon.ico"],
   ["apple-touch-icon.png", "apple-touch-icon.png"],

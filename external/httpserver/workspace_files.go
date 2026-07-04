@@ -17,7 +17,7 @@ const workspaceFilesMaxEntries = 50000
 
 func workspaceSkipSubtree(name string) bool {
 	switch name {
-	case ".git", "node_modules", ".coddy":
+	case ".git", "node_modules", ".foxxycode":
 		return true
 	default:
 		return false
@@ -115,7 +115,7 @@ func paginateWorkspaceItems(items []workspaceListedItem, page, pageSize int) (pa
 	return items[start:end], total, end < total
 }
 
-func (s *Server) coddyWorkspaceFilesGet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeWorkspaceFilesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
@@ -152,7 +152,7 @@ func (s *Server) coddyWorkspaceFilesGet(w http.ResponseWriter, r *http.Request) 
 	if prefix == "" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"object":    "coddy.workspace_files_page",
+			"object":    "foxxycode.workspace_files_page",
 			"items":     []workspaceListedItem{},
 			"total":     0,
 			"has_more":  false,
@@ -185,7 +185,7 @@ func (s *Server) coddyWorkspaceFilesGet(w http.ResponseWriter, r *http.Request) 
 	pageItems, total, hasMore := paginateWorkspaceItems(filtered, page, pageSize)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":    "coddy.workspace_files_page",
+		"object":    "foxxycode.workspace_files_page",
 		"items":     pageItems,
 		"total":     total,
 		"has_more":  hasMore,

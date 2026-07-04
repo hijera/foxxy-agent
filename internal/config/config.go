@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// LoadFromCLI resolves paths, optionally falls back to $CWD/config.yaml when $CODDY_HOME/config.yaml is missing, and loads YAML.
+// LoadFromCLI resolves paths, optionally falls back to $CWD/config.yaml when $FOXXYCODE_HOME/config.yaml is missing, and loads YAML.
 func LoadFromCLI(cli CLIPaths) (*Config, error) {
 	paths, err := Resolve(cli)
 	if err != nil {
 		return nil, err
 	}
-	// Load $CODDY_HOME/.env before config.yaml is parsed so that ${VAR} references in YAML see the values.
+	// Load $FOXXYCODE_HOME/.env before config.yaml is parsed so that ${VAR} references in YAML see the values.
 	// Existing process environment always takes precedence over .env.
 	loadDotEnv(paths.Home)
 	explicitConfig := strings.TrimSpace(cli.Config) != ""
@@ -29,8 +29,8 @@ func LoadFromCLI(cli CLIPaths) (*Config, error) {
 	return readConfigFile(paths, explicitConfig)
 }
 
-// Load reads config from the given path, or resolves $CODDY_HOME/config.yaml (and optional $CWD/config.yaml).
-// If path is non-empty, that file must exist. If path is empty, resolution uses env and $CODDY_HOME/config.yaml.
+// Load reads config from the given path, or resolves $FOXXYCODE_HOME/config.yaml (and optional $CWD/config.yaml).
+// If path is non-empty, that file must exist. If path is empty, resolution uses env and $FOXXYCODE_HOME/config.yaml.
 func Load(path string) (*Config, error) {
 	return LoadFromCLI(CLIPaths{Config: strings.TrimSpace(path)})
 }
@@ -131,13 +131,13 @@ func applyDefaults(cfg *Config) {
 	}
 
 	if d := strings.TrimSpace(cfg.Sessions.Dir); d != "" {
-		cfg.Sessions.Dir = filepath.Clean(ExpandCODDYHomeOnly(d, p))
+		cfg.Sessions.Dir = filepath.Clean(ExpandFOXXYCODEHomeOnly(d, p))
 	} else {
 		cfg.Sessions.Dir = ""
 	}
 
 	cfg.Skills.ApplyDefaults(p.Home, func(s string) string {
-		return ExpandCODDYHomeOnly(s, p)
+		return ExpandFOXXYCODEHomeOnly(s, p)
 	})
 	cfg.Rules.ApplyDefaults()
 
@@ -183,9 +183,9 @@ func (c *Config) ResolvedSessionsRoot() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".coddy", "sessions")
+		return filepath.Join(".foxxycode", "sessions")
 	}
-	return filepath.Join(home, ".coddy", "sessions")
+	return filepath.Join(home, ".foxxycode", "sessions")
 }
 
 // ExpandCWD replaces ${CWD} in s, then expands ~, using the given session or process cwd.

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func TestUISchemaOmitsHTTPServerFromUI(t *testing.T) {
@@ -22,9 +22,9 @@ func TestUISchemaOmitsHTTPServerFromUI(t *testing.T) {
 
 func TestUISchemaRootPropertyOrder(t *testing.T) {
 	doc := config.UISchemaMap()
-	ord, ok := doc["x-coddy-property-order"].([]interface{})
+	ord, ok := doc["x-foxxycode-property-order"].([]interface{})
 	if !ok || len(ord) < 3 {
-		t.Fatalf("x-coddy-property-order: %v", doc["x-coddy-property-order"])
+		t.Fatalf("x-foxxycode-property-order: %v", doc["x-foxxycode-property-order"])
 	}
 	if ord[0] != "providers" {
 		t.Fatalf("first key %v", ord[0])
@@ -41,8 +41,8 @@ func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {
 		t.Fatalf("provider name pattern: got %v want %v", got, want)
 	}
 	apiKey := pprops["api_key"].(map[string]interface{})
-	if apiKey["x-coddy-provider-api-key-env-placeholder"] != true {
-		t.Fatal("expected x-coddy-provider-api-key-env-placeholder on api_key")
+	if apiKey["x-foxxycode-provider-api-key-env-placeholder"] != true {
+		t.Fatal("expected x-foxxycode-provider-api-key-env-placeholder on api_key")
 	}
 }
 
@@ -79,7 +79,7 @@ func TestUISchemaModelHasReasoningFields(t *testing.T) {
 
 func TestConfigJSONRoundTripAndYAML(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 	yml := `
 providers:
   - name: openai

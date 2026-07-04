@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 func TestComposerStreamRelayReplayAndLive(t *testing.T) {
@@ -43,7 +43,7 @@ func TestComposerStreamRelayReplayAndLive(t *testing.T) {
 	}
 }
 
-func TestCoddySessionComposerStreamDeliversRelay(t *testing.T) {
+func TestFoxxyCodeSessionComposerStreamDeliversRelay(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
 	sn, err := srv.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
@@ -64,11 +64,11 @@ func TestCoddySessionComposerStreamDeliversRelay(t *testing.T) {
 		srv.endComposerRelay(sid, rel)
 	}()
 
-	req, err := http.NewRequest(http.MethodGet, ts.URL+"/coddy/sessions/"+url.PathEscape(sid)+"/composer-stream", nil)
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid)+"/composer-stream", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("X-Coddy-Session-ID", sid)
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res, err := ts.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)

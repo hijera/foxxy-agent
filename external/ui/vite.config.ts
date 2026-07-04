@@ -6,7 +6,7 @@ import react from "@vitejs/plugin-react";
 // @ts-ignore -- plain .mjs module without type declarations
 import resolveColorMix from "./postcss-resolve-color-mix.mjs";
 
-const backend = (process.env.CODDY_UI_BACKEND || "").trim();
+const backend = (process.env.FOXXYCODE_UI_BACKEND || "").trim();
 
 export default defineConfig({
   root: "src",
@@ -30,7 +30,7 @@ export default defineConfig({
       ? {
           proxy: {
             "/v1": backend,
-            "/coddy": backend,
+            "/foxxycode": backend,
             "/docs": backend,
             "/openapi.yaml": backend,
             "/openapi.json": backend,

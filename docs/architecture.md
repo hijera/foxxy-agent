@@ -1,15 +1,15 @@
-# Architecture: Coddy Agent
+# Architecture: FoxxyCode Agent
 
 ## Overview
 
-Coddy is a **distroless-friendly ACP harness** written in Go. At its core it is protocol plumbing
+FoxxyCode is a **distroless-friendly ACP harness** written in Go. At its core it is protocol plumbing
 (STDIO JSON-RPC server, sessions, configuration, MCP wiring) plus a **ReAct** execution loop backed
 by pluggable LLM providers. Ship it as one binary suitable for scratch or distroless images,
 sidecars, CI sandboxes, or local installs.
 
 The default toolset and prompts are tuned so the harness presents as an **interactive coding agent**
-(ACP clients spawn `coddy acp`; users get filesystem, commands, MCP, project rules from `.coddy`/`.cursor`/`.claude`/`.codex` rule trees under session cwd, and skills from `skills.dirs`).
-That coding-agent surface is **a productized profile on top of the harness**, not the only way to run Coddy.
+(ACP clients spawn `foxxycode acp`; users get filesystem, commands, MCP, project rules from `.foxxycode`/`.cursor`/`.claude`/`.codex` rule trees under session cwd, and skills from `skills.dirs`).
+That coding-agent surface is **a productized profile on top of the harness**, not the only way to run FoxxyCode.
 
 ## High-Level Architecture
 
@@ -67,7 +67,7 @@ Implements the JSON-RPC 2.0 server that speaks the ACP protocol over stdio.
 Handles:
 - `initialize` - version negotiation, capability exchange
 - `session/new` - create session, connect MCP servers, return modes and Session Config Options (model + mode selectors)
-- `session/load` - restore a persisted bundle from disk (**`$CODDY_HOME/sessions`** by default, usually **`~/.coddy/sessions`**), replay history via `session/update`
+- `session/load` - restore a persisted bundle from disk (**`$FOXXYCODE_HOME/sessions`** by default, usually **`~/.foxxycode/sessions`**), replay history via `session/update`
 - `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
@@ -95,7 +95,7 @@ The core reasoning engine (**`react.go`**):
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
 6. Loops until there are no tool calls, **`max_turns`** is exceeded, or cancellation.
-7. On **`session/cancel`** (or HTTP **`POST /coddy/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /coddy/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
+7. On **`session/cancel`** (or HTTP **`POST /foxxycode/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /foxxycode/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
 
 ### LLM Provider (`internal/llm`)
 
@@ -121,9 +121,9 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **`grep.go`** **`grep`**, **`write.go`** **`write`**, **`edit.go`** **`edit`**, **`patch.go`**
   **`apply_patch`**, **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
 - **`internal/tools/shell`** - **`run_command`**
-- **`internal/tools/todo`** - todo/plan list (**`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
-  **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**,
-  **`coddy_todo_item_update`**, **`coddy_todo_item_move`**)
+- **`internal/tools/todo`** - todo/plan list (**`foxxycode_todo_plan_read`**, **`foxxycode_todo_plan_replace`**,
+  **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**,
+  **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**)
 
 **Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**), then MCP tools from connected servers are appended the same way as in agent mode.
 
@@ -132,13 +132,13 @@ Agents see:
 - **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, etc.) plus MCP tools from connected servers.
 - **`plan`** mode - the allowlisted builtins above plus MCP tools. Built-in writes, todo tools, scheduler, and memory tools are not advertised to the LLM.
 
-`run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /coddy/sessions/{id}/question`**).
+`run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /foxxycode/sessions/{id}/question`**).
 
 ### Messenger Gateway (`external/gateway`)
 
-The gateway is a separate process entry point (`coddy gateway`) that lets messenger bots (Telegram today, others via the same interface) drive the same session manager and ReAct loop used by `coddy acp` and `coddy http`.
+The gateway is a separate process entry point (`foxxycode gateway`) that lets messenger bots (Telegram today, others via the same interface) drive the same session manager and ReAct loop used by `foxxycode acp` and `foxxycode http`.
 
-Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tags gateway`** (all adapters). Without these tags the `coddy gateway` subcommand is present but returns a "not compiled" error.
+Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tags gateway`** (all adapters). Without these tags the `foxxycode gateway` subcommand is present but returns a "not compiled" error.
 
 **Key packages:**
 
@@ -146,7 +146,7 @@ Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tag
 |---------|------|
 | `external/gateway` | `Adapter` interface, `Hub`, `Start()` entry point |
 | `external/gateway/access` | Access control: `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` |
-| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; `Reset` on `/clear` |
+| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to FoxxyCode session IDs; `Reset` on `/clear` |
 | `external/gateway/telegram` | `Bot` (polling, trigger rules, ACL), `Sender` (implements `acp.UpdateSender`) |
 
 **Data flow for one incoming message:**
@@ -154,7 +154,7 @@ Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tag
 1. Adapter receives raw update, normalises it to `IncomingMessage`.
 2. `access.CanAccess` rejects the message if the user fails the configured access level.
 3. `sessionstore.SessionKey` derives a deterministic string key from gateway name, chat ID, user ID, and isolation mode.
-4. `store.Get(key)` returns the current Coddy session ID for that key (creating one on first use).
+4. `store.Get(key)` returns the current FoxxyCode session ID for that key (creating one on first use).
 5. `manager.EnsureHTTPSession` loads or creates the session bundle.
 6. `manager.HandleSessionPromptWithSender` runs the ReAct loop with the adapter's `Sender`.
 7. `sender.Flush()` sends accumulated text back to the chat.
@@ -182,17 +182,17 @@ Tools from MCP servers are appended to the LLM tool list in **`agent`** and **`p
 
 ### Skills loader (`internal/skills`)
 
-Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.coddy/skills`** (coddy-specific), **`${CWD}/.coddy/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
+Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.foxxycode/skills`** (foxxycode-specific), **`${CWD}/.foxxycode/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
 
 ### Rules engine (`internal/rules`)
 
-Discovers `.mdc` / `.md` rules from `.coddy/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` under session CWD. Injected into **`{{.Rules}}`** separately from skills; see **`docs/rules.md`**.
+Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` under session CWD. Injected into **`{{.Rules}}`** separately from skills; see **`docs/rules.md`**.
 
 Activation uses globs, **`alwaysApply`**, **`@mention`**, and sticky auto rules (see **`docs/rules.md`**).
 
 ### Config (`internal/config`)
 
-YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`**), **`CODDY_CWD`**, **`CODDY_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$CODDY_HOME/config.yaml`** is absent, and CLI flags (see **`docs/config.md`** and **`README.md`**).
+YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.foxxycode`**), **`FOXXYCODE_CWD`**, **`FOXXYCODE_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$FOXXYCODE_HOME/config.yaml`** is absent, and CLI flags (see **`docs/config.md`** and **`README.md`**).
 
 ## Session Modes
 
@@ -205,7 +205,7 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 ### `plan` mode
 - Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
 - **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, plus any **MCP** tools from configured servers
-- No built-in workspace writes or **coddy** todo tools in the advertised set (switch to **agent** for those)
+- No built-in workspace writes or **foxxycode** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 
 Mode switching:
@@ -214,11 +214,11 @@ Mode switching:
 
 ## Directory Structure
 
-Top level after **`git clone`** (folder name is arbitrary; **`coddy-agent`** is common):
+Top level after **`git clone`** (folder name is arbitrary; **`foxxycode-agent`** is common):
 
 ```
 .
-├── cmd/coddy/                   # CLI entry (acp, http, sessions, skills)
+├── cmd/foxxycode/                   # CLI entry (acp, http, sessions, skills)
 ├── internal/                    # core harness (acp, session, agent, config, tools, …)
 ├── external/
 │   ├── memory/                  # long-term memory copilot (`-tags memory`)

@@ -1,6 +1,6 @@
 //go:build gateway || gateway.telegram
 
-// Package telegram implements the Telegram bot adapter for the Coddy gateway.
+// Package telegram implements the Telegram bot adapter for the FoxxyCode gateway.
 package telegram
 
 import (
@@ -12,12 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hijera/foxxy-agent/external/gateway/access"
-	"github.com/hijera/foxxy-agent/external/gateway/proxyutil"
-	"github.com/hijera/foxxy-agent/external/gateway/sessionstore"
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/external/gateway/access"
+	"github.com/hijera/foxxycode-agent/external/gateway/proxyutil"
+	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -208,7 +208,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 	if isCommand(msg, "start") {
 		reply(bot, chatID, msg.MessageID,
-			"👋 Hi! I'm Coddy — an AI coding assistant.\n\nJust send me your question or task. Use /help to see available commands.")
+			"👋 Hi! I'm FoxxyCode — an AI coding assistant.\n\nJust send me your question or task. Use /help to see available commands.")
 		return
 	}
 	if isCommand(msg, "help") {

@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func jobDeleteTool(cfg *config.Config) *tooling.Tool {
@@ -42,7 +42,7 @@ func jobDeleteTool(cfg *config.Config) *tooling.Tool {
 			if err := op.DeleteJob(strings.TrimSpace(in.JobID)); err != nil {
 				return "", err
 			}
-			return fmt.Sprintf(`{"object":"coddy.scheduler_job_deleted","job_id":%q}`, strings.TrimSpace(in.JobID)), nil
+			return fmt.Sprintf(`{"object":"foxxycode.scheduler_job_deleted","job_id":%q}`, strings.TrimSpace(in.JobID)), nil
 		},
 	}
 }

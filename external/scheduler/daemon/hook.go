@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/external/scheduler/storage"
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/external/scheduler/storage"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func init() {

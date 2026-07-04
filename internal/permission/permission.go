@@ -7,7 +7,7 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 // CommandAllowedWithSession merges config command_allowlist with session-scoped grants (same matching rules).

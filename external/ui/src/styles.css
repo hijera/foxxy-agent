@@ -9,10 +9,10 @@
   --nav: rgba(37, 37, 37, 0.6);
   --sidebar: rgba(30, 30, 30, 0.7);
   --accent: #9333ea;
-  --coddy-skill-chip-bg: rgba(147, 51, 234, 0.14);
-  --coddy-skill-chip-bd: rgba(147, 51, 234, 0.52);
-  --coddy-skill-chip-text: rgba(237, 220, 255, 0.96);
-  --coddy-skill-chip-font:
+  --foxxycode-skill-chip-bg: rgba(147, 51, 234, 0.14);
+  --foxxycode-skill-chip-bd: rgba(147, 51, 234, 0.52);
+  --foxxycode-skill-chip-text: rgba(237, 220, 255, 0.96);
+  --foxxycode-skill-chip-font:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     monospace;
   --text: #ffffff;
@@ -20,62 +20,62 @@
   --bubble-user: #2d2d2d;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
-  --coddy-canvas-glow-purple: rgba(147, 51, 234, 0.12);
-  --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.1);
-  --coddy-canvas-gradient-top: #0f0f10;
-  --coddy-canvas-gradient-bottom: #0b0b0c;
+  --foxxycode-canvas-glow-purple: rgba(147, 51, 234, 0.12);
+  --foxxycode-canvas-glow-indigo: rgba(99, 102, 241, 0.1);
+  --foxxycode-canvas-gradient-top: #0f0f10;
+  --foxxycode-canvas-gradient-bottom: #0b0b0c;
   /* Shared frosted panels (composer, History drawer, skills slash picker) */
   /* Tint stays fairly transparent so backdrop blur reads as frosted glass, not a solid bar */
-  --coddy-glass-panel-bg: rgba(14, 14, 18, 0.62);
-  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
+  --foxxycode-glass-panel-bg: rgba(14, 14, 18, 0.62);
+  --foxxycode-glass-panel-backdrop: blur(52px) saturate(175%);
+  --foxxycode-glass-panel-border: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  --foxxycode-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
   /* Match composer-card and History drawer corners */
-  --coddy-glass-panel-radius: 18px;
+  --foxxycode-glass-panel-radius: 18px;
   /* Plain dim behind History / slash sheet — no fullscreen blur */
-  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.55);
-  --coddy-surface-subtle: rgba(10, 10, 12, 0.2);
-  --coddy-surface-muted: rgba(10, 10, 12, 0.25);
-  --coddy-surface-raised: rgba(10, 10, 12, 0.35);
-  --coddy-surface-inset: rgba(10, 10, 12, 0.4);
-  --coddy-surface-sunken: rgba(8, 8, 10, 0.38);
-  --coddy-surface-field: rgba(0, 0, 0, 0.35);
-  --coddy-surface-fieldset: rgba(0, 0, 0, 0.2);
-  --coddy-surface-gutter: rgba(0, 0, 0, 0.2);
-  --coddy-surface-code-fg: rgba(186, 192, 204, 0.88);
-  --coddy-surface-code-bg: rgba(229, 231, 235, 0.9);
-  --coddy-link: rgba(167, 139, 250, 0.95);
-  --coddy-md-inline-code-fg: rgba(229, 231, 235, 0.92);
-  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.1);
-  --coddy-md-inline-code-font:
+  --foxxycode-overlay-scrim-bg: rgba(0, 0, 0, 0.55);
+  --foxxycode-surface-subtle: rgba(10, 10, 12, 0.2);
+  --foxxycode-surface-muted: rgba(10, 10, 12, 0.25);
+  --foxxycode-surface-raised: rgba(10, 10, 12, 0.35);
+  --foxxycode-surface-inset: rgba(10, 10, 12, 0.4);
+  --foxxycode-surface-sunken: rgba(8, 8, 10, 0.38);
+  --foxxycode-surface-field: rgba(0, 0, 0, 0.35);
+  --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.2);
+  --foxxycode-surface-gutter: rgba(0, 0, 0, 0.2);
+  --foxxycode-surface-code-fg: rgba(186, 192, 204, 0.88);
+  --foxxycode-surface-code-bg: rgba(229, 231, 235, 0.9);
+  --foxxycode-link: rgba(167, 139, 250, 0.95);
+  --foxxycode-md-inline-code-fg: rgba(229, 231, 235, 0.92);
+  --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.1);
+  --foxxycode-md-inline-code-font:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
-  --coddy-link-action: rgba(140, 175, 255, 0.95);
-  --coddy-link-action-hover: rgba(180, 205, 255, 1);
-  --coddy-hero-muted-mid: rgba(226, 232, 240, 0.82);
-  --coddy-hero-muted-end: rgba(148, 163, 184, 0.62);
-  --coddy-hero-accent: #a585c9;
-  --coddy-hero-accent-glow: rgba(130, 105, 165, 0.22);
+  --foxxycode-link-action: rgba(140, 175, 255, 0.95);
+  --foxxycode-link-action-hover: rgba(180, 205, 255, 1);
+  --foxxycode-hero-muted-mid: rgba(226, 232, 240, 0.82);
+  --foxxycode-hero-muted-end: rgba(148, 163, 184, 0.62);
+  --foxxycode-hero-accent: #a585c9;
+  --foxxycode-hero-accent-glow: rgba(130, 105, 165, 0.22);
   /* Mix partner for color-mix(in srgb, var(--text) …): transparent reads on dark canvas */
-  --coddy-blend-base: transparent;
-  --coddy-tip-bg: rgba(36, 36, 38, 0.97);
-  --coddy-tip-border: rgba(147, 51, 234, 0.35);
-  --coddy-tip-fg: #f4f4f5;
-  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-  --coddy-chat-header-bg: rgba(15, 15, 16, 0.35);
-  --coddy-bubble-user-bg: rgba(45, 45, 45, 0.85);
-  --coddy-bubble-user-fg: #f4f4f5;
-  --coddy-chip-badge-bg: rgba(15, 15, 18, 0.9);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-  --coddy-plan-eye-bg: rgba(14, 14, 16, 0.92);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  --coddy-on-accent-fg: #ffffff;
-  --coddy-context-ring-inner: rgba(196, 181, 253, 0.5);
+  --foxxycode-blend-base: transparent;
+  --foxxycode-tip-bg: rgba(36, 36, 38, 0.97);
+  --foxxycode-tip-border: rgba(147, 51, 234, 0.35);
+  --foxxycode-tip-fg: #f4f4f5;
+  --foxxycode-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --foxxycode-chat-header-bg: rgba(15, 15, 16, 0.35);
+  --foxxycode-bubble-user-bg: rgba(45, 45, 45, 0.85);
+  --foxxycode-bubble-user-fg: #f4f4f5;
+  --foxxycode-chip-badge-bg: rgba(15, 15, 18, 0.9);
+  --foxxycode-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  --foxxycode-plan-eye-bg: rgba(14, 14, 16, 0.92);
+  --foxxycode-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  --foxxycode-on-accent-fg: #ffffff;
+  --foxxycode-context-ring-inner: rgba(196, 181, 253, 0.5);
   /* Logo outer arc (cmf-stroke light end); flat, no gradient */
-  --coddy-context-ring-fg: #f5f3ff;
-  --coddy-ghost-btn-fg: var(--muted);
+  --foxxycode-context-ring-fg: #f5f3ff;
+  --foxxycode-ghost-btn-fg: var(--muted);
   /* Slash skills UI must stay below History (backdrop 40, drawer 50; mobile 60/70). */
-  --coddy-z-slash-command: 38;
+  --foxxycode-z-slash-command: 38;
   /* Narrow nav column: outer edge = pill + trailing column padding before chat/drawer */
   --rail-column-pad-end: 8px;
   --nav-floating-gutter: 2px;
@@ -94,61 +94,61 @@
   --nav: rgba(255, 255, 255, 0.92);
   --sidebar: #ffffff;
   --accent: #7c3aed;
-  --coddy-skill-chip-bg: rgba(124, 58, 237, 0.1);
-  --coddy-skill-chip-bd: rgba(124, 58, 237, 0.35);
-  --coddy-skill-chip-text: rgba(76, 29, 149, 0.96);
+  --foxxycode-skill-chip-bg: rgba(124, 58, 237, 0.1);
+  --foxxycode-skill-chip-bd: rgba(124, 58, 237, 0.35);
+  --foxxycode-skill-chip-text: rgba(76, 29, 149, 0.96);
   --text: #18181b;
   --muted: #52525b;
   --bubble-user: #e4e4e7;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-  --coddy-canvas-glow-purple: rgba(147, 51, 234, 0.07);
-  --coddy-canvas-glow-indigo: rgba(99, 102, 241, 0.05);
-  --coddy-canvas-gradient-top: #ffffff;
-  --coddy-canvas-gradient-bottom: #f4f4f5;
-  --coddy-glass-panel-bg: rgba(255, 255, 255, 0.9);
-  --coddy-glass-panel-backdrop: blur(52px) saturate(160%);
-  --coddy-glass-panel-border: rgba(0, 0, 0, 0.08);
-  --coddy-glass-panel-shadow: 0 14px 44px rgba(15, 23, 42, 0.08);
-  --coddy-overlay-scrim-bg: rgba(15, 23, 42, 0.28);
-  --coddy-surface-subtle: rgba(0, 0, 0, 0.04);
-  --coddy-surface-muted: rgba(0, 0, 0, 0.05);
-  --coddy-surface-raised: #f4f4f5;
-  --coddy-surface-inset: #ececee;
-  --coddy-surface-sunken: #e4e4e7;
-  --coddy-surface-field: #ffffff;
-  --coddy-surface-fieldset: rgba(0, 0, 0, 0.03);
-  --coddy-surface-gutter: rgba(0, 0, 0, 0.04);
-  --coddy-surface-code-fg: #3f3f46;
-  --coddy-surface-code-bg: #f4f4f5;
-  --coddy-link: #7c3aed;
-  --coddy-md-inline-code-fg: #3f3f46;
-  --coddy-md-inline-code-bg: rgba(0, 0, 0, 0.06);
-  --coddy-md-inline-code-font:
+  --foxxycode-canvas-glow-purple: rgba(147, 51, 234, 0.07);
+  --foxxycode-canvas-glow-indigo: rgba(99, 102, 241, 0.05);
+  --foxxycode-canvas-gradient-top: #ffffff;
+  --foxxycode-canvas-gradient-bottom: #f4f4f5;
+  --foxxycode-glass-panel-bg: rgba(255, 255, 255, 0.9);
+  --foxxycode-glass-panel-backdrop: blur(52px) saturate(160%);
+  --foxxycode-glass-panel-border: rgba(0, 0, 0, 0.08);
+  --foxxycode-glass-panel-shadow: 0 14px 44px rgba(15, 23, 42, 0.08);
+  --foxxycode-overlay-scrim-bg: rgba(15, 23, 42, 0.28);
+  --foxxycode-surface-subtle: rgba(0, 0, 0, 0.04);
+  --foxxycode-surface-muted: rgba(0, 0, 0, 0.05);
+  --foxxycode-surface-raised: #f4f4f5;
+  --foxxycode-surface-inset: #ececee;
+  --foxxycode-surface-sunken: #e4e4e7;
+  --foxxycode-surface-field: #ffffff;
+  --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.03);
+  --foxxycode-surface-gutter: rgba(0, 0, 0, 0.04);
+  --foxxycode-surface-code-fg: #3f3f46;
+  --foxxycode-surface-code-bg: #f4f4f5;
+  --foxxycode-link: #7c3aed;
+  --foxxycode-md-inline-code-fg: #3f3f46;
+  --foxxycode-md-inline-code-bg: rgba(0, 0, 0, 0.06);
+  --foxxycode-md-inline-code-font:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
-  --coddy-link-action: #6d28d9;
-  --coddy-link-action-hover: #5b21b6;
-  --coddy-hero-muted-mid: #3f3f46;
-  --coddy-hero-muted-end: #52525b;
-  --coddy-hero-accent: #7c3aed;
-  --coddy-hero-accent-glow: transparent;
-  --coddy-blend-base: #ffffff;
-  --coddy-tip-bg: #ffffff;
-  --coddy-tip-border: rgba(0, 0, 0, 0.1);
-  --coddy-tip-fg: #18181b;
-  --coddy-tip-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  --coddy-chat-header-bg: rgba(255, 255, 255, 0.92);
-  --coddy-bubble-user-bg: #e4e4e7;
-  --coddy-bubble-user-fg: #18181b;
-  --coddy-chip-badge-bg: #ececee;
-  --coddy-chip-badge-fg: #3f3f46;
-  --coddy-plan-eye-bg: #ffffff;
-  --coddy-plan-eye-fg: #52525b;
-  --coddy-on-accent-fg: #ffffff;
-  --coddy-context-ring-inner: rgba(124, 58, 237, 0.42);
-  --coddy-context-ring-fg: var(--accent);
-  --coddy-ghost-btn-fg: #3f3f46;
+  --foxxycode-link-action: #6d28d9;
+  --foxxycode-link-action-hover: #5b21b6;
+  --foxxycode-hero-muted-mid: #3f3f46;
+  --foxxycode-hero-muted-end: #52525b;
+  --foxxycode-hero-accent: #7c3aed;
+  --foxxycode-hero-accent-glow: transparent;
+  --foxxycode-blend-base: #ffffff;
+  --foxxycode-tip-bg: #ffffff;
+  --foxxycode-tip-border: rgba(0, 0, 0, 0.1);
+  --foxxycode-tip-fg: #18181b;
+  --foxxycode-tip-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --foxxycode-chat-header-bg: rgba(255, 255, 255, 0.92);
+  --foxxycode-bubble-user-bg: #e4e4e7;
+  --foxxycode-bubble-user-fg: #18181b;
+  --foxxycode-chip-badge-bg: #ececee;
+  --foxxycode-chip-badge-fg: #3f3f46;
+  --foxxycode-plan-eye-bg: #ffffff;
+  --foxxycode-plan-eye-fg: #52525b;
+  --foxxycode-on-accent-fg: #ffffff;
+  --foxxycode-context-ring-inner: rgba(124, 58, 237, 0.42);
+  --foxxycode-context-ring-fg: var(--accent);
+  --foxxycode-ghost-btn-fg: #3f3f46;
 }
 
 /* ── Midnight ── deep indigo-blue dark ─────────────────────────────────────── */
@@ -162,62 +162,62 @@
   --nav: rgba(13, 17, 28, 0.72);
   --sidebar: rgba(10, 13, 23, 0.8);
   --accent: #5865f2;
-  --coddy-skill-chip-bg: rgba(88, 101, 242, 0.14);
-  --coddy-skill-chip-bd: rgba(88, 101, 242, 0.52);
-  --coddy-skill-chip-text: rgba(199, 204, 255, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --foxxycode-skill-chip-bg: rgba(88, 101, 242, 0.14);
+  --foxxycode-skill-chip-bd: rgba(88, 101, 242, 0.52);
+  --foxxycode-skill-chip-text: rgba(199, 204, 255, 0.96);
+  --foxxycode-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --text: #e6edf3;
   --muted: #8b949e;
   --bubble-user: #161b27;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
-  --coddy-canvas-glow-purple: rgba(88, 101, 242, 0.1);
-  --coddy-canvas-glow-indigo: rgba(48, 58, 200, 0.08);
-  --coddy-canvas-gradient-top: #090c14;
-  --coddy-canvas-gradient-bottom: #070a11;
-  --coddy-glass-panel-bg: rgba(10, 14, 24, 0.72);
-  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
-  --coddy-glass-panel-radius: 18px;
-  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.65);
-  --coddy-surface-subtle: rgba(10, 14, 24, 0.25);
-  --coddy-surface-muted: rgba(10, 14, 24, 0.3);
-  --coddy-surface-raised: rgba(10, 14, 24, 0.4);
-  --coddy-surface-inset: rgba(10, 14, 24, 0.45);
-  --coddy-surface-sunken: rgba(8, 10, 20, 0.42);
-  --coddy-surface-field: rgba(0, 0, 0, 0.4);
-  --coddy-surface-fieldset: rgba(0, 0, 0, 0.22);
-  --coddy-surface-gutter: rgba(0, 0, 0, 0.22);
-  --coddy-surface-code-fg: rgba(186, 192, 210, 0.88);
-  --coddy-surface-code-bg: rgba(229, 231, 240, 0.9);
-  --coddy-link: rgba(120, 135, 255, 0.95);
-  --coddy-md-inline-code-fg: rgba(220, 225, 240, 0.92);
-  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.09);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --coddy-link-action: rgba(130, 150, 255, 0.95);
-  --coddy-link-action-hover: rgba(170, 185, 255, 1);
-  --coddy-hero-muted-mid: rgba(220, 230, 244, 0.82);
-  --coddy-hero-muted-end: rgba(139, 148, 158, 0.62);
-  --coddy-hero-accent: #8897ff;
-  --coddy-hero-accent-glow: rgba(88, 101, 242, 0.22);
-  --coddy-blend-base: transparent;
-  --coddy-tip-bg: rgba(22, 27, 39, 0.97);
-  --coddy-tip-border: rgba(88, 101, 242, 0.35);
-  --coddy-tip-fg: #e6edf3;
-  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
-  --coddy-chat-header-bg: rgba(7, 10, 17, 0.45);
-  --coddy-bubble-user-bg: rgba(22, 27, 39, 0.9);
-  --coddy-bubble-user-fg: #e6edf3;
-  --coddy-chip-badge-bg: rgba(13, 17, 28, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-  --coddy-plan-eye-bg: rgba(10, 14, 24, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  --coddy-on-accent-fg: #ffffff;
-  --coddy-context-ring-inner: rgba(120, 135, 255, 0.5);
-  --coddy-context-ring-fg: #c7ccff;
-  --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
+  --foxxycode-canvas-glow-purple: rgba(88, 101, 242, 0.1);
+  --foxxycode-canvas-glow-indigo: rgba(48, 58, 200, 0.08);
+  --foxxycode-canvas-gradient-top: #090c14;
+  --foxxycode-canvas-gradient-bottom: #070a11;
+  --foxxycode-glass-panel-bg: rgba(10, 14, 24, 0.72);
+  --foxxycode-glass-panel-backdrop: blur(52px) saturate(175%);
+  --foxxycode-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  --foxxycode-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
+  --foxxycode-glass-panel-radius: 18px;
+  --foxxycode-overlay-scrim-bg: rgba(0, 0, 0, 0.65);
+  --foxxycode-surface-subtle: rgba(10, 14, 24, 0.25);
+  --foxxycode-surface-muted: rgba(10, 14, 24, 0.3);
+  --foxxycode-surface-raised: rgba(10, 14, 24, 0.4);
+  --foxxycode-surface-inset: rgba(10, 14, 24, 0.45);
+  --foxxycode-surface-sunken: rgba(8, 10, 20, 0.42);
+  --foxxycode-surface-field: rgba(0, 0, 0, 0.4);
+  --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.22);
+  --foxxycode-surface-gutter: rgba(0, 0, 0, 0.22);
+  --foxxycode-surface-code-fg: rgba(186, 192, 210, 0.88);
+  --foxxycode-surface-code-bg: rgba(229, 231, 240, 0.9);
+  --foxxycode-link: rgba(120, 135, 255, 0.95);
+  --foxxycode-md-inline-code-fg: rgba(220, 225, 240, 0.92);
+  --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.09);
+  --foxxycode-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --foxxycode-link-action: rgba(130, 150, 255, 0.95);
+  --foxxycode-link-action-hover: rgba(170, 185, 255, 1);
+  --foxxycode-hero-muted-mid: rgba(220, 230, 244, 0.82);
+  --foxxycode-hero-muted-end: rgba(139, 148, 158, 0.62);
+  --foxxycode-hero-accent: #8897ff;
+  --foxxycode-hero-accent-glow: rgba(88, 101, 242, 0.22);
+  --foxxycode-blend-base: transparent;
+  --foxxycode-tip-bg: rgba(22, 27, 39, 0.97);
+  --foxxycode-tip-border: rgba(88, 101, 242, 0.35);
+  --foxxycode-tip-fg: #e6edf3;
+  --foxxycode-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --foxxycode-chat-header-bg: rgba(7, 10, 17, 0.45);
+  --foxxycode-bubble-user-bg: rgba(22, 27, 39, 0.9);
+  --foxxycode-bubble-user-fg: #e6edf3;
+  --foxxycode-chip-badge-bg: rgba(13, 17, 28, 0.92);
+  --foxxycode-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  --foxxycode-plan-eye-bg: rgba(10, 14, 24, 0.94);
+  --foxxycode-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  --foxxycode-on-accent-fg: #ffffff;
+  --foxxycode-context-ring-inner: rgba(120, 135, 255, 0.5);
+  --foxxycode-context-ring-fg: #c7ccff;
+  --foxxycode-ghost-btn-fg: var(--muted);
+  --foxxycode-z-slash-command: 38;
   --rail-column-pad-end: 8px;
   --nav-floating-gutter: 2px;
   --rail-pill-track: 74px;
@@ -235,62 +235,62 @@
   --nav: rgba(0, 36, 46, 0.72);
   --sidebar: rgba(0, 28, 36, 0.8);
   --accent: #268bd2;
-  --coddy-skill-chip-bg: rgba(38, 139, 210, 0.14);
-  --coddy-skill-chip-bd: rgba(38, 139, 210, 0.5);
-  --coddy-skill-chip-text: rgba(147, 161, 161, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --foxxycode-skill-chip-bg: rgba(38, 139, 210, 0.14);
+  --foxxycode-skill-chip-bd: rgba(38, 139, 210, 0.5);
+  --foxxycode-skill-chip-text: rgba(147, 161, 161, 0.96);
+  --foxxycode-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --text: #839496;
   --muted: #657b83;
   --bubble-user: #003847;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
-  --coddy-canvas-glow-purple: rgba(38, 139, 210, 0.09);
-  --coddy-canvas-glow-indigo: rgba(108, 113, 196, 0.07);
-  --coddy-canvas-gradient-top: #001e26;
-  --coddy-canvas-gradient-bottom: #001a22;
-  --coddy-glass-panel-bg: rgba(0, 36, 46, 0.75);
-  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
-  --coddy-glass-panel-radius: 18px;
-  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
-  --coddy-surface-subtle: rgba(0, 36, 46, 0.22);
-  --coddy-surface-muted: rgba(0, 36, 46, 0.28);
-  --coddy-surface-raised: rgba(0, 40, 52, 0.38);
-  --coddy-surface-inset: rgba(0, 40, 52, 0.44);
-  --coddy-surface-sunken: rgba(0, 28, 38, 0.42);
-  --coddy-surface-field: rgba(0, 0, 0, 0.32);
-  --coddy-surface-fieldset: rgba(0, 0, 0, 0.18);
-  --coddy-surface-gutter: rgba(0, 0, 0, 0.18);
-  --coddy-surface-code-fg: rgba(131, 148, 150, 0.88);
-  --coddy-surface-code-bg: rgba(0, 43, 54, 0.9);
-  --coddy-link: rgba(38, 139, 210, 0.95);
-  --coddy-md-inline-code-fg: rgba(147, 161, 161, 0.92);
-  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.07);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --coddy-link-action: rgba(38, 139, 210, 0.95);
-  --coddy-link-action-hover: rgba(100, 175, 230, 1);
-  --coddy-hero-muted-mid: rgba(131, 148, 150, 0.82);
-  --coddy-hero-muted-end: rgba(101, 123, 131, 0.62);
-  --coddy-hero-accent: #2aa198;
-  --coddy-hero-accent-glow: rgba(42, 161, 152, 0.2);
-  --coddy-blend-base: transparent;
-  --coddy-tip-bg: rgba(0, 36, 46, 0.97);
-  --coddy-tip-border: rgba(38, 139, 210, 0.35);
-  --coddy-tip-fg: #93a1a1;
-  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
-  --coddy-chat-header-bg: rgba(0, 26, 34, 0.45);
-  --coddy-bubble-user-bg: rgba(0, 48, 62, 0.9);
-  --coddy-bubble-user-fg: #93a1a1;
-  --coddy-chip-badge-bg: rgba(0, 36, 46, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-  --coddy-plan-eye-bg: rgba(0, 32, 42, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  --coddy-on-accent-fg: #fdf6e3;
-  --coddy-context-ring-inner: rgba(38, 139, 210, 0.5);
-  --coddy-context-ring-fg: #93a1a1;
-  --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
+  --foxxycode-canvas-glow-purple: rgba(38, 139, 210, 0.09);
+  --foxxycode-canvas-glow-indigo: rgba(108, 113, 196, 0.07);
+  --foxxycode-canvas-gradient-top: #001e26;
+  --foxxycode-canvas-gradient-bottom: #001a22;
+  --foxxycode-glass-panel-bg: rgba(0, 36, 46, 0.75);
+  --foxxycode-glass-panel-backdrop: blur(52px) saturate(175%);
+  --foxxycode-glass-panel-border: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  --foxxycode-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+  --foxxycode-glass-panel-radius: 18px;
+  --foxxycode-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
+  --foxxycode-surface-subtle: rgba(0, 36, 46, 0.22);
+  --foxxycode-surface-muted: rgba(0, 36, 46, 0.28);
+  --foxxycode-surface-raised: rgba(0, 40, 52, 0.38);
+  --foxxycode-surface-inset: rgba(0, 40, 52, 0.44);
+  --foxxycode-surface-sunken: rgba(0, 28, 38, 0.42);
+  --foxxycode-surface-field: rgba(0, 0, 0, 0.32);
+  --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.18);
+  --foxxycode-surface-gutter: rgba(0, 0, 0, 0.18);
+  --foxxycode-surface-code-fg: rgba(131, 148, 150, 0.88);
+  --foxxycode-surface-code-bg: rgba(0, 43, 54, 0.9);
+  --foxxycode-link: rgba(38, 139, 210, 0.95);
+  --foxxycode-md-inline-code-fg: rgba(147, 161, 161, 0.92);
+  --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.07);
+  --foxxycode-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --foxxycode-link-action: rgba(38, 139, 210, 0.95);
+  --foxxycode-link-action-hover: rgba(100, 175, 230, 1);
+  --foxxycode-hero-muted-mid: rgba(131, 148, 150, 0.82);
+  --foxxycode-hero-muted-end: rgba(101, 123, 131, 0.62);
+  --foxxycode-hero-accent: #2aa198;
+  --foxxycode-hero-accent-glow: rgba(42, 161, 152, 0.2);
+  --foxxycode-blend-base: transparent;
+  --foxxycode-tip-bg: rgba(0, 36, 46, 0.97);
+  --foxxycode-tip-border: rgba(38, 139, 210, 0.35);
+  --foxxycode-tip-fg: #93a1a1;
+  --foxxycode-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
+  --foxxycode-chat-header-bg: rgba(0, 26, 34, 0.45);
+  --foxxycode-bubble-user-bg: rgba(0, 48, 62, 0.9);
+  --foxxycode-bubble-user-fg: #93a1a1;
+  --foxxycode-chip-badge-bg: rgba(0, 36, 46, 0.92);
+  --foxxycode-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  --foxxycode-plan-eye-bg: rgba(0, 32, 42, 0.94);
+  --foxxycode-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  --foxxycode-on-accent-fg: #fdf6e3;
+  --foxxycode-context-ring-inner: rgba(38, 139, 210, 0.5);
+  --foxxycode-context-ring-fg: #93a1a1;
+  --foxxycode-ghost-btn-fg: var(--muted);
+  --foxxycode-z-slash-command: 38;
   --rail-column-pad-end: 8px;
   --nav-floating-gutter: 2px;
   --rail-pill-track: 74px;
@@ -308,62 +308,62 @@
   --nav: rgba(31, 32, 26, 0.72);
   --sidebar: rgba(25, 26, 21, 0.8);
   --accent: #fd971f;
-  --coddy-skill-chip-bg: rgba(253, 151, 31, 0.13);
-  --coddy-skill-chip-bd: rgba(253, 151, 31, 0.5);
-  --coddy-skill-chip-text: rgba(255, 220, 170, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --foxxycode-skill-chip-bg: rgba(253, 151, 31, 0.13);
+  --foxxycode-skill-chip-bd: rgba(253, 151, 31, 0.5);
+  --foxxycode-skill-chip-text: rgba(255, 220, 170, 0.96);
+  --foxxycode-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --text: #f8f8f2;
   --muted: #75715e;
   --bubble-user: #3e3d32;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
-  --coddy-canvas-glow-purple: rgba(253, 151, 31, 0.08);
-  --coddy-canvas-glow-indigo: rgba(166, 226, 46, 0.06);
-  --coddy-canvas-gradient-top: #1e1f1a;
-  --coddy-canvas-gradient-bottom: #1c1d18;
-  --coddy-glass-panel-bg: rgba(28, 29, 24, 0.72);
-  --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
-  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
-  --coddy-glass-panel-radius: 18px;
-  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.58);
-  --coddy-surface-subtle: rgba(20, 20, 16, 0.22);
-  --coddy-surface-muted: rgba(20, 20, 16, 0.28);
-  --coddy-surface-raised: rgba(20, 20, 16, 0.38);
-  --coddy-surface-inset: rgba(20, 20, 16, 0.44);
-  --coddy-surface-sunken: rgba(16, 16, 12, 0.4);
-  --coddy-surface-field: rgba(0, 0, 0, 0.32);
-  --coddy-surface-fieldset: rgba(0, 0, 0, 0.18);
-  --coddy-surface-gutter: rgba(0, 0, 0, 0.18);
-  --coddy-surface-code-fg: rgba(248, 248, 242, 0.88);
-  --coddy-surface-code-bg: rgba(39, 40, 34, 0.9);
-  --coddy-link: rgba(253, 151, 31, 0.95);
-  --coddy-md-inline-code-fg: rgba(248, 248, 242, 0.9);
-  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --coddy-link-action: rgba(253, 151, 31, 0.95);
-  --coddy-link-action-hover: rgba(255, 190, 100, 1);
-  --coddy-hero-muted-mid: rgba(248, 248, 242, 0.82);
-  --coddy-hero-muted-end: rgba(117, 113, 94, 0.62);
-  --coddy-hero-accent: #fd971f;
-  --coddy-hero-accent-glow: rgba(253, 151, 31, 0.18);
-  --coddy-blend-base: transparent;
-  --coddy-tip-bg: rgba(36, 37, 31, 0.97);
-  --coddy-tip-border: rgba(253, 151, 31, 0.32);
-  --coddy-tip-fg: #f8f8f2;
-  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.46);
-  --coddy-chat-header-bg: rgba(20, 20, 16, 0.4);
-  --coddy-bubble-user-bg: rgba(62, 61, 50, 0.9);
-  --coddy-bubble-user-fg: #f8f8f2;
-  --coddy-chip-badge-bg: rgba(28, 29, 24, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-  --coddy-plan-eye-bg: rgba(24, 25, 20, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  --coddy-on-accent-fg: #272822;
-  --coddy-context-ring-inner: rgba(253, 151, 31, 0.5);
-  --coddy-context-ring-fg: #ffe699;
-  --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
+  --foxxycode-canvas-glow-purple: rgba(253, 151, 31, 0.08);
+  --foxxycode-canvas-glow-indigo: rgba(166, 226, 46, 0.06);
+  --foxxycode-canvas-gradient-top: #1e1f1a;
+  --foxxycode-canvas-gradient-bottom: #1c1d18;
+  --foxxycode-glass-panel-bg: rgba(28, 29, 24, 0.72);
+  --foxxycode-glass-panel-backdrop: blur(52px) saturate(170%);
+  --foxxycode-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--foxxycode-blend-base));
+  --foxxycode-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
+  --foxxycode-glass-panel-radius: 18px;
+  --foxxycode-overlay-scrim-bg: rgba(0, 0, 0, 0.58);
+  --foxxycode-surface-subtle: rgba(20, 20, 16, 0.22);
+  --foxxycode-surface-muted: rgba(20, 20, 16, 0.28);
+  --foxxycode-surface-raised: rgba(20, 20, 16, 0.38);
+  --foxxycode-surface-inset: rgba(20, 20, 16, 0.44);
+  --foxxycode-surface-sunken: rgba(16, 16, 12, 0.4);
+  --foxxycode-surface-field: rgba(0, 0, 0, 0.32);
+  --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.18);
+  --foxxycode-surface-gutter: rgba(0, 0, 0, 0.18);
+  --foxxycode-surface-code-fg: rgba(248, 248, 242, 0.88);
+  --foxxycode-surface-code-bg: rgba(39, 40, 34, 0.9);
+  --foxxycode-link: rgba(253, 151, 31, 0.95);
+  --foxxycode-md-inline-code-fg: rgba(248, 248, 242, 0.9);
+  --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.08);
+  --foxxycode-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --foxxycode-link-action: rgba(253, 151, 31, 0.95);
+  --foxxycode-link-action-hover: rgba(255, 190, 100, 1);
+  --foxxycode-hero-muted-mid: rgba(248, 248, 242, 0.82);
+  --foxxycode-hero-muted-end: rgba(117, 113, 94, 0.62);
+  --foxxycode-hero-accent: #fd971f;
+  --foxxycode-hero-accent-glow: rgba(253, 151, 31, 0.18);
+  --foxxycode-blend-base: transparent;
+  --foxxycode-tip-bg: rgba(36, 37, 31, 0.97);
+  --foxxycode-tip-border: rgba(253, 151, 31, 0.32);
+  --foxxycode-tip-fg: #f8f8f2;
+  --foxxycode-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.46);
+  --foxxycode-chat-header-bg: rgba(20, 20, 16, 0.4);
+  --foxxycode-bubble-user-bg: rgba(62, 61, 50, 0.9);
+  --foxxycode-bubble-user-fg: #f8f8f2;
+  --foxxycode-chip-badge-bg: rgba(28, 29, 24, 0.92);
+  --foxxycode-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  --foxxycode-plan-eye-bg: rgba(24, 25, 20, 0.94);
+  --foxxycode-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  --foxxycode-on-accent-fg: #272822;
+  --foxxycode-context-ring-inner: rgba(253, 151, 31, 0.5);
+  --foxxycode-context-ring-fg: #ffe699;
+  --foxxycode-ghost-btn-fg: var(--muted);
+  --foxxycode-z-slash-command: 38;
   --rail-column-pad-end: 8px;
   --nav-floating-gutter: 2px;
   --rail-pill-track: 74px;
@@ -381,62 +381,62 @@
   --nav: rgba(36, 41, 52, 0.72);
   --sidebar: rgba(30, 34, 44, 0.8);
   --accent: #88c0d0;
-  --coddy-skill-chip-bg: rgba(136, 192, 208, 0.13);
-  --coddy-skill-chip-bd: rgba(136, 192, 208, 0.48);
-  --coddy-skill-chip-text: rgba(216, 222, 233, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --foxxycode-skill-chip-bg: rgba(136, 192, 208, 0.13);
+  --foxxycode-skill-chip-bd: rgba(136, 192, 208, 0.48);
+  --foxxycode-skill-chip-text: rgba(216, 222, 233, 0.96);
+  --foxxycode-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --text: #eceff4;
   --muted: #4c566a;
   --bubble-user: #3b4252;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
-  --coddy-canvas-glow-purple: rgba(136, 192, 208, 0.08);
-  --coddy-canvas-glow-indigo: rgba(129, 161, 193, 0.07);
-  --coddy-canvas-gradient-top: #242933;
-  --coddy-canvas-gradient-bottom: #21262f;
-  --coddy-glass-panel-bg: rgba(30, 34, 44, 0.72);
-  --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
-  --coddy-glass-panel-radius: 18px;
-  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
-  --coddy-surface-subtle: rgba(36, 41, 51, 0.22);
-  --coddy-surface-muted: rgba(36, 41, 51, 0.28);
-  --coddy-surface-raised: rgba(36, 41, 51, 0.38);
-  --coddy-surface-inset: rgba(36, 41, 51, 0.45);
-  --coddy-surface-sunken: rgba(28, 32, 42, 0.4);
-  --coddy-surface-field: rgba(0, 0, 0, 0.28);
-  --coddy-surface-fieldset: rgba(0, 0, 0, 0.16);
-  --coddy-surface-gutter: rgba(0, 0, 0, 0.16);
-  --coddy-surface-code-fg: rgba(216, 222, 233, 0.88);
-  --coddy-surface-code-bg: rgba(46, 52, 64, 0.9);
-  --coddy-link: rgba(136, 192, 208, 0.95);
-  --coddy-md-inline-code-fg: rgba(216, 222, 233, 0.92);
-  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --coddy-link-action: rgba(136, 192, 208, 0.95);
-  --coddy-link-action-hover: rgba(180, 215, 230, 1);
-  --coddy-hero-muted-mid: rgba(236, 239, 244, 0.82);
-  --coddy-hero-muted-end: rgba(76, 86, 106, 0.62);
-  --coddy-hero-accent: #88c0d0;
-  --coddy-hero-accent-glow: rgba(136, 192, 208, 0.18);
-  --coddy-blend-base: transparent;
-  --coddy-tip-bg: rgba(40, 46, 58, 0.97);
-  --coddy-tip-border: rgba(136, 192, 208, 0.3);
-  --coddy-tip-fg: #eceff4;
-  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.44);
-  --coddy-chat-header-bg: rgba(26, 30, 40, 0.4);
-  --coddy-bubble-user-bg: rgba(59, 66, 82, 0.9);
-  --coddy-bubble-user-fg: #eceff4;
-  --coddy-chip-badge-bg: rgba(36, 41, 51, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-  --coddy-plan-eye-bg: rgba(32, 37, 47, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  --coddy-on-accent-fg: #2e3440;
-  --coddy-context-ring-inner: rgba(136, 192, 208, 0.5);
-  --coddy-context-ring-fg: #d8dee9;
-  --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
+  --foxxycode-canvas-glow-purple: rgba(136, 192, 208, 0.08);
+  --foxxycode-canvas-glow-indigo: rgba(129, 161, 193, 0.07);
+  --foxxycode-canvas-gradient-top: #242933;
+  --foxxycode-canvas-gradient-bottom: #21262f;
+  --foxxycode-glass-panel-bg: rgba(30, 34, 44, 0.72);
+  --foxxycode-glass-panel-backdrop: blur(52px) saturate(170%);
+  --foxxycode-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  --foxxycode-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+  --foxxycode-glass-panel-radius: 18px;
+  --foxxycode-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
+  --foxxycode-surface-subtle: rgba(36, 41, 51, 0.22);
+  --foxxycode-surface-muted: rgba(36, 41, 51, 0.28);
+  --foxxycode-surface-raised: rgba(36, 41, 51, 0.38);
+  --foxxycode-surface-inset: rgba(36, 41, 51, 0.45);
+  --foxxycode-surface-sunken: rgba(28, 32, 42, 0.4);
+  --foxxycode-surface-field: rgba(0, 0, 0, 0.28);
+  --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.16);
+  --foxxycode-surface-gutter: rgba(0, 0, 0, 0.16);
+  --foxxycode-surface-code-fg: rgba(216, 222, 233, 0.88);
+  --foxxycode-surface-code-bg: rgba(46, 52, 64, 0.9);
+  --foxxycode-link: rgba(136, 192, 208, 0.95);
+  --foxxycode-md-inline-code-fg: rgba(216, 222, 233, 0.92);
+  --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.08);
+  --foxxycode-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --foxxycode-link-action: rgba(136, 192, 208, 0.95);
+  --foxxycode-link-action-hover: rgba(180, 215, 230, 1);
+  --foxxycode-hero-muted-mid: rgba(236, 239, 244, 0.82);
+  --foxxycode-hero-muted-end: rgba(76, 86, 106, 0.62);
+  --foxxycode-hero-accent: #88c0d0;
+  --foxxycode-hero-accent-glow: rgba(136, 192, 208, 0.18);
+  --foxxycode-blend-base: transparent;
+  --foxxycode-tip-bg: rgba(40, 46, 58, 0.97);
+  --foxxycode-tip-border: rgba(136, 192, 208, 0.3);
+  --foxxycode-tip-fg: #eceff4;
+  --foxxycode-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.44);
+  --foxxycode-chat-header-bg: rgba(26, 30, 40, 0.4);
+  --foxxycode-bubble-user-bg: rgba(59, 66, 82, 0.9);
+  --foxxycode-bubble-user-fg: #eceff4;
+  --foxxycode-chip-badge-bg: rgba(36, 41, 51, 0.92);
+  --foxxycode-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  --foxxycode-plan-eye-bg: rgba(32, 37, 47, 0.94);
+  --foxxycode-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  --foxxycode-on-accent-fg: #2e3440;
+  --foxxycode-context-ring-inner: rgba(136, 192, 208, 0.5);
+  --foxxycode-context-ring-fg: #d8dee9;
+  --foxxycode-ghost-btn-fg: var(--muted);
+  --foxxycode-z-slash-command: 38;
   --rail-column-pad-end: 8px;
   --nav-floating-gutter: 2px;
   --rail-pill-track: 74px;
@@ -454,62 +454,62 @@
   --nav: rgba(21, 19, 32, 0.72);
   --sidebar: rgba(18, 16, 28, 0.8);
   --accent: #c4a7e7;
-  --coddy-skill-chip-bg: rgba(196, 167, 231, 0.13);
-  --coddy-skill-chip-bd: rgba(196, 167, 231, 0.48);
-  --coddy-skill-chip-text: rgba(224, 222, 244, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --foxxycode-skill-chip-bg: rgba(196, 167, 231, 0.13);
+  --foxxycode-skill-chip-bd: rgba(196, 167, 231, 0.48);
+  --foxxycode-skill-chip-text: rgba(224, 222, 244, 0.96);
+  --foxxycode-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --text: #e0def4;
   --muted: #6e6a86;
   --bubble-user: #26233a;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.58);
-  --coddy-canvas-glow-purple: rgba(196, 167, 231, 0.1);
-  --coddy-canvas-glow-indigo: rgba(235, 111, 146, 0.07);
-  --coddy-canvas-gradient-top: #110f1c;
-  --coddy-canvas-gradient-bottom: #0f0d1a;
-  --coddy-glass-panel-bg: rgba(16, 14, 26, 0.72);
-  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
-  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.56);
-  --coddy-glass-panel-radius: 18px;
-  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.62);
-  --coddy-surface-subtle: rgba(18, 16, 28, 0.24);
-  --coddy-surface-muted: rgba(18, 16, 28, 0.3);
-  --coddy-surface-raised: rgba(18, 16, 28, 0.4);
-  --coddy-surface-inset: rgba(18, 16, 28, 0.46);
-  --coddy-surface-sunken: rgba(14, 12, 22, 0.42);
-  --coddy-surface-field: rgba(0, 0, 0, 0.36);
-  --coddy-surface-fieldset: rgba(0, 0, 0, 0.2);
-  --coddy-surface-gutter: rgba(0, 0, 0, 0.2);
-  --coddy-surface-code-fg: rgba(224, 222, 244, 0.88);
-  --coddy-surface-code-bg: rgba(25, 23, 36, 0.9);
-  --coddy-link: rgba(196, 167, 231, 0.95);
-  --coddy-md-inline-code-fg: rgba(224, 222, 244, 0.92);
-  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --coddy-link-action: rgba(196, 167, 231, 0.95);
-  --coddy-link-action-hover: rgba(220, 200, 255, 1);
-  --coddy-hero-muted-mid: rgba(224, 222, 244, 0.82);
-  --coddy-hero-muted-end: rgba(110, 106, 134, 0.62);
-  --coddy-hero-accent: #c4a7e7;
-  --coddy-hero-accent-glow: rgba(196, 167, 231, 0.2);
-  --coddy-blend-base: transparent;
-  --coddy-tip-bg: rgba(26, 23, 38, 0.97);
-  --coddy-tip-border: rgba(196, 167, 231, 0.32);
-  --coddy-tip-fg: #e0def4;
-  --coddy-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
-  --coddy-chat-header-bg: rgba(12, 10, 20, 0.42);
-  --coddy-bubble-user-bg: rgba(38, 35, 58, 0.9);
-  --coddy-bubble-user-fg: #e0def4;
-  --coddy-chip-badge-bg: rgba(20, 18, 32, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-  --coddy-plan-eye-bg: rgba(16, 14, 26, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
-  --coddy-on-accent-fg: #191724;
-  --coddy-context-ring-inner: rgba(196, 167, 231, 0.5);
-  --coddy-context-ring-fg: #f5f3ff;
-  --coddy-ghost-btn-fg: var(--muted);
-  --coddy-z-slash-command: 38;
+  --foxxycode-canvas-glow-purple: rgba(196, 167, 231, 0.1);
+  --foxxycode-canvas-glow-indigo: rgba(235, 111, 146, 0.07);
+  --foxxycode-canvas-gradient-top: #110f1c;
+  --foxxycode-canvas-gradient-bottom: #0f0d1a;
+  --foxxycode-glass-panel-bg: rgba(16, 14, 26, 0.72);
+  --foxxycode-glass-panel-backdrop: blur(52px) saturate(175%);
+  --foxxycode-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--foxxycode-blend-base));
+  --foxxycode-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.56);
+  --foxxycode-glass-panel-radius: 18px;
+  --foxxycode-overlay-scrim-bg: rgba(0, 0, 0, 0.62);
+  --foxxycode-surface-subtle: rgba(18, 16, 28, 0.24);
+  --foxxycode-surface-muted: rgba(18, 16, 28, 0.3);
+  --foxxycode-surface-raised: rgba(18, 16, 28, 0.4);
+  --foxxycode-surface-inset: rgba(18, 16, 28, 0.46);
+  --foxxycode-surface-sunken: rgba(14, 12, 22, 0.42);
+  --foxxycode-surface-field: rgba(0, 0, 0, 0.36);
+  --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.2);
+  --foxxycode-surface-gutter: rgba(0, 0, 0, 0.2);
+  --foxxycode-surface-code-fg: rgba(224, 222, 244, 0.88);
+  --foxxycode-surface-code-bg: rgba(25, 23, 36, 0.9);
+  --foxxycode-link: rgba(196, 167, 231, 0.95);
+  --foxxycode-md-inline-code-fg: rgba(224, 222, 244, 0.92);
+  --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.08);
+  --foxxycode-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --foxxycode-link-action: rgba(196, 167, 231, 0.95);
+  --foxxycode-link-action-hover: rgba(220, 200, 255, 1);
+  --foxxycode-hero-muted-mid: rgba(224, 222, 244, 0.82);
+  --foxxycode-hero-muted-end: rgba(110, 106, 134, 0.62);
+  --foxxycode-hero-accent: #c4a7e7;
+  --foxxycode-hero-accent-glow: rgba(196, 167, 231, 0.2);
+  --foxxycode-blend-base: transparent;
+  --foxxycode-tip-bg: rgba(26, 23, 38, 0.97);
+  --foxxycode-tip-border: rgba(196, 167, 231, 0.32);
+  --foxxycode-tip-fg: #e0def4;
+  --foxxycode-tip-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
+  --foxxycode-chat-header-bg: rgba(12, 10, 20, 0.42);
+  --foxxycode-bubble-user-bg: rgba(38, 35, 58, 0.9);
+  --foxxycode-bubble-user-fg: #e0def4;
+  --foxxycode-chip-badge-bg: rgba(20, 18, 32, 0.92);
+  --foxxycode-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  --foxxycode-plan-eye-bg: rgba(16, 14, 26, 0.94);
+  --foxxycode-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  --foxxycode-on-accent-fg: #191724;
+  --foxxycode-context-ring-inner: rgba(196, 167, 231, 0.5);
+  --foxxycode-context-ring-fg: #f5f3ff;
+  --foxxycode-ghost-btn-fg: var(--muted);
+  --foxxycode-z-slash-command: 38;
   --rail-column-pad-end: 8px;
   --nav-floating-gutter: 2px;
   --rail-pill-track: 74px;
@@ -536,20 +536,20 @@ html {
   background:
     radial-gradient(
       1200px 600px at 30% 10%,
-      var(--coddy-canvas-glow-purple),
+      var(--foxxycode-canvas-glow-purple),
       transparent 55%
     ),
     radial-gradient(
       900px 500px at 80% 70%,
-      var(--coddy-canvas-glow-indigo),
+      var(--foxxycode-canvas-glow-indigo),
       transparent 50%
     ),
     linear-gradient(
       180deg,
-      var(--coddy-canvas-gradient-top),
-      var(--coddy-canvas-gradient-bottom)
+      var(--foxxycode-canvas-gradient-top),
+      var(--foxxycode-canvas-gradient-bottom)
     );
-  background-color: var(--coddy-canvas-gradient-bottom);
+  background-color: var(--foxxycode-canvas-gradient-bottom);
   background-attachment: fixed;
 }
 
@@ -664,7 +664,7 @@ body {
   border-radius: 999px;
   padding: 12px 10px;
   background: var(--nav);
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   box-shadow: var(--shadow);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -725,7 +725,7 @@ body {
   border-radius: 12px;
   border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -733,8 +733,8 @@ body {
 
 .rail-toggle-width:hover {
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 .rail-tip-host {
@@ -808,9 +808,9 @@ body {
   transform: translateY(-50%);
   padding: 6px 12px;
   border-radius: 12px;
-  background: var(--coddy-tip-bg);
-  border: 1px solid var(--coddy-tip-border);
-  color: var(--coddy-tip-fg);
+  background: var(--foxxycode-tip-bg);
+  border: 1px solid var(--foxxycode-tip-border);
+  color: var(--foxxycode-tip-fg);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -818,7 +818,7 @@ body {
   pointer-events: none;
   transition: opacity 140ms ease;
   z-index: 80;
-  box-shadow: var(--coddy-tip-shadow);
+  box-shadow: var(--foxxycode-tip-shadow);
 }
 
 .rail-tip-host:hover .rail-tip,
@@ -840,7 +840,7 @@ body {
 .rail-hit {
   border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -875,7 +875,7 @@ body {
 .rail-nav-label {
   font-size: 13px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 86%, var(--foxxycode-blend-base));
   line-height: 1.25;
   white-space: nowrap;
   justify-self: start;
@@ -915,8 +915,8 @@ body {
   }
 
   .rail-nav-hit-wide:hover {
-    border-color: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-    background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+    border-color: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+    background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
   }
 
   .rail-nav-hit-wide:hover .rail-nav-label {
@@ -945,7 +945,7 @@ body {
   }
 
   .rail-hit:active {
-    background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   }
 }
 
@@ -969,7 +969,7 @@ body {
   cursor: pointer;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
 }
 
 a.rail-brand {
@@ -996,7 +996,7 @@ a.rail-brand {
   white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 92%, var(--foxxycode-blend-base));
   vertical-align: middle;
 }
 
@@ -1004,7 +1004,7 @@ a.rail-brand {
   font-weight: 500;
   font-size: 12px;
   opacity: 0.68;
-  color: color-mix(in srgb, var(--text) 75%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 75%, var(--foxxycode-blend-base));
 }
 
 @media (min-width: 761px) {
@@ -1025,13 +1025,13 @@ a.rail-brand {
 .rail-brand-title {
   font-size: 13px;
   opacity: 0.92;
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 92%, var(--foxxycode-blend-base));
 }
 
 .rail-brand-sub {
   font-size: 12px;
   opacity: 0.62;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
 }
 
 .nav-toggle {
@@ -1042,7 +1042,7 @@ a.rail-brand {
 .backdrop {
   position: fixed;
   inset: 0;
-  background: var(--coddy-overlay-scrim-bg);
+  background: var(--foxxycode-overlay-scrim-bg);
   opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease;
@@ -1072,8 +1072,8 @@ a.rail-brand {
       100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
     )
   );
-  border-radius: var(--coddy-glass-panel-radius);
-  box-shadow: var(--coddy-glass-panel-shadow);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1099,7 +1099,7 @@ a.rail-brand {
   align-items: center;
   gap: 8px;
   padding: 8px 12px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .sessions-search-input {
@@ -1107,9 +1107,9 @@ a.rail-brand {
   min-width: 0;
   font: inherit;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
-  background: var(--coddy-surface-muted);
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
   border-radius: 12px;
   padding: 8px 10px;
   outline: none;
@@ -1124,9 +1124,9 @@ a.rail-brand {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
   background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
@@ -1141,12 +1141,12 @@ a.rail-brand {
 .sessions-loading-more {
   padding: 8px 12px 12px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
   text-align: center;
 }
 
 .sessions-head {
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 14px 14px 10px;
@@ -1155,16 +1155,16 @@ a.rail-brand {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .sessions-close {
   width: 34px;
   height: 30px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
   background: rgba(20, 20, 22, 0.35);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
@@ -1199,7 +1199,7 @@ a.rail-brand {
 }
 
 .session-item:hover {
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 .session-item.active {
@@ -1226,7 +1226,7 @@ a.rail-brand {
 .session-activity-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid color-mix(in srgb, var(--text) 15%, var(--coddy-blend-base));
+  border: 2px solid color-mix(in srgb, var(--text) 15%, var(--foxxycode-blend-base));
   border-top-color: rgba(147, 51, 234, 0.85);
   border-radius: 50%;
   flex-shrink: 0;
@@ -1280,7 +1280,7 @@ a.rail-brand {
 
 .sessions-empty {
   padding: 12px 12px;
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
   font-size: 13px;
 }
 
@@ -1289,7 +1289,7 @@ a.rail-brand {
   text-align: left;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
   font: inherit;
   padding: 0;
   cursor: text;
@@ -1303,9 +1303,9 @@ a.rail-brand {
 .session-title-input {
   flex: 1;
   font: inherit;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
-  background: var(--coddy-surface-subtle);
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-subtle);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
   border-radius: 12px;
   padding: 6px 8px;
   outline: none;
@@ -1322,7 +1322,7 @@ a.rail-brand {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
 }
 
 .session-trash {
@@ -1335,7 +1335,7 @@ a.rail-brand {
   border-radius: 10px;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
@@ -1350,11 +1350,11 @@ a.rail-brand {
 }
 
 .session-trash:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .session-menu {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
   cursor: pointer;
   background: transparent;
   border: 0;
@@ -1362,7 +1362,7 @@ a.rail-brand {
 }
 
 .sessions-foot {
-  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   padding: 10px 12px;
 }
 
@@ -1461,11 +1461,11 @@ a.rail-brand {
   width: 100%;
   padding: 10px 14px;
   border-radius: 14px;
-  background: var(--coddy-chat-header-bg);
-  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--foxxycode-chat-header-bg);
+  border: 1px solid var(--foxxycode-glass-panel-border);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--coddy-glass-panel-shadow);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
 }
 
 .chat-title {
@@ -1481,7 +1481,7 @@ a.rail-brand {
 .chat-title-btn {
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
   font: inherit;
   padding: 6px 8px;
   border-radius: 12px;
@@ -1493,7 +1493,7 @@ a.rail-brand {
 }
 
 .chat-title-btn.is-editable:hover {
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 /* Match .chat-title-btn padding so view/edit heights stay aligned; full width of .chat-title */
@@ -1505,7 +1505,7 @@ a.rail-brand {
   font: inherit;
   font-weight: 600;
   line-height: 1.35;
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 92%, var(--foxxycode-blend-base));
   background: transparent;
   border: 0;
   border-radius: 12px;
@@ -1518,7 +1518,7 @@ a.rail-brand {
 .chat-title-input:focus-visible {
   outline: none;
   box-shadow: none;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 .header-links {
@@ -1527,13 +1527,13 @@ a.rail-brand {
 }
 
 .repo-link {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
   font-size: 13px;
   text-decoration: none;
 }
 
 .repo-link:hover {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
 }
 
 .hero {
@@ -1565,9 +1565,9 @@ a.rail-brand {
 .hero-title-muted {
   background: linear-gradient(
     118deg,
-    color-mix(in srgb, var(--text) 98%, var(--coddy-blend-base)) 0%,
-    var(--coddy-hero-muted-mid) 42%,
-    var(--coddy-hero-muted-end) 100%
+    color-mix(in srgb, var(--text) 98%, var(--foxxycode-blend-base)) 0%,
+    var(--foxxycode-hero-muted-mid) 42%,
+    var(--foxxycode-hero-muted-end) 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -1586,8 +1586,8 @@ a.rail-brand {
 .hero-title-accent {
   font-weight: 800;
   letter-spacing: -0.03em;
-  color: var(--coddy-hero-accent);
-  text-shadow: 0 0 22px var(--coddy-hero-accent-glow);
+  color: var(--foxxycode-hero-accent);
+  text-shadow: 0 0 22px var(--foxxycode-hero-accent-glow);
   animation: hero-accent-cycle 44s ease-in-out infinite;
 }
 
@@ -1632,7 +1632,7 @@ a.rail-brand {
   flex: 1;
   min-height: 0;
   /* Match native scrollbar gutters so the docked composer does not paint over the scroll track */
-  --coddy-chat-scrollbar-gutter: 14px;
+  --foxxycode-chat-scrollbar-gutter: 14px;
 }
 
 .chat-scroll {
@@ -1658,7 +1658,7 @@ a.rail-brand {
   /* Opaque canvas backing: pinned title stays on top while transcript
      scrolls behind it (no see-through bleed). Matches canvas top color so
      the shield is invisible against the page in every theme. */
-  /* background-color: var(--coddy-canvas-gradient-top); */
+  /* background-color: var(--foxxycode-canvas-gradient-top); */
 }
 
 /* Same max-width as .chat-bottom-inner / transcript column so title and composer share one vertical stripe */
@@ -1694,7 +1694,7 @@ a.rail-brand {
   z-index: 3;
   pointer-events: none;
   box-sizing: border-box;
-  padding-inline: var(--coddy-chat-scrollbar-gutter);
+  padding-inline: var(--foxxycode-chat-scrollbar-gutter);
 }
 
 /* Full-width vignette above the docked composer (no side gaps vs narrow card stripe).
@@ -1702,8 +1702,8 @@ a.rail-brand {
 .chat-bottom--docked::before {
   content: "";
   position: absolute;
-  left: var(--coddy-chat-scrollbar-gutter);
-  right: var(--coddy-chat-scrollbar-gutter);
+  left: var(--foxxycode-chat-scrollbar-gutter);
+  right: var(--foxxycode-chat-scrollbar-gutter);
   bottom: 100%;
   height: clamp(56px, 16vh, 120px);
   pointer-events: none;
@@ -1766,12 +1766,12 @@ a.rail-brand {
   gap: 5px;
   width: 130px;
   min-height: 36px;
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
   border-radius: 10px;
   padding: 5px 10px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 75%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 75%, var(--foxxycode-blend-base));
   cursor: default;
   box-sizing: border-box;
 }
@@ -1780,7 +1780,7 @@ a.rail-brand {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
 }
 
 .msg-user-file-chip-name {
@@ -1805,7 +1805,7 @@ a.rail-brand {
 .msg-user-time {
   font-size: 12px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
   user-select: none;
   white-space: nowrap;
   cursor: help;
@@ -1835,7 +1835,7 @@ a.rail-brand {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
   animation: typing-dot-bounce 1.1s ease-in-out infinite;
   flex-shrink: 0;
 }
@@ -1863,7 +1863,7 @@ a.rail-brand {
 .msg-assistant-time {
   font-size: 12px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
   user-select: none;
   white-space: nowrap;
   cursor: help;
@@ -1883,7 +1883,7 @@ a.rail-brand {
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
   cursor: pointer;
   line-height: 0;
 }
@@ -1914,9 +1914,9 @@ a.rail-brand {
 }
 
 .msg-user {
-  background: var(--coddy-bubble-user-bg);
-  color: var(--coddy-bubble-user-fg);
-  border: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: var(--foxxycode-bubble-user-bg);
+  color: var(--foxxycode-bubble-user-fg);
+  border: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   align-self: flex-end;
   width: fit-content;
   max-width: 100%;
@@ -1939,7 +1939,7 @@ a.rail-brand {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 40%, var(--foxxycode-blend-base));
   font-size: 14px;
   cursor: pointer;
   opacity: 0;
@@ -2077,8 +2077,8 @@ a.rail-brand {
 .tool-block {
   white-space: pre-wrap;
   word-break: break-word;
-  background: var(--coddy-surface-inset);
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: var(--foxxycode-surface-inset);
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   border-radius: 12px;
   margin: 8px 0 0;
   padding: 10px 12px;
@@ -2159,9 +2159,9 @@ a.rail-brand {
   padding: 6px 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2178,7 +2178,7 @@ a.rail-brand {
   padding: 2px 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
   background: var(--diff-hunk-bg);
   white-space: pre;
   overflow: hidden;
@@ -2208,7 +2208,7 @@ a.rail-brand {
   flex-shrink: 0;
   align-items: baseline;
   gap: 0;
-  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   user-select: none;
 }
 
@@ -2218,7 +2218,7 @@ a.rail-brand {
   padding: 0 5px;
   text-align: right;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 28%, var(--foxxycode-blend-base));
   box-sizing: border-box;
 }
 
@@ -2235,7 +2235,7 @@ a.rail-brand {
   width: 14px;
   text-align: center;
   font-size: 11.5px;
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 38%, var(--foxxycode-blend-base));
   user-select: none;
   padding: 0 1px;
 }
@@ -2254,7 +2254,7 @@ a.rail-brand {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-all;
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 86%, var(--foxxycode-blend-base));
   min-width: 0;
 }
 
@@ -2297,7 +2297,7 @@ a.rail-brand {
   width: 100%;
   box-sizing: border-box;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 48%, var(--foxxycode-blend-base));
   font-size: 14px;
   line-height: 1.5;
   padding: 2px 0;
@@ -2347,7 +2347,7 @@ a.rail-brand {
   display: inline-flex;
   align-items: center;
   min-height: 20px;
-  color: color-mix(in srgb, var(--text) 56%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 56%, var(--foxxycode-blend-base));
   letter-spacing: 0.02em;
   line-height: 20px;
 }
@@ -2358,7 +2358,7 @@ a.rail-brand {
   min-height: 20px;
   font-size: 12px;
   line-height: 20px;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 40%, var(--foxxycode-blend-base));
   user-select: none;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -2368,18 +2368,18 @@ a.rail-brand {
   margin: 8px 0 0 12px;
   padding: 6px 12px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  background: var(--coddy-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
   font-size: 14px;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 68%, var(--foxxycode-blend-base));
 }
 
 /* Match assistant message prose size (.msg); quieter than primary answer */
 .thinking-body .md {
   font-size: 14px;
   line-height: 1.55;
-  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 68%, var(--foxxycode-blend-base));
 }
 
 .thinking-body .md :where(a) {
@@ -2387,93 +2387,93 @@ a.rail-brand {
 }
 
 .thinking-body .md :where(blockquote) {
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
 }
 
 .thinking-body .md :where(th) {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
 }
 
 .thinking-body .md-inline-code {
-  color: var(--coddy-md-inline-code-fg);
+  color: var(--foxxycode-md-inline-code-fg);
 }
 
-.coddy-memory-copilot-flat-banner {
+.foxxycode-memory-copilot-flat-banner {
   cursor: default;
   pointer-events: none;
   user-select: none;
 }
 
-.coddy-memory-copilot-head-left {
+.foxxycode-memory-copilot-head-left {
   min-width: 0;
 }
 
-.coddy-memory-persist-merged.coddy-memory-for-agent :where(.md) {
+.foxxycode-memory-persist-merged.foxxycode-memory-for-agent :where(.md) {
   font-size: 13px;
 }
 
-.coddy-memory-copilot-body .coddy-memory-phase:first-child {
+.foxxycode-memory-copilot-body .foxxycode-memory-phase:first-child {
   margin-top: 0;
 }
 
-.coddy-memory-phase-title {
+.foxxycode-memory-phase-title {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 42%, var(--foxxycode-blend-base));
   margin-bottom: 6px;
 }
 
-.coddy-memory-stream {
+.foxxycode-memory-stream {
   margin-top: 4px;
 }
 
-.coddy-memory-reasoning.md-wrap :where(.md) {
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+.foxxycode-memory-reasoning.md-wrap :where(.md) {
+  color: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
   font-size: 13px;
 }
 
-.coddy-memory-empty,
-.coddy-memory-saved {
+.foxxycode-memory-empty,
+.foxxycode-memory-saved {
   margin: 4px 0 0;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 56%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 56%, var(--foxxycode-blend-base));
 }
 
-.coddy-memory-saved {
+.foxxycode-memory-saved {
   color: rgba(167, 250, 174, 0.55);
 }
 
-.coddy-memory-hint {
+.foxxycode-memory-hint {
   margin: 4px 0 0;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
 }
 
-.coddy-memory-hint.muted {
-  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+.foxxycode-memory-hint.muted {
+  color: color-mix(in srgb, var(--text) 38%, var(--foxxycode-blend-base));
 }
 
-.coddy-memory-read-files {
+.foxxycode-memory-read-files {
   margin: 0 0 6px;
 }
 
-.coddy-memory-copilot-body .coddy-memory-phase + .coddy-memory-phase {
+.foxxycode-memory-copilot-body .foxxycode-memory-phase + .foxxycode-memory-phase {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
 }
 
-.coddy-memory-for-agent :where(.md) {
+.foxxycode-memory-for-agent :where(.md) {
   font-size: 13px;
 }
 
-.coddy-memory-persist-summary :where(.md) {
+.foxxycode-memory-persist-summary :where(.md) {
   font-size: 13px;
 }
 
-.coddy-memory-saved-summary {
+.foxxycode-memory-saved-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -2483,27 +2483,27 @@ a.rail-brand {
   color: rgba(167, 250, 174, 0.68);
 }
 
-.coddy-memory-saved-title {
+.foxxycode-memory-saved-title {
   font-weight: 600;
 }
 
-.coddy-memory-path {
+.foxxycode-memory-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
 }
 
-.coddy-tool-call-body {
+.foxxycode-tool-call-body {
   font-size: 12px;
   line-height: 1.45;
 }
 
-.coddy-tool-call-body .tool-block:first-of-type {
+.foxxycode-tool-call-body .tool-block:first-of-type {
   margin-top: 0;
 }
 
 /* Flat tool foldout body (no nested bordered cubes inside thinking-body). */
-.coddy-tool-call-body .tool-block {
+.foxxycode-tool-call-body .tool-block {
   border: none;
   background: transparent;
   padding: 0;
@@ -2512,13 +2512,13 @@ a.rail-brand {
   color: rgba(186, 192, 204, 0.88);
 }
 
-.coddy-tool-call-body .tool-block + .tool-block {
+.foxxycode-tool-call-body .tool-block + .tool-block {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
 }
 
-.coddy-tool-call-body .tool-block.tool-result-raw {
+.foxxycode-tool-call-body .tool-block.tool-result-raw {
   background: transparent;
 }
 
@@ -2526,18 +2526,18 @@ a.rail-brand {
    summary text), but the diff-block breaks out via negative margins so the
    diff rows sit edge-to-edge against the thinking-body border.  overflow:hidden
    clips the diff to the parent's border-radius. */
-.coddy-tool-call-body--diff {
+.foxxycode-tool-call-body--diff {
   overflow: hidden;
   padding: 0;
   margin-left: 14px;
 }
 
-.coddy-tool-call-body--diff .diff-block {
+.foxxycode-tool-call-body--diff .diff-block {
   /*margin: -10px -13px;*/
 }
 
 .md {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
   line-height: 1.55;
 }
 
@@ -2586,15 +2586,15 @@ a.rail-brand {
   margin: 12px 0;
   padding: 8px 12px;
   border-left: 3px solid rgba(167, 139, 250, 0.55);
-  background: var(--coddy-surface-subtle);
+  background: var(--foxxycode-surface-subtle);
   border-radius: 12px;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
 }
 
 .md :where(hr) {
   border: 0;
   height: 1px;
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
   margin: 14px 0;
 }
 
@@ -2610,8 +2610,8 @@ a.rail-brand {
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: var(--coddy-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
 }
 
 .md-table-scroll table {
@@ -2628,8 +2628,8 @@ a.rail-brand {
 .md-table-scroll :where(th, td),
 .md :where(th, td) {
   padding: 10px 12px;
-  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   vertical-align: top;
 }
 
@@ -2637,8 +2637,8 @@ a.rail-brand {
 .md :where(th) {
   text-align: left;
   font-weight: 650;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 .md-table-scroll :where(tr:last-child td),
@@ -2653,7 +2653,7 @@ a.rail-brand {
 
 .md-table-scroll :where(tbody tr:hover td),
 .md :where(tbody tr:hover td) {
-  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--foxxycode-blend-base));
 }
 
 .md :where(code:not(.md-inline-code)) {
@@ -2661,8 +2661,8 @@ a.rail-brand {
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  background: var(--coddy-surface-raised);
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-raised);
 }
 
 .md-inline-code {
@@ -2670,15 +2670,15 @@ a.rail-brand {
   align-items: center;
   vertical-align: baseline;
   box-sizing: border-box;
-  font-family: var(--coddy-md-inline-code-font);
+  font-family: var(--foxxycode-md-inline-code-font);
   font-size: 12px;
   font-weight: 400;
   line-height: 10px;
   letter-spacing: 0;
-  color: var(--coddy-md-inline-code-fg);
+  color: var(--foxxycode-md-inline-code-fg);
   border: none;
   border-radius: 6px;
-  background: var(--coddy-md-inline-code-bg);
+  background: var(--foxxycode-md-inline-code-bg);
   padding: 5px 7px 3px;
   margin: 0 0.06em;
   box-decoration-break: clone;
@@ -2691,10 +2691,10 @@ a.rail-brand {
 
 .md-inline-code:hover,
 .md-inline-code:focus-visible {
-  color: var(--coddy-md-inline-code-fg);
+  color: var(--foxxycode-md-inline-code-fg);
   background: color-mix(
     in srgb,
-    var(--coddy-md-inline-code-bg) 70%,
+    var(--foxxycode-md-inline-code-bg) 70%,
     rgba(255, 255, 255, 0.16)
   );
   outline: none;
@@ -2707,7 +2707,7 @@ a.rail-brand {
 .md-inline-code:active {
   background: color-mix(
     in srgb,
-    var(--coddy-md-inline-code-bg) 55%,
+    var(--foxxycode-md-inline-code-bg) 55%,
     rgba(255, 255, 255, 0.2)
   );
 }
@@ -2716,7 +2716,7 @@ a.rail-brand {
 [data-theme="light"] .md-inline-code:focus-visible {
   background: color-mix(
     in srgb,
-    var(--coddy-md-inline-code-bg) 65%,
+    var(--foxxycode-md-inline-code-bg) 65%,
     rgba(0, 0, 0, 0.08)
   );
 }
@@ -2724,7 +2724,7 @@ a.rail-brand {
 [data-theme="light"] .md-inline-code:active {
   background: color-mix(
     in srgb,
-    var(--coddy-md-inline-code-bg) 50%,
+    var(--foxxycode-md-inline-code-bg) 50%,
     rgba(0, 0, 0, 0.1)
   );
 }
@@ -2742,8 +2742,8 @@ a.rail-brand {
   white-space: pre;
   overflow: auto;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  background: var(--coddy-surface-inset);
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-inset);
   padding: 6px 12px 6px;
 }
 
@@ -2757,7 +2757,7 @@ a.rail-brand {
 
 /* Minimal highlight theme */
 .hljs {
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 92%, var(--foxxycode-blend-base));
 }
 .hljs-comment,
 .hljs-quote {
@@ -2836,22 +2836,22 @@ a.rail-brand {
   top: 4px;
   right: 5px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
   /* Theme-aware glass: dark frosted on dark themes, frosted white on light
      (was hardcoded dark rgba, which read as a dark blob on the light theme). */
-  background: var(--coddy-glass-panel-bg);
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  background: var(--foxxycode-glass-panel-bg);
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
   cursor: pointer;
   font-size: 12px;
   padding: 6px 10px;
 }
 
 .md-copy:hover {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-glass-panel-bg));
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-glass-panel-bg));
 }
 
 .token-bar {
-  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
   font-size: 12px;
   margin-top: 8px;
   padding: 0 2px;
@@ -2865,7 +2865,7 @@ a.rail-brand {
 }
 
 .composer-wrap-context-sheet {
-  z-index: var(--coddy-z-slash-command);
+  z-index: var(--foxxycode-z-slash-command);
 }
 
 /* Frosted dark glass INSIDE surfaces only — not fullscreen scrims (tokens in :root) */
@@ -2876,16 +2876,16 @@ a.rail-brand {
 .scheduler-job-editor-dock,
 .slash-menu-surface,
 .mode-menu {
-  background: var(--coddy-glass-panel-bg);
-  border: 1px solid var(--coddy-glass-panel-border);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  background: var(--foxxycode-glass-panel-bg);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
 }
 
 .composer-card {
   position: relative;
-  border-radius: var(--coddy-glass-panel-radius);
-  box-shadow: var(--coddy-glass-panel-shadow);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
   overflow: visible;
 }
 
@@ -2901,7 +2901,7 @@ a.rail-brand {
   margin: 0;
   padding: 0;
   border: none;
-  background: var(--coddy-overlay-scrim-bg);
+  background: var(--foxxycode-overlay-scrim-bg);
 }
 
 /* Transparent catch-all so an open mode/model/reasoning menu closes on outside click. */
@@ -2944,8 +2944,8 @@ a.rail-brand {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  border-radius: var(--coddy-glass-panel-radius);
-  box-shadow: var(--coddy-glass-panel-shadow);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
 }
 
 .slash-menu-scroll {
@@ -2959,7 +2959,7 @@ a.rail-brand {
 /* Floating desktop menu is portaled under document.body so backdrop-filter blurs chat below composer */
 .slash-menu--portal {
   position: fixed;
-  z-index: var(--coddy-z-slash-command);
+  z-index: var(--foxxycode-z-slash-command);
   box-sizing: border-box;
 }
 
@@ -2975,13 +2975,13 @@ a.rail-brand {
   bottom: 0;
   margin: 0 auto;
   max-width: min(560px, 100vw);
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+  border-radius: var(--foxxycode-glass-panel-radius) var(--foxxycode-glass-panel-radius)
     0 0;
   z-index: 41;
 }
 
 .slash-menu--sheet .slash-menu-surface {
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+  border-radius: var(--foxxycode-glass-panel-radius) var(--foxxycode-glass-panel-radius)
     0 0;
 }
 
@@ -3032,7 +3032,7 @@ a.rail-brand {
 }
 
 .slash-row-btn:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .slash-row-name {
@@ -3074,18 +3074,18 @@ a.rail-brand {
   cursor: default;
 }
 
-.md .coddy-skill-chip {
+.md .foxxycode-skill-chip {
   display: inline-flex;
   align-items: baseline;
   padding: 0 8px;
   margin: 0 1px;
   border-radius: 999px;
-  font-family: var(--coddy-skill-chip-font);
+  font-family: var(--foxxycode-skill-chip-font);
   font-weight: 600;
   font-size: 0.88em;
-  color: var(--coddy-skill-chip-text);
-  background: var(--coddy-skill-chip-bg);
-  border: 1px solid var(--coddy-skill-chip-bd);
+  color: var(--foxxycode-skill-chip-text);
+  background: var(--foxxycode-skill-chip-bg);
+  border: 1px solid var(--foxxycode-skill-chip-bd);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -3094,7 +3094,7 @@ a.rail-brand {
   position: relative;
   /* Soft halo above and below the rounded card (follows radius, avoids hard strip on borders) */
   box-shadow:
-    var(--coddy-glass-panel-shadow),
+    var(--foxxycode-glass-panel-shadow),
     0 12px 34px rgba(0, 0, 0, 0.5),
     0 -14px 40px rgba(11, 11, 12, 0.38),
     0 -4px 18px rgba(11, 11, 12, 0.32),
@@ -3110,8 +3110,8 @@ a.rail-brand {
  */
 [data-embed="intellij"] .composer-card {
   border-radius: 6px;
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-canvas-gradient-top));
-  border: 1px solid color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-canvas-gradient-top));
+  border: 1px solid color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
@@ -3229,9 +3229,9 @@ textarea#composer {
   letter-spacing: inherit;
   line-height: inherit;
   vertical-align: baseline;
-  color: var(--coddy-skill-chip-text);
-  background: var(--coddy-skill-chip-bg);
-  box-shadow: 0 0 0 1px var(--coddy-skill-chip-bd);
+  color: var(--foxxycode-skill-chip-text);
+  background: var(--foxxycode-skill-chip-bg);
+  box-shadow: 0 0 0 1px var(--foxxycode-skill-chip-bd);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -3242,7 +3242,7 @@ textarea#composer {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
 }
 
 .composer-tabs {
@@ -3255,9 +3255,9 @@ textarea#composer {
 }
 
 .composer-tab {
-  color: color-mix(in srgb, var(--text) 75%, var(--coddy-blend-base));
-  background: var(--coddy-surface-muted);
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 75%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
   border-radius: 12px;
   padding: 8px 12px;
   font-size: 12px;
@@ -3269,7 +3269,7 @@ textarea#composer {
 }
 
 .composer-tab.mode-agent {
-  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
 }
 
 .composer-tab.mode-plan {
@@ -3286,8 +3286,8 @@ textarea#composer {
   left: 0;
   min-width: 160px;
   padding: 6px;
-  border-radius: var(--coddy-glass-panel-radius);
-  box-shadow: var(--coddy-glass-panel-shadow);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
   z-index: 90;
 }
 
@@ -3305,14 +3305,14 @@ textarea#composer {
   border-radius: 12px;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 86%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 86%, var(--foxxycode-blend-base));
   cursor: pointer;
   padding: 10px 10px;
   font-size: 13px;
 }
 
 .mode-item:hover {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .mode-item.is-selected {
@@ -3340,15 +3340,15 @@ textarea#composer {
   margin: 2px 0 6px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
   color: var(--text);
   font-size: 13px;
   outline: none;
 }
 
 .mode-menu-filter::placeholder {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
 }
 
 .mode-menu-filter:focus {
@@ -3370,7 +3370,7 @@ textarea#composer {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
 }
 
 .mode-menu-group + .mode-menu-group {
@@ -3380,7 +3380,7 @@ textarea#composer {
 .mode-menu-empty {
   padding: 12px 10px;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
 }
 
 /* Long ids never blow out the menu width; full id stays in the row title. */
@@ -3402,7 +3402,7 @@ textarea#composer {
   width: auto;
   min-width: 0;
   max-width: min(560px, 100vw);
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius) 0
+  border-radius: var(--foxxycode-glass-panel-radius) var(--foxxycode-glass-panel-radius) 0
     0;
   z-index: 101;
 }
@@ -3420,11 +3420,11 @@ textarea#composer {
 
 /* Sheet variant dims the chat behind it like the slash/at picker sheet. */
 .mode-menu-backdrop--scrim {
-  background: var(--coddy-overlay-scrim-bg);
+  background: var(--foxxycode-overlay-scrim-bg);
 }
 
 .composer-tab:hover {
-  background: var(--coddy-surface-raised);
+  background: var(--foxxycode-surface-raised);
 }
 
 .composer-attach-btn {
@@ -3468,12 +3468,12 @@ textarea#composer {
   gap: 6px;
   width: 140px;
   min-height: 40px;
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
   border-radius: 10px;
   padding: 6px 8px 6px 10px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 80%, var(--foxxycode-blend-base));
   cursor: default;
   box-sizing: border-box;
   transition: border-color 0.15s;
@@ -3481,7 +3481,7 @@ textarea#composer {
 }
 
 .composer-attachment-chip:hover {
-  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 28%, var(--foxxycode-blend-base));
 }
 
 .composer-attachment-chip-icon {
@@ -3489,7 +3489,7 @@ textarea#composer {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
 }
 
 .composer-attachment-chip-name {
@@ -3506,7 +3506,7 @@ textarea#composer {
   border: none;
   padding: 0 2px;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 40%, var(--foxxycode-blend-base));
   font-size: 15px;
   line-height: 1;
   flex-shrink: 0;
@@ -3571,7 +3571,7 @@ textarea#composer {
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
-  box-shadow: var(--coddy-tip-shadow);
+  box-shadow: var(--foxxycode-tip-shadow);
 }
 
 .context-ring {
@@ -3588,14 +3588,14 @@ textarea#composer {
 
 .context-ring-inner {
   fill: none;
-  stroke: var(--coddy-context-ring-inner);
+  stroke: var(--foxxycode-context-ring-inner);
   stroke-width: 2.15;
   stroke-linecap: round;
 }
 
 .context-ring-fg {
   fill: none;
-  stroke: var(--coddy-context-ring-fg);
+  stroke: var(--foxxycode-context-ring-fg);
   stroke-width: 3.25;
   stroke-linecap: round;
   transform: rotate(-90deg);
@@ -3635,7 +3635,7 @@ textarea#composer {
 
 .context-breakdown-menu--portal {
   position: fixed;
-  z-index: var(--coddy-z-slash-command);
+  z-index: var(--foxxycode-z-slash-command);
   box-sizing: border-box;
 }
 
@@ -3646,13 +3646,13 @@ textarea#composer {
   bottom: 0;
   margin: 0 auto;
   max-width: min(560px, 100vw);
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+  border-radius: var(--foxxycode-glass-panel-radius) var(--foxxycode-glass-panel-radius)
     0 0;
   z-index: 41;
 }
 
 .context-breakdown-menu--sheet .slash-menu-surface {
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+  border-radius: var(--foxxycode-glass-panel-radius) var(--foxxycode-glass-panel-radius)
     0 0;
 }
 
@@ -3813,9 +3813,9 @@ textarea#composer {
   padding: 0;
   margin: 0;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  background: var(--coddy-surface-subtle);
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-subtle);
+  color: color-mix(in srgb, var(--text) 80%, var(--foxxycode-blend-base));
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -3824,13 +3824,13 @@ textarea#composer {
 }
 
 .composer-icon:hover {
-  background: var(--coddy-surface-raised);
+  background: var(--foxxycode-surface-raised);
 }
 
 .composer-send-play {
   background: rgba(147, 51, 234, 0.25);
   border-color: rgba(147, 51, 234, 0.35);
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 95%, var(--foxxycode-blend-base));
 }
 
 .composer-send-play:disabled {
@@ -3913,11 +3913,11 @@ textarea#composer {
     z-index: 70;
   }
   .shell {
-    --coddy-mobile-top-inset: calc(78px + env(safe-area-inset-top, 0px));
+    --foxxycode-mobile-top-inset: calc(78px + env(safe-area-inset-top, 0px));
     /* Same rhythm as title row to first message (.messages-inner gap, sticky-head padding-bottom) */
-    --coddy-mobile-chat-stack-gap: 12px;
-    --coddy-mobile-title-sticky-top: calc(
-      var(--coddy-mobile-top-inset) + var(--coddy-mobile-chat-stack-gap)
+    --foxxycode-mobile-chat-stack-gap: 12px;
+    --foxxycode-mobile-title-sticky-top: calc(
+      var(--foxxycode-mobile-top-inset) + var(--foxxycode-mobile-chat-stack-gap)
     );
     flex: 1 1 auto;
     display: flex;
@@ -4007,7 +4007,7 @@ textarea#composer {
     width: 42px;
     height: 42px;
     border-radius: 12px;
-    border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+    border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
     background: rgba(20, 20, 22, 0.35);
   }
   .rail-brand {
@@ -4040,7 +4040,7 @@ textarea#composer {
     min-height: 0;
     overflow: visible;
     grid-row: unset;
-    padding-top: var(--coddy-mobile-top-inset);
+    padding-top: var(--foxxycode-mobile-top-inset);
   }
 
   .shell-main > .main.is-empty {
@@ -4064,14 +4064,14 @@ textarea#composer {
   }
 
   .messages-inner {
-    gap: var(--coddy-mobile-chat-stack-gap);
+    gap: var(--foxxycode-mobile-chat-stack-gap);
   }
 
   .chat-stack {
     flex: 1 1 auto;
     min-height: min-content;
     overflow: visible;
-    --coddy-chat-scrollbar-gutter: 0px;
+    --foxxycode-chat-scrollbar-gutter: 0px;
   }
 
   /* Single scrollport is document; kill inner scroll from .chat-scroll desktop rules */
@@ -4082,7 +4082,7 @@ textarea#composer {
     overflow: visible !important;
     overscroll-behavior: auto;
     scrollbar-gutter: auto;
-    padding-top: var(--coddy-mobile-chat-stack-gap);
+    padding-top: var(--foxxycode-mobile-chat-stack-gap);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     max-height: none !important;
   }
@@ -4090,9 +4090,9 @@ textarea#composer {
   /* Sticks below the fixed top rail while the document scrolls ("New chat" row) */
   .chat-scroll-sticky-head {
     position: sticky !important;
-    top: var(--coddy-mobile-title-sticky-top);
+    top: var(--foxxycode-mobile-title-sticky-top);
     z-index: 37;
-    padding-bottom: var(--coddy-mobile-chat-stack-gap);
+    padding-bottom: var(--foxxycode-mobile-chat-stack-gap);
     flex-shrink: 0;
   }
 
@@ -4130,14 +4130,14 @@ textarea#composer {
     left: max(10px, env(safe-area-inset-left, 0px));
     right: max(10px, env(safe-area-inset-right, 0px));
     width: auto;
-    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    top: calc(var(--foxxycode-mobile-top-inset) + 6px);
     bottom: 14px;
   }
 
 }
 
 .scheduler-search-row {
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .scheduler-drawer-footer {
@@ -4147,7 +4147,7 @@ textarea#composer {
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .scheduler-drawer-meta {
@@ -4157,11 +4157,11 @@ textarea#composer {
   gap: 8px;
   padding: 6px 12px 8px;
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
 }
 
 .scheduler-meta-muted {
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
 }
 
 .scheduler-pill-on,
@@ -4189,9 +4189,9 @@ textarea#composer {
   font-size: 12px;
   padding: 6px 10px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
   background: rgba(20, 20, 22, 0.45);
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
   cursor: pointer;
   min-height: 36px;
 }
@@ -4298,7 +4298,7 @@ textarea#composer {
   min-width: 0;
   font-size: 11px;
   font-weight: 500;
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 48%, var(--foxxycode-blend-base));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4307,7 +4307,7 @@ textarea#composer {
 .scheduler-job-row-id {
   font-size: 13px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 95%, var(--foxxycode-blend-base));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4316,7 +4316,7 @@ textarea#composer {
 .scheduler-job-row-desc {
   font-size: 12px;
   font-weight: 400;
-  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4328,7 +4328,7 @@ textarea#composer {
   letter-spacing: 0.05em;
   padding: 1px 6px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
 }
 
 .scheduler-job-row-actions {
@@ -4405,12 +4405,12 @@ textarea#composer {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: var(--coddy-glass-panel-radius);
-  box-shadow: var(--coddy-glass-panel-shadow);
-  background: var(--coddy-glass-panel-bg);
-  border: 1px solid var(--coddy-glass-panel-border);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  background: var(--foxxycode-glass-panel-bg);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
 }
 
 .scheduler-editor-scroll {
@@ -4448,13 +4448,13 @@ textarea#composer {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
 }
 
 .scheduler-field-help {
   font-size: 11px;
   line-height: 1.35;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 42%, var(--foxxycode-blend-base));
 }
 
 .scheduler-field-input {
@@ -4462,9 +4462,9 @@ textarea#composer {
   font-size: 13px;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  background: var(--coddy-surface-raised);
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-raised);
+  color: color-mix(in srgb, var(--text) 92%, var(--foxxycode-blend-base));
   outline: none;
   min-width: 0;
   width: 100%;
@@ -4494,10 +4494,10 @@ textarea#composer {
 .scheduler-cron-hint {
   font-size: 12px;
   line-height: 1.35;
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
   padding: 6px 10px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -4536,7 +4536,7 @@ textarea#composer {
   justify-content: flex-start;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .md-line-editor {
@@ -4549,8 +4549,8 @@ textarea#composer {
   max-height: none;
   width: 100%;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  background: var(--coddy-surface-inset);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-inset);
   overflow: hidden;
   min-width: 0;
   flex: 0 0 auto;
@@ -4563,7 +4563,7 @@ textarea#composer {
   min-height: calc(var(--md-editor-fs) * var(--md-editor-lh) * 4 + 16px);
   border: none;
   border-radius: 6px;
-  background: var(--coddy-surface-gutter);
+  background: var(--foxxycode-surface-gutter);
 }
 
 .scheduler-body-editor-wrap-err .md-line-editor {
@@ -4584,11 +4584,11 @@ textarea#composer {
   margin: 0;
   padding: 8px 6px 8px 8px;
   overflow: hidden;
-  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   box-sizing: border-box;
   text-align: right;
   user-select: none;
-  background: var(--coddy-surface-gutter);
+  background: var(--foxxycode-surface-gutter);
   min-width: 2.25rem;
 }
 
@@ -4601,7 +4601,7 @@ textarea#composer {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
   font-size: var(--md-editor-fs);
-  color: color-mix(in srgb, var(--text) 32%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 32%, var(--foxxycode-blend-base));
   padding: 0 2px;
   border-radius: 3px;
   box-sizing: border-box;
@@ -4609,8 +4609,8 @@ textarea#composer {
 }
 
 .md-line-editor-gutter-line.is-active {
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .md-line-editor-stack {
@@ -4652,11 +4652,11 @@ textarea#composer {
 }
 
 .md-line-editor-hl-band.is-current {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 7%, var(--foxxycode-blend-base));
 }
 
 .md-line-editor-hl-line.is-current {
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 7%, var(--foxxycode-blend-base));
 }
 
 .md-line-editor-measure {
@@ -4687,10 +4687,10 @@ textarea#composer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
   background: transparent;
   outline: none;
-  caret-color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  caret-color: color-mix(in srgb, var(--text) 95%, var(--foxxycode-blend-base));
   box-sizing: border-box;
   vertical-align: top;
   overflow-x: hidden;
@@ -4712,7 +4712,7 @@ textarea#composer {
     width: auto;
     max-width: none;
     box-sizing: border-box;
-    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    top: calc(var(--foxxycode-mobile-top-inset) + 6px);
     /* Match History drawer vertical inset (sessions.drawer). */
     bottom: max(14px, env(safe-area-inset-bottom, 0px));
     flex-direction: column;
@@ -4822,7 +4822,7 @@ textarea#composer {
 .settings.drawer .settings-lead-pane {
   flex-shrink: 0;
   padding: 8px 14px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .settings.drawer .settings-stack {
@@ -4857,19 +4857,19 @@ textarea#composer {
   align-self: center;
   font-size: 13px;
   text-decoration: none;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
   padding: 0 4px;
 }
 
 .settings-footer-link:hover {
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
   text-decoration: underline;
 }
 
 .settings-lead-pane .settings-theme-block {
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .settings-theme-block {
@@ -4882,8 +4882,8 @@ textarea#composer {
   gap: 4px;
   padding: 3px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 .settings-theme-option {
@@ -4894,7 +4894,7 @@ textarea#composer {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
   background: transparent;
 }
 
@@ -4905,8 +4905,8 @@ textarea#composer {
 }
 
 .settings-theme-option:hover:not(.is-active) {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .settings-lead {
@@ -4939,9 +4939,9 @@ textarea#composer {
 }
 
 .settings-btn {
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
   color: var(--text);
   border-radius: 10px;
   padding: 8px 14px;
@@ -4952,7 +4952,7 @@ textarea#composer {
 }
 
 .settings-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-glass-panel-bg));
+  background: color-mix(in srgb, var(--accent) 16%, var(--foxxycode-glass-panel-bg));
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
@@ -4978,7 +4978,7 @@ textarea#composer {
 }
 
 .settings-btn-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, #f87171 18%, var(--coddy-glass-panel-bg));
+  background: color-mix(in srgb, #f87171 18%, var(--foxxycode-glass-panel-bg));
   border-color: rgba(248, 113, 113, 0.7);
   box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35);
 }
@@ -5028,10 +5028,10 @@ textarea#composer {
 }
 
 .settings-fieldset {
-  border: 1px solid var(--coddy-glass-panel-border);
-  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: var(--foxxycode-glass-panel-radius);
   padding: 12px 14px 14px;
-  background: var(--coddy-surface-fieldset);
+  background: var(--foxxycode-surface-fieldset);
 }
 
 .settings-fieldset > legend {
@@ -5065,8 +5065,8 @@ textarea#composer {
 
 .settings-input {
   border-radius: 8px;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-surface-field);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-surface-field);
   color: var(--text);
   padding: 8px 10px;
   font-size: 0.9rem;
@@ -5086,7 +5086,7 @@ textarea#composer {
   flex-direction: column;
   gap: 8px;
   padding-bottom: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .settings-array-row:last-child {
@@ -5108,7 +5108,7 @@ textarea#composer {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .settings-nav {
@@ -5130,7 +5130,7 @@ textarea#composer {
   text-align: left;
   border: 1px solid transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 80%, var(--foxxycode-blend-base));
   border-radius: 10px;
   padding: 8px 12px;
   font: inherit;
@@ -5140,7 +5140,7 @@ textarea#composer {
 }
 
 .settings-nav-item:hover:not(.is-active) {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   color: var(--text);
 }
 
@@ -5294,8 +5294,8 @@ textarea#composer {
 .settings-master-item {
   flex: 1 1 auto;
   text-align: left;
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-surface-fieldset);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-surface-fieldset);
   color: var(--text);
   border-radius: 10px;
   padding: 10px 12px;
@@ -5390,12 +5390,12 @@ textarea#composer {
   list-style: none;
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid var(--coddy-glass-panel-border);
+  border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: 10px;
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: var(--coddy-glass-panel-shadow);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
 }
@@ -5417,7 +5417,7 @@ textarea#composer {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
 }
 
 .settings-combobox-option.is-current {
@@ -5454,7 +5454,7 @@ textarea#composer {
   align-items: center;
   gap: 8px;
   padding: 8px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
 }
 
 .skills-list-item.is-disabled {
@@ -5494,7 +5494,7 @@ textarea#composer {
     flex-direction: row;
     align-items: stretch;
     border-right: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   }
   .settings-nav {
     flex: 1 1 auto;
@@ -5525,17 +5525,17 @@ textarea#composer {
     transition: background 120ms ease, opacity 120ms ease;
   }
   .settings-nav-arrow:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+    background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   }
   .settings-nav-arrow:disabled {
     opacity: 0.3;
     cursor: default;
   }
   .settings-nav-arrow-left {
-    border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   }
   .settings-nav-arrow-right {
-    border-left: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-left: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   }
 }
 
@@ -5555,11 +5555,11 @@ textarea#composer {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border-radius: var(--coddy-glass-panel-radius);
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
   padding: 12px 14px;
   box-sizing: border-box;
 }
@@ -5575,15 +5575,15 @@ textarea#composer {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
-  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
 }
 
 .permission-prompt-title {
@@ -5592,14 +5592,14 @@ textarea#composer {
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
 }
 
 .permission-prompt-quote-wrap {
   position: relative;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: var(--coddy-surface-inset);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-inset);
   padding: 10px 12px;
   box-sizing: border-box;
 }
@@ -5616,7 +5616,7 @@ textarea#composer {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.45;
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
 }
 
 .permission-prompt-resolved-badge {
@@ -5673,13 +5673,13 @@ textarea#composer {
 }
 
 .permission-prompt-btn--reject {
-  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
-  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
 }
 
 .permission-prompt-btn--reject:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
 }
 
 .message-row-question {
@@ -5698,12 +5698,12 @@ textarea#composer {
 .question-prompt-card {
   display: flex;
   flex-direction: column;
-  border-radius: var(--coddy-glass-panel-radius);
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: 0 4px 20px var(--coddy-surface-muted);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: 0 4px 20px var(--foxxycode-surface-muted);
   overflow: hidden;
 }
 
@@ -5713,7 +5713,7 @@ textarea#composer {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-head-left {
@@ -5728,8 +5728,8 @@ textarea#composer {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  background: var(--coddy-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
   flex-shrink: 0;
   position: relative;
 }
@@ -5777,7 +5777,7 @@ textarea#composer {
 }
 
 .question-prompt-pager-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-pager-btn:disabled {
@@ -5812,7 +5812,7 @@ textarea#composer {
   margin: 0;
   font-size: 14px;
   line-height: 1.52;
-  color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-rows {
@@ -5838,9 +5838,9 @@ label.question-prompt-row {
   padding: 9px 10px;
   margin: 0;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
-  background: var(--coddy-surface-subtle);
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 9%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-subtle);
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -5850,13 +5850,13 @@ label.question-prompt-row {
 }
 
 button.question-prompt-row:not(.question-prompt-row--active):hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
 }
 
 label.question-prompt-row:not(.question-prompt-row--active):hover {
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
 }
 
 label.question-prompt-row.question-prompt-row--active,
@@ -5885,12 +5885,12 @@ button.question-prompt-row.question-prompt-row--active:hover {
   width: 28px;
   height: 26px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  background: var(--coddy-chip-badge-bg);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-chip-badge-bg);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--coddy-chip-badge-fg);
+  color: var(--foxxycode-chip-badge-fg);
   flex-shrink: 0;
 }
 
@@ -5914,7 +5914,7 @@ button.question-prompt-row.question-prompt-row--active:hover {
 label.question-prompt-row.question-prompt-row--active .question-prompt-row-text,
 button.question-prompt-row.question-prompt-row--active .question-prompt-row-text,
 .question-prompt-row:focus-within .question-prompt-row-text {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 90%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-row--other {
@@ -5963,7 +5963,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   align-items: center;
   gap: 12px;
   padding: 12px 14px 14px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-skip {
@@ -5974,7 +5974,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border: none;
   border-radius: 10px;
   background: transparent;
-  color: var(--coddy-ghost-btn-fg);
+  color: var(--foxxycode-ghost-btn-fg);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -5983,7 +5983,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-skip:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-kbd {
@@ -5993,10 +5993,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-width: 1.9em;
   padding: 2px 6px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
-  background: var(--coddy-surface-raised);
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-raised);
   font-size: 11px;
-  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-continue {
@@ -6010,7 +6010,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   font: inherit;
   font-size: 14px;
   font-weight: 600;
-  color: var(--coddy-on-accent-fg);
+  color: var(--foxxycode-on-accent-fg);
   background: var(--accent);
 }
 
@@ -6041,7 +6041,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   max-width: none;
   line-height: 1.45;
   font-weight: 500;
-  color: color-mix(in srgb, var(--text) 74%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 74%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-card.question-prompt-collapsed
@@ -6058,12 +6058,12 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .question-prompt-skipped-note {
   margin: 0;
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-resolved-block {
   padding-top: 8px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-resolved-block:first-child {
@@ -6079,14 +6079,14 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: 0 0 6px;
   font-size: 14px;
   line-height: 1.52;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-resolved-pair .question-prompt-resolved-a {
   margin: 0;
   font-size: 14px;
   line-height: 1.52;
-  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
 }
 
 .question-prompt-resolved-pair .question-prompt-resolved-a.muted {
@@ -6095,7 +6095,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-resolved-header {
   font-size: 12px;
-  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
   margin-bottom: 4px;
 }
 
@@ -6120,12 +6120,12 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     "actions";
   column-gap: 12px;
   row-gap: 0;
-  border-radius: var(--coddy-glass-panel-radius);
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: var(--coddy-glass-panel-shadow);
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
   overflow: hidden;
 }
 
@@ -6145,8 +6145,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .plan-document-card--discarded.plan-document-card--expanded {
-  border-color: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  box-shadow: var(--coddy-glass-panel-shadow);
+  border-color: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  box-shadow: var(--foxxycode-glass-panel-shadow);
 }
 
 .plan-document-head {
@@ -6157,7 +6157,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 10px;
   min-width: 0;
   padding: 14px 14px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
 .plan-document-card:not(.plan-document-card--expanded) .plan-document-head {
@@ -6192,7 +6192,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   font-size: 15px;
   font-weight: 600;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--text) 94%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 94%, var(--foxxycode-blend-base));
   transition: color 120ms ease;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -6230,8 +6230,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .plan-document-pane {
   position: relative;
   border-radius: 0px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: var(--coddy-surface-raised);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-raised);
   overflow: visible;
   box-sizing: border-box;
 }
@@ -6248,12 +6248,12 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   height: 30px;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--coddy-glass-panel-border);
+  border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: 9px;
-  background: var(--coddy-plan-eye-bg);
-  color: var(--coddy-plan-eye-fg);
+  background: var(--foxxycode-plan-eye-bg);
+  color: var(--foxxycode-plan-eye-fg);
   cursor: pointer;
-  box-shadow: 0 2px 10px var(--coddy-surface-muted);
+  box-shadow: 0 2px 10px var(--foxxycode-surface-muted);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   transition:
@@ -6264,8 +6264,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .plan-document-eye:hover {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
-  border-color: color-mix(in srgb, var(--text) 20%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 20%, var(--foxxycode-blend-base));
 }
 
 .plan-document-eye.is-on {
@@ -6304,7 +6304,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 42%, var(--foxxycode-blend-base));
   font-style: italic;
 }
 
@@ -6383,7 +6383,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border: none;
   border-radius: 10px;
   background: transparent;
-  color: var(--coddy-ghost-btn-fg);
+  color: var(--foxxycode-ghost-btn-fg);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -6392,7 +6392,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .plan-document-discard:hover {
   color: var(--text);
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
 .plan-document-run {
@@ -6412,7 +6412,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     rgba(249, 115, 22, 0.95) 0%,
     rgba(234, 88, 12, 0.95) 100%
   );
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base)) inset;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base)) inset;
 }
 
 .plan-document-run:hover:not(:disabled) {
@@ -6471,15 +6471,15 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 [data-theme="light"] .composer-wrap-docked .composer-card,
 [data-theme="light"] .hero-composer .composer-card {
   box-shadow:
-    var(--coddy-glass-panel-shadow),
+    var(--foxxycode-glass-panel-shadow),
     0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
 @media (max-width: 1199px) {
   [data-theme="light"] .rail-hit-icon,
   [data-theme="light"] .rail-hit-link {
-    background: var(--coddy-surface-muted);
-    border-color: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+    background: var(--foxxycode-surface-muted);
+    border-color: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
   }
 }
 
@@ -6501,7 +6501,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 [data-theme="light"] .question-prompt-card {
-  box-shadow: var(--coddy-glass-panel-shadow);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
 }
 
 [data-theme="light"] .plan-document-eye.is-on {
@@ -6511,11 +6511,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 [data-theme="light"] .msg-user .md {
-  color: var(--coddy-bubble-user-fg);
+  color: var(--foxxycode-bubble-user-fg);
 }
 
 [data-theme="light"] .msg-user .md :where(a) {
-  color: var(--coddy-link);
+  color: var(--foxxycode-link);
 }
 
 [data-theme="light"] .composer-send-stop {
@@ -6577,7 +6577,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     position: fixed;
     left: max(10px, env(safe-area-inset-left, 0px));
     right: max(10px, env(safe-area-inset-right, 0px));
-    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    top: calc(var(--foxxycode-mobile-top-inset) + 6px);
     bottom: 14px;
     width: auto;
     height: auto;
@@ -6609,7 +6609,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .appearance-swatch {
   display: flex;
   flex-direction: column;
-  border: 2px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border: 2px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ACP e2e: session configOptions list every configured model and set_config_option can switch.
 
-Expects ``CODDY_CONFIG`` (default ``examples/config.demo.yaml``) to define at least one ``models[].model`` entry.
+Expects ``FOXXYCODE_CONFIG`` (default ``examples/config.demo.yaml``) to define at least one ``models[].model`` entry.
 When several exist, sets ``model`` to a different selector than ``agent.model`` where possible.
 """
 
@@ -22,9 +22,9 @@ def jd(obj: dict[str, Any]) -> str:
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
 
 
-def default_coddy_bin() -> str:
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+def default_foxxycode_bin() -> str:
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def rpc_call(proc: subprocess.Popen[str], method: str, params: dict[str, Any], next_id: list[int]) -> dict[str, Any]:
@@ -39,7 +39,7 @@ def rpc_call(proc: subprocess.Popen[str], method: str, params: dict[str, Any], n
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -85,10 +85,10 @@ def norm_opt_values(opt: dict[str, Any]) -> list[str]:
 
 
 def main() -> int:
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
-    cfg_path = Path(os.environ.get("CODDY_CONFIG", str(default_config_path()))).expanduser()
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
+    cfg_path = Path(os.environ.get("FOXXYCODE_CONFIG", str(default_config_path()))).expanduser()
     if not cfg_path.is_file():
-        print("CODDY_CONFIG not found:", cfg_path, file=sys.stderr)
+        print("FOXXYCODE_CONFIG not found:", cfg_path, file=sys.stderr)
         return 1
     raw = cfg_path.read_text(encoding="utf-8")
     yaml_models = parse_models_from_yaml(raw)
@@ -103,10 +103,10 @@ def main() -> int:
     alts = [m for m in yaml_models if m != agent_default]
     alt = alts[0] if alts else agent_default
 
-    session_root = os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp-models")
+    session_root = os.environ.get("SESSION_ROOT", "/tmp/foxxycode-examples-acp-models")
     session_id = os.environ.get("SESSION_ID", "example-acp-models")
 
-    work = tempfile.mkdtemp(prefix="coddy-acp-models-")
+    work = tempfile.mkdtemp(prefix="foxxycode-acp-models-")
     os.makedirs(session_root, exist_ok=True)
 
     proc = subprocess.Popen(

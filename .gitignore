@@ -1,6 +1,6 @@
 # Docker
 /workspace
-/coddy_home
+/foxxycode_home
 /config.yaml
 /config.*.yaml
 /examples/config.*.yaml
@@ -8,8 +8,8 @@
 # Binaries
 build/
 dist/
-coddy-agent
-/coddy
+foxxycode-agent
+/foxxycode
 rpa-agent
 *.exe
 *.exe~

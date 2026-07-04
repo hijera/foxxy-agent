@@ -1,4 +1,4 @@
-export const CODDY_NAV_RAIL_COOKIE = "coddy_nav_rail";
+export const FOXXYCODE_NAV_RAIL_COOKIE = "foxxycode_nav_rail";
 
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
@@ -11,11 +11,11 @@ export function readNavRailCookie(): NavRailCookieMode | null {
   const parts = document.cookie.split(";");
   for (const p of parts) {
     const s = p.trim();
-    if (!s.startsWith(`${CODDY_NAV_RAIL_COOKIE}=`)) {
+    if (!s.startsWith(`${FOXXYCODE_NAV_RAIL_COOKIE}=`)) {
       continue;
     }
     const v = decodeURIComponent(
-      s.slice(CODDY_NAV_RAIL_COOKIE.length + 1).trim(),
+      s.slice(FOXXYCODE_NAV_RAIL_COOKIE.length + 1).trim(),
     );
     if (v === "wide" || v === "narrow") {
       return v;
@@ -33,5 +33,5 @@ export function writeNavRailCookie(mode: NavRailCookieMode): void {
     typeof window !== "undefined" && window.location.protocol === "https:"
       ? "; Secure"
       : "";
-  document.cookie = `${CODDY_NAV_RAIL_COOKIE}=${encodeURIComponent(mode)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+  document.cookie = `${FOXXYCODE_NAV_RAIL_COOKIE}=${encodeURIComponent(mode)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
 }

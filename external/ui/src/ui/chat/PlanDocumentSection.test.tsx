@@ -81,7 +81,7 @@ test("markdown edit autosaves body with transcript content for bootstrap", async
     await vi.advanceTimersByTimeAsync(650);
     expect(fetchMock).toHaveBeenCalled();
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/coddy/sessions/sess_test/plans/demo-plan");
+    expect(url).toBe("/foxxycode/sessions/sess_test/plans/demo-plan");
     expect(init?.method).toBe("PUT");
     const payload = JSON.parse(String(init?.body));
     expect(payload.body).toBe("# Hello\n\nEdited");

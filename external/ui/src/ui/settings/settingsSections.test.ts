@@ -5,7 +5,7 @@ import type { JsonSchema } from "./SchemaForm";
 // Mirrors the top-level shape + order produced by Go UISchemaMap().
 const rootSchema: JsonSchema = {
   type: "object",
-  "x-coddy-property-order": [
+  "x-foxxycode-property-order": [
     "providers",
     "models",
     "agent",

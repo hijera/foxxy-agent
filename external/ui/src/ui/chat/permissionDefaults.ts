@@ -1,7 +1,7 @@
 import { t } from "../i18n/i18n";
-import type { CoddyPermissionOption } from "./permissionTypes";
+import type { FoxxyCodePermissionOption } from "./permissionTypes";
 
-export function defaultPermissionOptions(): CoddyPermissionOption[] {
+export function defaultPermissionOptions(): FoxxyCodePermissionOption[] {
   return [
     { optionId: "allow", name: t("prompts.allow"), kind: "allow_once" },
     {

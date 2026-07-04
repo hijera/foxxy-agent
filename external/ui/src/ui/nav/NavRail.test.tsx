@@ -5,7 +5,7 @@ import { NavRail } from "./NavRail";
 
 afterEach(() => cleanup());
 
-test("nav brand uses Coddy agent label (compact rail)", () => {
+test("nav brand uses FoxxyCode agent label (compact rail)", () => {
   render(
     <NavRail
       onNewChat={() => {}}
@@ -22,12 +22,12 @@ test("nav brand uses Coddy agent label (compact rail)", () => {
   );
 
   expect(
-    screen.getByRole("link", { name: "Coddy agent home" }),
+    screen.getByRole("link", { name: "FoxxyCode agent home" }),
   ).toBeInTheDocument();
   expect(screen.getByText("agent")).toBeInTheDocument();
 });
 
-test("nav brand uses Coddy agent label (wide header row)", () => {
+test("nav brand uses FoxxyCode agent label (wide header row)", () => {
   render(
     <NavRail
       onNewChat={() => {}}
@@ -44,9 +44,9 @@ test("nav brand uses Coddy agent label (wide header row)", () => {
   );
 
   expect(
-    screen.getByRole("link", { name: "Coddy agent home" }),
+    screen.getByRole("link", { name: "FoxxyCode agent home" }),
   ).toBeInTheDocument();
-  expect(screen.getByTestId("nav-home")).toHaveTextContent("Coddy agent");
+  expect(screen.getByTestId("nav-home")).toHaveTextContent("FoxxyCode agent");
 });
 
 test("nav hides Scheduler when showScheduler is false", () => {

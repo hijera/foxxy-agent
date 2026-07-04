@@ -11,23 +11,23 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler"
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/agent"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/logger"
-	"github.com/hijera/foxxy-agent/internal/session"
-	"github.com/hijera/foxxy-agent/internal/version"
+	"github.com/hijera/foxxycode-agent/external/scheduler"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/agent"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
-// CommandDeps wires coddy main helpers into the http subcommand without an import cycle.
+// CommandDeps wires foxxycode main helpers into the http subcommand without an import cycle.
 type CommandDeps struct {
 	NewServerRef func(**acp.Server, *config.Config, func() *config.Config) acp.UpdateSender
 	EnsureHome   func(string) error
 	OpenStore    func(string, *config.Config) (*session.FileStore, error)
 }
 
-// Run executes the coddy http subcommand.
+// Run executes the foxxycode http subcommand.
 func Run(args []string, deps CommandDeps) error {
 	if deps.NewServerRef == nil || deps.EnsureHome == nil || deps.OpenStore == nil {
 		return fmt.Errorf("httpserver: incomplete CommandDeps")
@@ -35,14 +35,14 @@ func Run(args []string, deps CommandDeps) error {
 
 	fs := flag.NewFlagSet("http", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	cfgPath := fs.String("config", "", "path to config.yaml (CODDY_CONFIG, else <home>/config.yaml or legacy search paths)")
+	cfgPath := fs.String("config", "", "path to config.yaml (FOXXYCODE_CONFIG, else <home>/config.yaml or legacy search paths)")
 	logLevel := fs.String("log-level", "", "debug|info|warn|error (default from config)")
 	logOutput := fs.String("log-output", "", "stdout|stderr|file|both (default from config)")
 	logFile := fs.String("log-file", "", "log file path when output includes file (default from config)")
 	logFormat := fs.String("log-format", "", "text|json (default from config)")
-	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
-	httpCWD := fs.String("cwd", "", "default session cwd when the client omits cwd (CODDY_CWD, default process cwd)")
-	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
+	homeDir := fs.String("home", "", "agent state directory (FOXXYCODE_HOME, default ~/.foxxycode)")
+	httpCWD := fs.String("cwd", "", "default session cwd when the client omits cwd (FOXXYCODE_CWD, default process cwd)")
+	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.foxxycode/sessions)")
 	persistedSession := fs.String("session-id", "", "optional session id for new sessions (folder name)")
 	host := fs.String("H", "0.0.0.0", "bind address for HTTP")
 	port := fs.String("P", "12345", "listen port for HTTP")

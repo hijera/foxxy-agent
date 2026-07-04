@@ -3,7 +3,7 @@ import {
   segmentComposerSlashSpans,
   segmentComposerSlashSpansForcedPlainRange,
   slugSlashesForUserBubbleMarkdown,
-  stripCoddySkillMarkdownLinks,
+  stripFoxxyCodeSkillMarkdownLinks,
 } from "./segmentComposerSlashSpans";
 
 test("segmentComposerSlashSpans plain slash mid-line", () => {
@@ -43,25 +43,25 @@ test("segmentComposerSlashSpansForcedPlainRange mid line", () => {
   ]);
 });
 
-test("stripCoddySkillMarkdownLinks restores plain slash token", () => {
-  expect(stripCoddySkillMarkdownLinks("a [/demo](coddy-skill:demo) b")).toBe(
+test("stripFoxxyCodeSkillMarkdownLinks restores plain slash token", () => {
+  expect(stripFoxxyCodeSkillMarkdownLinks("a [/demo](foxxycode-skill:demo) b")).toBe(
     "a /demo b",
   );
 });
 
-test("stripCoddySkillMarkdownLinks leaves mismatched href", () => {
-  const s = "a [/demo](coddy-skill:other) b";
-  expect(stripCoddySkillMarkdownLinks(s)).toBe(s);
+test("stripFoxxyCodeSkillMarkdownLinks leaves mismatched href", () => {
+  const s = "a [/demo](foxxycode-skill:other) b";
+  expect(stripFoxxyCodeSkillMarkdownLinks(s)).toBe(s);
 });
 
 test("slugSlashesForUserBubbleMarkdown for Markdown chip render", () => {
   expect(slugSlashesForUserBubbleMarkdown("hi /demo there")).toBe(
-    "hi [/demo](coddy-skill:demo) there",
+    "hi [/demo](foxxycode-skill:demo) there",
   );
 });
 
 test("slugSlashesForUserBubbleMarkdown strips legacy first then chips", () => {
-  expect(slugSlashesForUserBubbleMarkdown("x [/a](coddy-skill:a) /b")).toBe(
-    "x [/a](coddy-skill:a) [/b](coddy-skill:b)",
+  expect(slugSlashesForUserBubbleMarkdown("x [/a](foxxycode-skill:a) /b")).toBe(
+    "x [/a](foxxycode-skill:a) [/b](foxxycode-skill:b)",
   );
 });

@@ -3,11 +3,11 @@
 package httpserver
 
 import (
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
-const ownedByCoddySession = "coddy"
+const ownedByFoxxyCodeSession = "foxxycode"
 
 // httpModelListed reports whether sel is accepted as POST /v1 model (profile or configured completion ref).
 func httpModelListed(cfg *config.Config, sel string) bool {
@@ -26,8 +26,8 @@ func httpModelListed(cfg *config.Config, sel string) bool {
 	}
 }
 
-// httpModelIsCoddyProfile reports whether sel is agent or plan (no provider/rest form).
-func httpModelIsCoddyProfile(sel string) bool {
+// httpModelIsFoxxyCodeProfile reports whether sel is agent or plan (no provider/rest form).
+func httpModelIsFoxxyCodeProfile(sel string) bool {
 	switch sel {
 	case string(session.ModeAgent), string(session.ModePlan):
 		return true

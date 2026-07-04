@@ -1,7 +1,7 @@
 /** Used in localStorage before the shell assigns a **`sessionId`**. */
 export const WORKSPACE_AT_RECENTS_NO_SESSION_KEY = "__no_session__";
 
-const STORAGE_PREFIX = "coddy-ws-at-recents:";
+const STORAGE_PREFIX = "foxxycode-ws-at-recents:";
 const MAX_ENTRIES = 15;
 
 export type WorkspaceAtRecentStored = {

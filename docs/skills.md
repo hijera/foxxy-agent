@@ -2,7 +2,7 @@
 
 Skills are reusable instruction packs that extend the agent with slash commands, domain knowledge, and specialized workflows. They power the **`{{.Skills}}`** block in the system prompt and the slash-command catalog surfaced to ACP clients and the HTTP UI.
 
-> **Project rules** (`.coddy/rules`, `.cursor/rules`, etc.) are a separate mechanism injected as **`{{.Rules}}`**. Do not place rules in `skills.dirs`. See [rules.md](rules.md).
+> **Project rules** (`.foxxycode/rules`, `.cursor/rules`, etc.) are a separate mechanism injected as **`{{.Rules}}`**. Do not place rules in `skills.dirs`. See [rules.md](rules.md).
 
 ---
 
@@ -10,7 +10,7 @@ Skills are reusable instruction packs that extend the agent with slash commands,
 
 ### skills.sh — community registry
 
-The open agent skills ecosystem lives at **[https://skills.sh](https://skills.sh)**. Skills are plain GitHub repos with a `SKILL.md` file, compatible across agents that support the format (Cursor, Codex, Claude Code, Coddy, etc.).
+The open agent skills ecosystem lives at **[https://skills.sh](https://skills.sh)**. Skills are plain GitHub repos with a `SKILL.md` file, compatible across agents that support the format (Cursor, Codex, Claude Code, FoxxyCode, etc.).
 
 Install via **`npx skills`** (Node.js required):
 
@@ -30,9 +30,9 @@ npx skills check
 
 Global skills land in **`~/.agents/skills/`** — shared with any agent that reads that directory.
 
-### skillsbd — Coddy-curated registry
+### skillsbd — FoxxyCode-curated registry
 
-**[https://neuraldeep.ru/skills](https://neuraldeep.ru/skills)** is the **skillsbd** registry, curated for Coddy specifically. Install its CLI:
+**[https://neuraldeep.ru/skills](https://neuraldeep.ru/skills)** is the **skillsbd** registry, curated for FoxxyCode specifically. Install its CLI:
 
 ```bash
 npm install -g skillsbd
@@ -51,23 +51,23 @@ npx skillsbd install <name>
 npx skillsbd list
 ```
 
-Skills from skillsbd are also installed into **`~/.agents/skills/`** by default, so Coddy picks them up automatically via the default `skills.dirs`.
+Skills from skillsbd are also installed into **`~/.agents/skills/`** by default, so FoxxyCode picks them up automatically via the default `skills.dirs`.
 
-You can also browse and install through the Coddy web UI: **Settings → Skills → Registry**.
+You can also browse and install through the FoxxyCode web UI: **Settings → Skills → Registry**.
 
 ---
 
 ## Directory layout
 
-Coddy searches all directories in `skills.dirs` and deduplicates by skill name. **Later directories have higher priority** — if the same skill name appears in multiple directories, the version from the directory listed last wins.
+FoxxyCode searches all directories in `skills.dirs` and deduplicates by skill name. **Later directories have higher priority** — if the same skill name appears in multiple directories, the version from the directory listed last wins.
 
 Default directories (lowest → highest priority):
 
 | Priority | Path | Purpose |
 |----------|------|---------|
 | lowest | `~/.agents/skills/` | Global skills installed by `npx skills` / `npx skillsbd` — shared with all agents |
-| ↑ | `~/.coddy/skills/` | Coddy-specific skills; may contain symlinks into `~/.agents/skills/` |
-| highest | `${CWD}/.coddy/skills/` | Project-local skills — override anything from global/user directories |
+| ↑ | `~/.foxxycode/skills/` | FoxxyCode-specific skills; may contain symlinks into `~/.agents/skills/` |
+| highest | `${CWD}/.foxxycode/skills/` | Project-local skills — override anything from global/user directories |
 
 Override in `config.yaml`:
 
@@ -75,12 +75,12 @@ Override in `config.yaml`:
 skills:
   dirs:
     - "~/.agents/skills"
-    - "${CODDY_HOME}/skills"
-    - "${CWD}/.coddy/skills"
+    - "${FOXXYCODE_HOME}/skills"
+    - "${CWD}/.foxxycode/skills"
     - "~/my-team-skills"
 ```
 
-`${CODDY_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`).
+`${FOXXYCODE_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`).
 
 ---
 
@@ -124,12 +124,12 @@ Full skill body here...
 ## Enable / disable without uninstalling
 
 ```bash
-coddy skills list              # show all skills with enabled/disabled status
-coddy skills disable <name>    # skip a skill without removing it
-coddy skills enable <name>     # re-enable
+foxxycode skills list              # show all skills with enabled/disabled status
+foxxycode skills disable <name>    # skip a skill without removing it
+foxxycode skills enable <name>     # re-enable
 ```
 
-Disabled state is stored in `~/.coddy/skills/.disabled` (plain text, one name per line).
+Disabled state is stored in `~/.foxxycode/skills/.disabled` (plain text, one name per line).
 
 ---
 
@@ -148,7 +148,7 @@ description: Short description shown in the catalog.
 Instructions the agent will follow when this skill is active.
 ```
 
-Then add the parent directory to `skills.dirs` in `config.yaml`, or drop the directory into `~/.coddy/skills/` or `${CWD}/.coddy/skills/`.
+Then add the parent directory to `skills.dirs` in `config.yaml`, or drop the directory into `~/.foxxycode/skills/` or `${CWD}/.foxxycode/skills/`.
 
 To share it with others, publish to GitHub and list it on [skills.sh](https://skills.sh) or submit to [neuraldeep.ru/skills](https://neuraldeep.ru/skills).
 
@@ -158,12 +158,12 @@ To share it with others, publish to GitHub and list it on [skills.sh](https://sk
 
 On each `session/prompt` the agent:
 
-1. Scans `skills.dirs` for the session cwd and `CODDY_HOME`.
+1. Scans `skills.dirs` for the session cwd and `FOXXYCODE_HOME`.
 2. All loaded (and enabled) skills are always active — their bodies are available as slash commands and injected on demand.
 3. Builds the **`{{.Skills}}`** system-prompt block: the slash-command catalog listing all skills, plus the full body of any always-active or glob-matched skill whose name is **not** already in the catalog.
 4. At LLM call time, if the last user message contains `/name` invocations, each matched skill's body is **prepended to the user message** before it is sent to the model. This augmentation happens only inside the LLM request — it is **not stored in session history** and is **not visible in the chat transcript**.
 
-ACP clients receive `available_commands_update` after `session/new` and `session/load`. The HTTP UI queries `GET /coddy/slash-commands` for autocomplete.
+ACP clients receive `available_commands_update` after `session/new` and `session/load`. The HTTP UI queries `GET /foxxycode/slash-commands` for autocomplete.
 
 ---
 
@@ -172,4 +172,4 @@ ACP clients receive `available_commands_update` after `session/new` and `session
 - Implementation: `internal/skills/`, wiring in `internal/session/`, `internal/agent/system_prompt.go`, `internal/agent/react.go`
 - Config reference: [config.md](config.md) → `skills`
 - Rules (separate mechanism): [rules.md](rules.md)
-- Registry UI: Settings → Skills (requires `coddy http`)
+- Registry UI: Settings → Skills (requires `foxxycode http`)

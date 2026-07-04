@@ -18,7 +18,7 @@ function SummaryHeader(props: {
   showChevron: boolean;
 }) {
   return (
-    <span className="thinking-left coddy-memory-copilot-head-left">
+    <span className="thinking-left foxxycode-memory-copilot-head-left">
       {props.showChevron ? (
         <span className="thinking-chevron" aria-hidden="true" />
       ) : null}
@@ -160,7 +160,7 @@ export function MemoryCopilotMessage(props: {
     return (
       <div className="thinking-row" data-testid="memory-copilot-row">
         <div
-          className="thinking-summary coddy-memory-copilot-flat-banner"
+          className="thinking-summary foxxycode-memory-copilot-flat-banner"
           aria-label={t("messages.memoryInProgressAriaLabel")}
           aria-busy="true"
         >
@@ -177,7 +177,7 @@ export function MemoryCopilotMessage(props: {
   return (
     <div className="thinking-row">
       <details
-        className="thinking-details coddy-memory-copilot-details"
+        className="thinking-details foxxycode-memory-copilot-details"
         data-testid="memory-copilot-row"
         open={memoryDetailsOpen}
         onToggle={(e) => setMemoryDetailsOpen(e.currentTarget.open)}
@@ -193,37 +193,37 @@ export function MemoryCopilotMessage(props: {
           />
         </summary>
         <div
-          className="thinking-body coddy-memory-copilot-body"
+          className="thinking-body foxxycode-memory-copilot-body"
           aria-label={t("messages.memoryContentAriaLabel")}
         >
           {displayTrim ? (
-            <div className="coddy-memory-phase coddy-memory-recall">
-              <div className="coddy-memory-stream md-wrap coddy-memory-for-agent">
+            <div className="foxxycode-memory-phase foxxycode-memory-recall">
+              <div className="foxxycode-memory-stream md-wrap foxxycode-memory-for-agent">
                 <Markdown text={streamingBody} />
               </div>
             </div>
           ) : null}
           {hasStructuredSave ? (
-            <div className="coddy-memory-phase coddy-memory-persist">
-              <div className="coddy-memory-saved-summary">
+            <div className="foxxycode-memory-phase foxxycode-memory-persist">
+              <div className="foxxycode-memory-saved-summary">
                 {(props.persistTitle || "").trim() ? (
-                  <span className="coddy-memory-saved-title">
+                  <span className="foxxycode-memory-saved-title">
                     {(props.persistTitle || "").trim()}
                   </span>
                 ) : null}
                 {props.persistRelativePath ? (
-                  <span className="coddy-memory-path">
+                  <span className="foxxycode-memory-path">
                     {props.persistRelativePath}
                   </span>
                 ) : null}
               </div>
-              <div className="coddy-memory-stream md-wrap">
+              <div className="foxxycode-memory-stream md-wrap">
                 <Markdown text={savedBodyTrim} />
               </div>
             </div>
           ) : null}
           {!hasStructuredSave && props.persistSaved ? (
-            <p className="coddy-memory-saved">
+            <p className="foxxycode-memory-saved">
               {t("messages.memoryMarkedSaved", {
                 title:
                   (props.persistTitle || "").trim() ||
@@ -232,7 +232,7 @@ export function MemoryCopilotMessage(props: {
             </p>
           ) : null}
           {emptyCompleted ? (
-            <p className="coddy-memory-empty">
+            <p className="foxxycode-memory-empty">
               {t("messages.memoryEmpty")}
             </p>
           ) : null}

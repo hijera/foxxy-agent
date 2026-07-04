@@ -2,7 +2,7 @@
 
 package schedservice
 
-// SchedulerInfo is the envelope object returned with GET /coddy/scheduler/jobs.
+// SchedulerInfo is the envelope object returned with GET /foxxycode/scheduler/jobs.
 type SchedulerInfo struct {
 	Enabled        bool   `json:"enabled"`
 	Dir            string `json:"dir"`
@@ -27,13 +27,13 @@ type SchedulerJob struct {
 	Running              bool   `json:"running"`
 }
 
-// JobsListResponse is GET /coddy/scheduler/jobs.
+// JobsListResponse is GET /foxxycode/scheduler/jobs.
 type JobsListResponse struct {
 	Scheduler SchedulerInfo  `json:"scheduler"`
 	Jobs      []SchedulerJob `json:"jobs"`
 }
 
-// SchedulerJobCreate is POST /coddy/scheduler/jobs.
+// SchedulerJobCreate is POST /foxxycode/scheduler/jobs.
 type SchedulerJobCreate struct {
 	JobID       string `json:"job_id"`
 	Description string `json:"description"`
@@ -45,7 +45,7 @@ type SchedulerJobCreate struct {
 	Body        string `json:"body"`
 }
 
-// SchedulerJobPatch is PATCH /coddy/scheduler/jobs/{job_id}.
+// SchedulerJobPatch is PATCH /foxxycode/scheduler/jobs/{job_id}.
 // JobID, when set to a value different from the path job_id, renames the job file and sidecars.
 type SchedulerJobPatch struct {
 	JobID       *string `json:"job_id"`
@@ -58,7 +58,7 @@ type SchedulerJobPatch struct {
 	Body        *string `json:"body"`
 }
 
-// SchedulerRunEntry is one row of GET /coddy/scheduler/jobs/{job_id}/runs.
+// SchedulerRunEntry is one row of GET /foxxycode/scheduler/jobs/{job_id}/runs.
 type SchedulerRunEntry struct {
 	SessionID string `json:"session_id"`
 	StartedAt string `json:"started_at,omitempty"`

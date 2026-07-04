@@ -1,1 +1,1 @@
-rootProject.name = "foxxy-intellij"
+rootProject.name = "foxxycode-intellij"

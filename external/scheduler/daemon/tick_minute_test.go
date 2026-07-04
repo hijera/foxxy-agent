@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/storage"
+	"github.com/hijera/foxxycode-agent/external/scheduler/storage"
 )
 
 func TestCronMinuteMatchesEveryMinute(t *testing.T) {

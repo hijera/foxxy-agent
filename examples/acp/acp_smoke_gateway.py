@@ -16,9 +16,9 @@ def jd(obj: dict[str, Any]) -> str:
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
 
 
-def default_coddy_bin() -> str:
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+def default_foxxycode_bin() -> str:
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def rpc_call(
@@ -38,7 +38,7 @@ def rpc_call(
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -59,14 +59,14 @@ def rpc_call(
 
 
 def main() -> int:
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
     cfg = os.environ.get(
-        "CODDY_CONFIG", str(Path(__file__).resolve().parent.parent / "config.demo.yaml")
+        "FOXXYCODE_CONFIG", str(Path(__file__).resolve().parent.parent / "config.demo.yaml")
     )
-    session_root = os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp-smoke")
+    session_root = os.environ.get("SESSION_ROOT", "/tmp/foxxycode-examples-acp-smoke")
     session_id = os.environ.get("SESSION_ID", "example-acp-smoke")
 
-    work = tempfile.mkdtemp(prefix="coddy-acp-smoke-")
+    work = tempfile.mkdtemp(prefix="foxxycode-acp-smoke-")
     os.makedirs(session_root, exist_ok=True)
 
     proc = subprocess.Popen(

@@ -2,10 +2,10 @@
 """HTTP e2e: websearch and webfetch hit the network and persist results.
 
 Uses POST /v1/responses with stream=true, then checks under
-CODDY_HOME/sessions/<sessionId>/tool_calls/*/meta.json for both tool names and
+FOXXYCODE_HOME/sessions/<sessionId>/tool_calls/*/meta.json for both tool names and
 reads webfetch result.md for text from https://example.com/.
 
-Environment: BASE_URL (ends with /v1), MODEL, WORK_DIR, CODDY_HOME.
+Environment: BASE_URL (ends with /v1), MODEL, WORK_DIR, FOXXYCODE_HOME.
 """
 
 from __future__ import annotations
@@ -74,11 +74,11 @@ def _tool_names_from_disk(session_dir: Path) -> dict[str, str]:
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
-    profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
+    profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     work = Path(os.environ.get("WORK_DIR", "")).resolve()
-    home = Path(os.environ.get("CODDY_HOME", "")).resolve()
+    home = Path(os.environ.get("FOXXYCODE_HOME", "")).resolve()
     if not work.is_dir() or not home.is_dir():
-        print("WORK_DIR and CODDY_HOME must point to existing directories", file=sys.stderr)
+        print("WORK_DIR and FOXXYCODE_HOME must point to existing directories", file=sys.stderr)
         return 2
 
     prompt = f"""Working directory MUST be: {work}
@@ -107,9 +107,9 @@ When both complete, reply one line starting with WEB_E2E_OK and add a short quot
 
     try:
         with urllib.request.urlopen(req, timeout=360) as resp:
-            sid = (resp.headers.get("X-Coddy-Session-Id") or resp.headers.get("X-Coddy-Session-ID") or "").strip()
+            sid = (resp.headers.get("X-FoxxyCode-Session-Id") or resp.headers.get("X-FoxxyCode-Session-ID") or "").strip()
             if not sid:
-                print("missing X-Coddy-Session-ID header", file=sys.stderr)
+                print("missing X-FoxxyCode-Session-ID header", file=sys.stderr)
                 return 1
 
             deadline = time.time() + 320

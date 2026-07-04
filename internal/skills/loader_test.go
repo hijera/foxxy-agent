@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 func withoutBundled(loaded []*skills.Skill) []*skills.Skill {
@@ -191,7 +191,7 @@ func TestBuildSystemPromptSection(t *testing.T) {
 	}
 }
 
-func TestLoadAllExpandsCODDYHome(t *testing.T) {
+func TestLoadAllExpandsFOXXYCODEHome(t *testing.T) {
 	home := t.TempDir()
 	skillRoot := filepath.Join(home, "skills")
 	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
@@ -201,7 +201,7 @@ func TestLoadAllExpandsCODDYHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillRoot, "rule.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	loader := skills.NewLoader([]string{"${CODDY_HOME}/skills"})
+	loader := skills.NewLoader([]string{"${FOXXYCODE_HOME}/skills"})
 	loaded, err := loader.LoadAll("/tmp", home)
 	if err != nil {
 		t.Fatal(err)

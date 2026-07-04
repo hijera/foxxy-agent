@@ -1,28 +1,28 @@
-# Install Foxxy Agent
+# Install FoxxyCode Agent
 
-Foxxy Agent is based on [coddy-agent](https://github.com/coddy-project/coddy-agent). The upstream
-`coddy.dev` install scripts install the original project, not this fork — use one of the methods below.
+FoxxyCode Agent is based on [foxxycode-agent](https://github.com/coddy-project/coddy-agent). The upstream
+`foxxycode.dev` install scripts install the original project, not this fork — use one of the methods below.
 
 ## Release archive
 
 Download the archive for your platform from
-**[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** (assets such as
-`foxxy_X.Y.Z_linux_amd64.tar.gz`), unpack it, and put the **`foxxy`** binary on `PATH`
-(Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\foxxy`).
+**[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as
+`foxxycode_X.Y.Z_linux_amd64.tar.gz`), unpack it, and put the **`foxxycode`** binary on `PATH`
+(Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\foxxycode`).
 
 Bootstrap the config when missing:
 
 ```bash
-mkdir -p ~/.coddy && cp config.example.yaml ~/.coddy/config.yaml
+mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 ```
 
 ## After install
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
-foxxy -v
-# edit ~/.coddy/config.yaml
-foxxy http
+foxxycode -v
+# edit ~/.foxxycode/config.yaml
+foxxycode http
 ```
 
 ## Docker
@@ -36,7 +36,7 @@ See [docker.md](docker.md) and the [README Docker section](../README.md#docker).
 ## Upgrade
 
 ```bash
-foxxy update -y
+foxxycode update -y
 ```
 
 See [update.md](update.md).

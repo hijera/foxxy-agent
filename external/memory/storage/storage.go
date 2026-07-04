@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // Hit is one ranked memory snippet for recall.
@@ -38,7 +38,7 @@ func NewStore(m *config.MemoryConfig, p config.Paths, cwd string) (*Store, error
 		if err != nil {
 			return nil, fmt.Errorf("memory store: home: %w", err)
 		}
-		home = filepath.Join(h, ".coddy")
+		home = filepath.Join(h, ".foxxycode")
 	}
 	g := strings.TrimSpace(m.Dir)
 	if g == "" {

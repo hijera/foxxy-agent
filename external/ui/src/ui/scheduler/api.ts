@@ -44,7 +44,7 @@ export async function schedulerListJobs(
     sp.set("include_body", "true");
   }
   const q = sp.toString();
-  const path = q ? `/coddy/scheduler/jobs?${q}` : "/coddy/scheduler/jobs";
+  const path = q ? `/foxxycode/scheduler/jobs?${q}` : "/foxxycode/scheduler/jobs";
   const res = await fetch(path);
   return parseJson<JobsListResponse>(res);
 }
@@ -53,7 +53,7 @@ export async function schedulerGetJob(
   jobId: string,
 ): Promise<ApiResult<SchedulerJob>> {
   const res = await fetch(
-    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}`,
+    `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}`,
   );
   return parseJson<SchedulerJob>(res);
 }
@@ -61,7 +61,7 @@ export async function schedulerGetJob(
 export async function schedulerCreateJob(
   body: SchedulerJobCreate,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
-  const res = await fetch("/coddy/scheduler/jobs", {
+  const res = await fetch("/foxxycode/scheduler/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -76,7 +76,7 @@ export async function schedulerPatchJob(
   ApiResult<{ object?: string; job_id?: string }>
 > {
   const res = await fetch(
-    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}`,
+    `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -90,7 +90,7 @@ export async function schedulerDeleteJob(
   jobId: string,
 ): Promise<ApiResult<null>> {
   const res = await fetch(
-    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}`,
+    `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}`,
     { method: "DELETE" },
   );
   if (res.ok && (res.status === 204 || res.status === 200)) {
@@ -107,7 +107,7 @@ export async function schedulerPauseJob(
   jobId: string,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
   const res = await fetch(
-    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}/pause`,
+    `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/pause`,
     { method: "POST" },
   );
   return parseJson(res);
@@ -117,7 +117,7 @@ export async function schedulerResumeJob(
   jobId: string,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
   const res = await fetch(
-    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}/resume`,
+    `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/resume`,
     { method: "POST" },
   );
   return parseJson(res);
@@ -129,7 +129,7 @@ export async function schedulerRunJob(
   ApiResult<{ object?: string; job_id?: string; status?: string }>
 > {
   const res = await fetch(
-    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}/run`,
+    `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/run`,
     { method: "POST" },
   );
   return parseJson(res);
@@ -141,7 +141,7 @@ export async function schedulerCancelJob(
   ApiResult<{ object?: string; job_id?: string; cancelled?: boolean }>
 > {
   const res = await fetch(
-    `/coddy/scheduler/jobs/${encodeURIComponent(jobId)}/cancel`,
+    `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST" },
   );
   return parseJson(res);

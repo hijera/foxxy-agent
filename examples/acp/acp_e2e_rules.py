@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ACP e2e: project rules glob stickiness, @mention-only rules, bundled /generate-rules catalog.
 
-Copies ``examples/rules_fixture/.coddy/rules`` into the session work dir, then:
+Copies ``examples/rules_fixture/.foxxycode/rules`` into the session work dir, then:
 
 1. ``available_commands_update`` includes ``generate-rules``.
 2. Glob rule activates with a Go file resource block; assistant includes ``RULE_GLOB_TOKEN:e2e-glob``.
@@ -42,12 +42,12 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def default_coddy_bin() -> str:
-    p = repo_root() / "build" / "coddy"
+def default_foxxycode_bin() -> str:
+    p = repo_root() / "build" / "foxxycode"
     if p.is_file():
         return str(p)
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def rpc_call(
@@ -68,7 +68,7 @@ def rpc_call(
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -146,17 +146,17 @@ def main() -> int:
         print("missing", src_cfg, file=sys.stderr)
         return 2
 
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
-    session_root = os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp")
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
+    session_root = os.environ.get("SESSION_ROOT", "/tmp/foxxycode-examples-acp")
     session_id = os.environ.get("SESSION_ID", f"acp-rules-{os.getpid()}")
 
-    home = tempfile.mkdtemp(prefix="coddy-acp-rules-home-")
-    work = tempfile.mkdtemp(prefix="coddy-acp-rules-work-")
+    home = tempfile.mkdtemp(prefix="foxxycode-acp-rules-home-")
+    work = tempfile.mkdtemp(prefix="foxxycode-acp-rules-work-")
     log_f = Path(home) / "e2e.log"
     log_f.write_text("", encoding="utf-8")
 
-    rules_src = examples_dir / "rules_fixture" / ".coddy" / "rules"
-    rules_dst = Path(work) / ".coddy" / "rules"
+    rules_src = examples_dir / "rules_fixture" / ".foxxycode" / "rules"
+    rules_dst = Path(work) / ".foxxycode" / "rules"
     rules_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(rules_src, rules_dst, dirs_exist_ok=True)
 
@@ -198,7 +198,7 @@ def main() -> int:
         stderr=sys.stderr,
         text=True,
         bufsize=1,
-        env={**os.environ, "CODDY_HOME": home},
+        env={**os.environ, "FOXXYCODE_HOME": home},
     )
     assert proc.stdin is not None
     nid = [1]

@@ -37,7 +37,7 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 /**
  * deriveSettingsSections turns the root config JSON Schema into ordered tab
  * descriptors. Top-level schema properties map 1:1 to tabs (using the schema's
- * `x-coddy-property-order` and each property's `title`), except that the rarely
+ * `x-foxxycode-property-order` and each property's `title`), except that the rarely
  * edited tail keys are folded into a single "System" tab and a synthetic
  * client-side "Appearance" tab is appended. The Appearance tab is present even
  * when no schema is available (theme is purely client-side).
@@ -57,8 +57,8 @@ export function deriveSettingsSections(
 
   const props = schema.properties;
   const order =
-    schema["x-coddy-property-order"] && schema["x-coddy-property-order"].length
-      ? schema["x-coddy-property-order"]
+    schema["x-foxxycode-property-order"] && schema["x-foxxycode-property-order"].length
+      ? schema["x-foxxycode-property-order"]
       : Object.keys(props).sort();
 
   const out: SectionDescriptor[] = [];

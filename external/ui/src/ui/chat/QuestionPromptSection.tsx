@@ -9,15 +9,15 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { t as translate } from "../i18n/i18n";
 import type {
-  CoddyQuestionItem,
-  CoddyQuestionPayload,
+  FoxxyCodeQuestionItem,
+  FoxxyCodeQuestionPayload,
   QuestionResolvedState,
 } from "./questionTypes";
 import { letterForOptionIndex } from "./questionTypes";
 
-const HDR = "X-Coddy-Session-ID";
+const HDR = "X-FoxxyCode-Session-ID";
 
-const OTHER_SENTINEL = "__coddy_other__";
+const OTHER_SENTINEL = "__foxxycode_other__";
 
 /** Move focus back to the composer after answering a gate question. */
 export function questionPromptFocusComposer(): void {
@@ -45,7 +45,7 @@ export function questionPromptFocusComposer(): void {
 }
 
 function buildAnswerRows(
-  payload: CoddyQuestionPayload,
+  payload: FoxxyCodeQuestionPayload,
   multiSel: string[][],
   singleSel: string[],
   extraText: string[],
@@ -89,12 +89,12 @@ function allAnsweredNonEmpty(rows: string[][]): boolean {
 }
 
 function readyToSubmit(args: {
-  questions: CoddyQuestionItem[];
+  questions: FoxxyCodeQuestionItem[];
   multiSel: string[][];
   singleSel: string[];
   extraText: string[];
 }): boolean {
-  const minimalPayload: CoddyQuestionPayload = {
+  const minimalPayload: FoxxyCodeQuestionPayload = {
     sessionId: "",
     requestId: "",
     questions: args.questions,
@@ -136,7 +136,7 @@ function readyToSubmit(args: {
 }
 
 function formatResolvedSummaryLine(
-  questions: CoddyQuestionItem[],
+  questions: FoxxyCodeQuestionItem[],
   skipped: boolean,
   answersMatrix: string[][],
 ): string {
@@ -160,7 +160,7 @@ function formatResolvedSummaryLine(
   return parts.length > 0 ? parts.join(" · ") : translate("prompts.answered");
 }
 
-function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
+function rowLettersForQuestion(q: FoxxyCodeQuestionItem): readonly string[] {
   const opts = Math.max(q.options?.length ?? 0, 0);
   const total = opts + (q.custom ? 1 : 0);
   const list: string[] = [];
@@ -170,12 +170,12 @@ function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
 
 export type QuestionPromptSectionProps = {
   itemId: string;
-  payload: CoddyQuestionPayload;
+  payload: FoxxyCodeQuestionPayload;
   resolved?: QuestionResolvedState | undefined;
   onResolved: (resolution: QuestionResolvedState) => void;
 };
 
-/** Inline gated questions for streaming question SSE followed by POST /coddy/sessions/{id}/question. */
+/** Inline gated questions for streaming question SSE followed by POST /foxxycode/sessions/{id}/question. */
 export function QuestionPromptSection(props: QuestionPromptSectionProps) {
   const { t } = useT();
   const { itemId, payload, resolved, onResolved } = props;
@@ -232,7 +232,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
       setSubmitting(true);
       try {
         try {
-          await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/question`, {
+          await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/question`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

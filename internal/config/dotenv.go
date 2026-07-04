@@ -9,7 +9,7 @@ import (
 
 const dotEnvName = ".env"
 
-// loadDotEnv reads $CODDY_HOME/.env and sets environment variables that are not already set.
+// loadDotEnv reads $FOXXYCODE_HOME/.env and sets environment variables that are not already set.
 // Existing process environment always takes precedence — .env is a fallback, not an override.
 // Missing file is silently ignored.
 func loadDotEnv(home string) {

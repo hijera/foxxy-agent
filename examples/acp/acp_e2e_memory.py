@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""ACP long-term memory copilot E2E (uses default coddy binary from `make build`).
+"""ACP long-term memory copilot E2E (uses default foxxycode binary from `make build`).
 
 Verifies the memory subsystem behaves like an internal voice (not main-agent tools):
 
 - Pre-seeded global markdown is found via the memory copilot (RECALL path) and influences the main reply without read_file to that path.
 - After a second turn that asks the model to surface a new memorable fact, the memory copilot (PERSIST path) may write a new .md under
-  $CODDY_HOME/memory or <cwd>/memory and a third question recalls it.
+  $FOXXYCODE_HOME/memory or <cwd>/memory and a third question recalls it.
 - Optional prune step: user text nudges the memory copilot to remove a disposable global note; file must disappear.
 
 Environment (paths):
 
-- CODDY_BIN (default: <repo>/build/coddy if that file exists, else "coddy" from PATH)
+- FOXXYCODE_BIN (default: <repo>/build/foxxycode if that file exists, else "foxxycode" from PATH)
 - SESSION_ROOT, SESSION_ID (same semantics as other ACP examples)
 
-Flags: --keep-session, --keep-work-dir, --keep-coddy-home, --skip-prune (skip delete check).
+Flags: --keep-session, --keep-work-dir, --keep-foxxycode-home, --skip-prune (skip delete check).
 """
 
 from __future__ import annotations
@@ -48,12 +48,12 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def default_coddy_bin() -> str:
-    p = repo_root() / "build" / "coddy"
+def default_foxxycode_bin() -> str:
+    p = repo_root() / "build" / "foxxycode"
     if p.is_file():
         return str(p)
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def default_config() -> str:
@@ -79,7 +79,7 @@ def rpc_call(
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -162,22 +162,22 @@ def assert_memory_binary(binary: str) -> None:
     bp = Path(binary)
     if not bp.is_file():
         print(
-            f"ERROR: CODDY_BIN {binary!r} is not a file. Run: make build",
+            f"ERROR: FOXXYCODE_BIN {binary!r} is not a file. Run: make build",
             file=sys.stderr,
         )
         sys.exit(2)
     strings_exe = shutil.which("strings")
     if not strings_exe:
-        print("WARN: `strings` not found; skipping coddy_memory_search binary check", file=sys.stderr)
+        print("WARN: `strings` not found; skipping foxxycode_memory_search binary check", file=sys.stderr)
         return
     try:
         out = subprocess.check_output([strings_exe, str(bp)], stderr=subprocess.DEVNULL, timeout=60)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         print(f"WARN: strings failed ({e}); skipping binary probe", file=sys.stderr)
         return
-    if b"coddy_memory_search" not in out:
+    if b"foxxycode_memory_search" not in out:
         print(
-            "ERROR: binary does not contain coddy_memory_search (stale or wrong binary?). Run: make build",
+            "ERROR: binary does not contain foxxycode_memory_search (stale or wrong binary?). Run: make build",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -187,29 +187,29 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--keep-session", action="store_true")
     ap.add_argument("--keep-work-dir", action="store_true")
-    ap.add_argument("--keep-coddy-home", action="store_true")
+    ap.add_argument("--keep-foxxycode-home", action="store_true")
     ap.add_argument("--skip-prune", action="store_true", help="Do not test disposable global note deletion")
     ap.add_argument("--work-dir", default="", help="Session cwd (default: temp dir)")
     args = ap.parse_args()
 
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
     assert_memory_binary(binary)
-    cfg = os.environ.get("CODDY_CONFIG", default_config())
+    cfg = os.environ.get("FOXXYCODE_CONFIG", default_config())
 
     session_root = os.environ.get("SESSION_ROOT", str(repo_root() / "build" / "e2e-memory-sessions"))
     session_id = os.environ.get("SESSION_ID", "acp-memory-copilot-e2e")
 
-    coddy_home = tempfile.mkdtemp(prefix="coddy-home-mem-e2e-")
+    foxxycode_home = tempfile.mkdtemp(prefix="foxxycode-home-mem-e2e-")
 
     if args.work_dir:
         work = os.path.abspath(args.work_dir)
         os.makedirs(work, exist_ok=True)
         cleanup_work = False
     else:
-        work = tempfile.mkdtemp(prefix="coddy-mem-work-")
+        work = tempfile.mkdtemp(prefix="foxxycode-mem-work-")
         cleanup_work = not args.keep_work_dir
 
-    global_mem = Path(coddy_home) / "memory"
+    global_mem = Path(foxxycode_home) / "memory"
     project_mem = Path(work) / "memory"
     global_mem.mkdir(parents=True, exist_ok=True)
     project_mem.mkdir(parents=True, exist_ok=True)
@@ -246,7 +246,7 @@ def main() -> None:
             binary,
             "acp",
             "--home",
-            coddy_home,
+            foxxycode_home,
             "--config",
             cfg,
             "--sessions-dir",
@@ -263,7 +263,7 @@ def main() -> None:
         stderr=sys.stderr,
         text=True,
         bufsize=1,
-        env={**os.environ, "CODDY_HOME": coddy_home},
+        env={**os.environ, "FOXXYCODE_HOME": foxxycode_home},
     )
     assert proc.stdin is not None
     nid = [1]
@@ -292,11 +292,11 @@ def main() -> None:
             print("session/new error:", jd(r1), file=sys.stderr)
             sys.exit(1)
         sid = r1["result"]["sessionId"]
-        print("sessionId=", sid, "work_dir=", work, "CODDY_HOME=", coddy_home, file=sys.stderr)
+        print("sessionId=", sid, "work_dir=", work, "FOXXYCODE_HOME=", foxxycode_home, file=sys.stderr)
 
         # Turn 1: user never names the seed file; recall must surface VERIFIER_TOKEN from global memory.
         p1 = (
-            "You are helping validate Coddy long-term memory recall.\n"
+            "You are helping validate FoxxyCode long-term memory recall.\n"
             "Answer in at most 4 short lines of plain text.\n"
             "Questions:\n"
             "1) What is the VERIFIER_TOKEN value?\n"
@@ -431,8 +431,8 @@ def main() -> None:
         proc.wait(timeout=900)
         if cleanup_work and Path(work).exists():
             shutil.rmtree(work, ignore_errors=True)
-        if not args.keep_coddy_home and Path(coddy_home).exists():
-            shutil.rmtree(coddy_home, ignore_errors=True)
+        if not args.keep_foxxycode_home and Path(foxxycode_home).exists():
+            shutil.rmtree(foxxycode_home, ignore_errors=True)
 
     sys.exit(exit_code)
 

@@ -8,17 +8,17 @@ import (
 	"fmt"
 	"strings"
 
-	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	memstorage "github.com/hijera/foxxycode-agent/external/memory/storage"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func memorySearchTool(store *memstorage.Store, mem *config.MemoryConfig) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        NameSearch,
-			Description: "Search all memory files under the scope roots; use hits as entry points, then open files with coddy_memory_read and follow scope:relative or Markdown links inside bodies when you need more context.",
+			Description: "Search all memory files under the scope roots; use hits as entry points, then open files with foxxycode_memory_read and follow scope:relative or Markdown links inside bodies when you need more context.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

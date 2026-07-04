@@ -18,7 +18,7 @@ test("user bubble preserves multiline text without markdown pipeline", () => {
   const body = screen.getByTestId("user-message-body");
   expect(body).toHaveTextContent("services:");
   expect(body).toHaveTextContent("/path/to/downloads:/downloads");
-  expect(screen.queryByTestId("coddy-skill-span")).toBeNull();
+  expect(screen.queryByTestId("foxxycode-skill-span")).toBeNull();
 });
 
 test("user bubble does not treat path slashes as skill chips without knownSkillNames", () => {
@@ -26,13 +26,13 @@ test("user bubble does not treat path slashes as skill chips without knownSkillN
   expect(screen.getByTestId("user-message-body")).toHaveTextContent(
     "hi /demo there",
   );
-  expect(screen.queryByTestId("coddy-skill-span")).toBeNull();
+  expect(screen.queryByTestId("foxxycode-skill-span")).toBeNull();
 });
 
 test("user bubble renders known skill as chip when knownSkillNames provided", () => {
   const known = new Set(["generate-rules"]);
   render(<UserMessage content="please /generate-rules for me" knownSkillNames={known} />);
-  const chip = screen.getByTestId("coddy-skill-span");
+  const chip = screen.getByTestId("foxxycode-skill-span");
   expect(chip).toHaveTextContent("/generate-rules");
   expect(chip).toHaveAttribute("data-skill-name", "generate-rules");
 });
@@ -40,7 +40,7 @@ test("user bubble renders known skill as chip when knownSkillNames provided", ()
 test("user bubble does not chip /name absent from knownSkillNames", () => {
   const known = new Set(["generate-rules"]);
   render(<UserMessage content="see /unknown-cmd here" knownSkillNames={known} />);
-  expect(screen.queryByTestId("coddy-skill-span")).toBeNull();
+  expect(screen.queryByTestId("foxxycode-skill-span")).toBeNull();
   expect(screen.getByTestId("user-message-body")).toHaveTextContent(
     "see /unknown-cmd here",
   );
@@ -80,9 +80,9 @@ test("edit button calls onEdit with message content", () => {
 test("persisted hydrated attachments render as compact @ paths", () => {
   const blob =
     "read this\n\n" +
-    '<coddy_attachment path="note.txt" name="note.txt">\n' +
+    '<foxxycode_attachment path="note.txt" name="note.txt">\n' +
     "<![CDATA[secret body]]>\n" +
-    "</coddy_attachment>";
+    "</foxxycode_attachment>";
   render(<UserMessage content={blob} />);
   expect(screen.getByText(/read this/)).toBeInTheDocument();
   expect(screen.getByText(/@note\.txt/)).toBeInTheDocument();

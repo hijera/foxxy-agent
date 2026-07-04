@@ -5,16 +5,16 @@ import {
   setLocale,
   t,
 } from "./i18n";
-import { CODDY_UI_LANG_COOKIE } from "./localeCookie";
+import { FOXXYCODE_UI_LANG_COOKIE } from "./localeCookie";
 
 describe("i18n translate", () => {
   beforeEach(() => {
-    document.cookie = `${CODDY_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
     initLocale("en");
   });
 
   afterEach(() => {
-    document.cookie = `${CODDY_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
     initLocale("en");
   });
 

@@ -5,7 +5,7 @@ package schedtools
 import (
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func toolEnvCWD(env *tooling.Env) string {

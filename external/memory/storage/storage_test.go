@@ -132,7 +132,7 @@ func TestSlugify(t *testing.T) {
 	}
 }
 
-// extractMemoryLinkTargets finds scope:relative references suitable for coddy_memory_read.
+// extractMemoryLinkTargets finds scope:relative references suitable for foxxycode_memory_read.
 func extractMemoryLinkTargets(body string) []string {
 	raw := regexp.MustCompile(`\b(global|project):([a-zA-Z0-9_./\-]+\.(?:md|txt))\b`)
 	mdHref := regexp.MustCompile(`\[[^\]]*]\(((?:global|project):[a-zA-Z0-9_./\-]+\.(?:md|txt))\)`)
@@ -178,7 +178,7 @@ func memoryTreeFixture(t *testing.T, globalRoot string) {
 	}{
 		{
 			"index.md",
-			"# Coddy memory hub\n\nStart here after recall search for hub navigation.\n\nSee [architecture index](global:docs/arch/overview.md).\nBare link global:guides/quickstart.txt for plain references.\n",
+			"# FoxxyCode memory hub\n\nStart here after recall search for hub navigation.\n\nSee [architecture index](global:docs/arch/overview.md).\nBare link global:guides/quickstart.txt for plain references.\n",
 		},
 		{
 			"guides/quickstart.txt",
@@ -280,7 +280,7 @@ func TestSearchBootstrapsTreeEntryThenLinkedWalkFindsBuriedLeaf(t *testing.T) {
 	memoryTreeFixture(t, g)
 	st := NewWithRoots(g, proj)
 
-	hits, err := st.Search("hub navigation coddy start recall", "global", 10)
+	hits, err := st.Search("hub navigation foxxycode start recall", "global", 10)
 	if err != nil {
 		t.Fatal(err)
 	}

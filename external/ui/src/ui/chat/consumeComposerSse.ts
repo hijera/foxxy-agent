@@ -16,14 +16,14 @@ type ToolCallStatusUpdate = {
   status?: string;
   content?: Array<{ type: string; content: { type: string; text?: string } }>;
   _meta?: {
-    coddy?: {
+    foxxycode?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
     };
   };
 };
 
 function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
-  const p = u._meta?.coddy?.toolResultPreview;
+  const p = u._meta?.foxxycode?.toolResultPreview;
   return !!(p && p.truncated === true);
 }
 
@@ -123,9 +123,9 @@ export type ConsumeComposerSseParams = {
     prev: TranscriptItem[],
     p: MemoryChunkEvt,
   ) => TranscriptItem[];
-  /** Coddy extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
+  /** FoxxyCode extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
   onQuestion?: (payload: Record<string, unknown>) => void;
-  /** Coddy extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
+  /** FoxxyCode extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
   onPermission?: (payload: Record<string, unknown>) => void;
 };
 

@@ -63,7 +63,7 @@ func objectSchema(title, description string, props map[string]interface{}, order
 		for i, k := range order {
 			ord[i] = k
 		}
-		out["x-coddy-property-order"] = ord
+		out["x-foxxycode-property-order"] = ord
 	}
 	if len(required) > 0 {
 		req := make([]interface{}, len(required))
@@ -183,7 +183,7 @@ func UISchemaMap() map[string]interface{} {
 	providerName["pattern"] = `^[a-zA-Z][a-zA-Z0-9_-]*$`
 	providerAPIKey := strProp("API key",
 		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
-	providerAPIKey["x-coddy-provider-api-key-env-placeholder"] = true
+	providerAPIKey["x-foxxycode-provider-api-key-env-placeholder"] = true
 	providerProps := map[string]interface{}{
 		"name": providerName,
 		"type": map[string]interface{}{
@@ -380,7 +380,7 @@ func UISchemaMap() map[string]interface{} {
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Skill directories",
-					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",
+					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 			},
@@ -390,7 +390,7 @@ func UISchemaMap() map[string]interface{} {
 			map[string]interface{}{
 				"enabled":            boolProp("Enabled", "Turns on the memory copilot for eligible builds."),
 				"model":              strProp("Memory model", "Logical model override for memory LLM calls; empty uses agent model."),
-				"dir":                strProp("Memory root", "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory."),
+				"dir":                strProp("Memory root", "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory."),
 				"recall_max_turns":   intProp("Recall max turns", "Bounds recall-side LLM rounds in the memory loop."),
 				"persist_max_turns":  intProp("Persist max turns", "Bounds persist-side LLM rounds in the memory loop."),
 				"copilot_max_tokens": intProp("Copilot max tokens", "Completion token cap for memory copilot calls."),
@@ -463,7 +463,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
 			map[string]interface{}{
-				"dir": strProp("Sessions directory", "Override sessions root; empty resolves under CODDY_HOME."),
+				"dir": strProp("Sessions directory", "Override sessions root; empty resolves under FOXXYCODE_HOME."),
 			},
 			[]string{"dir"},
 			nil),
@@ -484,12 +484,12 @@ func UISchemaMap() map[string]interface{} {
 
 	doc := map[string]interface{}{
 		"$schema":                "https://json-schema.org/draft/2020-12/schema",
-		"title":                  "Coddy config",
+		"title":                  "FoxxyCode config",
 		"description":            "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.",
 		"type":                   "object",
 		"properties":             props,
 		"additionalProperties":   false,
-		"x-coddy-property-order": toIfaceOrder(rootOrder),
+		"x-foxxycode-property-order": toIfaceOrder(rootOrder),
 	}
 
 	attachSchemaDefaultsFromExample(doc, SchemaExampleConfigJSON())

@@ -14,9 +14,9 @@ const stylesPath = join(
 
 afterEach(() => cleanup());
 
-test("coddy-skill links render as chip spans", () => {
-  render(<Markdown text="Try [/demo](coddy-skill:demo) now." />);
-  const chip = screen.getByTestId("coddy-skill-span");
+test("foxxycode-skill links render as chip spans", () => {
+  render(<Markdown text="Try [/demo](foxxycode-skill:demo) now." />);
+  const chip = screen.getByTestId("foxxycode-skill-span");
   expect(chip).toHaveAttribute("data-skill-name", "demo");
   expect(chip.textContent).toBe("/demo");
 });
@@ -75,9 +75,9 @@ test("inline code uses native title tooltip for Copy", () => {
 
 test("inline code styles use grey fill without border in css", () => {
   const css = readFileSync(stylesPath, "utf8");
-  expect(css).toMatch(/--coddy-md-inline-code-fg:/);
-  expect(css).toMatch(/--coddy-md-inline-code-bg:/);
-  expect(css).not.toMatch(/--coddy-md-inline-code-bd:/);
+  expect(css).toMatch(/--foxxycode-md-inline-code-fg:/);
+  expect(css).toMatch(/--foxxycode-md-inline-code-bg:/);
+  expect(css).not.toMatch(/--foxxycode-md-inline-code-bd:/);
   expect(css).toMatch(/\.md-inline-code[\s\S]*cursor:\s*pointer/);
   expect(css).toMatch(/\.md-inline-code[\s\S]*border-radius:\s*6px/);
   expect(css).toMatch(/\.md-inline-code[\s\S]*display:\s*inline-flex/);

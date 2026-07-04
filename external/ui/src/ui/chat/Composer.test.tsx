@@ -716,7 +716,7 @@ test("enhance button posts draft and replaces text with the result", async () =>
   const onChange = vi.fn();
   const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ object: "coddy.enhance_prompt", text: "Refactor the memory endpoint and add tests." }),
+    json: async () => ({ object: "foxxycode.enhance_prompt", text: "Refactor the memory endpoint and add tests." }),
   });
   vi.stubGlobal("fetch", fetchMock);
   render(
@@ -735,7 +735,7 @@ test("enhance button posts draft and replaces text with the result", async () =>
     expect(onChange).toHaveBeenCalledWith("Refactor the memory endpoint and add tests.");
   });
   const call = fetchMock.mock.calls[0] ?? [];
-  expect(call[0]).toBe("/coddy/enhance-prompt");
+  expect(call[0]).toBe("/foxxycode/enhance-prompt");
   expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ text: "fix memory thing" });
   vi.unstubAllGlobals();
 });

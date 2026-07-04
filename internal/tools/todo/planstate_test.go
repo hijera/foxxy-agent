@@ -3,7 +3,7 @@ package todo
 import (
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 func TestPlanHasIncompleteItems(t *testing.T) {

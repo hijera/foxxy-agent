@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FoxxyCode">
+  <defs>
+    <linearGradient id="cml-stroke" x1="12" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="0.5" stop-color="#9333ea"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="cml-stroke-inner" x1="18" y1="18" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(32 32) rotate(90)">
+    <circle
+      r="12.25"
+      fill="none"
+      stroke="url(#cml-stroke)"
+      stroke-width="3.65"
+      stroke-linecap="round"
+      stroke-dasharray="58.2 18.8"
+      stroke-dashoffset="9.4"
+    />
+    <circle
+      r="7.25"
+      fill="none"
+      stroke="url(#cml-stroke-inner)"
+      stroke-width="2.25"
+    />
+  </g>
+</svg>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CoddyQuestionPayload } from "./questionTypes";
+import type { FoxxyCodeQuestionPayload } from "./questionTypes";
 import type { TranscriptItem } from "./types";
 import { reattachLocalQuestionPrompts } from "./transcriptQuestionReattach";
 
@@ -18,7 +18,7 @@ function qp(
   rid: string,
   toolCallId?: string,
 ): Extract<TranscriptItem, { type: "question_prompt" }> {
-  const payload: CoddyQuestionPayload = {
+  const payload: FoxxyCodeQuestionPayload = {
     sessionId: "s",
     requestId: rid,
     ...(toolCallId !== undefined ? { toolCallId } : {}),

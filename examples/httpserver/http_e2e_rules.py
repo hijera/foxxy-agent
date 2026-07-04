@@ -47,7 +47,7 @@ def openai_v1_base() -> str:
     return os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
 
 
-def coddy_http_origin(v1: str) -> str:
+def foxxycode_http_origin(v1: str) -> str:
     if v1.endswith("/v1"):
         return v1[:-3].rstrip("/") or v1
     return v1.rstrip("/")
@@ -58,7 +58,7 @@ def extract_output_text(resp: dict[str, Any]) -> str:
     for item in resp.get("output") or []:
         if not isinstance(item, dict):
             continue
-        # Coddy /v1/responses shape: {"type": "text", "text": "..."} (openapi ResponsesCreateResponse).
+        # FoxxyCode /v1/responses shape: {"type": "text", "text": "..."} (openapi ResponsesCreateResponse).
         if item.get("type") == "text" and isinstance(item.get("text"), str):
             parts.append(item["text"])
             continue
@@ -73,9 +73,9 @@ def extract_output_text(resp: dict[str, Any]) -> str:
 def main() -> int:
     examples_dir = Path(__file__).resolve().parent.parent
     v1 = openai_v1_base()
-    origin = coddy_http_origin(v1)
+    origin = foxxycode_http_origin(v1)
     yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
-    profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
+    profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
     work = os.environ.get("WORK_DIR", "").strip()
     if not work:
         print("WORK_DIR required", file=sys.stderr)
@@ -88,12 +88,12 @@ def main() -> int:
 
     code, page, _ = http_json(
         "GET",
-        f"{origin}/coddy/slash-commands?page=1&page_size=80",
+        f"{origin}/foxxycode/slash-commands?page=1&page_size=80",
         None,
         {},
     )
     if code != 200:
-        print("bad /coddy/slash-commands", code, page, file=sys.stderr)
+        print("bad /foxxycode/slash-commands", code, page, file=sys.stderr)
         return 1
     names = [str((it or {}).get("name") or "") for it in (page.get("items") or [])]
     if BUNDLED_SLASH not in names:
@@ -112,7 +112,7 @@ def main() -> int:
         "attachments": [{"path": go_rel}],
     }
     code, resp, hdr = http_json("POST", f"{v1}/responses", glob_body, headers)
-    sid = (hdr.get("x-coddy-session-id") or hdr.get("X-Coddy-Session-ID") or "").strip()
+    sid = (hdr.get("x-foxxycode-session-id") or hdr.get("X-FoxxyCode-Session-ID") or "").strip()
     if code != 200:
         print("glob responses failed", code, resp, file=sys.stderr)
         return 1
@@ -129,7 +129,7 @@ def main() -> int:
             f"Reply in one short sentence with {MENTION_TOKEN} verbatim."
         ),
     }
-    mention_headers = {"X-Coddy-Session-ID": sid} if sid else {}
+    mention_headers = {"X-FoxxyCode-Session-ID": sid} if sid else {}
     code, resp2, _ = http_json("POST", f"{v1}/responses", mention_body, mention_headers)
     if code != 200:
         print("mention responses failed", code, resp2, file=sys.stderr)

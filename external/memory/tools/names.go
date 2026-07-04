@@ -4,10 +4,10 @@ package memtools
 
 // Tool names for the memory copilot (never exposed to the main agent).
 const (
-	NameSearch = "coddy_memory_search"
-	NameList   = "coddy_memory_list"
-	NameRead   = "coddy_memory_read"
-	NameMkdir  = "coddy_memory_mkdir"
-	NameSave   = "coddy_memory_save"
-	NameDelete = "coddy_memory_delete"
+	NameSearch = "foxxycode_memory_search"
+	NameList   = "foxxycode_memory_list"
+	NameRead   = "foxxycode_memory_read"
+	NameMkdir  = "foxxycode_memory_mkdir"
+	NameSave   = "foxxycode_memory_save"
+	NameDelete = "foxxycode_memory_delete"
 )

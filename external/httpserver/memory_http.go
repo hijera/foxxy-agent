@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 var errTraversal = errors.New("path escapes allowed root")
@@ -22,14 +22,14 @@ func mergeOpenAPIMemoryDoc(_ *map[string]interface{}) {
 }
 
 func (s *Server) registerMemoryRoutes() {
-	s.mux.HandleFunc("GET /coddy/sessions/{id}/memory/tree", s.coddyMemoryTree)
-	s.mux.HandleFunc("GET /coddy/sessions/{id}/memory/file", s.coddyMemoryFileGet)
-	s.mux.HandleFunc("PUT /coddy/sessions/{id}/memory/file", s.coddyMemoryFilePut)
-	s.mux.HandleFunc("POST /coddy/sessions/{id}/memory/dir", s.coddyMemoryDirPost)
-	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/memory/file", s.coddyMemoryFileDelete)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/memory/tree", s.foxxycodeMemoryTree)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/memory/file", s.foxxycodeMemoryFileGet)
+	s.mux.HandleFunc("PUT /foxxycode/sessions/{id}/memory/file", s.foxxycodeMemoryFilePut)
+	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/memory/dir", s.foxxycodeMemoryDirPost)
+	s.mux.HandleFunc("DELETE /foxxycode/sessions/{id}/memory/file", s.foxxycodeMemoryFileDelete)
 }
 
-func (s *Server) coddyPaths() pathsForMemoryAPI {
+func (s *Server) foxxycodePaths() pathsForMemoryAPI {
 	dir := strings.TrimSpace(s.activeCfg().Memory.Dir)
 	var globalRoot string
 	if dir != "" {
@@ -89,17 +89,17 @@ func absUnder(root, rel string) (string, error) {
 	return target, nil
 }
 
-func (s *Server) coddyMemoryTree(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeMemoryTree(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	st := s.coddyEnsureLoaded(w, r, id)
+	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
 		return
 	}
-	p := s.coddyPaths()
+	p := s.foxxycodePaths()
 	rootQ := strings.TrimSpace(r.URL.Query().Get("root"))
 	if rootQ == "" {
 		out := []map[string]string{}
@@ -109,7 +109,7 @@ func (s *Server) coddyMemoryTree(w http.ResponseWriter, r *http.Request) {
 		out = append(out, map[string]string{"id": "workspace", "path": ""})
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"object": "coddy.memory_roots",
+			"object": "foxxycode.memory_roots",
 			"roots":  out,
 		})
 		return
@@ -181,15 +181,15 @@ func (s *Server) coddyMemoryTree(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "coddy.memory_tree",
+		"object": "foxxycode.memory_tree",
 		"root":   rootQ,
 		"path":   filepath.ToSlash(rel),
 		"nodes":  nodes,
 	})
 }
 
-func (s *Server) coddyResolveMemoryAbs(st *session.State, rootKind, rel string) (abs string, err error) {
-	p := s.coddyPaths()
+func (s *Server) foxxycodeResolveMemoryAbs(st *session.State, rootKind, rel string) (abs string, err error) {
+	p := s.foxxycodePaths()
 	var base string
 	switch rootKind {
 	case "global":
@@ -209,19 +209,19 @@ func (s *Server) coddyResolveMemoryAbs(st *session.State, rootKind, rel string) 
 	return absUnder(base, relSan)
 }
 
-func (s *Server) coddyMemoryFileGet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeMemoryFileGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	st := s.coddyEnsureLoaded(w, r, id)
+	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
 		return
 	}
 	root := strings.TrimSpace(r.URL.Query().Get("root"))
 	relPath := strings.TrimSpace(r.URL.Query().Get("path"))
-	abs, err := s.coddyResolveMemoryAbs(st, root, relPath)
+	abs, err := s.foxxycodeResolveMemoryAbs(st, root, relPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
@@ -243,20 +243,20 @@ func (s *Server) coddyMemoryFileGet(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":  "coddy.memory_file",
+		"object":  "foxxycode.memory_file",
 		"root":    root,
 		"path":    filepath.ToSlash(relPath),
 		"content": string(b),
 	})
 }
 
-func (s *Server) coddyMemoryFilePut(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeMemoryFilePut(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.NotFound(w, r)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	st := s.coddyEnsureLoaded(w, r, id)
+	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
 		return
 	}
@@ -271,7 +271,7 @@ func (s *Server) coddyMemoryFilePut(w http.ResponseWriter, r *http.Request) {
 	}
 	root := strings.TrimSpace(body.Root)
 	p := strings.TrimSpace(body.Path)
-	abs, err := s.coddyResolveMemoryAbs(st, root, p)
+	abs, err := s.foxxycodeResolveMemoryAbs(st, root, p)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
@@ -296,16 +296,16 @@ func (s *Server) coddyMemoryFilePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.memory_file_saved"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"object": "foxxycode.memory_file_saved"})
 }
 
-func (s *Server) coddyMemoryDirPost(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeMemoryDirPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	st := s.coddyEnsureLoaded(w, r, id)
+	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
 		return
 	}
@@ -317,7 +317,7 @@ func (s *Server) coddyMemoryDirPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
-	abs, err := s.coddyResolveMemoryAbs(st, strings.TrimSpace(body.Root), strings.TrimSpace(body.Path))
+	abs, err := s.foxxycodeResolveMemoryAbs(st, strings.TrimSpace(body.Root), strings.TrimSpace(body.Path))
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
@@ -327,27 +327,27 @@ func (s *Server) coddyMemoryDirPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.memory_dir_created"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"object": "foxxycode.memory_dir_created"})
 }
 
-func (s *Server) coddyMemoryFileDelete(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeMemoryFileDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.NotFound(w, r)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	st := s.coddyEnsureLoaded(w, r, id)
+	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
 		return
 	}
 	root := strings.TrimSpace(r.URL.Query().Get("root"))
 	relPath := strings.TrimSpace(r.URL.Query().Get("path"))
-	abs, err := s.coddyResolveMemoryAbs(st, root, relPath)
+	abs, err := s.foxxycodeResolveMemoryAbs(st, root, relPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
-	p := s.coddyPaths()
+	p := s.foxxycodePaths()
 	var memRoot string
 	switch root {
 	case "global":
@@ -378,5 +378,5 @@ func (s *Server) coddyMemoryFileDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.memory_file_deleted"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"object": "foxxycode.memory_file_deleted"})
 }

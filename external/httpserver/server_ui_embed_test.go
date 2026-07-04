@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 func TestGETUIStatic(t *testing.T) {
@@ -37,10 +37,10 @@ func TestGETUIStatic(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d body %s", res.StatusCode, b)
 	}
-	if !strings.Contains(string(b), "<title>Coddy Agent</title>") {
+	if !strings.Contains(string(b), "<title>FoxxyCode Agent</title>") {
 		t.Fatal("missing UI title")
 	}
-	if !strings.Contains(string(b), `href="/coddy-favicon.svg"`) {
+	if !strings.Contains(string(b), `href="/foxxycode-favicon.svg"`) {
 		t.Fatal("missing favicon link")
 	}
 }
@@ -61,7 +61,7 @@ func TestEmbeddedUIFaviconAssets(t *testing.T) {
 		path     string
 		contains string
 	}{
-		{"/coddy-favicon.svg", "<svg"},
+		{"/foxxycode-favicon.svg", "<svg"},
 		{"/favicon-32.png", "\x89PNG"},
 		{"/favicon.ico", "\x00\x00\x01\x00"},
 		{"/apple-touch-icon.png", "\x89PNG"},
@@ -99,7 +99,7 @@ func TestEmbeddedUIPublicAssetsCacheControl(t *testing.T) {
 
 	for _, path := range []string{
 		"/", "/index.html", "/app.js", "/styles.css",
-		"/coddy-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png",
+		"/foxxycode-favicon.svg", "/favicon-32.png", "/favicon.ico", "/apple-touch-icon.png",
 	} {
 		t.Run(path, func(t *testing.T) {
 			res, err := http.Get(ts.URL + path)

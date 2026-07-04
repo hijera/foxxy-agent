@@ -1,5 +1,5 @@
 # Build the JetBrains (IntelliJ-platform) plugin: a single cross-platform zip that bundles the
-# foxxy binary for every desktop target under foxxy-bin/<os>-<arch>/.
+# foxxycode binary for every desktop target under foxxycode-bin/<os>-<arch>/.
 #
 # Triggers:
 #   - pull_request touching the plugin or the Go/UI sources it bundles -> build + upload artifact
@@ -97,7 +97,7 @@ jobs:
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: foxxy-intellij-${{ steps.ver.outputs.version }}
+          name: foxxycode-intellij-${{ steps.ver.outputs.version }}
           path: editors/intellij/build/distributions/*.zip
           if-no-files-found: error
 

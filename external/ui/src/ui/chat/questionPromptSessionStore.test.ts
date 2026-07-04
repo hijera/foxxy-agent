@@ -4,7 +4,7 @@ import {
   mergeStoredQuestionPromptsIntoTranscript,
   pickRicherQuestionToolArgs,
 } from "./questionPromptSessionStore";
-import type { CoddyQuestionPayload } from "./questionTypes";
+import type { FoxxyCodeQuestionPayload } from "./questionTypes";
 import type { TranscriptItem } from "./types";
 
 test("pickRicherQuestionToolArgs prefers the JSON with more parsed questions", () => {
@@ -20,7 +20,7 @@ test("pickRicherQuestionToolArgs prefers the JSON with more parsed questions", (
 });
 
 test("mergeStoredQuestionPromptsIntoTranscript inserts after matching tool_call", () => {
-  const payload: CoddyQuestionPayload = {
+  const payload: FoxxyCodeQuestionPayload = {
     sessionId: "sess_x",
     requestId: "q_123",
     toolCallId: "call_abc",
@@ -29,7 +29,7 @@ test("mergeStoredQuestionPromptsIntoTranscript inserts after matching tool_call"
 
   try {
     window.localStorage.setItem(
-      "coddy_qp_v1:sess_x",
+      "foxxycode_qp_v1:sess_x",
       JSON.stringify([
         {
           requestId: "q_123",
@@ -65,7 +65,7 @@ test("mergeStoredQuestionPromptsIntoTranscript inserts after matching tool_call"
     "Hi? Yes",
   );
   try {
-    window.localStorage.removeItem("coddy_qp_v1:sess_x");
+    window.localStorage.removeItem("foxxycode_qp_v1:sess_x");
   } catch {
     //
   }

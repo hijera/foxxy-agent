@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
-    <title>Coddy Agent</title>
-    <link rel="icon" href="/coddy-favicon.svg" type="image/svg+xml" />
+    <title>FoxxyCode Agent</title>
+    <link rel="icon" href="/foxxycode-favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -26,12 +26,12 @@
         var q = location.search.match(/[?&]theme=([^&]+)/);
         var qt = q && decodeURIComponent(q[1].replace(/\+/g, " "));
         if (!(qt && VALID[qt])) qt = null;
-        var m = document.cookie.match(/(?:^|;\s*)coddy_ui_theme=([^;]+)/);
+        var m = document.cookie.match(/(?:^|;\s*)foxxycode_ui_theme=([^;]+)/);
         var t = m && decodeURIComponent(m[1].replace(/\+/g, " "));
         var theme = qt || (t && VALID[t] ? t : "dark");
         if (qt && qt !== t) {
           document.cookie =
-            "coddy_ui_theme=" +
+            "foxxycode_ui_theme=" +
             encodeURIComponent(qt) +
             "; Path=/; Max-Age=31536000; SameSite=Lax" +
             (location.protocol === "https:" ? "; Secure" : "");
@@ -52,12 +52,12 @@
         var lt = l && decodeURIComponent(l[1].replace(/\+/g, " "));
         var VALID_LANG = { en: 1, ru: 1 };
         var ql = lt && VALID_LANG[lt] ? lt : null;
-        var lm = document.cookie.match(/(?:^|;\s*)coddy_ui_lang=([^;]+)/);
+        var lm = document.cookie.match(/(?:^|;\s*)foxxycode_ui_lang=([^;]+)/);
         var lc = lm && decodeURIComponent(lm[1].replace(/\+/g, " "));
         var lang = ql || (lc && VALID_LANG[lc] ? lc : "en");
         if (ql && ql !== lc) {
           document.cookie =
-            "coddy_ui_lang=" +
+            "foxxycode_ui_lang=" +
             encodeURIComponent(ql) +
             "; Path=/; Max-Age=31536000; SameSite=Lax" +
             (location.protocol === "https:" ? "; Secure" : "");

@@ -12,7 +12,7 @@ import (
 )
 
 // ideEvent is one structured edit event delivered to native editor clients (e.g. the
-// IntelliJ plugin) over the /coddy/ide/events stream.
+// IntelliJ plugin) over the /foxxycode/ide/events stream.
 type ideEvent struct {
 	Type       string `json:"type"` // "edit_proposed" | "edit_applied"
 	ToolCallID string `json:"toolCallId,omitempty"`
@@ -23,7 +23,7 @@ type ideEvent struct {
 }
 
 // ideEventHub fans structured edit events out to every connected IDE client. It is a
-// process-global broadcast (there is one foxxy http per workspace); subscribers that fall
+// process-global broadcast (there is one foxxycode http per workspace); subscribers that fall
 // behind drop events rather than blocking the agent.
 type ideEventHub struct {
 	mu   sync.Mutex
@@ -65,8 +65,8 @@ func (h *ideEventHub) hasSubscribers() bool {
 	return len(h.subs) > 0
 }
 
-// coddyIdeEvents serves the IDE edit-event SSE stream (GET /coddy/ide/events).
-func (s *Server) coddyIdeEvents(w http.ResponseWriter, r *http.Request) {
+// foxxycodeIdeEvents serves the IDE edit-event SSE stream (GET /foxxycode/ide/events).
+func (s *Server) foxxycodeIdeEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return

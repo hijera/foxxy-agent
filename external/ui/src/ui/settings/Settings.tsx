@@ -90,8 +90,8 @@ export function Settings(props: {
   const load = useCallback(async () => {
     setLoadErr(null);
     const [sRes, cRes] = await Promise.all([
-      readJSON<JsonSchema>("/coddy/config/schema"),
-      readJSON<Record<string, unknown>>("/coddy/config"),
+      readJSON<JsonSchema>("/foxxycode/config/schema"),
+      readJSON<Record<string, unknown>>("/foxxycode/config"),
     ]);
     if (!sRes.ok || !sRes.data) {
       setLoadErr(sRes.error || "schema");
@@ -130,7 +130,7 @@ export function Settings(props: {
     setError(null);
     try {
       const body = JSON.stringify(doc);
-      const v = await fetch("/coddy/config/validate", {
+      const v = await fetch("/foxxycode/config/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
@@ -141,7 +141,7 @@ export function Settings(props: {
         setBusy(false);
         return;
       }
-      const p = await fetch("/coddy/config", {
+      const p = await fetch("/foxxycode/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body,
@@ -182,7 +182,7 @@ export function Settings(props: {
       setMessage(null);
       setError(null);
       try {
-        const fresh = await readJSON<Record<string, unknown>>("/coddy/config");
+        const fresh = await readJSON<Record<string, unknown>>("/foxxycode/config");
         if (!fresh.ok || !fresh.data) {
           setError(fresh.error || "config");
           setBusy(false);
@@ -193,7 +193,7 @@ export function Settings(props: {
           merged[k] = doc[k];
         }
         const body = JSON.stringify(merged);
-        const v = await fetch("/coddy/config/validate", {
+        const v = await fetch("/foxxycode/config/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body,
@@ -204,7 +204,7 @@ export function Settings(props: {
           setBusy(false);
           return;
         }
-        const p = await fetch("/coddy/config", {
+        const p = await fetch("/foxxycode/config", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body,

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="FoxxyCode agent">
+  <defs>
+    <linearGradient id="cso-bg" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f0f10"/>
+      <stop offset="1" stop-color="#0b0b0c"/>
+    </linearGradient>
+    <radialGradient id="cso-glow-a" cx="28%" cy="22%" r="55%">
+      <stop offset="0" stop-color="#9333ea" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cso-glow-b" cx="78%" cy="72%" r="50%">
+      <stop offset="0" stop-color="#6366f1" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cso-plate" x1="2" y1="2" x2="54" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1c1c22"/>
+      <stop offset="1" stop-color="#101014"/>
+    </linearGradient>
+    <linearGradient id="cso-stroke" x1="10" y1="10" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5f3ff"/>
+      <stop offset="0.5" stop-color="#ddd6fe"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="cso-stroke-inner" x1="14" y1="14" x2="42" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c4b5fd" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0.35"/>
+    </linearGradient>
+    <radialGradient id="cso-plate-glow" cx="50%" cy="40%" r="58%">
+      <stop offset="0" stop-color="#9333ea" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#9333ea" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#cso-bg)"/>
+  <rect width="1280" height="640" fill="url(#cso-glow-a)"/>
+  <rect width="1280" height="640" fill="url(#cso-glow-b)"/>
+  <g transform="translate(640 292) scale(3.35) translate(-94 -28)">
+    <g transform="translate(28 28)">
+      <rect x="-26" y="-26" width="52" height="52" rx="13" fill="url(#cso-plate)"/>
+      <rect x="-26" y="-26" width="52" height="52" rx="13" fill="url(#cso-plate-glow)"/>
+      <rect x="-25.5" y="-25.5" width="51" height="51" rx="12.5" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
+      <g transform="rotate(90)">
+        <circle
+          r="10.25"
+          fill="none"
+          stroke="url(#cso-stroke)"
+          stroke-width="2.85"
+          stroke-linecap="round"
+          stroke-dasharray="48.6 15.8"
+          stroke-dashoffset="7.9"
+        />
+        <circle
+          r="6"
+          fill="none"
+          stroke="url(#cso-stroke-inner)"
+          stroke-width="2"
+        />
+      </g>
+    </g>
+    <text
+      x="62"
+      y="35"
+      font-family="system-ui, -apple-system, Segoe UI, sans-serif"
+      font-size="23"
+      font-weight="650"
+      letter-spacing="-0.035em"
+      fill="#fafafa"
+    >
+      <tspan>FoxxyCode</tspan>
+      <tspan font-size="14.5" font-weight="500" fill="#9ca3af" dx="3">agent</tspan>
+    </text>
+  </g>
+  <text
+    x="640"
+    y="418"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, Segoe UI, sans-serif"
+    font-size="26"
+    font-weight="500"
+    fill="#9ca3af"
+    letter-spacing="0.01em"
+  >distroless harness - one static binary</text>
+</svg>

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
-	memtools "github.com/hijera/foxxy-agent/external/memory/tools"
-	"github.com/hijera/foxxy-agent/internal/config"
+	memstorage "github.com/hijera/foxxycode-agent/external/memory/storage"
+	memtools "github.com/hijera/foxxycode-agent/external/memory/tools"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 func extractLinkTargetsForChain(body string) []string {
@@ -51,7 +51,7 @@ func memoryTreeFixtureChain(t *testing.T, globalRoot string) {
 	}{
 		{
 			"index.md",
-			"# Coddy memory hub\n\nStart here after recall search for hub navigation.\n\nSee [architecture index](global:docs/arch/overview.md).\nBare link global:guides/quickstart.txt for plain references.\n",
+			"# FoxxyCode memory hub\n\nStart here after recall search for hub navigation.\n\nSee [architecture index](global:docs/arch/overview.md).\nBare link global:guides/quickstart.txt for plain references.\n",
 		},
 		{
 			"guides/quickstart.txt",
@@ -107,7 +107,7 @@ func TestSequentialSearchReadChain(t *testing.T) {
 	memoryTreeFixtureChain(t, g)
 	st := memstorage.NewWithRoots(g, p)
 
-	toolHits, err := memtools.ExecTool(st, cfg, memtools.NameSearch, `{"query":"hub navigation coddy","scope":"global"}`)
+	toolHits, err := memtools.ExecTool(st, cfg, memtools.NameSearch, `{"query":"hub navigation foxxycode","scope":"global"}`)
 	if err != nil {
 		t.Fatal(err)
 	}

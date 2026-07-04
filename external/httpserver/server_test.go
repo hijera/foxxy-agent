@@ -18,11 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/session"
-	"github.com/hijera/foxxy-agent/internal/version"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/version"
 	"gopkg.in/yaml.v3"
 )
 
@@ -77,8 +77,8 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		id      string
 		ownedBy string
 	}{
-		{id: string(session.ModeAgent), ownedBy: ownedByCoddySession},
-		{id: string(session.ModePlan), ownedBy: ownedByCoddySession},
+		{id: string(session.ModeAgent), ownedBy: ownedByFoxxyCodeSession},
+		{id: string(session.ModePlan), ownedBy: ownedByFoxxyCodeSession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -170,7 +170,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/providers/{name}/models", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/ide/events", "/coddy/sessions/{id}/cancel"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/providers/{name}/models", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -204,7 +204,7 @@ func (p *capturingHTTPProvider) Stream(_ context.Context, messages []llm.Message
 	return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
 }
 
-func TestCoddyDescribeEchoesShortCommand(t *testing.T) {
+func TestFoxxyCodeDescribeEchoesShortCommand(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "should not be used"}, nil
@@ -212,7 +212,7 @@ func TestCoddyDescribeEchoesShortCommand(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	res, err := http.Post(ts.URL+"/coddy/describe", "application/json", strings.NewReader(`{"text":"git status"}`))
+	res, err := http.Post(ts.URL+"/foxxycode/describe", "application/json", strings.NewReader(`{"text":"git status"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,12 +230,12 @@ func TestCoddyDescribeEchoesShortCommand(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Object != "coddy.describe" || out.Short != "git status" {
+	if out.Object != "foxxycode.describe" || out.Short != "git status" {
 		t.Fatalf("unexpected %+v", out)
 	}
 }
 
-func TestCoddyDescribeUsesProviderForLongText(t *testing.T) {
+func TestFoxxyCodeDescribeUsesProviderForLongText(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "Refactor memory API"}, nil
@@ -243,7 +243,7 @@ func TestCoddyDescribeUsesProviderForLongText(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	res, err := http.Post(ts.URL+"/coddy/describe", "application/json", strings.NewReader(`{"text":"Please refactor the memory tree endpoint to reject traversal and add tests."}`))
+	res, err := http.Post(ts.URL+"/foxxycode/describe", "application/json", strings.NewReader(`{"text":"Please refactor the memory tree endpoint to reject traversal and add tests."}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,12 +261,12 @@ func TestCoddyDescribeUsesProviderForLongText(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Object != "coddy.describe" || out.Short != "Refactor memory API" {
+	if out.Object != "foxxycode.describe" || out.Short != "Refactor memory API" {
 		t.Fatalf("unexpected %+v", out)
 	}
 }
 
-func TestCoddyDescribeSkipsJunkFirstLine(t *testing.T) {
+func TestFoxxyCodeDescribeSkipsJunkFirstLine(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "Po\nSkills and tools in verse"}, nil
@@ -274,7 +274,7 @@ func TestCoddyDescribeSkipsJunkFirstLine(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	res, err := http.Post(ts.URL+"/coddy/describe", "application/json", strings.NewReader(`{"text":"Tell me what you can do in a poem with tools listed"}`))
+	res, err := http.Post(ts.URL+"/foxxycode/describe", "application/json", strings.NewReader(`{"text":"Tell me what you can do in a poem with tools listed"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestCoddyDescribeSkipsJunkFirstLine(t *testing.T) {
 	}
 }
 
-func TestCoddyDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
+func TestFoxxyCodeDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "Po"}, nil
@@ -306,7 +306,7 @@ func TestCoddyDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
 	defer ts.Close()
 
 	longUser := "one two three four five six seven eight nine ten"
-	res, err := http.Post(ts.URL+"/coddy/describe", "application/json", strings.NewReader(`{"text":"`+longUser+`"}`))
+	res, err := http.Post(ts.URL+"/foxxycode/describe", "application/json", strings.NewReader(`{"text":"`+longUser+`"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestCoddyDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
 	}
 }
 
-func TestCoddyEnhancePromptRewrites(t *testing.T) {
+func TestFoxxyCodeEnhancePromptRewrites(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "```\n\"Refactor the memory endpoint and add tests.\"\n```"}, nil
@@ -338,7 +338,7 @@ func TestCoddyEnhancePromptRewrites(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	res, err := http.Post(ts.URL+"/coddy/enhance-prompt", "application/json", strings.NewReader(`{"text":"fix memory thing"}`))
+	res, err := http.Post(ts.URL+"/foxxycode/enhance-prompt", "application/json", strings.NewReader(`{"text":"fix memory thing"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestCoddyEnhancePromptRewrites(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Object != "coddy.enhance_prompt" {
+	if out.Object != "foxxycode.enhance_prompt" {
 		t.Fatalf("unexpected object %q", out.Object)
 	}
 	if out.Text != "Refactor the memory endpoint and add tests." {
@@ -364,7 +364,7 @@ func TestCoddyEnhancePromptRewrites(t *testing.T) {
 	}
 }
 
-func TestCoddyEnhancePromptRejectsEmpty(t *testing.T) {
+func TestFoxxyCodeEnhancePromptRejectsEmpty(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
 		return fakeProvider{reply: "should not be used"}, nil
@@ -372,7 +372,7 @@ func TestCoddyEnhancePromptRejectsEmpty(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	res, err := http.Post(ts.URL+"/coddy/enhance-prompt", "application/json", strings.NewReader(`{"text":"   "}`))
+	res, err := http.Post(ts.URL+"/foxxycode/enhance-prompt", "application/json", strings.NewReader(`{"text":"   "}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	return mgr, srv, sessRoot
 }
 
-func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
+func TestFoxxyCodeSessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	sessRoot := filepath.Join(root, "sessions")
@@ -576,7 +576,7 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Coddy-Session-ID", sid)
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
 		res, err := client.Do(req)
 		if err != nil {
 			reqErr <- err
@@ -588,11 +588,11 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	}()
 
 	<-blockStarted
-	req2, err := http.NewRequest(http.MethodPost, ts.URL+"/coddy/sessions/"+url.PathEscape(sid)+"/cancel", nil)
+	req2, err := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid)+"/cancel", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req2.Header.Set("X-Coddy-Session-ID", sid)
+	req2.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res2, err := client.Do(req2)
 	if err != nil {
 		t.Fatal(err)
@@ -608,7 +608,7 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatal(err)
 	}
-	if out["object"] != "coddy.session_cancelled" || out["id"] != sid {
+	if out["object"] != "foxxycode.session_cancelled" || out["id"] != sid {
 		t.Fatalf("unexpected cancel body %+v", out)
 	}
 	wg.Wait()
@@ -617,7 +617,7 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	}
 }
 
-func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *testing.T) {
+func TestFoxxyCodeSessionPermissionPostRejectResumesPersistedGateAfterRestart(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	sessRoot := filepath.Join(root, "sessions")
@@ -689,14 +689,14 @@ func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *tes
 
 	req, err := http.NewRequest(
 		http.MethodPost,
-		ts.URL+"/coddy/sessions/"+url.PathEscape(sid)+"/permission",
+		ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid)+"/permission",
 		strings.NewReader(`{"toolCallId":"call_blocked","optionId":"reject"}`),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Coddy-Session-ID", sid)
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res, err := ts.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -739,7 +739,7 @@ func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *tes
 	t.Fatal("timed out waiting for permission resume continuation")
 }
 
-func TestCoddySessionsList(t *testing.T) {
+func TestFoxxyCodeSessionsList(t *testing.T) {
 	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
 	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
@@ -751,7 +751,7 @@ func TestCoddySessionsList(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resHTTP, err := http.Get(ts.URL + "/coddy/sessions")
+	resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -781,7 +781,7 @@ func TestCoddySessionsList(t *testing.T) {
 	}
 }
 
-func TestCoddySessionActivityGet(t *testing.T) {
+func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
 	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
@@ -799,7 +799,7 @@ func TestCoddySessionActivityGet(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resHTTP, err := http.Get(ts.URL + "/coddy/sessions/" + url.PathEscape(sid) + "/activity")
+	resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions/" + url.PathEscape(sid) + "/activity")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -821,7 +821,7 @@ func TestCoddySessionActivityGet(t *testing.T) {
 	if err := json.Unmarshal(b, &parsed); err != nil {
 		t.Fatal(err)
 	}
-	if parsed.Object != "coddy.session_activity" || parsed.SessionID != sid {
+	if parsed.Object != "foxxycode.session_activity" || parsed.SessionID != sid {
 		t.Fatalf("unexpected %+v", parsed)
 	}
 	if parsed.TurnActive {
@@ -835,7 +835,7 @@ func TestCoddySessionActivityGet(t *testing.T) {
 	}
 }
 
-func TestCoddySessionPatchMarkActivityRead(t *testing.T) {
+func TestFoxxyCodeSessionPatchMarkActivityRead(t *testing.T) {
 	mgr, srv, sessRoot := testHTTPServerPersist(t)
 	store := &session.FileStore{Root: sessRoot}
 	ctx := context.Background()
@@ -864,12 +864,12 @@ func TestCoddySessionPatchMarkActivityRead(t *testing.T) {
 	defer ts.Close()
 
 	body := strings.NewReader(`{"markActivityRead":true}`)
-	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), body)
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Coddy-Session-ID", sid)
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
 	resHTTP, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -901,7 +901,7 @@ func TestCoddySessionPatchMarkActivityRead(t *testing.T) {
 	}
 }
 
-func TestCoddySessionsListIncludeActivity(t *testing.T) {
+func TestFoxxyCodeSessionsListIncludeActivity(t *testing.T) {
 	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
 	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
@@ -919,7 +919,7 @@ func TestCoddySessionsListIncludeActivity(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resHTTP, err := http.Get(ts.URL + "/coddy/sessions?include_activity=true&limit=50")
+	resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions?include_activity=true&limit=50")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -954,7 +954,7 @@ func TestCoddySessionsListIncludeActivity(t *testing.T) {
 	}
 }
 
-func TestCoddySessionsListFilterByQUserMessage(t *testing.T) {
+func TestFoxxyCodeSessionsListFilterByQUserMessage(t *testing.T) {
 	_, srv, sessRoot := testHTTPServerPersist(t)
 	fs := &session.FileStore{Root: sessRoot}
 	makeSess := func(id, title, userContent string) {
@@ -982,7 +982,7 @@ func TestCoddySessionsListFilterByQUserMessage(t *testing.T) {
 	defer ts.Close()
 
 	q := "?q=" + url.QueryEscape("needle")
-	resHTTP, err := http.Get(ts.URL + "/coddy/sessions" + q)
+	resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions" + q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1006,7 +1006,7 @@ func TestCoddySessionsListFilterByQUserMessage(t *testing.T) {
 	}
 }
 
-func TestCoddyMessagesIncludesUILogAfterAgentError(t *testing.T) {
+func TestFoxxyCodeMessagesIncludesUILogAfterAgentError(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	sessRoot := filepath.Join(root, "sessions")
@@ -1046,7 +1046,7 @@ func TestCoddyMessagesIncludesUILogAfterAgentError(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Coddy-Session-ID", sid)
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1056,7 +1056,7 @@ func TestCoddyMessagesIncludesUILogAfterAgentError(t *testing.T) {
 		t.Fatalf("want 500, got %d: %s", res.StatusCode, b)
 	}
 
-	ms, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	ms, err := http.Get(ts.URL + "/foxxycode/sessions/" + sid + "/messages")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1102,7 +1102,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	sid := "sess_test_http_history_01"
 	payload := strings.NewReader(`{"model":"agent","input":"one","stream":false}`)
 	req1, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload)
-	req1.Header.Set("X-Coddy-Session-ID", sid)
+	req1.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res1, err := http.DefaultClient.Do(req1)
 	if err != nil {
 		t.Fatal(err)
@@ -1111,7 +1111,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 
 	payload2 := strings.NewReader(`{"model":"agent","input":"two","stream":false}`)
 	req2, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload2)
-	req2.Header.Set("X-Coddy-Session-ID", sid)
+	req2.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res2, err := http.DefaultClient.Do(req2)
 	if err != nil {
 		t.Fatal(err)
@@ -1121,7 +1121,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 		t.Fatalf("status %d", res2.StatusCode)
 	}
 
-	ms, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	ms, err := http.Get(ts.URL + "/foxxycode/sessions/" + sid + "/messages")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1248,7 +1248,7 @@ func TestResponsesProfileMetadataSelectsYAML(t *testing.T) {
 	}
 }
 
-func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
+func TestFoxxyCodeSessionMessagesIncludesSessionModel(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	sessRoot := filepath.Join(root, "sessions")
@@ -1292,7 +1292,7 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	reqA.Header.Set("Content-Type", "application/json")
-	reqA.Header.Set("X-Coddy-Session-ID", sidA)
+	reqA.Header.Set("X-FoxxyCode-Session-ID", sidA)
 	resA, err := http.DefaultClient.Do(reqA)
 	if err != nil {
 		t.Fatal(err)
@@ -1310,7 +1310,7 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	reqB.Header.Set("Content-Type", "application/json")
-	reqB.Header.Set("X-Coddy-Session-ID", sidB)
+	reqB.Header.Set("X-FoxxyCode-Session-ID", sidB)
 	resB, err := http.DefaultClient.Do(reqB)
 	if err != nil {
 		t.Fatal(err)
@@ -1320,8 +1320,8 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 		t.Fatalf("session B status %d", resB.StatusCode)
 	}
 
-	msgReqA, _ := http.NewRequest(http.MethodGet, ts.URL+"/coddy/sessions/"+sidA+"/messages", nil)
-	msgReqA.Header.Set("X-Coddy-Session-ID", sidA)
+	msgReqA, _ := http.NewRequest(http.MethodGet, ts.URL+"/foxxycode/sessions/"+sidA+"/messages", nil)
+	msgReqA.Header.Set("X-FoxxyCode-Session-ID", sidA)
 	msgResA, err := http.DefaultClient.Do(msgReqA)
 	if err != nil {
 		t.Fatal(err)
@@ -1352,8 +1352,8 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 		t.Fatalf("disk A selectedModelId %q", snapA.Meta.SelectedModelID)
 	}
 
-	msgReqB, _ := http.NewRequest(http.MethodGet, ts.URL+"/coddy/sessions/"+sidB+"/messages", nil)
-	msgReqB.Header.Set("X-Coddy-Session-ID", sidB)
+	msgReqB, _ := http.NewRequest(http.MethodGet, ts.URL+"/foxxycode/sessions/"+sidB+"/messages", nil)
+	msgReqB.Header.Set("X-FoxxyCode-Session-ID", sidB)
 	msgResB, err := http.DefaultClient.Do(msgReqB)
 	if err != nil {
 		t.Fatal(err)
@@ -1370,7 +1370,7 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 	}
 }
 
-func TestCoddySessionPatchSelectedModelId(t *testing.T) {
+func TestFoxxyCodeSessionPatchSelectedModelId(t *testing.T) {
 	mgr, srv, sessRoot := testHTTPServerPersist(t)
 	store := &session.FileStore{Root: sessRoot}
 	ctx := context.Background()
@@ -1384,12 +1384,12 @@ func TestCoddySessionPatchSelectedModelId(t *testing.T) {
 	defer ts.Close()
 
 	body := strings.NewReader(`{"selectedModelId":"openai/gpt-4o"}`)
-	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), body)
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Coddy-Session-ID", sid)
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
 	resHTTP, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1421,9 +1421,9 @@ func TestCoddySessionPatchSelectedModelId(t *testing.T) {
 	}
 
 	bad := strings.NewReader(`{"selectedModelId":"unknown/model"}`)
-	reqBad, _ := http.NewRequest(http.MethodPatch, ts.URL+"/coddy/sessions/"+url.PathEscape(sid), bad)
+	reqBad, _ := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), bad)
 	reqBad.Header.Set("Content-Type", "application/json")
-	reqBad.Header.Set("X-Coddy-Session-ID", sid)
+	reqBad.Header.Set("X-FoxxyCode-Session-ID", sid)
 	resBad, err := http.DefaultClient.Do(reqBad)
 	if err != nil {
 		t.Fatal(err)
@@ -1445,7 +1445,7 @@ func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	sid := "sess_direct_model_persist"
 	payload := strings.NewReader(`{"model":"openai/gpt-4o","input":"one","stream":false}`)
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload)
-	req.Header.Set("X-Coddy-Session-ID", sid)
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1455,7 +1455,7 @@ func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 
-	ms, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	ms, err := http.Get(ts.URL + "/foxxycode/sessions/" + sid + "/messages")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1487,7 +1487,7 @@ func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	}
 }
 
-func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
+func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	skillsDir := filepath.Join(root, "skills")
@@ -1521,7 +1521,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	res, err := http.Get(ts.URL + "/coddy/slash-commands?page=x&page_size=10")
+	res, err := http.Get(ts.URL + "/foxxycode/slash-commands?page=x&page_size=10")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1533,7 +1533,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatalf("bad page status %d %s", res.StatusCode, b)
 	}
 
-	rm, err := http.Get(ts.URL + "/coddy/slash-commands?page=1")
+	rm, err := http.Get(ts.URL + "/foxxycode/slash-commands?page=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1545,7 +1545,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatalf("missing page_size: status %d %s", rm.StatusCode, bm)
 	}
 
-	r1, err := http.Get(ts.URL + "/coddy/slash-commands?page=1&page_size=1")
+	r1, err := http.Get(ts.URL + "/foxxycode/slash-commands?page=1&page_size=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1562,7 +1562,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
 	}
 
-	rp, err := http.Get(ts.URL + "/coddy/slash-commands?page=1&page_size=10&prefix=z")
+	rp, err := http.Get(ts.URL + "/foxxycode/slash-commands?page=1&page_size=10&prefix=z")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1579,7 +1579,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 	}
 }
 
-func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
+func TestFoxxyCodeWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
 	skillsDir := filepath.Join(root, "skills")
@@ -1612,7 +1612,7 @@ func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	emptyPref, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10")
+	emptyPref, err := http.Get(ts.URL + "/foxxycode/workspace/files?page=1&page_size=10")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1628,7 +1628,7 @@ func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 		t.Fatalf("empty prefix: status=%d %+v", emptyPref.StatusCode, emptyBody)
 	}
 
-	rsp, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10&prefix=space")
+	rsp, err := http.Get(ts.URL + "/foxxycode/workspace/files?page=1&page_size=10&prefix=space")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1645,7 +1645,7 @@ func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 		t.Fatalf("space prefix: status=%d %+v", rsp.StatusCode, body)
 	}
 
-	ci, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10&prefix=mixedcasego")
+	ci, err := http.Get(ts.URL + "/foxxycode/workspace/files?page=1&page_size=10&prefix=mixedcasego")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1662,7 +1662,7 @@ func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 		t.Fatalf("case-insensitive prefix: status=%d %+v", ci.StatusCode, cib)
 	}
 
-	rd, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10&prefix=pkg&dirs=true")
+	rd, err := http.Get(ts.URL + "/foxxycode/workspace/files?page=1&page_size=10&prefix=pkg&dirs=true")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1737,7 +1737,7 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	payload := `{"model":"agent","input":"read @note.txt","stream":false,"attachments":[{"path":"note.txt"}]}`
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Coddy-Session-ID", sid)
+	req.Header.Set("X-FoxxyCode-Session-ID", sid)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -1757,7 +1757,7 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 }
 
-func TestCoddyConfigSchemaValidateAndPut(t *testing.T) {
+func TestFoxxyCodeConfigSchemaValidateAndPut(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
 	yml := `
@@ -1789,7 +1789,7 @@ agent:
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	res, err := http.Get(ts.URL + "/coddy/config/schema")
+	res, err := http.Get(ts.URL + "/foxxycode/config/schema")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1806,7 +1806,7 @@ agent:
 	}
 
 	jbody := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],"agent":{"model":"openai/gpt-4o","max_turns":12}}`
-	vreq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/config/validate", strings.NewReader(jbody))
+	vreq, _ := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/config/validate", strings.NewReader(jbody))
 	vreq.Header.Set("Content-Type", "application/json")
 	vres, err := http.DefaultClient.Do(vreq)
 	if err != nil {
@@ -1817,7 +1817,7 @@ agent:
 		t.Fatalf("validate status %d %s", vres.StatusCode, string(vb))
 	}
 
-	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(jbody))
+	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/foxxycode/config", strings.NewReader(jbody))
 	putReq.Header.Set("Content-Type", "application/json")
 	putRes, err := http.DefaultClient.Do(putReq)
 	if err != nil {

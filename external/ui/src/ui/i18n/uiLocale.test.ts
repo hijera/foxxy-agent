@@ -3,16 +3,16 @@ import {
   bootstrapUiLocaleFromUrlOrCookie,
   readUiLocaleFromUrl,
 } from "./uiLocale";
-import { CODDY_UI_LANG_COOKIE } from "./localeCookie";
+import { FOXXYCODE_UI_LANG_COOKIE } from "./localeCookie";
 
 describe("uiLocale bootstrap", () => {
   beforeEach(() => {
-    document.cookie = `${CODDY_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
     document.documentElement.lang = "en";
   });
 
   afterEach(() => {
-    document.cookie = `${CODDY_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=; Max-Age=0; Path=/`;
     document.documentElement.lang = "en";
   });
 
@@ -31,7 +31,7 @@ describe("uiLocale bootstrap", () => {
       value: new URL("http://127.0.0.1/"),
       configurable: true,
     });
-    document.cookie = `${CODDY_UI_LANG_COOKIE}=ru; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=ru; Path=/`;
     expect(bootstrapUiLocaleFromUrlOrCookie()).toBe("ru");
   });
 });

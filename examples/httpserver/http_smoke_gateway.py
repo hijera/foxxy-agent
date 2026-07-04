@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal HTTP probe for a running `coddy http` (OpenAI-shaped routes).
+"""Minimal HTTP probe for a running `foxxycode http` (OpenAI-shaped routes).
 
 Environment: ``BASE_URL`` (default ``http://127.0.0.1:19876/v1``), ``MODEL`` (YAML selector from config).
 Requires a working LLM backend for chat and responses steps.
@@ -60,7 +60,7 @@ def main() -> int:
     if code != 200:
         print("bad /chat/completions code", code, cc, file=sys.stderr)
         return 1
-    sid = (headers.get("X-Coddy-Session-Id") or headers.get("X-Coddy-Session-ID") or "").strip()
+    sid = (headers.get("X-FoxxyCode-Session-Id") or headers.get("X-FoxxyCode-Session-ID") or "").strip()
     content = (((cc.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
     if not content:
         print("empty chat completion content", cc, file=sys.stderr)
@@ -70,7 +70,7 @@ def main() -> int:
         "POST",
         f"{base}/responses",
         {"model": model, "input": "Say 'pong' only."},
-        {"X-Coddy-Session-ID": sid} if sid else {},
+        {"X-FoxxyCode-Session-ID": sid} if sid else {},
     )
     if code != 200 or resp.get("object") != "response":
         print("bad /responses", resp, file=sys.stderr)

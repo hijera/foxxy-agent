@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { CODDY_UI_THEME_COOKIE, UI_THEME_IDS } from "./themeCookie";
+import { FOXXYCODE_UI_THEME_COOKIE, UI_THEME_IDS } from "./themeCookie";
 import {
   applyUiTheme,
   bootstrapUiThemeFromCookie,
@@ -9,7 +9,7 @@ import {
 } from "./uiTheme";
 
 afterEach(() => {
-  document.cookie = `${CODDY_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
+  document.cookie = `${FOXXYCODE_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.style.removeProperty("color-scheme");
 });
@@ -68,7 +68,7 @@ test("setUiTheme persists cookie and applies theme", () => {
   });
   setUiTheme("nord");
   expect(readAppliedUiTheme()).toBe("nord");
-  expect(document.cookie).toContain(`${CODDY_UI_THEME_COOKIE}=nord`);
+  expect(document.cookie).toContain(`${FOXXYCODE_UI_THEME_COOKIE}=nord`);
 });
 
 test("setUiTheme light sets color-scheme=light", () => {

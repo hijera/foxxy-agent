@@ -19,7 +19,7 @@ const arraySchema: JsonSchema = {
         enum: ["openai", "anthropic"],
       },
     },
-    "x-coddy-property-order": ["name", "type"],
+    "x-foxxycode-property-order": ["name", "type"],
   },
 } as unknown as JsonSchema;
 

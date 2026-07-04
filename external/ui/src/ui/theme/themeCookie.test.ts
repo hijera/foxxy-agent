@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import {
-  CODDY_UI_THEME_COOKIE,
+  FOXXYCODE_UI_THEME_COOKIE,
   UI_THEME_IDS,
   readUiThemeCookie,
   writeUiThemeCookie,
@@ -13,14 +13,14 @@ test("write then read ui theme cookie for all themes", () => {
     configurable: true,
   });
   for (const id of UI_THEME_IDS) {
-    document.cookie = `${CODDY_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
+    document.cookie = `${FOXXYCODE_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
     writeUiThemeCookie(id);
     expect(readUiThemeCookie()).toBe(id);
   }
 });
 
 test("dark and light round-trip", () => {
-  document.cookie = `${CODDY_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
+  document.cookie = `${FOXXYCODE_UI_THEME_COOKIE}=; Max-Age=0; Path=/`;
   Object.defineProperty(window, "location", {
     value: new URL("http://127.0.0.1:5173/"),
     configurable: true,
@@ -32,7 +32,7 @@ test("dark and light round-trip", () => {
 });
 
 test("invalid cookie value is ignored", () => {
-  document.cookie = `${CODDY_UI_THEME_COOKIE}=sepia; Path=/`;
+  document.cookie = `${FOXXYCODE_UI_THEME_COOKIE}=sepia; Path=/`;
   expect(readUiThemeCookie()).toBeNull();
 });
 

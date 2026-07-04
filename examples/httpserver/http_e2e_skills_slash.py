@@ -3,8 +3,8 @@
 
 ACP twin: ``examples/acp/acp_e2e_skills_slash.py``.
 
-Needs a running ``coddy http`` built with **http** (and **scheduler** if you use the default examples binary), using ``examples/config.demo.yaml`` with ``skills.install_dir``
-and ``skills.dirs`` set to ``${CODDY_HOME}/skills_fixture``. The full HTTP harness copies ``examples/skills_fixture/`` there (``examples/httpserver/test_httpserver.sh``).
+Needs a running ``foxxycode http`` built with **http** (and **scheduler** if you use the default examples binary), using ``examples/config.demo.yaml`` with ``skills.install_dir``
+and ``skills.dirs`` set to ``${FOXXYCODE_HOME}/skills_fixture``. The full HTTP harness copies ``examples/skills_fixture/`` there (``examples/httpserver/test_httpserver.sh``).
 
 Calls a real configured LLM via ``POST /v1/responses`` (``model``: ``agent`` or ``plan``).
 
@@ -12,12 +12,12 @@ Environment:
 
 - ``BASE_URL`` - OpenAI-compatible base ending in ``/v1`` (default ``http://127.0.0.1:19876/v1``).
 - ``MODEL`` - YAML ``models[].model`` id (default ``rpa/gpt-oss:120b``), same as other HTTP e2e harnesses.
-- ``CODDY_CHAT_PROFILE`` - Coddy profile for ``POST /v1/responses`` (default ``agent``).
+- ``FOXXYCODE_CHAT_PROFILE`` - FoxxyCode profile for ``POST /v1/responses`` (default ``agent``).
 
 Checks:
 
-1. ``GET /coddy/slash-commands`` lists the fixture command ``coddy_slash_demo``.
-2. Agent reply includes ``DEMO_SKILL_TOKEN:z7k9-demo-slash`` after a prompt that starts with ``/coddy_slash_demo``.
+1. ``GET /foxxycode/slash-commands`` lists the fixture command ``foxxycode_slash_demo``.
+2. Agent reply includes ``DEMO_SKILL_TOKEN:z7k9-demo-slash`` after a prompt that starts with ``/foxxycode_slash_demo``.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ import urllib.request
 from typing import Any, Tuple
 
 
-FIXTURE_SLASH_NAME = "coddy_slash_demo"
+FIXTURE_SLASH_NAME = "foxxycode_slash_demo"
 VERIFICATION_TOKEN = "DEMO_SKILL_TOKEN:z7k9-demo-slash"
 
 
@@ -62,7 +62,7 @@ def openai_v1_base() -> str:
     return os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
 
 
-def coddy_http_origin(v1: str) -> str:
+def foxxycode_http_origin(v1: str) -> str:
     if v1.endswith("/v1"):
         return v1[:-3].rstrip("/") or v1
     return v1.rstrip("/")
@@ -70,18 +70,18 @@ def coddy_http_origin(v1: str) -> str:
 
 def main() -> int:
     v1 = openai_v1_base()
-    origin = coddy_http_origin(v1)
+    origin = foxxycode_http_origin(v1)
     yaml_model = os.environ.get("MODEL", "rpa/gpt-oss:120b").strip()
-    profile = os.environ.get("CODDY_CHAT_PROFILE", "agent").strip()
+    profile = os.environ.get("FOXXYCODE_CHAT_PROFILE", "agent").strip()
 
     code, page, _ = http_json(
         "GET",
-        f"{origin}/coddy/slash-commands?page=1&page_size=50",
+        f"{origin}/foxxycode/slash-commands?page=1&page_size=50",
         None,
         {},
     )
     if code != 200:
-        print("bad /coddy/slash-commands", code, page, file=sys.stderr)
+        print("bad /foxxycode/slash-commands", code, page, file=sys.stderr)
         return 1
     names = [str((it or {}).get("name") or "") for it in (page.get("items") or [])]
     if FIXTURE_SLASH_NAME not in names:
@@ -115,7 +115,7 @@ def main() -> int:
         print("model output missing skill token", text[:800], file=sys.stderr)
         return 1
 
-    sid = (headers.get("x-coddy-session-id") or "").strip()
+    sid = (headers.get("x-foxxycode-session-id") or "").strip()
     code, ctrl, _ = http_json(
         "POST",
         f"{v1}/responses",
@@ -125,7 +125,7 @@ def main() -> int:
             "stream": False,
             "metadata": {"model": yaml_model},
         },
-        {"X-Coddy-Session-ID": sid} if sid else {},
+        {"X-FoxxyCode-Session-ID": sid} if sid else {},
     )
     if code != 200:
         print("bad control /v1/responses", code, ctrl, file=sys.stderr)

@@ -1,6 +1,6 @@
 # Project rules
 
-Coddy discovers project rules from the session working directory and injects them into the system prompt via **`{{.Rules}}`**, separate from skills (**`{{.Skills}}`**).
+FoxxyCode discovers project rules from the session working directory and injects them into the system prompt via **`{{.Rules}}`**, separate from skills (**`{{.Skills}}`**).
 
 ## Prompt order
 
@@ -15,18 +15,18 @@ From top to bottom in the rendered system message:
 
 ## Discovery
 
-When `rules.auto_discover` is true (default), Coddy scans:
+When `rules.auto_discover` is true (default), FoxxyCode scans:
 
 | Source | Path |
 |--------|------|
-| Coddy | `.coddy/rules/` |
+| FoxxyCode | `.foxxycode/rules/` |
 | Cursor | `.cursor/rules/` |
 | Claude | `.claude/rules/` |
 | Codex | `.codex/rules/` (markdown only in v1) |
 
-Duplicate rule files (same basename) resolve with precedence: **coddy > cursor > claude > codex**.
+Duplicate rule files (same basename) resolve with precedence: **foxxycode > cursor > claude > codex**.
 
-CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog.
+CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog.
 
 ## Activation
 
@@ -50,20 +50,20 @@ These are unconditional; they do not use `alwaysApply` or `@mention`.
 
 ## Generating rules
 
-Use the bundled skill **`/generate-rules`**. It is always available (embedded in the binary) and guides the agent to write focused `.coddy/rules/*.mdc` files via filesystem tools.
+Use the bundled skill **`/generate-rules`**. It is always available (embedded in the binary) and guides the agent to write focused `.foxxycode/rules/*.mdc` files via filesystem tools.
 
-There is no `coddy rules generate` CLI subcommand.
+There is no `foxxycode rules generate` CLI subcommand.
 
 ## Context breakdown (UI)
 
-After each agent turn, Coddy estimates tokens per category (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`) and exposes them on **`GET /coddy/sessions/{id}/stats`** as `contextBreakdown`. The composer context ring opens a breakdown popover on click.
+After each agent turn, FoxxyCode estimates tokens per category (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`) and exposes them on **`GET /foxxycode/sessions/{id}/stats`** as `contextBreakdown`. The composer context ring opens a breakdown popover on click.
 
 ## Configuration
 
 ```yaml
 rules:
   auto_discover: true
-  systems: []   # optional filter: coddy, cursor, claude, codex
+  systems: []   # optional filter: foxxycode, cursor, claude, codex
 ```
 
 ## References

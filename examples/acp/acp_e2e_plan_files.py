@@ -5,10 +5,10 @@ Verifies on disk (not only model prose):
 
 - ``plans/e2e-plan.plan.md`` exists under the session bundle and contains ``PLAN_E2E_MARKER_v1``
 - ``plan_write`` appears in ACP ``tool_call`` updates during the plan turn
-- After ``session/prompt`` with ``_meta.coddy.dev/runPlanSlug``, agent creates ``plan_e2e_done.txt``
+- After ``session/prompt`` with ``_meta.foxxycode.dev/runPlanSlug``, agent creates ``plan_e2e_done.txt``
   in the session cwd containing ``PLAN_RUN_E2E_OK``
 
-Environment: ``CODDY_BIN``, ``CODDY_CONFIG``, ``SESSION_ROOT``, ``SESSION_ID``.
+Environment: ``FOXXYCODE_BIN``, ``FOXXYCODE_CONFIG``, ``SESSION_ROOT``, ``SESSION_ID``.
 """
 
 from __future__ import annotations
@@ -49,11 +49,11 @@ def same_id(a: Any, b: Any) -> bool:
         return False
 
 
-def default_coddy_bin() -> str:
+def default_foxxycode_bin() -> str:
     import shutil as sh
 
-    exe = sh.which("coddy")
-    return exe if exe else "coddy"
+    exe = sh.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def default_config() -> str:
@@ -83,7 +83,7 @@ def rpc_call(
             raise TimeoutError(f"timed out waiting for {method} response")
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -155,20 +155,20 @@ def has_design_plan_update(backlog: list[dict[str, Any]], slug: str) -> bool:
         if u.get("sessionUpdate") != "plan":
             continue
         meta = u.get("_meta") or {}
-        if meta.get("coddy.dev/planKind") == "design" and meta.get("coddy.dev/planSlug") == slug:
+        if meta.get("foxxycode.dev/planKind") == "design" and meta.get("foxxycode.dev/planSlug") == slug:
             return True
     return False
 
 
 def main() -> int:
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
-    cfg = os.environ.get("CODDY_CONFIG", default_config())
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
+    cfg = os.environ.get("FOXXYCODE_CONFIG", default_config())
     session_root = Path(
-        os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp-plan")
+        os.environ.get("SESSION_ROOT", "/tmp/foxxycode-examples-acp-plan")
     ).resolve()
     session_id = os.environ.get("SESSION_ID", "example-acp-plan")
 
-    work = Path(tempfile.mkdtemp(prefix="coddy-acp-plan-")).resolve()
+    work = Path(tempfile.mkdtemp(prefix="foxxycode-acp-plan-")).resolve()
     session_root.mkdir(parents=True, exist_ok=True)
     sdir = session_root / session_id
     if sdir.is_dir():
@@ -268,7 +268,7 @@ def main() -> int:
 
         if not has_design_plan_update(plan_backlog, PLAN_SLUG):
             print(
-                "warn: no design plan session/update (_meta coddy.dev/planKind=design)",
+                "warn: no design plan session/update (_meta foxxycode.dev/planKind=design)",
                 file=sys.stderr,
             )
 
@@ -282,7 +282,7 @@ def main() -> int:
             {
                 "sessionId": sid,
                 "prompt": [{"type": "text", "text": "Implement the plan."}],
-                "_meta": {"coddy.dev/runPlanSlug": PLAN_SLUG},
+                "_meta": {"foxxycode.dev/runPlanSlug": PLAN_SLUG},
             },
             nid,
             timeout_s=420,

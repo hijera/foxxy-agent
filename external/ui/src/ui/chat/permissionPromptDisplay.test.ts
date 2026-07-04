@@ -3,9 +3,9 @@ import {
   permissionPromptDetail,
   permissionPromptTitle,
 } from "./permissionPromptDisplay";
-import type { CoddyPermissionPayload } from "./permissionTypes";
+import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 
-const basePayload = (): CoddyPermissionPayload => ({
+const basePayload = (): FoxxyCodePermissionPayload => ({
   sessionId: "sess_x",
   toolCall: {
     toolCallId: "call_1",

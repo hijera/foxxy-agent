@@ -1,8 +1,8 @@
 package todo
 
 import (
-	"github.com/hijera/foxxy-agent/internal/acp"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func sendPlanUpdate(env *tooling.Env, entries []acp.PlanEntry) {

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // ToolInfo describes a tool provided by an MCP server.
@@ -163,7 +163,7 @@ func (c *Client) initialize(ctx context.Context) error {
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]interface{}{},
 		"clientInfo": map[string]interface{}{
-			"name":    "coddy-agent",
+			"name":    "foxxycode-agent",
 			"version": "0.1.0",
 		},
 	})

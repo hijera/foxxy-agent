@@ -9,7 +9,7 @@ type InstalledSkill = {
 };
 
 async function fetchInstalled(): Promise<InstalledSkill[]> {
-  const res = await fetch("/coddy/skills");
+  const res = await fetch("/foxxycode/skills");
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: InstalledSkill[] };
   return data.items ?? [];
@@ -71,7 +71,7 @@ export function SkillsSection(props: {
     setError(null);
     void (async () => {
       const action = skill.enabled ? "disable" : "enable";
-      const res = await apiPost(`/coddy/skills/${encodeURIComponent(skill.name)}/${action}`);
+      const res = await apiPost(`/foxxycode/skills/${encodeURIComponent(skill.name)}/${action}`);
       if (!res.ok) {
         setError(res.error || `Failed to ${action}`);
       } else {

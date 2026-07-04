@@ -8,16 +8,16 @@ import (
 	"fmt"
 	"strings"
 
-	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	memstorage "github.com/hijera/foxxycode-agent/external/memory/storage"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func memoryListTool(store *memstorage.Store) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        NameList,
-			Description: "List directories and memory files (.md/.txt) one level under a scope-relative path. Use coddy_memory_mkdir before saving into a new folder.",
+			Description: "List directories and memory files (.md/.txt) one level under a scope-relative path. Use foxxycode_memory_mkdir before saving into a new folder.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

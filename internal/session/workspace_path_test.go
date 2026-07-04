@@ -3,7 +3,7 @@ package session_test
 import (
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 func TestNormalizeWorkspaceRelativePathRejectsTraversal(t *testing.T) {

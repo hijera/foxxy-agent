@@ -3,7 +3,7 @@ package tools
 import (
 	"strings"
 
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 // FormatDefinitionsForPrompt builds a concise markdown list of tool names and descriptions

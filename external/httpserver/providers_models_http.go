@@ -6,29 +6,29 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 func (s *Server) registerProvidersRoutes() {
-	s.mux.HandleFunc("GET /coddy/providers/{name}/models", s.coddyProviderModelsGet)
+	s.mux.HandleFunc("GET /foxxycode/providers/{name}/models", s.foxxycodeProviderModelsGet)
 }
 
-// coddyProviderModelsGet fetches the model list advertised by a configured
+// foxxycodeProviderModelsGet fetches the model list advertised by a configured
 // provider's server. The provider is resolved from the active config by name, so
 // its credentials (api_key / api_key_command / NAME_API_KEY env) and proxy apply
 // without sending secrets over the wire. On a successful upstream call it returns
 // {"ok":true,"models":[{"id","name"}]}; on failure it returns
 // {"ok":false,"error":...,"models":[]} with HTTP 200 so the UI can fall back to
 // manual model entry. An unknown provider name returns 404.
-func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) foxxycodeProviderModelsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	c := s.activeCfg()
 	if c == nil {
-		writeCoddyConfigErr(w, http.StatusInternalServerError, "config unavailable")
+		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config unavailable")
 		return
 	}
 	name := r.PathValue("name")
@@ -40,7 +40,7 @@ func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if prov == nil {
-		writeCoddyConfigErr(w, http.StatusNotFound, "unknown provider")
+		writeFoxxyCodeConfigErr(w, http.StatusNotFound, "unknown provider")
 		return
 	}
 

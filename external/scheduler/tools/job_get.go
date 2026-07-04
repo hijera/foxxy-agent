@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/service"
-	"github.com/hijera/foxxy-agent/internal/config"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	"github.com/hijera/foxxycode-agent/external/scheduler/service"
+	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func jobGetTool(cfg *config.Config) *tooling.Tool {
@@ -19,7 +19,7 @@ func jobGetTool(cfg *config.Config) *tooling.Tool {
 			Name: toolJobGet,
 			Description: "Loads a single scheduler job by job_id (the *.md basename without path or extension under scheduler.dir). " +
 				"Returns full SchedulerJob JSON including the instruction body plus next/last run metadata. " +
-				"Use after jobs_list when you need details for one job. Not for listing runs (use coddy_scheduler_job_runs). job_id must not contain slashes or '..'.",
+				"Use after jobs_list when you need details for one job. Not for listing runs (use foxxycode_scheduler_job_runs). job_id must not contain slashes or '..'.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

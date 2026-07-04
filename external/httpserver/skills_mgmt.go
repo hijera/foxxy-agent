@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 func (s *Server) registerSkillsManagementRoutes() {
-	s.mux.HandleFunc("GET /coddy/skills", s.coddySkillsGet)
-	s.mux.HandleFunc("POST /coddy/skills/{name}/enable", s.coddySkillsEnablePost)
-	s.mux.HandleFunc("POST /coddy/skills/{name}/disable", s.coddySkillsDisablePost)
+	s.mux.HandleFunc("GET /foxxycode/skills", s.foxxycodeSkillsGet)
+	s.mux.HandleFunc("POST /foxxycode/skills/{name}/enable", s.foxxycodeSkillsEnablePost)
+	s.mux.HandleFunc("POST /foxxycode/skills/{name}/disable", s.foxxycodeSkillsDisablePost)
 }
 
 type skillRowResponse struct {
@@ -23,8 +23,8 @@ type skillRowResponse struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-// coddySkillsGet lists all skills with their enabled/disabled state.
-func (s *Server) coddySkillsGet(w http.ResponseWriter, r *http.Request) {
+// foxxycodeSkillsGet lists all skills with their enabled/disabled state.
+func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
@@ -65,13 +65,13 @@ func (s *Server) coddySkillsGet(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "coddy.skills_list",
+		"object": "foxxycode.skills_list",
 		"items":  rows,
 	})
 }
 
-// coddySkillsEnablePost removes a skill from the disabled list.
-func (s *Server) coddySkillsEnablePost(w http.ResponseWriter, r *http.Request) {
+// foxxycodeSkillsEnablePost removes a skill from the disabled list.
+func (s *Server) foxxycodeSkillsEnablePost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return
@@ -90,8 +90,8 @@ func (s *Server) coddySkillsEnablePost(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
-// coddySkillsDisablePost adds a skill to the disabled list.
-func (s *Server) coddySkillsDisablePost(w http.ResponseWriter, r *http.Request) {
+// foxxycodeSkillsDisablePost adds a skill to the disabled list.
+func (s *Server) foxxycodeSkillsDisablePost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
 		return

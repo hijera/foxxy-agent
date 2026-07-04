@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const cancelRequestFile = ".coddy-cancel-request"
+const cancelRequestFile = ".foxxycode-cancel-request"
 
 type cancelRequestPayload struct {
 	RequestedAtRFC3339 string `json:"requestedAt"`

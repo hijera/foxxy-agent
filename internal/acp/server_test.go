@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 )
 
 // mockHandler implements acp.Handler for testing.

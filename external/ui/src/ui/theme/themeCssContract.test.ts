@@ -15,9 +15,9 @@ function cssText(): string {
 
 test("canvas background uses theme variables", () => {
   const css = cssText();
-  expect(css).toMatch(/--coddy-canvas-gradient-bottom:/);
+  expect(css).toMatch(/--foxxycode-canvas-gradient-bottom:/);
   expect(css).toMatch(
-    /background-color:\s*var\(--coddy-canvas-gradient-bottom\)/,
+    /background-color:\s*var\(--foxxycode-canvas-gradient-bottom\)/,
   );
 });
 
@@ -26,7 +26,7 @@ test("index.html bootstraps theme before paint", () => {
     join(dirname(fileURLToPath(import.meta.url)), "../../index.html"),
     "utf8",
   );
-  expect(html).toContain("coddy_ui_theme");
+  expect(html).toContain("foxxycode_ui_theme");
   expect(html).toContain("dataset.theme");
 });
 

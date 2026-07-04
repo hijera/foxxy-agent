@@ -19,7 +19,7 @@ var (
 	ErrLauncherNotConfigured = errors.New("scheduler manual launcher not wired")
 )
 
-// HTTPErrStatus maps domain errors to HTTP status codes for /coddy/scheduler handlers.
+// HTTPErrStatus maps domain errors to HTTP status codes for /foxxycode/scheduler handlers.
 func HTTPErrStatus(err error) int {
 	switch {
 	case err == nil:

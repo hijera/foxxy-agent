@@ -5,7 +5,7 @@ Runs one prompt that forces at least one tool call, then verifies
 - ACP session/update stream includes tool_call and tool_call_update
 - session folder contains tool_calls/<toolCallId> with args.json, result.md, meta.json
 
-Environment: CODDY_BIN, CODDY_CONFIG, SESSION_ROOT, SESSION_ID.
+Environment: FOXXYCODE_BIN, FOXXYCODE_CONFIG, SESSION_ROOT, SESSION_ID.
 """
 
 from __future__ import annotations
@@ -33,9 +33,9 @@ def same_id(a: Any, b: Any) -> bool:
         return False
 
 
-def default_coddy_bin() -> str:
-    exe = shutil.which("coddy")
-    return exe if exe else "coddy"
+def default_foxxycode_bin() -> str:
+    exe = shutil.which("foxxycode")
+    return exe if exe else "foxxycode"
 
 
 def default_config() -> str:
@@ -59,7 +59,7 @@ def rpc_call(
     while True:
         line = proc.stdout.readline()
         if not line:
-            raise RuntimeError("unexpected EOF from coddy stdout")
+            raise RuntimeError("unexpected EOF from foxxycode stdout")
         line = line.strip()
         if not line:
             continue
@@ -106,12 +106,12 @@ def extract_tool_events(backlog: list[dict[str, Any]]) -> tuple[list[dict[str, A
 
 
 def main() -> int:
-    binary = os.environ.get("CODDY_BIN", default_coddy_bin())
-    cfg = os.environ.get("CODDY_CONFIG", default_config())
-    session_root = Path(os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp-toolcalls")).resolve()
+    binary = os.environ.get("FOXXYCODE_BIN", default_foxxycode_bin())
+    cfg = os.environ.get("FOXXYCODE_CONFIG", default_config())
+    session_root = Path(os.environ.get("SESSION_ROOT", "/tmp/foxxycode-examples-acp-toolcalls")).resolve()
     session_id = os.environ.get("SESSION_ID", "example-acp-toolcalls-persist")
 
-    work = Path(tempfile.mkdtemp(prefix="coddy-acp-toolcalls-")).resolve()
+    work = Path(tempfile.mkdtemp(prefix="foxxycode-acp-toolcalls-")).resolve()
     session_root.mkdir(parents=True, exist_ok=True)
     sdir = session_root / session_id
     if sdir.is_dir():

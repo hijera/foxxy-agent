@@ -10,7 +10,7 @@ type ProviderModelsResponse = {
 
 /**
  * useProviderModels fetches the model list advertised by a saved provider's
- * server via GET /coddy/providers/{name}/models. On failure (HTTP error or
+ * server via GET /foxxycode/providers/{name}/models. On failure (HTTP error or
  * ok:false) it surfaces an error and an empty list so callers fall back to
  * manual model entry. `fetched` flips true once a request has completed.
  */
@@ -28,7 +28,7 @@ export function useProviderModels() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/coddy/providers/${encodeURIComponent(name)}/models`);
+      const res = await fetch(`/foxxycode/providers/${encodeURIComponent(name)}/models`);
       const data = (await res.json().catch(() => ({}))) as ProviderModelsResponse;
       if (!res.ok || !data.ok) {
         setModels([]);

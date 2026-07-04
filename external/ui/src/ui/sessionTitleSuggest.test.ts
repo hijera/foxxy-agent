@@ -16,19 +16,19 @@ test("describe is requested before session id promise resolves", async () => {
 
   const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/coddy/describe")) {
+    if (url.includes("/foxxycode/describe")) {
       order.push("describe");
       return new Response(
-        JSON.stringify({ object: "coddy.describe", short: "My title" }),
+        JSON.stringify({ object: "foxxycode.describe", short: "My title" }),
         {
           status: 200,
           headers: { "Content-Type": "application/json" },
         },
       );
     }
-    if (url.includes("/coddy/sessions/sess_x") && !url.includes("/messages")) {
+    if (url.includes("/foxxycode/sessions/sess_x") && !url.includes("/messages")) {
       order.push("patch");
-      return new Response(JSON.stringify({ object: "coddy.session_patched" }), {
+      return new Response(JSON.stringify({ object: "foxxycode.session_patched" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -65,16 +65,16 @@ test("onShortReady runs after describe and before PATCH resolves", async () => {
 
   const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/coddy/describe")) {
+    if (url.includes("/foxxycode/describe")) {
       order.push("describe");
       return new Response(JSON.stringify({ short: "Fast title" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
-    if (url.includes("/coddy/sessions/sess_x") && !url.includes("/messages")) {
+    if (url.includes("/foxxycode/sessions/sess_x") && !url.includes("/messages")) {
       order.push("patch");
-      return new Response(JSON.stringify({ object: "coddy.session_patched" }), {
+      return new Response(JSON.stringify({ object: "foxxycode.session_patched" }), {
         status: 200,
       });
     }
@@ -109,18 +109,18 @@ test("retries PATCH when session returns 404 until ok", async () => {
   let patchAttempts = 0;
   const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/coddy/describe")) {
+    if (url.includes("/foxxycode/describe")) {
       return new Response(JSON.stringify({ short: "T" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
-    if (url.includes("/coddy/sessions/sid1")) {
+    if (url.includes("/foxxycode/sessions/sid1")) {
       patchAttempts++;
       if (patchAttempts < 3) {
         return new Response("missing", { status: 404 });
       }
-      return new Response(JSON.stringify({ object: "coddy.session_patched" }), {
+      return new Response(JSON.stringify({ object: "foxxycode.session_patched" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

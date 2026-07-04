@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // TestConfigJSON_PreservesTelegramGateway is the regression for the data-loss bug:
@@ -15,7 +15,7 @@ import (
 // → MarshalConfigYAML) used to drop the entire gateways block, disabling the bot.
 func TestConfigJSON_PreservesTelegramGateway(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.EnvCODDYHome, home)
+	t.Setenv(config.EnvFOXXYCODEHome, home)
 	yml := `
 providers:
   - name: openai
@@ -53,7 +53,7 @@ gateways:
 		t.Fatal(err)
 	}
 
-	// Simulate the PUT /coddy/config round-trip.
+	// Simulate the PUT /foxxycode/config round-trip.
 	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
 	if err != nil {
 		t.Fatal(err)

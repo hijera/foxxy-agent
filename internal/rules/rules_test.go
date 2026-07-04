@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/rules"
+	"github.com/hijera/foxxycode-agent/internal/rules"
 )
 
 func TestMatchAutoStickyGlob(t *testing.T) {
 	r := &rules.Rule{
-		ID:          "coddy:/tmp/go.mdc",
+		ID:          "foxxycode:/tmp/go.mdc",
 		Name:        "go-standards",
 		AlwaysApply: true,
 		ApplyMode:   rules.ApplyAuto,
@@ -36,7 +36,7 @@ func TestMatchAutoStickyGlob(t *testing.T) {
 
 func TestMentionOnlyNoAuto(t *testing.T) {
 	r := &rules.Rule{
-		ID:          "coddy:/tmp/manual.mdc",
+		ID:          "foxxycode:/tmp/manual.mdc",
 		Name:        "manual-rule",
 		AlwaysApply: false,
 		ApplyMode:   rules.ApplyMention,
@@ -77,13 +77,13 @@ func TestRenderPromptDedupe(t *testing.T) {
 
 func TestDiscoverPrecedence(t *testing.T) {
 	tmp := t.TempDir()
-	for _, sub := range []string{".cursor/rules", ".coddy/rules"} {
+	for _, sub := range []string{".cursor/rules", ".foxxycode/rules"} {
 		if err := os.MkdirAll(filepath.Join(tmp, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	_ = os.WriteFile(filepath.Join(tmp, ".cursor/rules", "dup.mdc"), []byte("---\nalwaysApply: true\nglobs: ['**/*']\n---\nfrom cursor"), 0o644)
-	_ = os.WriteFile(filepath.Join(tmp, ".coddy/rules", "dup.mdc"), []byte("---\nalwaysApply: true\nglobs: ['**/*']\n---\nfrom coddy"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, ".foxxycode/rules", "dup.mdc"), []byte("---\nalwaysApply: true\nglobs: ['**/*']\n---\nfrom foxxycode"), 0o644)
 	got, err := rules.DefaultFactory().Discover(tmp, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -91,8 +91,8 @@ func TestDiscoverPrecedence(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("dedupe expected 1, got %d", len(got))
 	}
-	if !strings.Contains(got[0].Content, "from coddy") {
-		t.Fatalf("want coddy win, got %q", got[0].Content)
+	if !strings.Contains(got[0].Content, "from foxxycode") {
+		t.Fatalf("want foxxycode win, got %q", got[0].Content)
 	}
 }
 

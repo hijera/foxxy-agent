@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/plans"
 )
 
 func TestMarkPlanDocumentDiscardedPersistsInMessages(t *testing.T) {

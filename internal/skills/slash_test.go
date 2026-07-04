@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hijera/foxxy-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/skills"
 )
 
 func TestCanonicalCommandName_rootAndSubdir(t *testing.T) {
@@ -51,22 +51,22 @@ func TestParseInvokedCommandNames_whitespaceSlashMidLine(t *testing.T) {
 	}
 }
 
-func TestParseInvokedCommandNames_coddySkillPickLink(t *testing.T) {
-	g := skills.ParseInvokedCommandNames("[/demo](coddy-skill:demo) extra.")
+func TestParseInvokedCommandNames_foxxycodeSkillPickLink(t *testing.T) {
+	g := skills.ParseInvokedCommandNames("[/demo](foxxycode-skill:demo) extra.")
 	if len(g) != 1 || g[0] != "demo" {
 		t.Fatalf("got %#v", g)
 	}
 }
 
 func TestParseInvokedCommandNames_pickLinkDedupSlash(t *testing.T) {
-	g := skills.ParseInvokedCommandNames("[/demo](coddy-skill:demo) /demo trailing")
+	g := skills.ParseInvokedCommandNames("[/demo](foxxycode-skill:demo) /demo trailing")
 	if len(g) != 1 || g[0] != "demo" {
 		t.Fatalf("got %#v want single demo", g)
 	}
 }
 
-func TestParseInvokedCommandNames_rejectsUnequalCoddyHref(t *testing.T) {
-	if g := skills.ParseInvokedCommandNames("[/demo](coddy-skill:other)"); len(g) != 0 {
+func TestParseInvokedCommandNames_rejectsUnequalFoxxyCodeHref(t *testing.T) {
+	if g := skills.ParseInvokedCommandNames("[/demo](foxxycode-skill:other)"); len(g) != 0 {
 		t.Fatalf("got %#v", g)
 	}
 }

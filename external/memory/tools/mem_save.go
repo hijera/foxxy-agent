@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	memstorage "github.com/hijera/foxxy-agent/external/memory/storage"
-	"github.com/hijera/foxxy-agent/internal/llm"
-	"github.com/hijera/foxxy-agent/internal/tooling"
+	memstorage "github.com/hijera/foxxycode-agent/external/memory/storage"
+	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
 func memorySaveTool(store *memstorage.Store) *tooling.Tool {

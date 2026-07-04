@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hijera/foxxy-agent/external/scheduler/storage"
-	"github.com/hijera/foxxy-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/external/scheduler/storage"
+	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
 // LaunchManualJob executes one asynchronous manual scheduler job (wired from package daemon via init).
