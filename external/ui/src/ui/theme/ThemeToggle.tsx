@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { useT } from "../i18n/I18nProvider";
 import type { UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
 
@@ -12,6 +13,7 @@ function subscribeTheme(onStoreChange: () => void): () => void {
 }
 
 export function ThemeToggle() {
+  const { t } = useT();
   const mode = useSyncExternalStore(
     subscribeTheme,
     readAppliedUiTheme,
@@ -25,7 +27,7 @@ export function ThemeToggle() {
   return (
     <div className="settings-theme-block" data-testid="theme-toggle">
       <span className="settings-label" id="settings-theme-label">
-        Appearance
+        {t("settings.appearanceLabel")}
       </span>
       <div
         className="settings-theme-segment"
@@ -39,7 +41,7 @@ export function ThemeToggle() {
           aria-pressed={mode === "dark"}
           onClick={() => pick("dark")}
         >
-          Dark
+          {t("settings.themeDark")}
         </button>
         <button
           type="button"
@@ -48,7 +50,7 @@ export function ThemeToggle() {
           aria-pressed={mode === "light"}
           onClick={() => pick("light")}
         >
-          Light
+          {t("settings.themeLight")}
         </button>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
+import { useT } from "../i18n/I18nProvider";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
@@ -41,6 +42,7 @@ export function SettingsSection(props: {
   doc: Record<string, unknown>;
   setDoc: (next: Record<string, unknown>) => void;
 }) {
+  const { t } = useT();
   const { section, schema, doc, setDoc } = props;
   const props_ = schema.properties ?? {};
 
@@ -57,7 +59,7 @@ export function SettingsSection(props: {
   if (section.kind === "skills") {
     const sub = props_.skills;
     if (!sub) {
-      return <p className="settings-muted">Skills schema unavailable.</p>;
+      return <p className="settings-muted">{t("settings.skillsSchemaUnavailable")}</p>;
     }
     return (
       <SkillsSection
@@ -73,7 +75,7 @@ export function SettingsSection(props: {
   if (section.kind === "array") {
     const sub = props_[key];
     if (!sub) {
-      return <p className="settings-muted">Section schema unavailable.</p>;
+      return <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>;
     }
     const override: FieldOverride | undefined =
       key === "models"
@@ -125,7 +127,7 @@ export function SettingsSection(props: {
   // object section (agent, tools, memory, …)
   const sub = props_[key];
   if (!sub) {
-    return <p className="settings-muted">Section schema unavailable.</p>;
+    return <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>;
   }
   const override: FieldOverride | undefined =
     key === "agent" || key === "memory"

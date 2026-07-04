@@ -1,7 +1,8 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { useT } from "../i18n/I18nProvider";
+import { themeLabel } from "../i18n/i18n";
 import {
   UI_THEME_IDS,
-  UI_THEME_LABELS,
   LIGHT_THEMES,
   type UiThemeMode,
 } from "./themeCookie";
@@ -31,9 +32,9 @@ function ThemeSwatch(props: {
   id: UiThemeMode;
   active: boolean;
   onClick: () => void;
+  label: string;
 }) {
-  const { id, active, onClick } = props;
-  const label = UI_THEME_LABELS[id];
+  const { id, active, onClick, label } = props;
   const colors = SWATCH_COLORS[id];
   const isLight = LIGHT_THEMES.has(id);
 
@@ -83,6 +84,7 @@ function ThemeSwatch(props: {
  * can be embedded as a Settings tab. Theme selection applies immediately and is
  * client-side only (no config save). */
 export function AppearanceThemePicker() {
+  const { t } = useT();
   const current = useSyncExternalStore(
     subscribeTheme,
     readAppliedUiTheme,
@@ -95,13 +97,18 @@ export function AppearanceThemePicker() {
 
   return (
     <div className="appearance-sheet-body" data-testid="appearance-theme-picker">
-      <p className="appearance-section-label">Theme</p>
-      <div className="appearance-swatch-grid" role="group" aria-label="Theme">
+      <p className="appearance-section-label">{t("settings.themePickerLabel")}</p>
+      <div
+        className="appearance-swatch-grid"
+        role="group"
+        aria-label={t("settings.themePickerAriaLabel")}
+      >
         {UI_THEME_IDS.map((id) => (
           <ThemeSwatch
             key={id}
             id={id}
             active={current === id}
+            label={themeLabel(id)}
             onClick={() => pick(id)}
           />
         ))}

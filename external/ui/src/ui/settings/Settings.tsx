@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useT } from "../i18n/I18nProvider";
 import { type JsonSchema } from "./SchemaForm";
 import { deriveSettingsSections, type SectionDescriptor } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
@@ -66,6 +67,7 @@ export function Settings(props: {
   /** Called after the config is successfully saved so the app can re-fetch model metadata. */
   onConfigSaved?: () => void;
 }) {
+  const { t } = useT();
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -135,7 +137,7 @@ export function Settings(props: {
       });
       const vj = (await v.json()) as ValidateResponse;
       if (!vj.ok) {
-        setError(vj.error || "validation failed");
+        setError(vj.error || t("settings.validationFailed"));
         setBusy(false);
         return;
       }
@@ -146,21 +148,21 @@ export function Settings(props: {
       });
       const pj = (await p.json()) as ValidateResponse;
       if (!p.ok || !pj.ok) {
-        setError(pj.error || `save failed (${p.status})`);
+        setError(pj.error || t("settings.saveFailed", { status: p.status }));
         setBusy(false);
         return;
       }
-      setMessage("Saved all sections. In-process config reloaded.");
+      setMessage(t("settings.savedAll"));
       setJustSaved(true);
       window.setTimeout(() => setJustSaved(false), 1100);
       props.onConfigSaved?.();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "request failed");
+      setError(e instanceof Error ? e.message : t("settings.requestFailed"));
     } finally {
       setBusy(false);
     }
-  }, [doc, load, props]);
+  }, [doc, load, props, t]);
 
   // Persist only one section: overlay this section's values onto the latest
   // on-disk config and PUT that, so saving one section does not also commit
@@ -198,7 +200,7 @@ export function Settings(props: {
         });
         const vj = (await v.json()) as ValidateResponse;
         if (!vj.ok) {
-          setError(vj.error || "validation failed");
+          setError(vj.error || t("settings.validationFailed"));
           setBusy(false);
           return;
         }
@@ -209,36 +211,36 @@ export function Settings(props: {
         });
         const pj = (await p.json()) as ValidateResponse;
         if (!p.ok || !pj.ok) {
-          setError(pj.error || `save failed (${p.status})`);
+          setError(pj.error || t("settings.saveFailed", { status: p.status }));
           setBusy(false);
           return;
         }
-        setMessage(`Saved “${section.label}”. In-process config reloaded.`);
+        setMessage(t("settings.savedSection", { section: section.label }));
         setSavedSection(section.id);
         window.setTimeout(() => setSavedSection(null), 1100);
         props.onConfigSaved?.();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "request failed");
+        setError(e instanceof Error ? e.message : t("settings.requestFailed"));
       } finally {
         setBusy(false);
       }
     },
-    [doc, props],
+    [doc, props, t],
   );
 
   return (
     <aside
       className="sessions settings drawer"
-      aria-label="Settings"
+      aria-label={t("settings.title")}
       data-testid="settings-screen"
       data-variant="drawer"
     >
       <div className="sessions-head">
-        <span>Settings</span>
+        <span>{t("settings.title")}</span>
         <button
           type="button"
           className="sessions-close"
-          aria-label="Close settings"
+          aria-label={t("settings.close")}
           data-testid="settings-drawer-close"
           onClick={props.onClose}
         >
@@ -247,12 +249,9 @@ export function Settings(props: {
       </div>
 
       <div className="settings-lead-pane">
-        <p className="settings-lead">
-          Edit configuration from the live JSON schema. Secrets (API keys) are shown in full -
-          use only on trusted networks.
-        </p>
+        <p className="settings-lead">{t("settings.lead")}</p>
         {loadErr ? (
-          <p className="settings-error">Failed to load: {loadErr}</p>
+          <p className="settings-error">{t("settings.failedToLoad", { error: loadErr })}</p>
         ) : null}
         {error ? <p className="settings-error">{error}</p> : null}
         {message ? <p className="settings-ok">{message}</p> : null}
@@ -280,10 +279,12 @@ export function Settings(props: {
                       }`}
                       data-testid="settings-section-save"
                       disabled={busy}
-                      title={`Save the ${activeSection.label} section`}
+                      title={t("settings.saveSectionTitle", {
+                        section: activeSection.label,
+                      })}
                       onClick={() => void onSaveSection(activeSection)}
                     >
-                      Save section
+                      {t("settings.saveSection")}
                     </button>
                   </div>
                 ) : null}
@@ -309,7 +310,7 @@ export function Settings(props: {
                   />
                 </div>
               ) : (
-                <p className="settings-muted">Loading…</p>
+                <p className="settings-muted">{t("settings.loading")}</p>
               )}
             </div>
           ) : null}
@@ -323,15 +324,15 @@ export function Settings(props: {
             rel="noopener"
             data-testid="settings-api-docs-link"
           >
-            API docs
+            {t("settings.apiDocs")}
           </a>
           <button
             type="button"
             className="settings-btn settings-btn-icon"
             data-testid="settings-reload"
             disabled={busy || reloading}
-            title="Reload from server"
-            aria-label="Reload configuration from server"
+            title={t("settings.reloadTitle")}
+            aria-label={t("settings.reloadAriaLabel")}
             onClick={() => void onReload()}
           >
             <IconRefresh
@@ -343,8 +344,8 @@ export function Settings(props: {
             className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}`}
             data-testid="settings-save"
             disabled={busy || !schema}
-            title="Save all sections"
-            aria-label="Save all configuration sections"
+            title={t("settings.saveAllTitle")}
+            aria-label={t("settings.saveAllAriaLabel")}
             onClick={() => void onSave()}
           >
             <IconSave className="settings-footer-icon-svg" />

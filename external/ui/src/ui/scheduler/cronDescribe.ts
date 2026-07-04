@@ -1,4 +1,5 @@
 import cronstrue from "cronstrue";
+import { getLocale, t } from "../i18n/i18n";
 
 /**
  * Human-readable description of a 5-field cron (UTC on server).
@@ -13,6 +14,7 @@ export function describeCronScheduleUTC(spec: string): string | null {
     return cronstrue.toString(s, {
       use24HourTimeFormat: true,
       verbose: true,
+      locale: getLocale(),
     });
   } catch {
     return null;
@@ -25,16 +27,16 @@ export function describeCronScheduleOrError(spec: string): {
 } | { ok: false; error: string } {
   const s = spec.trim();
   if (!s) {
-    return { ok: false, error: "Enter a cron expression (5 fields, UTC)." };
+    return { ok: false, error: t("scheduler.cron.empty") };
   }
   try {
     const text = cronstrue.toString(s, {
       use24HourTimeFormat: true,
       verbose: true,
+      locale: getLocale(),
     });
     return { ok: true, text };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Invalid cron expression";
-    return { ok: false, error: msg };
+  } catch {
+    return { ok: false, error: t("scheduler.cron.invalid") };
   }
 }

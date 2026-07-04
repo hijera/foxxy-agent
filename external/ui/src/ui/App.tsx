@@ -117,6 +117,7 @@ import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { t } from "./i18n/i18n";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -1061,8 +1062,7 @@ export function App() {
           setSchedulerHttpLinked(false);
           setSchedulerOpen(false);
           setSchedulerEditor(null);
-          msg =
-            "Scheduler API is not available in this build (rebuild with http,scheduler).";
+          msg = t("scheduler.apiNotAvailable");
           const sid = sessionId.trim();
           if (sid) {
             setSessionHashInLocation(sid);
@@ -1079,8 +1079,7 @@ export function App() {
           return;
         }
         if (res.status === 503) {
-          msg =
-            "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).";
+          msg = t("scheduler.disabled");
           if (!silent) {
             setSchedulerListError(msg);
             setSchedulerJobs([]);
@@ -1532,7 +1531,7 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
-        setSessionsError(`Backend is unavailable (${res.status})`);
+        setSessionsError(t("sessions.backendUnavailable", { status: res.status }));
         return null;
       }
       setSessionsError(null);
@@ -2095,7 +2094,7 @@ export function App() {
 
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
-      const ok = window.confirm("Delete draft");
+      const ok = window.confirm(t("app.confirmDeleteDraft"));
       if (!ok) {
         return;
       }
@@ -2108,7 +2107,7 @@ export function App() {
       }
       return;
     }
-    const ok = window.confirm("Delete chat");
+    const ok = window.confirm(t("app.confirmDeleteChat"));
     if (!ok) {
       return;
     }
@@ -2150,7 +2149,7 @@ export function App() {
         },
       );
       if (!res.ok) {
-        let errMsg = `Branch creation failed (${res.status})`;
+        let errMsg = t("app.branchCreationFailed", { status: res.status });
         try {
           const body = (await res.json()) as { error?: { message?: string } };
           if (body?.error?.message) errMsg = body.error.message;
@@ -2160,12 +2159,14 @@ export function App() {
       }
       data = (await res.json()) as { newSessionId?: string };
     } catch (err) {
-      showBranchError(`Branch creation error: ${err instanceof Error ? err.message : String(err)}`);
+      showBranchError(t("app.branchCreationError", {
+        error: err instanceof Error ? err.message : String(err),
+      }));
       return;
     }
     const newSid = (data.newSessionId || "").trim();
     if (!newSid) {
-      showBranchError("Branch creation returned no session ID");
+      showBranchError(t("app.branchCreationNoSessionId"));
       return;
     }
     pendingBranchSendRef.current = { text, sid: newSid };
@@ -2716,8 +2717,7 @@ export function App() {
       });
 
       if (res.status === 409) {
-        let msg =
-          "This chat is busy in another client. Try again in a moment.";
+        let msg = t("app.chatBusy");
         try {
           const body = (await res.json()) as {
             error?: { message?: string };
@@ -2778,8 +2778,8 @@ export function App() {
 
       if (!res.ok || !res.body) {
         const msg = !res.body
-          ? "Empty response body"
-          : `Request failed (${res.status})`;
+          ? t("app.emptyResponseBody")
+          : t("app.requestFailedWithStatus", { status: res.status });
         applyStreamItems((prev) => [
           ...prev,
           {
@@ -3373,7 +3373,7 @@ export function App() {
             ) {
               return;
             }
-            void streamResponses("Implement the plan.", {
+            void streamResponses(t("chat.runPlanMessage"), {
               modeOverride: "agent",
               runPlanSlug: slug,
             });

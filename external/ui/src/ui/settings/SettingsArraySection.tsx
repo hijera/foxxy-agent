@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useT } from "../i18n/I18nProvider";
 import {
   SchemaForm,
   defaultForSchema,
@@ -41,13 +42,14 @@ export function SettingsArraySection(props: {
   fieldOverride?: FieldOverride | undefined;
   addLabel?: string | undefined;
 }) {
+  const { t } = useT();
   const { schema, value, onChange, labelField, fieldOverride } = props;
   const [view, setView] = useState<View>({ mode: "list" });
   const itemSchema = schema.items;
   const arr = Array.isArray(value) ? value : [];
 
   if (!itemSchema) {
-    return <p className="settings-muted">This section has no item schema.</p>;
+    return <p className="settings-muted">{t("settings.noItemSchema")}</p>;
   }
 
   if (view.mode === "edit") {
@@ -65,7 +67,7 @@ export function SettingsArraySection(props: {
             data-testid="settings-detail-back"
             onClick={() => setView({ mode: "list" })}
           >
-            ← Back to list
+            {t("settings.backToList")}
           </button>
           <button
             type="button"
@@ -76,7 +78,7 @@ export function SettingsArraySection(props: {
               setView({ mode: "list" });
             }}
           >
-            Remove
+            {t("settings.remove")}
           </button>
         </div>
         <SchemaForm
@@ -99,7 +101,7 @@ export function SettingsArraySection(props: {
         <p className="settings-field-desc">{schema.description}</p>
       ) : null}
       {arr.length === 0 ? (
-        <p className="settings-muted">Nothing here yet. Use Add to create one.</p>
+        <p className="settings-muted">{t("settings.nothingYet")}</p>
       ) : (
         <ul className="settings-master-list">
           {arr.map((row, i) => (
@@ -115,10 +117,12 @@ export function SettingsArraySection(props: {
               <button
                 type="button"
                 className="settings-btn settings-btn-danger"
-                aria-label={`Remove ${rowLabel(row, labelField, i)}`}
+                aria-label={t("settings.removeItem", {
+                  name: rowLabel(row, labelField, i),
+                })}
                 onClick={() => onChange(arr.filter((_, j) => j !== i))}
               >
-                Remove
+                {t("settings.remove")}
               </button>
             </li>
           ))}
@@ -135,7 +139,7 @@ export function SettingsArraySection(props: {
           setView({ mode: "edit", index: next.length - 1 });
         }}
       >
-        {props.addLabel ?? "Add"}
+        {props.addLabel ?? t("settings.add")}
       </button>
     </div>
   );

@@ -23,6 +23,19 @@ object FoxxyBundle {
         }
     }
 
+    /** SPA locale id passed as `?lang=` and to `window.foxxyUi.setLocale` ("en" or "ru"). */
+    fun spaLanguageCode(): String {
+        val lang = FoxxySettings.getInstance().state.language
+        return when (lang) {
+            "en" -> "en"
+            "ru" -> "ru"
+            else -> {
+                val tag = Locale.getDefault().language.lowercase(Locale.ROOT)
+                if (tag == "ru") "ru" else "en"
+            }
+        }
+    }
+
     @JvmStatic
     fun message(key: String, vararg params: Any): String {
         val raw = ResourceBundle.getBundle(PATH, locale(), FoxxyBundle::class.java.classLoader)

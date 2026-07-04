@@ -116,6 +116,7 @@ class FoxxyConfigurable : Configurable {
 
     override fun apply() {
         val s = settings
+        val prevLanguage = s.language
         s.language = languageCode(languageBox.selectedIndex)
         s.binaryPath = pathField.text.trim()
         s.host = hostField.text.trim().ifBlank { "127.0.0.1" }
@@ -126,6 +127,12 @@ class FoxxyConfigurable : Configurable {
         s.nativeDiffs = nativeDiffsCheckBox.isSelected
         s.autoApproveEdits = autoApproveCheckBox.isSelected
         s.firstRunCompleted = true
+        reset()
+        if (s.language != prevLanguage) {
+            ApplicationManager.getApplication().messageBus
+                .syncPublisher(dev.foxxy.intellij.ui.FoxxyLanguageListener.TOPIC)
+                .languageChanged()
+        }
     }
 
     override fun reset() {

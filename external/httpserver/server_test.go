@@ -330,6 +330,58 @@ func TestCoddyDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
 	}
 }
 
+func TestCoddyEnhancePromptRewrites(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
+		return fakeProvider{reply: "```\n\"Refactor the memory endpoint and add tests.\"\n```"}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/coddy/enhance-prompt", "application/json", strings.NewReader(`{"text":"fix memory thing"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, b)
+	}
+	var out struct {
+		Object string `json:"object"`
+		Text   string `json:"text"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Object != "coddy.enhance_prompt" {
+		t.Fatalf("unexpected object %q", out.Object)
+	}
+	if out.Text != "Refactor the memory endpoint and add tests." {
+		t.Fatalf("unexpected text %q", out.Text)
+	}
+}
+
+func TestCoddyEnhancePromptRejectsEmpty(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
+		return fakeProvider{reply: "should not be used"}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/coddy/enhance-prompt", "application/json", strings.NewReader(`{"text":"   "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", res.StatusCode)
+	}
+}
+
 func TestGETOpenAPIServed(t *testing.T) {
 	cfg := &config.Config{
 		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},

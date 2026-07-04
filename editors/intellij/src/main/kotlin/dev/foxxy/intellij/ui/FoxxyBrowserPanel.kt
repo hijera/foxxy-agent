@@ -36,21 +36,61 @@ import javax.swing.SwingConstants
 class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
     private var browser: JBCefBrowser? = null
     private val center = JPanel(BorderLayout())
+    private var toolbarComponent: JComponent? = null
 
     @Volatile
     private var currentUrl: String? = null
 
+    /** Last status/error message key for re-localization on language change. */
+    private var statusMessageKey: String? = null
+    private var statusMessageParams: Array<out Any> = emptyArray()
+    private enum class PanelMode { NONE, MESSAGE, ERROR, FALLBACK, BROWSER }
+    private var panelMode = PanelMode.NONE
+
     init {
-        add(createToolbar(), BorderLayout.NORTH)
+        val tb = createToolbar()
+        toolbarComponent = tb
+        add(tb, BorderLayout.NORTH)
         add(center, BorderLayout.CENTER)
-        // Re-apply the matching Foxxy theme whenever the IDE look-and-feel changes.
         ApplicationManager.getApplication().messageBus.connect(this)
             .subscribe(LafManagerListener.TOPIC, LafManagerListener { syncTheme() })
+        ApplicationManager.getApplication().messageBus.connect(this)
+            .subscribe(
+                FoxxyLanguageListener.TOPIC,
+                object : FoxxyLanguageListener {
+                    override fun languageChanged() = onLanguageChanged()
+                },
+            )
         start()
     }
 
+    private fun onLanguageChanged() {
+        refreshToolbar()
+        when (panelMode) {
+            PanelMode.MESSAGE -> statusMessageKey?.let {
+                showMessage(FoxxyBundle.message(it, *statusMessageParams))
+            }
+            PanelMode.ERROR -> lastErrorDetail?.let { showError(it) }
+            PanelMode.FALLBACK -> currentUrl?.let { showFallback(it) }
+            PanelMode.BROWSER, PanelMode.NONE -> {}
+        }
+        syncLocale()
+    }
+
+    private fun refreshToolbar() {
+        val old = toolbarComponent
+        if (old != null) {
+            remove(old)
+        }
+        val tb = createToolbar()
+        toolbarComponent = tb
+        add(tb, BorderLayout.NORTH)
+        revalidate()
+        repaint()
+    }
+
     private fun start() {
-        showMessage(FoxxyBundle.message("process.status.starting"))
+        showStatusMessage("process.status.starting")
         FoxxyProcessManager.getInstance(project).ensureStarted(
             onReady = { url ->
                 loadUrl(url)
@@ -68,8 +108,9 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
         else url + (if (url.contains("?")) "&" else "?") + "theme=${FoxxyThemeBridge.currentFoxxyTheme()}"
         // Signal the embed mode so the SPA adopts a flatter, more native host-IDE
         // look (data-embed="intellij" on <html>; see docs/intellij-embedding.md).
-        val finalUrl = if (themeParam.contains("embed=")) themeParam
+        var finalUrl = if (themeParam.contains("embed=")) themeParam
         else themeParam + (if (themeParam.contains("?")) "&" else "?") + "embed=intellij"
+        finalUrl = appendLangParam(finalUrl)
         currentUrl = finalUrl
         if (!JBCefApp.isSupported()) {
             showFallback(finalUrl)
@@ -84,12 +125,28 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
                     if (frame?.isMain == true) {
                         injectBootstrap()
                         syncTheme()
+                        syncLocale()
                     }
                 }
             }, it.cefBrowser)
         }
         b.loadURL(finalUrl)
         setCenter(b.component)
+        panelMode = PanelMode.BROWSER
+    }
+
+    private fun appendLangParam(url: String): String {
+        if (url.contains("lang=")) return url
+        val lang = FoxxyBundle.spaLanguageCode()
+        return url + (if (url.contains("?")) "&" else "?") + "lang=$lang"
+    }
+
+    /** Injects JS that aligns the Foxxy web UI locale with plugin settings. */
+    private fun syncLocale() {
+        val b = browser ?: return
+        val lang = FoxxyBundle.spaLanguageCode().replace("\"", "")
+        val js = "(function(){ try { if (window.foxxyUi) window.foxxyUi.setLocale(\"$lang\"); } catch (e) {} })();"
+        b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
     }
 
     /**
@@ -122,7 +179,19 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
         setCenter(JLabel(text, SwingConstants.CENTER))
     }
 
+    /** Show a localized status message; [key] is a FoxxyBundle key. */
+    private fun showStatusMessage(key: String, vararg params: Any) {
+        panelMode = PanelMode.MESSAGE
+        statusMessageKey = key
+        statusMessageParams = params
+        showMessage(FoxxyBundle.message(key, *params))
+    }
+
+    private var lastErrorDetail: String? = null
+
     private fun showError(msg: String) {
+        panelMode = PanelMode.ERROR
+        lastErrorDetail = msg
         FoxxyNotifications.error(project, FoxxyBundle.message("notification.title.startFailed"), msg)
         val panel = JPanel(BorderLayout())
         panel.add(
@@ -137,6 +206,7 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
     }
 
     private fun showFallback(url: String) {
+        panelMode = PanelMode.FALLBACK
         val panel = JPanel(BorderLayout())
         panel.add(
             JLabel(
@@ -157,13 +227,13 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
 
     private fun createToolbar(): JComponent {
         val group = DefaultActionGroup()
-        group.add(object : AnAction(
-            FoxxyBundle.message("toolbar.action.restart"),
-            FoxxyBundle.message("toolbar.action.restart.desc"),
-            AllIcons.Actions.Restart
-        ) {
+        group.add(object : AnAction("", "", AllIcons.Actions.Restart) {
+            override fun update(e: AnActionEvent) {
+                e.presentation.text = FoxxyBundle.message("toolbar.action.restart")
+                e.presentation.description = FoxxyBundle.message("toolbar.action.restart.desc")
+            }
             override fun actionPerformed(e: AnActionEvent) {
-                showMessage(FoxxyBundle.message("process.status.restarting"))
+                showStatusMessage("process.status.restarting")
                 FoxxyProcessManager.getInstance(project).restart(
                     onReady = { url ->
                         loadUrl(url)
@@ -173,39 +243,39 @@ class FoxxyBrowserPanel(private val project: Project) : JPanel(BorderLayout()), 
                 )
             }
         })
-        group.add(object : AnAction(
-            FoxxyBundle.message("toolbar.action.reload"),
-            FoxxyBundle.message("toolbar.action.reload.desc"),
-            AllIcons.Actions.Refresh
-        ) {
+        group.add(object : AnAction("", "", AllIcons.Actions.Refresh) {
+            override fun update(e: AnActionEvent) {
+                e.presentation.text = FoxxyBundle.message("toolbar.action.reload")
+                e.presentation.description = FoxxyBundle.message("toolbar.action.reload.desc")
+            }
             override fun actionPerformed(e: AnActionEvent) {
                 val b = browser
                 if (b != null) b.cefBrowser.reload() else start()
             }
         })
-        group.add(object : AnAction(
-            FoxxyBundle.message("toolbar.action.openBrowser"),
-            FoxxyBundle.message("toolbar.action.openBrowser.desc"),
-            null
-        ) {
+        group.add(object : AnAction("", "", null) {
+            override fun update(e: AnActionEvent) {
+                e.presentation.text = FoxxyBundle.message("toolbar.action.openBrowser")
+                e.presentation.description = FoxxyBundle.message("toolbar.action.openBrowser.desc")
+            }
             override fun actionPerformed(e: AnActionEvent) {
                 currentUrl?.let { BrowserUtil.browse(it) }
             }
         })
-        group.add(object : AnAction(
-            FoxxyBundle.message("toolbar.action.devtools"),
-            FoxxyBundle.message("toolbar.action.devtools.desc"),
-            null
-        ) {
+        group.add(object : AnAction("", "", null) {
+            override fun update(e: AnActionEvent) {
+                e.presentation.text = FoxxyBundle.message("toolbar.action.devtools")
+                e.presentation.description = FoxxyBundle.message("toolbar.action.devtools.desc")
+            }
             override fun actionPerformed(e: AnActionEvent) {
                 browser?.openDevtools()
             }
         })
-        group.add(object : AnAction(
-            FoxxyBundle.message("toolbar.action.settings"),
-            FoxxyBundle.message("toolbar.action.settings.desc"),
-            AllIcons.General.Settings
-        ) {
+        group.add(object : AnAction("", "", AllIcons.General.Settings) {
+            override fun update(e: AnActionEvent) {
+                e.presentation.text = FoxxyBundle.message("toolbar.action.settings")
+                e.presentation.description = FoxxyBundle.message("toolbar.action.settings.desc")
+            }
             override fun actionPerformed(e: AnActionEvent) = openSettings()
         })
         val toolbar = ActionManager.getInstance().createActionToolbar("FoxxyToolbar", group, true)

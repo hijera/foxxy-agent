@@ -373,7 +373,7 @@ test("context tooltip percent and Max context follow cap when model max changes"
   );
   const tip = () => screen.getByRole("tooltip").textContent ?? "";
   expect(tip()).toMatch(/1\.0% context used/);
-  expect(tip()).toMatch(/Max context 100000/);
+  expect(tip()).toMatch(/Max context 100[,]?000/);
 
   rerender(
     <Composer
@@ -390,7 +390,7 @@ test("context tooltip percent and Max context follow cap when model max changes"
     />,
   );
   expect(tip()).toMatch(/10\.0% context used/);
-  expect(tip()).toMatch(/Max context 10000/);
+  expect(tip()).toMatch(/Max context 10[,]?000/);
 });
 
 test("context tooltip hidden until pointer leaves ring after closing breakdown", () => {
@@ -709,4 +709,49 @@ test("send with attached file passes files to onSend", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(onSend).toHaveBeenCalledWith("describe this", [file]);
   vi.unstubAllGlobals();
+});
+
+test("enhance button posts draft and replaces text with the result", async () => {
+  stubMatchMediaMobile(false);
+  const onChange = vi.fn();
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ object: "coddy.enhance_prompt", text: "Refactor the memory endpoint and add tests." }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("Refactor the memory endpoint and add tests.");
+  });
+  const call = fetchMock.mock.calls[0] ?? [];
+  expect(call[0]).toBe("/coddy/enhance-prompt");
+  expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ text: "fix memory thing" });
+  vi.unstubAllGlobals();
+});
+
+test("enhance button is disabled when draft is empty", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("composer-enhance-btn")).toBeDisabled();
 });

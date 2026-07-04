@@ -1,10 +1,11 @@
+import { t } from "../i18n/i18n";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
 
 function humanizeKind(kind: string): string {
   const k = kind.trim().toLowerCase();
-  if (!k) return "Tool";
-  if (k === "run_command" || k === "shell") return "Run Command";
+  if (!k) return t("prompts.permissionToolFallback");
+  if (k === "run_command" || k === "shell") return t("prompts.permissionRunCommand");
   return k
     .split(/[_-]+/)
     .filter(Boolean)
@@ -26,7 +27,7 @@ export function permissionPromptTitle(payload: CoddyPermissionPayload): string {
     }
     return title;
   }
-  return "Permission";
+  return t("prompts.permissionFallback");
 }
 
 /** Plain detail text for the quote block (command line, not raw Arguments JSON). */

@@ -1,3 +1,5 @@
+import { getLocale } from "../i18n/i18n";
+
 function parseUtcMs(isoUtc: string): number | null {
   const ms = Date.parse(isoUtc);
   return Number.isFinite(ms) ? ms : null;
@@ -9,7 +11,7 @@ export function formatUtcForLocalDisplay(isoUtc: string): string {
   if (ms === null) {
     return "";
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getLocale(), {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(ms));
@@ -21,7 +23,7 @@ export function formatUtcToLocalHM(isoUtc: string): string {
   if (ms === null) {
     return "";
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getLocale(), {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(ms));
@@ -36,7 +38,7 @@ export function formatUtcToLocalFullDetail(isoUtc: string): string {
   if (ms === null) {
     return "";
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getLocale(), {
     year: "numeric",
     month: "short",
     day: "numeric",

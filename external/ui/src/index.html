@@ -47,6 +47,22 @@
         if (et && /^[a-z0-9_-]+$/i.test(et)) {
           document.documentElement.dataset.embed = et;
         }
+        /* IDE embeddings pass ?lang=en|ru; wins over cookie and sets html[lang]. */
+        var l = location.search.match(/[?&]lang=([^&]+)/);
+        var lt = l && decodeURIComponent(l[1].replace(/\+/g, " "));
+        var VALID_LANG = { en: 1, ru: 1 };
+        var ql = lt && VALID_LANG[lt] ? lt : null;
+        var lm = document.cookie.match(/(?:^|;\s*)coddy_ui_lang=([^;]+)/);
+        var lc = lm && decodeURIComponent(lm[1].replace(/\+/g, " "));
+        var lang = ql || (lc && VALID_LANG[lc] ? lc : "en");
+        if (ql && ql !== lc) {
+          document.cookie =
+            "coddy_ui_lang=" +
+            encodeURIComponent(ql) +
+            "; Path=/; Max-Age=31536000; SameSite=Lax" +
+            (location.protocol === "https:" ? "; Secure" : "");
+        }
+        document.documentElement.lang = lang;
       })();
     </script>
   </head>

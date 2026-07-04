@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { initLocale } from "../i18n/i18n";
 import { installFoxxyUiApi } from "./foxxyUiApi";
 import { UI_THEME_IDS } from "./themeCookie";
 
@@ -6,12 +7,15 @@ function clearThemeState() {
   delete window.foxxyUi;
   delete document.documentElement.dataset.theme;
   document.documentElement.style.colorScheme = "";
+  document.documentElement.lang = "en";
   document.cookie = "coddy_ui_theme=; Path=/; Max-Age=0";
+  document.cookie = "coddy_ui_lang=; Path=/; Max-Age=0";
 }
 
 describe("window.foxxyUi", () => {
   beforeEach(() => {
     clearThemeState();
+    initLocale("en");
     installFoxxyUiApi();
   });
 
@@ -57,7 +61,7 @@ describe("window.foxxyUi", () => {
 
   it("onThemeChange fires on changes from any source and unsubscribes", async () => {
     const seen: string[] = [];
-    const off = window.foxxyUi!.onThemeChange((t) => seen.push(t));
+    const off = window.foxxyUi!.onThemeChange((theme) => seen.push(theme));
 
     window.foxxyUi!.setTheme("light");
     // MutationObserver callbacks are async (microtask).
@@ -73,5 +77,28 @@ describe("window.foxxyUi", () => {
     window.foxxyUi!.setTheme("dark");
     await Promise.resolve();
     expect(seen).toEqual(["light", "monokai"]);
+  });
+
+  it("setLocale applies document.lang and cookie", () => {
+    expect(window.foxxyUi!.setLocale("ru")).toBe(true);
+    expect(document.documentElement.lang).toBe("ru");
+    expect(document.cookie).toContain("coddy_ui_lang=ru");
+    expect(window.foxxyUi!.getLocale()).toBe("ru");
+  });
+
+  it("setLocale rejects unknown ids", () => {
+    window.foxxyUi!.setLocale("en");
+    expect(window.foxxyUi!.setLocale("de")).toBe(false);
+    expect(window.foxxyUi!.getLocale()).toBe("en");
+  });
+
+  it("onLocaleChange fires and unsubscribes", () => {
+    const seen: string[] = [];
+    const off = window.foxxyUi!.onLocaleChange((l) => seen.push(l));
+    window.foxxyUi!.setLocale("ru");
+    expect(seen).toEqual(["ru"]);
+    off();
+    window.foxxyUi!.setLocale("en");
+    expect(seen).toEqual(["ru"]);
   });
 });

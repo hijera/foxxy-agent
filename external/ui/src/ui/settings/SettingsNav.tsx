@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SectionDescriptor } from "./settingsSections";
+import { useT } from "../i18n/I18nProvider";
 
 /**
  * SettingsNav lists the settings sections. CSS renders it as a vertical rail on
@@ -12,6 +13,7 @@ export function SettingsNav(props: {
   active: string;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useT();
   const { sections, active, onSelect } = props;
   const navRef = useRef<HTMLElement>(null);
   const [canLeft, setCanLeft] = useState(false);
@@ -61,14 +63,14 @@ export function SettingsNav(props: {
       <button
         type="button"
         className="settings-nav-arrow settings-nav-arrow-left"
-        aria-label="Scroll sections left"
+        aria-label={t("settings.nav.scrollLeft")}
         data-testid="settings-nav-left"
         disabled={!canLeft}
         onClick={() => scrollByDir(-1)}
       >
         ‹
       </button>
-      <nav className="settings-nav" aria-label="Settings sections" ref={navRef}>
+      <nav className="settings-nav" aria-label={t("settings.nav.sectionsAriaLabel")} ref={navRef}>
         {sections.map((s) => (
           <button
             key={s.id}
@@ -85,7 +87,7 @@ export function SettingsNav(props: {
       <button
         type="button"
         className="settings-nav-arrow settings-nav-arrow-right"
-        aria-label="Scroll sections right"
+        aria-label={t("settings.nav.scrollRight")}
         data-testid="settings-nav-right"
         disabled={!canRight}
         onClick={() => scrollByDir(1)}

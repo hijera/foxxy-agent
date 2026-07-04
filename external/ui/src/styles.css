@@ -3434,6 +3434,27 @@ textarea#composer {
   padding: 7px 9px;
 }
 
+.composer-enhance-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 9px;
+}
+
+.composer-enhance-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-enhance-icon {
+  display: block;
+  transform-origin: center;
+}
+
+.composer-enhance-icon.is-spinning {
+  animation: session-spin 0.8s linear infinite;
+}
+
 .composer-attachments {
   display: flex;
   flex-wrap: wrap;

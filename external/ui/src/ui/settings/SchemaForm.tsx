@@ -1,5 +1,6 @@
 import type { ChangeEvent, ReactNode } from "react";
 
+import { t } from "../i18n/i18n";
 import { Combobox } from "./Combobox";
 import {
   providerApiKeyFieldPlaceholder,
@@ -363,7 +364,7 @@ export function SchemaForm(props: {
   const { schema, value, onChange, fieldOverride } = props;
   if (schema.type !== "object" || !schema.properties) {
     return (
-      <p className="settings-muted">Unsupported schema root (expected object).</p>
+      <p className="settings-muted">{t("settings.unsupportedSchema")}</p>
     );
   }
   return (

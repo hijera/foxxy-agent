@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useT } from "../i18n/I18nProvider";
 import { Markdown } from "../markdown/Markdown";
 import { MarkdownLineEditor } from "../markdown/MarkdownLineEditor";
 import { planEditorBody } from "./planContent";
@@ -40,6 +41,7 @@ function planFilePath(slug: string, path?: string): string {
 function PlanPreviewEyeToggle(p: {
   previewOn: boolean;
   onToggle: () => void;
+  t: (key: string) => string;
 }) {
   return (
     <button
@@ -47,8 +49,8 @@ function PlanPreviewEyeToggle(p: {
       className={
         p.previewOn ? "plan-document-eye is-on" : "plan-document-eye"
       }
-      title="Toggle preview"
-      aria-label="Toggle preview"
+      title={p.t("prompts.planTogglePreview")}
+      aria-label={p.t("prompts.planTogglePreview")}
       aria-pressed={p.previewOn}
       data-test="plan_document_preview_toggle"
       onClick={() => p.onToggle()}
@@ -85,6 +87,7 @@ function PlanDocumentActions(p: {
   discarded: boolean;
   onRunPlan: () => void;
   onDiscard: () => void;
+  t: (key: string) => string;
 }) {
   return (
     <>
@@ -95,7 +98,7 @@ function PlanDocumentActions(p: {
         disabled={p.discarded}
         onClick={() => p.onDiscard()}
       >
-        Discard
+        {p.t("prompts.planDiscard")}
       </button>
       <button
         type="button"
@@ -107,13 +110,14 @@ function PlanDocumentActions(p: {
         <span className="plan-document-run-ic" aria-hidden>
           ▶
         </span>
-        Run plan
+        {p.t("prompts.planRun")}
       </button>
     </>
   );
 }
 
 export function PlanDocumentSection(props: PlanDocumentSectionProps) {
+  const { t } = useT();
   const editorSeed = planEditorBody(props.content, props.body);
   const [draft, setDraft] = useState(editorSeed);
   const [bodyView, setBodyView] = useState<PlanBodyView>("preview");
@@ -149,15 +153,19 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
           },
         );
         if (!res.ok) {
-          throw new Error(`save failed (${res.status})`);
+          throw new Error(t("prompts.planSaveFailed", { status: res.status }));
         }
       } catch (e) {
-        setSaveError(e instanceof Error ? e.message : "save failed");
+        setSaveError(
+          e instanceof Error
+            ? e.message
+            : t("prompts.planSaveFailed", { status: "" }),
+        );
       } finally {
         setSaving(false);
       }
     },
-    [props.sessionId, props.slug, props.content, discarded],
+    [props.sessionId, props.slug, props.content, discarded, t],
   );
 
   const scheduleSave = useCallback(
@@ -208,7 +216,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
           {props.expanded && (saving || saveError) ? (
             <div className="plan-document-head-status">
               {saving ? (
-                <span className="plan-document-save-hint">Saving…</span>
+                <span className="plan-document-save-hint">{t("prompts.planSaving")}</span>
               ) : null}
               {saveError ? (
                 <span className="plan-document-save-error">{saveError}</span>
@@ -222,6 +230,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
             <div className="plan-document-pane">
               <PlanPreviewEyeToggle
                 previewOn={previewOn}
+                t={t}
                 onToggle={() =>
                   setBodyView((v) => (v === "preview" ? "markdown" : "preview"))
                 }
@@ -242,7 +251,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                       <Markdown text={draft} />
                     ) : (
                       <p className="plan-document-preview-empty">
-                        Nothing to preview yet.
+                        {t("prompts.planPreviewEmpty")}
                       </p>
                     )}
                   </div>
@@ -255,8 +264,8 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                     spellCheck
                     gutterTestId="plan_editor_gutter"
                     rootTestId="plan_markdown_editor"
-                    aria-label="Plan body (markdown)"
-                    placeholder="Plan steps and notes…"
+                    aria-label={t("prompts.planBodyAriaLabel")}
+                    placeholder={t("prompts.planBodyPlaceholder")}
                     onChange={(v) => {
                       setDraft(v);
                       scheduleSave(v);
@@ -273,6 +282,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
             discarded={discarded}
             onRunPlan={props.onRunPlan}
             onDiscard={props.onDiscard}
+            t={t}
           />
         </footer>
       </div>

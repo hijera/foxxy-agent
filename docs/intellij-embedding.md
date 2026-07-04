@@ -79,6 +79,9 @@ window.foxxyUi: {
   getTheme(): string;                 // currently applied theme id
   getThemes(): string[];              // all valid ids, display order
   onThemeChange(cb: (theme: string) => void): () => void; // returns unsubscribe
+  setLocale(locale: string): boolean; // "en" | "ru"; applies + persists; false on unknown ids
+  getLocale(): string;                // currently applied locale id
+  onLocaleChange(cb: (locale: string) => void): () => void; // returns unsubscribe
 }
 ```
 
@@ -86,7 +89,45 @@ window.foxxyUi: {
 updates `data-theme`, `color-scheme`, the cookie, and every subscribed React
 component re-renders.
 
-### Kotlin example
+`setLocale` updates `<html lang>`, the `coddy_ui_lang` cookie, and re-renders
+every component that uses the i18n provider (same path as changing language in
+Settings | Tools | Foxxy in the plugin).
+
+## UI language (`?lang=` and `setLocale`)
+
+Supported SPA locales: `en` (default), `ru`. The active locale is the `lang`
+attribute on `<html>`, persisted in the `coddy_ui_lang` cookie.
+
+### 1. `?lang=` query parameter (initial load, pre-first-paint)
+
+```text
+http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
+```
+
+Precedence: query parameter > cookie > default (`en`). A valid query value is
+applied before the first paint and written to the cookie.
+
+The Foxxy IntelliJ plugin maps **Settings | Tools | Foxxy → Language**
+(`system` / `en` / `ru`) to `?lang=en` or `?lang=ru` on every JCEF load
+(`system` follows `Locale.getDefault()`, Russian when the JVM default language
+is `ru`).
+
+### 2. Live switching from the plugin
+
+When the user changes language in plugin settings, call:
+
+```kotlin
+browser.cefBrowser.executeJavaScript(
+    "window.foxxyUi && window.foxxyUi.setLocale('${spaLang}')",
+    browser.cefBrowser.url,
+    0,
+)
+```
+
+where `spaLang` is `"en"` or `"ru"` (same mapping as above). The SPA updates
+without a full reload.
+
+### Kotlin example (theme + language)
 
 ```kotlin
 import com.intellij.ide.ui.LafManagerListener
@@ -95,7 +136,7 @@ import com.intellij.ui.jcef.JBCefBrowser
 
 fun ideTheme(): String = if (JBColor.isBright()) "light" else "dark"
 
-val browser = JBCefBrowser("http://127.0.0.1:$port/?theme=${ideTheme()}")
+val browser = JBCefBrowser("http://127.0.0.1:$port/?theme=${ideTheme()}&lang=${spaLang()}")
 
 // Follow IDE theme changes (Settings > Appearance, quick switch, etc.).
 project.messageBus.connect(disposable).subscribe(
@@ -103,6 +144,18 @@ project.messageBus.connect(disposable).subscribe(
     LafManagerListener {
         browser.cefBrowser.executeJavaScript(
             "window.foxxyUi && window.foxxyUi.setTheme('${ideTheme()}')",
+            browser.cefBrowser.url,
+            0,
+        )
+    },
+)
+
+// Follow Foxxy plugin language changes (Settings | Tools | Foxxy > Language).
+project.messageBus.connect(disposable).subscribe(
+    FoxxyLanguageListener.TOPIC,
+    FoxxyLanguageListener {
+        browser.cefBrowser.executeJavaScript(
+            "window.foxxyUi && window.foxxyUi.setLocale('${spaLang()}')",
             browser.cefBrowser.url,
             0,
         )
@@ -131,7 +184,7 @@ contract are unchanged. Other embeddings may pass their own id, but
 `intellij` is the only id the shipped CSS currently specialises.
 
 ```text
-http://127.0.0.1:<port>/?theme=dark&embed=intellij
+http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
 ```
 
 ## Verifying against real Chromium 104

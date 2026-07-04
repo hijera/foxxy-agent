@@ -1,7 +1,17 @@
+import { t } from "../i18n/i18n";
 import type { CoddyPermissionOption } from "./permissionTypes";
 
-export const DEFAULT_PERMISSION_OPTIONS: CoddyPermissionOption[] = [
-  { optionId: "allow", name: "Allow", kind: "allow_once" },
-  { optionId: "allow_always", name: "Allow always", kind: "allow_always" },
-  { optionId: "reject", name: "Reject", kind: "reject_once" },
-];
+export function defaultPermissionOptions(): CoddyPermissionOption[] {
+  return [
+    { optionId: "allow", name: t("prompts.allow"), kind: "allow_once" },
+    {
+      optionId: "allow_always",
+      name: t("prompts.allowAlways"),
+      kind: "allow_always",
+    },
+    { optionId: "reject", name: t("prompts.reject"), kind: "reject_once" },
+  ];
+}
+
+/** @deprecated use defaultPermissionOptions() for locale-aware labels. */
+export const DEFAULT_PERMISSION_OPTIONS = defaultPermissionOptions();

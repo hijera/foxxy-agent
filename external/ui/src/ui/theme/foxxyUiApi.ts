@@ -1,5 +1,11 @@
 import { UI_THEME_IDS, type UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
+import {
+  getLocale,
+  onLocaleChange,
+  setLocale as setUiI18nLocale,
+} from "../i18n/i18n";
+import type { UiLocale } from "../i18n/localeCookie";
 
 /**
  * Stable global API for host embeddings (IntelliJ/PhpStorm plugin via JCEF).
@@ -7,6 +13,7 @@ import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
  * e.g. on a LafManagerListener event:
  *
  *   window.foxxyUi && window.foxxyUi.setTheme('light')
+ *   window.foxxyUi && window.foxxyUi.setLocale('ru')
  *
  * See docs/intellij-embedding.md for the embedding contract.
  */
@@ -19,6 +26,11 @@ export type FoxxyUiApi = {
   getThemes(): readonly UiThemeMode[];
   /** Fires on every theme change regardless of source. Returns unsubscribe. */
   onThemeChange(cb: (theme: UiThemeMode) => void): () => void;
+  /** Applies + persists UI locale ("en" | "ru"). Returns false on unknown ids. */
+  setLocale(locale: string): boolean;
+  getLocale(): UiLocale;
+  /** Fires on every locale change regardless of source. Returns unsubscribe. */
+  onLocaleChange(cb: (locale: UiLocale) => void): () => void;
 };
 
 declare global {
@@ -39,16 +51,17 @@ export function installFoxxyUiApi(): void {
     return; // idempotent
   }
 
-  const listeners = new Set<(theme: UiThemeMode) => void>();
+  const themeListeners = new Set<(theme: UiThemeMode) => void>();
+  const localeListeners = new Set<(locale: UiLocale) => void>();
   let observer: MutationObserver | null = null;
 
   // One shared observer on data-theme catches every change source:
   // plugin setTheme(), ThemeToggle, AppearanceModal.
   const syncObserver = () => {
-    if (listeners.size > 0 && observer === null) {
+    if (themeListeners.size > 0 && observer === null) {
       observer = new MutationObserver(() => {
         const theme = readAppliedUiTheme();
-        for (const cb of listeners) {
+        for (const cb of themeListeners) {
           cb(theme);
         }
       });
@@ -56,11 +69,18 @@ export function installFoxxyUiApi(): void {
         attributes: true,
         attributeFilter: ["data-theme"],
       });
-    } else if (listeners.size === 0 && observer !== null) {
+    } else if (themeListeners.size === 0 && observer !== null) {
       observer.disconnect();
       observer = null;
     }
   };
+
+  onLocaleChange(() => {
+    const locale = getLocale();
+    for (const cb of localeListeners) {
+      cb(locale);
+    }
+  });
 
   window.foxxyUi = {
     version: 1,
@@ -78,11 +98,23 @@ export function installFoxxyUiApi(): void {
       return [...UI_THEME_IDS];
     },
     onThemeChange(cb: (theme: UiThemeMode) => void): () => void {
-      listeners.add(cb);
+      themeListeners.add(cb);
       syncObserver();
       return () => {
-        listeners.delete(cb);
+        themeListeners.delete(cb);
         syncObserver();
+      };
+    },
+    setLocale(locale: string): boolean {
+      return setUiI18nLocale(locale);
+    },
+    getLocale(): UiLocale {
+      return getLocale();
+    },
+    onLocaleChange(cb: (locale: UiLocale) => void): () => void {
+      localeListeners.add(cb);
+      return () => {
+        localeListeners.delete(cb);
       };
     },
   };

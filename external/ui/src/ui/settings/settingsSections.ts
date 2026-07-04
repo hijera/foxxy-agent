@@ -1,3 +1,4 @@
+import { t } from "../i18n/i18n";
 import type { JsonSchema } from "./SchemaForm";
 
 export type SectionKind = "array" | "object" | "group" | "skills" | "appearance";
@@ -46,7 +47,7 @@ export function deriveSettingsSections(
 ): SectionDescriptor[] {
   const appearance: SectionDescriptor = {
     id: "appearance",
-    label: "Appearance",
+    label: t("settings.section.appearance"),
     kind: "appearance",
   };
 
@@ -74,7 +75,7 @@ export function deriveSettingsSections(
       if (!systemEmitted) {
         out.push({
           id: "system",
-          label: "System",
+          label: t("settings.section.system"),
           kind: "group",
           childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
         });
