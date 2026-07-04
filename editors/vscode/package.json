@@ -13,6 +13,15 @@
     "Other"
   ],
   "main": "./out/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hijera/foxxy-agent.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/hijera/foxxy-agent/tree/main/editors/vscode#readme",
+  "bugs": {
+    "url": "https://github.com/hijera/foxxy-agent/issues"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],

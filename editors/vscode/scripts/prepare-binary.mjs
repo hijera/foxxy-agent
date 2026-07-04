@@ -15,7 +15,7 @@
 // produces one VSIX per platform. See editors/vscode/README.md.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
@@ -102,6 +102,10 @@ function main() {
     return;
   }
   if (parsed.mode === "single") {
+    // Platform-specific mode: wipe any stale binaries from other targets left
+    // over from a previous universal/single build, so only the requested
+    // target ends up bundled in the VSIX.
+    rmSync(join(here, "..", "foxxycode-bin"), { recursive: true, force: true });
     buildOne(parsed.goos, parsed.goarch);
     return;
   }
