@@ -47,6 +47,13 @@ export function refreshLocale(): Locale {
   return locale;
 }
 
+/** Refresh runtime i18n and push `foxxycode.locale` for command palette / toolbar `when` clauses. */
+export function syncLocaleContext(): Locale {
+  const locale = refreshLocale();
+  void vscode.commands.executeCommand("setContext", "foxxycode.locale", locale);
+  return locale;
+}
+
 /** Subscribe to changes of any `foxxycode.*` setting; returns a disposable. */
 export function onSettingsChanged(cb: () => void): vscode.Disposable {
   return vscode.workspace.onDidChangeConfiguration((e) => {

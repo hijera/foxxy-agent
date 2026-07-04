@@ -1,0 +1,33 @@
+{
+  "ext.displayName": "FoxxyCode",
+  "ext.description": "Run the full foxxycode agent inside VS Code, embedded in a webview.",
+
+  "view.container.title": "FoxxyCode",
+  "view.name": "FoxxyCode",
+
+  "cmd.openPanel.title": "FoxxyCode: Open Panel",
+  "cmd.openPanel.title.ru": "FoxxyCode: Открыть панель",
+  "cmd.restart.title": "Restart Agent",
+  "cmd.restart.title.ru": "Перезапустить агент",
+  "cmd.reload.title": "Reload UI",
+  "cmd.reload.title.ru": "Обновить интерфейс",
+  "cmd.openInBrowser.title": "Open in Browser",
+  "cmd.openInBrowser.title.ru": "Открыть в браузере",
+  "cmd.openDevtools.title": "Open DevTools",
+  "cmd.openDevtools.title.ru": "Открыть DevTools",
+  "cmd.settings.title": "Settings",
+  "cmd.settings.title.ru": "Настройки",
+  "cmd.showLogs.title": "Show Logs",
+  "cmd.showLogs.title.ru": "Показать логи",
+
+  "cfg.title": "FoxxyCode",
+  "cfg.binaryPath.description": "Override the bundled foxxycode executable with a path to a full-feature build.",
+  "cfg.host.description": "Host the foxxycode http server binds to.",
+  "cfg.port.description": "Port for foxxycode http (0 = pick a free port automatically).",
+  "cfg.home.description": "State directory for sessions/config (foxxycode --home; default ~/.foxxycode).",
+  "cfg.extraArgs.description": "Extra arguments appended to `foxxycode http`.",
+  "cfg.language.description": "UI language of the extension and the embedded SPA (system follows VS Code display language).",
+  "cfg.followVscodeTheme.description": "Match FoxxyCode UI theme to the VS Code color theme.",
+  "cfg.nativeDiffs.description": "Show native inline diffs in the editor when the agent edits files.",
+  "cfg.autoApproveEdits.description": "Auto-apply edits without asking (still shows the diff, with Revert)."
+}

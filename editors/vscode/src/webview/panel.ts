@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import { t } from "../i18n/bundle";
+import { t, spaLanguageCode } from "../i18n/bundle";
 import { currentFoxxyCodeTheme } from "./themeBridge";
-import { spaLanguageCode } from "../i18n/bundle";
 import { readSettings } from "../settings";
+import { info } from "../notifications";
 
 /** Webview host for the foxxycode SPA. Mirrors `editors/intellij/.../ui/FoxxyCodeBrowserPanel.kt`,
  *  structurally modelled on the working `coddy-vscode/src/coddyView.ts`.
@@ -77,12 +77,12 @@ export class FoxxyCodePanelController {
 
   /** Show a status message while the server is booting (no iframe yet). */
   showStatus(message: string): void {
-    this.webview.html = this.messageHtml(escapeHtml(message), false);
+    this.webview.html = this.messageHtml(escapeHtml(message), false, this.activeHtmlLang());
   }
 
   /** Show an error message with Retry / Open Settings buttons. */
   showError(message: string): void {
-    this.webview.html = this.messageHtml(escapeHtml(message), true);
+    this.webview.html = this.messageHtml(escapeHtml(message), true, this.activeHtmlLang());
   }
 
   /** Point the iframe at a fresh base URL (e.g. after a process restart on a new port).
@@ -110,6 +110,13 @@ export class FoxxyCodePanelController {
   async openInBrowser(): Promise<void> {
     if (this.currentUrl) {
       await vscode.env.openExternal(vscode.Uri.parse(this.currentUrl));
+      return;
+    }
+    const fallbackUrl = "https://github.com/hijera/foxxy-agent";
+    const openLabel = t("process.button.openUrl", fallbackUrl);
+    const choice = await info(t("process.fallback.unavailable"), openLabel);
+    if (choice === openLabel) {
+      await vscode.env.openExternal(vscode.Uri.parse(fallbackUrl));
     }
   }
   dispose(): void {
@@ -136,10 +143,15 @@ export class FoxxyCodePanelController {
     const src = external.toString(true);
     this.currentUrl = src;
     this.opts.onUrl?.(src);
-    this.webview.html = this.frameHtml(src);
+    this.webview.html = this.frameHtml(src, lang);
   }
 
-  private frameHtml(src: string): string {
+  private activeHtmlLang(): "en" | "ru" {
+    const settings = readSettings();
+    return spaLanguageCode(settings.language, vscode.env.language);
+  }
+
+  private frameHtml(src: string, lang: "en" | "ru"): string {
     // CSP: allow the iframe to load the loopback foxxycode http server on any
     // auto-picked port, plus https for remote-forwarded URIs. Inline styles
     // are needed for the full-bleed iframe layout.
@@ -150,7 +162,7 @@ export class FoxxyCodePanelController {
       "script-src 'nonce-" + this.nonce + "'",
     ].join("; ");
     return /* html */ `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
@@ -209,7 +221,7 @@ export class FoxxyCodePanelController {
 </html>`;
   }
 
-  private messageHtml(message: string, isError: boolean): string {
+  private messageHtml(message: string, isError: boolean, lang: "en" | "ru"): string {
     const actions = isError
       ? `<div class="actions">
            <button id="retry">${escapeHtml(t("process.button.retry"))}</button>
@@ -218,7 +230,7 @@ export class FoxxyCodePanelController {
       : "";
     const title = isError ? escapeHtml(t("process.error.startFailed")) : "";
     return /* html */ `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy"

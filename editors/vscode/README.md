@@ -103,14 +103,15 @@ Open DevTools, Settings.
 
 ### Language
 
-The extension UI (notifications, first-run message, diff prompts) is available in **English** and
-**Russian**. Use the **FoxxyCode: Language** setting:
+The extension UI is available in **English** and **Russian**:
 
-- **System** (default) — follows `vscode.env.language` (the VS Code display language).
-- **English** / **Русский** — force a specific language.
+- **Runtime strings** (notifications, first-run message, diff prompts, progress indicators, error views) follow the **FoxxyCode: Language** setting (`foxxycode.language`):
+  - **System** (default) — follows `vscode.env.language` (the VS Code display language).
+  - **English** / **Русский** — force a specific language.
+- **Command titles** in the Command Palette and webview toolbar also follow `foxxycode.language` (dual command variants gated by `foxxycode.locale`).
+- **Settings descriptions** and the activity-bar view container title follow the **VS Code display language** via `package.nls.json` / `package.nls.ru.json`. VS Code resolves those statically from `vscode.env.language`; they cannot be overridden by `foxxycode.language` alone. When **System** is selected, everything stays in sync.
 
-The selected language is also forwarded to the embedded SPA via the `?lang=` URL parameter and
-applied on every iframe reload. Missing translation keys fall back to English automatically.
+The selected language is forwarded to the embedded SPA via the `?lang=` URL parameter and applied on every iframe reload. Missing translation keys fall back to English automatically.
 
 ### Theme
 
@@ -151,6 +152,8 @@ src/
   settings.ts                     typed wrapper over the `foxxycode.*` settings
   notifications.ts                info/warn/error helpers
   i18n/bundle.ts                  localized strings (en + ru); 1:1 with the IntelliJ bundle
+  package.nls.json                VS Code NLS (English) for package.json %key% surfaces
+  package.nls.ru.json             VS Code NLS (Russian) for package.json %key% surfaces
   binary/binaryResolver.ts        OS/arch → bundled foxxycode binary path; validate()
   process/portUtil.ts             free-port picker
   process/processManager.ts       per-workspace process lifecycle + readiness polling

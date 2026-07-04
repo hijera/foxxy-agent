@@ -12,6 +12,8 @@ export interface ProcessManagerOptions {
   settings: FoxxyCodeSettings;
   /** Logger sink; lines from foxxycode stdout/stderr are forwarded here. */
   log?: (line: string) => void;
+  /** Called once host/port are known, before readiness polling begins. */
+  onLaunching?: (host: string, port: number) => void;
 }
 
 export interface StartResult {
@@ -61,6 +63,8 @@ export class ProcessManager {
 
     return pickFreePort(settings.port).then((port) => {
       const host = settings.host && settings.host.trim() !== "" ? settings.host.trim() : "127.0.0.1";
+      log?.(`[foxxycode] launching ${host}:${port}`);
+      this.opts.onLaunching?.(host, port);
 
       const args = ["http", "-H", host, "-P", String(port)];
       if (workspaceRoot) args.push("--cwd", workspaceRoot);

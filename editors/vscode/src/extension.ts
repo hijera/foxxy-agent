@@ -9,9 +9,10 @@ import {
   onSettingsChanged,
   openSettingsUi,
   readSettings,
-  refreshLocale,
+  syncLocaleContext,
 } from "./settings";
 import { t } from "./i18n/bundle";
+import { error, withProgress } from "./notifications";
 
 /** FoxxyCode VS Code extension — full port of the JetBrains plugin.
  *
@@ -47,7 +48,7 @@ export function activate(context: vscode.ExtensionContext): void {
   activationOutput = vscode.window.createOutputChannel("FoxxyCode");
   context.subscriptions.push(activationOutput);
   activationOutput.appendLine(`[foxxycode] activate (ext=${context.extensionPath})`);
-  refreshLocale();
+  syncLocaleContext();
 
   const workspaceRoot = currentWorkspaceRoot();
   const log = (line: string): void => activationOutput?.appendLine(line);
@@ -71,25 +72,23 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // Commands.
-  context.subscriptions.push(
-    vscode.commands.registerCommand("foxxycode.openPanel", () => openEditorPanel(context)),
-    vscode.commands.registerCommand("foxxycode.restart", () => void restartActive()),
-    vscode.commands.registerCommand("foxxycode.reload", () => activeController()?.reload()),
-    vscode.commands.registerCommand("foxxycode.openInBrowser", () =>
-      void activeController()?.openInBrowser(),
-    ),
-    vscode.commands.registerCommand("foxxycode.openDevtools", () =>
-      activeController()?.openDevtools(),
-    ),
-    vscode.commands.registerCommand("foxxycode.openSettings", () => void openSettingsUi()),
-    vscode.commands.registerCommand("foxxycode.showLogs", () => activationOutput?.show()),
+  // Commands (English + Russian palette variants share the same handlers).
+  registerCommandPair(context, "foxxycode.openPanel", () => openEditorPanel(context));
+  registerCommandPair(context, "foxxycode.restart", () => void restartActive());
+  registerCommandPair(context, "foxxycode.reload", () => activeController()?.reload());
+  registerCommandPair(context, "foxxycode.openInBrowser", () =>
+    void activeController()?.openInBrowser(),
   );
+  registerCommandPair(context, "foxxycode.openDevtools", () =>
+    activeController()?.openDevtools(),
+  );
+  registerCommandPair(context, "foxxycode.openSettings", () => void openSettingsUi());
+  registerCommandPair(context, "foxxycode.showLogs", () => activationOutput?.show());
 
   // Live locale refresh + re-read settings for the next process start.
   context.subscriptions.push(
     onSettingsChanged(() => {
-      refreshLocale();
+      syncLocaleContext();
       // Re-snapshot settings so the next start()/restart() uses fresh values.
       if (processManager) (processManager as any).opts.settings = readSettings();
       activeController()?.refresh();
@@ -109,6 +108,18 @@ export function deactivate(): void {
 
 // ---- helpers ---------------------------------------------------------------
 
+/** Register `id` and `id.ru` with the same handler (Russian palette title variant). */
+function registerCommandPair(
+  context: vscode.ExtensionContext,
+  id: string,
+  handler: (...args: unknown[]) => unknown,
+): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand(id, handler),
+    vscode.commands.registerCommand(`${id}.ru`, handler),
+  );
+}
+
 /** Returns the controller for the currently focused webview (editor panel takes
  *  precedence over the activity bar view), or `null` if neither is ready. */
 function activeController(): FoxxyCodePanelController | null {
@@ -121,19 +132,47 @@ function currentWorkspaceRoot(): string | undefined {
   return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
 }
 
+function showStartFailedNotification(msg: string): void {
+  void error(
+    `${t("notification.title.startFailed")} — ${msg}`,
+    t("process.button.openSettings"),
+  ).then((choice) => {
+    if (choice === t("process.button.openSettings")) {
+      void openSettingsUi();
+    }
+  });
+}
+
+/** Start or restart the server with a notification progress indicator. */
+async function startServer(mode: "start" | "restart"): Promise<{ baseUrl: string }> {
+  if (!processManager) throw new Error(t("process.error.startFailed"));
+  const pm = processManager;
+  let progressReport: ((increment: number, message?: string) => void) | null = null;
+  (pm as any).opts.onLaunching = (host: string, port: number) => {
+    progressReport?.(0, t("process.indicator.launching", host, String(port)));
+  };
+
+  const title = mode === "restart" ? t("process.status.restarting") : t("process.status.starting");
+  return withProgress(title, async (report) => {
+    progressReport = report;
+    return mode === "restart" ? pm.restart() : pm.start();
+  });
+}
+
 /** Shared start flow used by both the sidebar view and the editor panel.
  *  Shows a status message, starts the server, points the controller at it,
  *  and wires the diff service. On error, shows an error view with Retry. */
 async function startController(controller: FoxxyCodePanelController): Promise<void> {
   controller.showStatus(t("process.status.starting"));
   try {
-    const { baseUrl } = await processManager!.start();
+    const { baseUrl } = await startServer("start");
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
     controller.showError(t("process.error.startFailedPanel", msg));
+    showStartFailedNotification(msg);
   }
 }
 
@@ -144,13 +183,14 @@ async function restartActive(): Promise<void> {
   if (!controller) return;
   controller.showStatus(t("process.status.restarting"));
   try {
-    const { baseUrl } = await processManager.restart();
+    const { baseUrl } = await startServer("restart");
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] restart failed: ${msg}`);
     controller.showError(t("process.error.startFailedPanel", msg));
+    showStartFailedNotification(msg);
   }
 }
 
@@ -226,13 +266,14 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
     if (!controller || !processManager) return;
     controller.showStatus(t("process.status.starting"));
     try {
-      const { baseUrl } = await this.server.start();
+      const { baseUrl } = await startServer("start");
       await controller.setBaseUrl(baseUrl);
       this.diffService.startIfNeeded(baseUrl);
     } catch (e) {
       const msg = (e as Error).message ?? String(e);
       activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
       controller.showError(t("process.error.startFailedPanel", msg));
+      showStartFailedNotification(msg);
     }
   }
 }

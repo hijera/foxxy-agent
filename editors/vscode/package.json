@@ -1,7 +1,7 @@
 {
   "name": "foxxycode-vscode",
-  "displayName": "FoxxyCode",
-  "description": "Run the full foxxycode agent inside VS Code, embedded in a webview.",
+  "displayName": "%ext.displayName%",
+  "description": "%ext.description%",
   "version": "0.1.0",
   "publisher": "foxxycode",
   "license": "MIT",
@@ -24,48 +24,90 @@
   },
   "activationEvents": [
     "onView:foxxycode.view",
-    "onCommand:foxxycode.openPanel"
+    "onCommand:foxxycode.openPanel",
+    "onCommand:foxxycode.openPanel.ru"
   ],
   "contributes": {
     "commands": [
       {
         "command": "foxxycode.openPanel",
-        "title": "FoxxyCode: Open Panel",
+        "title": "%cmd.openPanel.title%",
+        "category": "FoxxyCode"
+      },
+      {
+        "command": "foxxycode.openPanel.ru",
+        "title": "%cmd.openPanel.title.ru%",
         "category": "FoxxyCode"
       },
       {
         "command": "foxxycode.restart",
-        "title": "Restart Agent",
+        "title": "%cmd.restart.title%",
+        "category": "FoxxyCode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "foxxycode.restart.ru",
+        "title": "%cmd.restart.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(refresh)"
       },
       {
         "command": "foxxycode.reload",
-        "title": "Reload UI",
+        "title": "%cmd.reload.title%",
+        "category": "FoxxyCode",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "foxxycode.reload.ru",
+        "title": "%cmd.reload.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(sync)"
       },
       {
         "command": "foxxycode.openInBrowser",
-        "title": "Open in Browser",
+        "title": "%cmd.openInBrowser.title%",
+        "category": "FoxxyCode",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "foxxycode.openInBrowser.ru",
+        "title": "%cmd.openInBrowser.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(link-external)"
       },
       {
         "command": "foxxycode.openDevtools",
-        "title": "Open DevTools",
+        "title": "%cmd.openDevtools.title%",
+        "category": "FoxxyCode",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "foxxycode.openDevtools.ru",
+        "title": "%cmd.openDevtools.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(tools)"
       },
       {
         "command": "foxxycode.openSettings",
-        "title": "Settings",
+        "title": "%cmd.settings.title%",
+        "category": "FoxxyCode",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "foxxycode.openSettings.ru",
+        "title": "%cmd.settings.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(gear)"
       },
       {
         "command": "foxxycode.showLogs",
-        "title": "Show Logs",
+        "title": "%cmd.showLogs.title%",
+        "category": "FoxxyCode",
+        "icon": "$(output)"
+      },
+      {
+        "command": "foxxycode.showLogs.ru",
+        "title": "%cmd.showLogs.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(output)"
       }
@@ -74,7 +116,7 @@
       "activitybar": [
         {
           "id": "foxxycode",
-          "title": "FoxxyCode",
+          "title": "%view.container.title%",
           "icon": "media/foxxycode.svg"
         }
       ]
@@ -83,99 +125,212 @@
       "foxxycode": [
         {
           "id": "foxxycode.view",
-          "name": "FoxxyCode",
+          "name": "%view.name%",
           "type": "webview"
         }
       ]
     },
     "menus": {
+      "commandPalette": [
+        {
+          "command": "foxxycode.openPanel",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.openPanel.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.restart",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.restart.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.reload",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.reload.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.openInBrowser",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.openInBrowser.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.openDevtools",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.openDevtools.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.openSettings",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.openSettings.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.showLogs",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.showLogs.ru",
+          "when": "foxxycode.locale == 'ru'"
+        }
+      ],
       "view/title": [
         {
           "command": "foxxycode.restart",
-          "when": "view == foxxycode.view",
+          "when": "view == foxxycode.view && foxxycode.locale == 'en'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "foxxycode.restart.ru",
+          "when": "view == foxxycode.view && foxxycode.locale == 'ru'",
           "group": "navigation@1"
         },
         {
           "command": "foxxycode.reload",
-          "when": "view == foxxycode.view",
+          "when": "view == foxxycode.view && foxxycode.locale == 'en'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "foxxycode.reload.ru",
+          "when": "view == foxxycode.view && foxxycode.locale == 'ru'",
           "group": "navigation@2"
         },
         {
           "command": "foxxycode.openInBrowser",
-          "when": "view == foxxycode.view",
+          "when": "view == foxxycode.view && foxxycode.locale == 'en'",
+          "group": "navigation@3"
+        },
+        {
+          "command": "foxxycode.openInBrowser.ru",
+          "when": "view == foxxycode.view && foxxycode.locale == 'ru'",
           "group": "navigation@3"
         },
         {
           "command": "foxxycode.openDevtools",
-          "when": "view == foxxycode.view",
+          "when": "view == foxxycode.view && foxxycode.locale == 'en'",
+          "group": "navigation@4"
+        },
+        {
+          "command": "foxxycode.openDevtools.ru",
+          "when": "view == foxxycode.view && foxxycode.locale == 'ru'",
           "group": "navigation@4"
         },
         {
           "command": "foxxycode.openSettings",
-          "when": "view == foxxycode.view",
+          "when": "view == foxxycode.view && foxxycode.locale == 'en'",
+          "group": "navigation@5"
+        },
+        {
+          "command": "foxxycode.openSettings.ru",
+          "when": "view == foxxycode.view && foxxycode.locale == 'ru'",
           "group": "navigation@5"
         },
         {
           "command": "foxxycode.showLogs",
-          "when": "view == foxxycode.view",
+          "when": "view == foxxycode.view && foxxycode.locale == 'en'",
+          "group": "navigation@6"
+        },
+        {
+          "command": "foxxycode.showLogs.ru",
+          "when": "view == foxxycode.view && foxxycode.locale == 'ru'",
           "group": "navigation@6"
         }
       ],
       "webview/title": [
         {
           "command": "foxxycode.restart",
-          "when": "foxxycode.editorPanelActive",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'en'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "foxxycode.restart.ru",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'ru'",
           "group": "navigation@1"
         },
         {
           "command": "foxxycode.reload",
-          "when": "foxxycode.editorPanelActive",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'en'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "foxxycode.reload.ru",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'ru'",
           "group": "navigation@2"
         },
         {
           "command": "foxxycode.openInBrowser",
-          "when": "foxxycode.editorPanelActive",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'en'",
+          "group": "navigation@3"
+        },
+        {
+          "command": "foxxycode.openInBrowser.ru",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'ru'",
           "group": "navigation@3"
         },
         {
           "command": "foxxycode.openDevtools",
-          "when": "foxxycode.editorPanelActive",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'en'",
+          "group": "navigation@4"
+        },
+        {
+          "command": "foxxycode.openDevtools.ru",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'ru'",
           "group": "navigation@4"
         },
         {
           "command": "foxxycode.openSettings",
-          "when": "foxxycode.editorPanelActive",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'en'",
+          "group": "navigation@5"
+        },
+        {
+          "command": "foxxycode.openSettings.ru",
+          "when": "foxxycode.editorPanelActive && foxxycode.locale == 'ru'",
           "group": "navigation@5"
         }
       ]
     },
     "configuration": {
-      "title": "FoxxyCode",
+      "title": "%cfg.title%",
       "properties": {
         "foxxycode.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Override the bundled foxxycode executable with a path to a full-feature build."
+          "description": "%cfg.binaryPath.description%"
         },
         "foxxycode.host": {
           "type": "string",
           "default": "127.0.0.1",
-          "description": "Host the foxxycode http server binds to."
+          "description": "%cfg.host.description%"
         },
         "foxxycode.port": {
           "type": "number",
           "default": 0,
-          "description": "Port for foxxycode http (0 = pick a free port automatically)."
+          "description": "%cfg.port.description%"
         },
         "foxxycode.home": {
           "type": "string",
           "default": "",
-          "description": "State directory for sessions/config (foxxycode --home; default ~/.foxxycode)."
+          "description": "%cfg.home.description%"
         },
         "foxxycode.extraArgs": {
           "type": "string",
           "default": "",
-          "description": "Extra arguments appended to `foxxycode http`."
+          "description": "%cfg.extraArgs.description%"
         },
         "foxxycode.language": {
           "type": "string",
@@ -185,22 +340,22 @@
             "ru"
           ],
           "default": "system",
-          "description": "UI language of the extension and the embedded SPA (system follows VS Code display language)."
+          "description": "%cfg.language.description%"
         },
         "foxxycode.followVscodeTheme": {
           "type": "boolean",
           "default": true,
-          "description": "Match FoxxyCode UI theme to the VS Code color theme."
+          "description": "%cfg.followVscodeTheme.description%"
         },
         "foxxycode.nativeDiffs": {
           "type": "boolean",
           "default": true,
-          "description": "Show native inline diffs in the editor when the agent edits files."
+          "description": "%cfg.nativeDiffs.description%"
         },
         "foxxycode.autoApproveEdits": {
           "type": "boolean",
           "default": false,
-          "description": "Auto-apply edits without asking (still shows the diff, with Revert)."
+          "description": "%cfg.autoApproveEdits.description%"
         }
       }
     }
