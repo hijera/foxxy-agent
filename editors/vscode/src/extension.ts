@@ -3,7 +3,6 @@ import { ProcessManager } from "./process/processManager";
 import { IdeDiffService } from "./diff/ideDiffService";
 import {
   FoxxyCodePanelController,
-  FoxxyCodeViewProvider,
 } from "./webview/panel";
 import { showFirstRunIfNeeded } from "./webview/firstRun";
 import {
@@ -12,7 +11,6 @@ import {
   readSettings,
   refreshLocale,
 } from "./settings";
-import { error, info } from "./notifications";
 import { t } from "./i18n/bundle";
 
 /** FoxxyCode VS Code extension — full port of the JetBrains plugin.
@@ -27,7 +25,14 @@ import { t } from "./i18n/bundle";
  *       WebviewPanel/WebviewView iframe at
  *       `http://host:port/?theme=<vscodeTheme>&lang=<lang>&embed=intellij`.
  *    4. Subscribe to `GET /foxxycode/ide/events` for native inline diffs.
- *    5. Dispose the child process on deactivate / window close. */
+ *    5. Dispose the child process on deactivate / window close.
+ *
+ *  Activation is lazy: the extension activates when the FoxxyCode sidebar view
+ *  is opened (`onView:foxxycode.view`) or the Open Panel command is invoked
+ *  (`onCommand:foxxycode.openPanel`). The server is started from inside the
+ *  view/panel resolver so the controller always receives its base URL — this
+ *  mirrors the working coddy-vscode extension and avoids the "infinite loading"
+ *  race that an eager start-on-activate would cause. */
 
 let processManager: ProcessManager | null = null;
 let diffService: IdeDiffService | null = null;
@@ -54,8 +59,9 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   diffService = new IdeDiffService(workspaceRoot, log);
 
-  // Activity bar webview view.
-  viewProvider = new FoxxyCodeViewProvider(context.extensionUri, (url) => {
+  // Activity bar webview view. The view provider owns the start flow so the
+  // controller always gets its base URL (see class doc).
+  viewProvider = new FoxxyCodeViewProvider(vscode.Uri.file(context.extensionPath), processManager, diffService, (url) => {
     currentUrl = url;
   });
   context.subscriptions.push(
@@ -67,7 +73,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Commands.
   context.subscriptions.push(
     vscode.commands.registerCommand("foxxycode.openPanel", () => openEditorPanel(context)),
-    vscode.commands.registerCommand("foxxycode.restart", () => void restartServer()),
+    vscode.commands.registerCommand("foxxycode.restart", () => void restartActive()),
     vscode.commands.registerCommand("foxxycode.reload", () => activeController()?.reload()),
     vscode.commands.registerCommand("foxxycode.openInBrowser", () =>
       void activeController()?.openInBrowser(),
@@ -76,6 +82,7 @@ export function activate(context: vscode.ExtensionContext): void {
       activeController()?.openDevtools(),
     ),
     vscode.commands.registerCommand("foxxycode.openSettings", () => void openSettingsUi()),
+    vscode.commands.registerCommand("foxxycode.showLogs", () => activationOutput?.show()),
   );
 
   // Live locale refresh + re-read settings for the next process start.
@@ -88,14 +95,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // `foxxycode.active` gates the webview/title toolbar commands in package.json.
-  void vscode.commands.executeCommand("setContext", "foxxycode.active", true);
-
   // First-run info message (non-blocking).
   void showFirstRunIfNeeded(context);
-
-  // Kick off the process + wire the diff service once it's ready.
-  void ensureStartedAndWire();
 }
 
 export function deactivate(): void {
@@ -103,7 +104,6 @@ export function deactivate(): void {
   processManager?.dispose();
   editorPanelController?.dispose();
   viewProvider?.controller?.dispose();
-  void vscode.commands.executeCommand("setContext", "foxxycode.active", false);
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -120,44 +120,37 @@ function currentWorkspaceRoot(): string | undefined {
   return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
 }
 
-async function ensureStartedAndWire(): Promise<void> {
+/** Shared start flow used by both the sidebar view and the editor panel.
+ *  Shows a status message, starts the server, points the controller at it,
+ *  and wires the diff service. On error, shows an error view with Retry. */
+async function startController(controller: FoxxyCodePanelController): Promise<void> {
+  controller.showStatus(t("process.status.starting"));
   try {
     const { baseUrl } = await processManager!.start();
-    pushBaseUrlToControllers(baseUrl);
+    await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
   } catch (e) {
-    reportStartFailure((e as Error).message ?? String(e));
+    const msg = (e as Error).message ?? String(e);
+    activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
+    controller.showError(t("process.error.startFailedPanel", msg));
   }
 }
 
-async function restartServer(): Promise<void> {
+/** Restart the server, then re-render whichever controller is active. */
+async function restartActive(): Promise<void> {
   if (!processManager) return;
-  info(t("process.status.restarting"));
+  const controller = activeController();
+  if (!controller) return;
+  controller.showStatus(t("process.status.restarting"));
   try {
     const { baseUrl } = await processManager.restart();
-    pushBaseUrlToControllers(baseUrl);
+    await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
   } catch (e) {
-    reportStartFailure((e as Error).message ?? String(e));
+    const msg = (e as Error).message ?? String(e);
+    activationOutput?.appendLine(`[foxxycode] restart failed: ${msg}`);
+    controller.showError(t("process.error.startFailedPanel", msg));
   }
-}
-
-function pushBaseUrlToControllers(baseUrl: string): void {
-  viewProvider?.controller?.setBaseUrl(baseUrl);
-  editorPanelController?.setBaseUrl(baseUrl);
-  currentUrl = baseUrl;
-}
-
-function reportStartFailure(msg: string): void {
-  activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
-  void error(
-    t("process.error.startFailedPanel", msg),
-    t("process.button.retry"),
-    t("process.button.openSettings"),
-  ).then((choice) => {
-    if (choice === t("process.button.retry")) void restartServer();
-    else if (choice === t("process.button.openSettings")) void openSettingsUi();
-  });
 }
 
 function openEditorPanel(context: vscode.ExtensionContext): void {
@@ -183,12 +176,62 @@ function openEditorPanel(context: vscode.ExtensionContext): void {
     onUrl: (url) => {
       currentUrl = url;
     },
+    onRetry: () => void startController(editorPanelController!),
+    onOpenSettings: () => void openSettingsUi(),
   });
+  // Surface the editor-panel toolbar buttons (gated by `foxxycode.editorPanelActive`).
+  void vscode.commands.executeCommand("setContext", "foxxycode.editorPanelActive", true);
   panel.onDidDispose(() => {
     editorPanelController?.dispose();
     editorPanelController = null;
     editorPanel = null;
     editorPanelDisposed = true;
+    void vscode.commands.executeCommand("setContext", "foxxycode.editorPanelActive", false);
   });
-  if (processManager?.baseUrl) editorPanelController.setBaseUrl(processManager.baseUrl);
+  // If the server is already running (sidebar view opened first), reuse its URL;
+  // otherwise boot the server now from the panel resolver.
+  if (processManager?.baseUrl) {
+    void editorPanelController.setBaseUrl(processManager.baseUrl);
+  } else {
+    void startController(editorPanelController);
+  }
+}
+
+// ---- view provider for the activitybar webview view -------------------------
+
+class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
+  public controller: FoxxyCodePanelController | null = null;
+
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly server: ProcessManager,
+    private readonly diffService: IdeDiffService,
+    private readonly onUrl: (url: string) => void,
+  ) {}
+
+  resolveWebviewView(view: vscode.WebviewView): void {
+    this.controller = new FoxxyCodePanelController(view.webview, view, {
+      extensionUri: this.extensionUri,
+      onUrl: this.onUrl,
+      onRetry: () => void this.start(),
+      onOpenSettings: () => void openSettingsUi(),
+    });
+    void this.start();
+  }
+
+  /** Start the server (if needed) and show the embedded UI in this view. */
+  async start(): Promise<void> {
+    const controller = this.controller;
+    if (!controller || !processManager) return;
+    controller.showStatus(t("process.status.starting"));
+    try {
+      const { baseUrl } = await this.server.start();
+      await controller.setBaseUrl(baseUrl);
+      this.diffService.startIfNeeded(baseUrl);
+    } catch (e) {
+      const msg = (e as Error).message ?? String(e);
+      activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
+      controller.showError(t("process.error.startFailedPanel", msg));
+    }
+  }
 }

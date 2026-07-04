@@ -4,14 +4,18 @@ import { currentFoxxyCodeTheme } from "./themeBridge";
 import { spaLanguageCode } from "../i18n/bundle";
 import { readSettings } from "../settings";
 
-/** Webview host for the foxxycode SPA. Mirrors `editors/intellij/.../ui/FoxxyCodeBrowserPanel.kt`.
+/** Webview host for the foxxycode SPA. Mirrors `editors/intellij/.../ui/FoxxyCodeBrowserPanel.kt`,
+ *  structurally modelled on the working `coddy-vscode/src/coddyView.ts`.
  *
  *  VS Code webviews load external URLs only via an `<iframe>` inside `webview.html`,
  *  and the extension host cannot `executeJavaScript` into a cross-origin iframe
  *  (unlike JCEF). Live theme/language switching is therefore done by reloading
- *  the iframe with updated `?theme=` / `?lang=` query parameters — visually
- *  identical to the IntelliJ flow, technically different. Initial load is
- *  flash-free thanks to `?theme=` being applied before first paint. */
+ *  the iframe with updated `?theme=` / `?lang=` parameters — visually identical
+ *  to the IntelliJ flow, technically different. Initial load is flash-free
+ *  thanks to `?theme=` being applied before first paint.
+ *
+ *  The iframe src is run through `vscode.env.asExternalUri` so it works in
+ *  Remote SSH / Codespaces / WSL where `127.0.0.1:<port>` is forwarded. */
 
 const EMBED_ID = "intellij"; // SPA CSS only specialises this id today (see docs/intellij-embedding.md).
 
@@ -20,10 +24,16 @@ export interface PanelControllerOptions {
   /** Called whenever the iframe URL changes; used to surface the current URL
    *  to the Open-in-Browser command. */
   onUrl?: (url: string) => void;
+  /** Called when the user clicks Retry in an error view. */
+  onRetry?: () => void;
+  /** Called when the user clicks Open Settings in an error view. */
+  onOpenSettings?: () => void;
 }
 
 /** Controller over either a `WebviewPanel` (editor area) or a `WebviewView`
- *  (sidebar). Both share the same HTML builder. */
+ *  (sidebar). Both share the same HTML builder. The controller can show three
+ *  kinds of content: a status message (while the server boots), an error
+ *  message (with Retry / Open Settings buttons), or the iframe itself. */
 export class FoxxyCodePanelController {
   private base: string | null = null;
   private currentUrl: string | null = null;
@@ -36,32 +46,61 @@ export class FoxxyCodePanelController {
   ) {
     webview.options = { enableScripts: true, enableForms: true };
 
+    // Receive Retry / Open Settings clicks from the error HTML.
+    webview.onDidReceiveMessage((msg: { type?: string }) => {
+      switch (msg?.type) {
+        case "foxxycode:retry":
+          this.opts.onRetry?.();
+          break;
+        case "foxxycode:openSettings":
+          this.opts.onOpenSettings?.();
+          break;
+        case "foxxycode:reload":
+          this.reload();
+          break;
+      }
+    }, undefined, this.disposables);
+
     // Live theme + language switching: reload the iframe with updated query params.
     this.disposables.push(
       vscode.window.onDidChangeActiveColorTheme(() => this.refresh()),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("foxxycode.language") || e.affectsConfiguration("foxxycode.followVscodeTheme")) {
+        if (
+          e.affectsConfiguration("foxxycode.language") ||
+          e.affectsConfiguration("foxxycode.followVscodeTheme")
+        ) {
           this.refresh();
         }
       }),
     );
   }
 
-  /** Point the iframe at a fresh base URL (e.g. after a process restart on a new port). */
-  setBaseUrl(baseUrl: string): void {
+  /** Show a status message while the server is booting (no iframe yet). */
+  showStatus(message: string): void {
+    this.webview.html = this.messageHtml(escapeHtml(message), false);
+  }
+
+  /** Show an error message with Retry / Open Settings buttons. */
+  showError(message: string): void {
+    this.webview.html = this.messageHtml(escapeHtml(message), true);
+  }
+
+  /** Point the iframe at a fresh base URL (e.g. after a process restart on a new port).
+   *  The URL is run through `asExternalUri` so it works in remote workspaces. */
+  async setBaseUrl(baseUrl: string): Promise<void> {
     this.base = baseUrl;
-    this.render();
+    await this.render();
   }
 
   /** Re-render the iframe with current base + current theme/lang (live switching). */
-  refresh(): void {
-    if (this.base) this.render();
+  async refresh(): Promise<void> {
+    if (this.base) await this.render();
   }
 
   reload(): void {
-    // VS Code webviews: postMessage to ask the iframe to reload itself, or just re-render.
-    this.webview.postMessage({ type: "foxxycode:reload" });
-    if (this.base) this.render();
+    if (this.base) {
+      void this.render();
+    }
   }
 
   openDevtools(): void {
@@ -73,7 +112,6 @@ export class FoxxyCodePanelController {
       await vscode.env.openExternal(vscode.Uri.parse(this.currentUrl));
     }
   }
-
   dispose(): void {
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
@@ -81,26 +119,35 @@ export class FoxxyCodePanelController {
 
   // ---- rendering ------------------------------------------------------------
 
-  private render(): void {
+  private async render(): Promise<void> {
     if (!this.base) return;
     const settings = readSettings();
     const theme = settings.followVscodeTheme ? currentFoxxyCodeTheme() : "dark";
     const lang = spaLanguageCode(settings.language, vscode.env.language);
-    const url = appendQueryParams(this.base, { theme, lang, embed: EMBED_ID });
-    this.currentUrl = url;
-    this.opts.onUrl?.(url);
-    this.webview.html = this.buildHtml(url);
+    const localUrl = appendQueryParams(this.base, { theme, lang, embed: EMBED_ID });
+    // asExternalUri converts http://127.0.0.1:PORT/ to a forwarded URI in remote
+    // workspaces (Remote SSH / Codespaces / WSL). Locally it returns the same URL.
+    let external: vscode.Uri;
+    try {
+      external = await vscode.env.asExternalUri(vscode.Uri.parse(localUrl));
+    } catch {
+      external = vscode.Uri.parse(localUrl);
+    }
+    const src = external.toString(true);
+    this.currentUrl = src;
+    this.opts.onUrl?.(src);
+    this.webview.html = this.frameHtml(src);
   }
 
-  private buildHtml(iframeSrc: string): string {
-    // CSP: allow the iframe to load the local foxxycode http server (any loopback port,
-    // since the port is auto-picked at runtime). Inline styles are needed for the
-    // full-bleed iframe layout.
+  private frameHtml(src: string): string {
+    // CSP: allow the iframe to load the loopback foxxycode http server on any
+    // auto-picked port, plus https for remote-forwarded URIs. Inline styles
+    // are needed for the full-bleed iframe layout.
     const csp = [
       "default-src 'none'",
-      "frame-src http://127.0.0.1:* http://localhost:*",
+      "frame-src http://127.0.0.1:* http://localhost:* https:",
       "style-src 'unsafe-inline'",
-      "script-src 'none'",
+      "script-src 'nonce-" + this.nonce + "'",
     ].join("; ");
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -108,13 +155,13 @@ export class FoxxyCodePanelController {
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: var(--vscode-editor-background, #1e1e1e); }
-  iframe { display: block; width: 100%; height: 100%; border: 0; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--vscode-editor-background, #1e1e1e); }
+  iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 </style>
 </head>
 <body>
-<iframe id="foxxy" src="${escapeAttr(iframeSrc)}" title="FoxxyCode" allow="clipboard-read; clipboard-write"></iframe>
-<script>
+<iframe id="foxxy" src="${escapeAttr(src)}" title="FoxxyCode" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+<script nonce="${this.nonce}">
   (function () {
     // Polyfill crypto.randomUUID for older embedded Chromium (< 92) — the SPA
     // calls it when creating a chat draft and crashes to a blank page without it.
@@ -156,18 +203,62 @@ export class FoxxyCodePanelController {
         });
       }
     } catch (e) {}
-    // Reload command from the extension host.
-    window.addEventListener("message", function (ev) {
-      if (ev.data && ev.data.type === "foxxycode:reload") {
-        var f = document.getElementById("foxxy");
-        if (f) f.src = f.src;
-      }
-    });
   })();
 </script>
 </body>
 </html>`;
   }
+
+  private messageHtml(message: string, isError: boolean): string {
+    const actions = isError
+      ? `<div class="actions">
+           <button id="retry">${escapeHtml(t("process.button.retry"))}</button>
+           <button id="settings">${escapeHtml(t("process.button.openSettings"))}</button>
+         </div>`
+      : "";
+    const title = isError ? escapeHtml(t("process.error.startFailed")) : "";
+    return /* html */ `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${this.nonce}';" />
+<style>
+  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground);
+         padding: 16px; line-height: 1.5; }
+  .title { font-weight: 600; margin-bottom: 8px; }
+  .msg { white-space: pre-wrap; opacity: 0.9; }
+  .actions { margin-top: 14px; display: flex; gap: 8px; }
+  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+           border: none; padding: 6px 12px; cursor: pointer; border-radius: 2px; }
+  button:hover { background: var(--vscode-button-hoverBackground); }
+</style>
+</head>
+<body>
+  ${title ? `<div class="title">${title}</div>` : ''}
+  <div class="msg">${message}</div>
+  ${actions}
+  <script nonce="${this.nonce}">
+    const vscode = acquireVsCodeApi();
+    const retry = document.getElementById('retry');
+    const settings = document.getElementById('settings');
+    if (retry) retry.addEventListener('click', () => vscode.postMessage({ type: 'foxxycode:retry' }));
+    if (settings) settings.addEventListener('click', () => vscode.postMessage({ type: 'foxxycode:openSettings' }));
+  </script>
+</body>
+</html>`;
+  }
+
+  private get nonce(): string {
+    // Stable per-instance nonce; regenerated on each render would also be fine
+    // but reusing avoids re-allocating on every theme switch.
+    if (!this._nonce) {
+      this._nonce = makeNonce();
+    }
+    return this._nonce;
+  }
+
+  private _nonce = "";
 }
 
 /** Append `?key=value&...` to `base`, avoiding duplicate params. */
@@ -179,25 +270,22 @@ function appendQueryParams(base: string, params: Record<string, string>): string
   return url.toString();
 }
 
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
-// ---- view provider for the activitybar webview view -------------------------
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/"/g, "&quot;");
+}
 
-export class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
-  public controller: FoxxyCodePanelController | null = null;
-
-  constructor(
-    private readonly extensionUri: vscode.Uri,
-    private readonly onUrl: (url: string) => void,
-  ) {}
-
-  resolveWebviewView(view: vscode.WebviewView): void {
-    this.controller = new FoxxyCodePanelController(view.webview, view, {
-      extensionUri: this.extensionUri,
-      onUrl: this.onUrl,
-    });
-    // The base URL will be pushed in by extension.ts once the process is ready.
+function makeNonce(): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let out = "";
+  for (let i = 0; i < 32; i++) {
+    out += chars.charAt(Math.floor(Math.random() * chars.length));
   }
+  return out;
 }

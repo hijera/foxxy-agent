@@ -23,7 +23,8 @@
     "url": "https://github.com/hijera/foxxy-agent/issues"
   },
   "activationEvents": [
-    "onStartupFinished"
+    "onView:foxxycode.view",
+    "onCommand:foxxycode.openPanel"
   ],
   "contributes": {
     "commands": [
@@ -61,6 +62,12 @@
         "title": "Settings",
         "category": "FoxxyCode",
         "icon": "$(gear)"
+      },
+      {
+        "command": "foxxycode.showLogs",
+        "title": "Show Logs",
+        "category": "FoxxyCode",
+        "icon": "$(output)"
       }
     ],
     "viewsContainers": {
@@ -82,30 +89,62 @@
       ]
     },
     "menus": {
-      "webview/title": [
+      "view/title": [
         {
           "command": "foxxycode.restart",
-          "when": "foxxycode.active",
+          "when": "view == foxxycode.view",
           "group": "navigation@1"
         },
         {
           "command": "foxxycode.reload",
-          "when": "foxxycode.active",
+          "when": "view == foxxycode.view",
           "group": "navigation@2"
         },
         {
           "command": "foxxycode.openInBrowser",
-          "when": "foxxycode.active",
+          "when": "view == foxxycode.view",
           "group": "navigation@3"
         },
         {
           "command": "foxxycode.openDevtools",
-          "when": "foxxycode.active",
+          "when": "view == foxxycode.view",
           "group": "navigation@4"
         },
         {
           "command": "foxxycode.openSettings",
-          "when": "foxxycode.active",
+          "when": "view == foxxycode.view",
+          "group": "navigation@5"
+        },
+        {
+          "command": "foxxycode.showLogs",
+          "when": "view == foxxycode.view",
+          "group": "navigation@6"
+        }
+      ],
+      "webview/title": [
+        {
+          "command": "foxxycode.restart",
+          "when": "foxxycode.editorPanelActive",
+          "group": "navigation@1"
+        },
+        {
+          "command": "foxxycode.reload",
+          "when": "foxxycode.editorPanelActive",
+          "group": "navigation@2"
+        },
+        {
+          "command": "foxxycode.openInBrowser",
+          "when": "foxxycode.editorPanelActive",
+          "group": "navigation@3"
+        },
+        {
+          "command": "foxxycode.openDevtools",
+          "when": "foxxycode.editorPanelActive",
+          "group": "navigation@4"
+        },
+        {
+          "command": "foxxycode.openSettings",
+          "when": "foxxycode.editorPanelActive",
           "group": "navigation@5"
         }
       ]
