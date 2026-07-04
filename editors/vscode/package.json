@@ -4,6 +4,7 @@
   "description": "Run the full foxxycode agent inside VS Code, embedded in a webview.",
   "version": "0.1.0",
   "publisher": "foxxycode",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -12,16 +13,45 @@
     "Other"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
         "command": "foxxycode.openPanel",
-        "title": "FoxxyCode: Open Panel"
+        "title": "FoxxyCode: Open Panel",
+        "category": "FoxxyCode"
       },
       {
         "command": "foxxycode.restart",
-        "title": "FoxxyCode: Restart Agent"
+        "title": "Restart Agent",
+        "category": "FoxxyCode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "foxxycode.reload",
+        "title": "Reload UI",
+        "category": "FoxxyCode",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "foxxycode.openInBrowser",
+        "title": "Open in Browser",
+        "category": "FoxxyCode",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "foxxycode.openDevtools",
+        "title": "Open DevTools",
+        "category": "FoxxyCode",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "foxxycode.openSettings",
+        "title": "Settings",
+        "category": "FoxxyCode",
+        "icon": "$(gear)"
       }
     ],
     "viewsContainers": {
@@ -30,6 +60,44 @@
           "id": "foxxycode",
           "title": "FoxxyCode",
           "icon": "media/foxxycode.svg"
+        }
+      ]
+    },
+    "views": {
+      "foxxycode": [
+        {
+          "id": "foxxycode.view",
+          "name": "FoxxyCode",
+          "type": "webview"
+        }
+      ]
+    },
+    "menus": {
+      "webview/title": [
+        {
+          "command": "foxxycode.restart",
+          "when": "foxxycode.active",
+          "group": "navigation@1"
+        },
+        {
+          "command": "foxxycode.reload",
+          "when": "foxxycode.active",
+          "group": "navigation@2"
+        },
+        {
+          "command": "foxxycode.openInBrowser",
+          "when": "foxxycode.active",
+          "group": "navigation@3"
+        },
+        {
+          "command": "foxxycode.openDevtools",
+          "when": "foxxycode.active",
+          "group": "navigation@4"
+        },
+        {
+          "command": "foxxycode.openSettings",
+          "when": "foxxycode.active",
+          "group": "navigation@5"
         }
       ]
     },
@@ -55,21 +123,63 @@
           "type": "string",
           "default": "",
           "description": "State directory for sessions/config (foxxycode --home; default ~/.foxxycode)."
+        },
+        "foxxycode.extraArgs": {
+          "type": "string",
+          "default": "",
+          "description": "Extra arguments appended to `foxxycode http`."
+        },
+        "foxxycode.language": {
+          "type": "string",
+          "enum": [
+            "system",
+            "en",
+            "ru"
+          ],
+          "default": "system",
+          "description": "UI language of the extension and the embedded SPA (system follows VS Code display language)."
+        },
+        "foxxycode.followVscodeTheme": {
+          "type": "boolean",
+          "default": true,
+          "description": "Match FoxxyCode UI theme to the VS Code color theme."
+        },
+        "foxxycode.nativeDiffs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show native inline diffs in the editor when the agent edits files."
+        },
+        "foxxycode.autoApproveEdits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-apply edits without asking (still shows the diff, with Revert)."
         }
       }
     }
   },
   "scripts": {
     "prepare-binary": "node scripts/prepare-binary.mjs",
-    "compile": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js",
+    "prepare-binary:target": "node scripts/prepare-binary.mjs --target",
+    "compile": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --external:diff --outfile=out/extension.js --sourcemap",
     "build": "npm run prepare-binary && npm run compile",
-    "package": "vsce package"
+    "build:target": "node scripts/prepare-binary.mjs --target",
+    "package": "vsce package",
+    "package:universal": "vsce package -o foxxycode-vscode-%npm_package_version%.vsix",
+    "package:target": "vsce package --target %npm_config_vsce_target% -o foxxycode-vscode-%npm_config_vsce_target%-%npm_package_version%.vsix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "diff": "^5.2.0",
+    "foxxycode-vscode": "file:"
   },
   "devDependencies": {
+    "@types/diff": "^7.0.2",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.23.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
   }
 }

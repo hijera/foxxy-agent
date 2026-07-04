@@ -22,7 +22,7 @@ Each client:
 | Dir                | Status      | Packaging                                                        |
 | ------------------ | ----------- | --------------------------------------------------------------- |
 | [`intellij/`](intellij) | Implemented | One cross-platform plugin zip; `foxxycode-bin/<os>-<arch>/foxxycode[.exe]`. Built via `make intellij-build`. |
-| [`vscode/`](vscode)     | Scaffold    | Platform-specific VSIX (`vsce package --target <os>-<arch>`), bundling only that target's binary.    |
+| [`vscode/`](vscode)     | Implemented | **Universal VSIX** (default; all targets bundled — `make vscode-package`) **or** platform-specific VSIX per target (`make vscode-package-target TARGET=… VSCE_TARGET=…`). |
 
 ## Shared binary layout
 

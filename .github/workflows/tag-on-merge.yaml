@@ -150,3 +150,15 @@ jobs:
     with:
       tag: ${{ needs.release.outputs.tag }}
     secrets: inherit
+
+  vscode-extension:
+    name: VS Code extension
+    needs: release
+    if: needs.release.outputs.skip != 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/vscode-plugin.yaml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      mode: universal
+    secrets: inherit

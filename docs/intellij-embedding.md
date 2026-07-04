@@ -198,3 +198,26 @@ cd external/ui && npm run build:go
 npm i playwright@1.24 && npx playwright install chromium
 # drive http://127.0.0.1:<port>/ served by `foxxycode http` (build tag "http ui")
 ```
+
+## Embedding the UI in a VS Code extension (webview)
+
+The VS Code extension at `editors/vscode/` follows the same contract: bundle a full-feature
+`foxxycode` binary, start `foxxycode http --cwd <workspace>` on a free port, and embed the SPA.
+Differences from the IntelliJ embedding:
+
+- **Host element:** VS Code webviews load external URLs only via an `<iframe>` inside the webview
+  HTML. The extension cannot `executeJavaScript` into a cross-origin iframe (unlike JCEF), so live
+  theme/language switching is done by reloading the iframe with updated `?theme=` / `?lang=`
+  parameters. Initial load is still flash-free thanks to `?theme=` being applied before first
+  paint.
+- **CSP:** the webview HTML sets `frame-src http://127.0.0.1:* http://localhost:*;` so the iframe
+  can load the loopback foxxycode server on its auto-picked port.
+- **Embed id:** the extension passes `?embed=intellij` because the SPA currently specialises only
+  that id in CSS. A dedicated `embed=vscode` id and matching CSS overrides are a TODO.
+- **Native inline diffs:** the extension host subscribes to `GET /foxxycode/ide/events` (Node `http`
+  SSE reader) and renders decorations via `vscode.window.createTextEditorDecorationType`, with
+  Accept/Reject/Revert/Show-diff notifications posting to
+  `/foxxycode/sessions/<id>/permission` and `vscode.diff` respectively. This is the direct peer of
+  the IntelliJ `FoxxyCodeIdeDiffService`.
+
+The `?theme=`, `?lang=`, and `window.foxxycodeUi` contracts described above are unchanged.

@@ -1,0 +1,201 @@
+# Build the VS Code extension: a universal VSIX that bundles the foxxycode binary for
+# every desktop target under foxxycode-bin/<os>-<arch>/, and (optionally) per-platform
+# VSIX packages built via the matrix.
+#
+# Triggers:
+#   - pull_request touching the extension or the Go/UI sources it bundles -> build + upload artifact
+#   - workflow_dispatch (mode: universal | platform-specific | both) -> build + upload artifact(s)
+#   - workflow_call from "Tag release on merge" (tag, mode) -> build + attach VSIX to the Release
+#   - push SemVer tag -> build + attach VSIX to the Release
+
+name: VS Code extension
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "editors/vscode/**"
+      - "cmd/**"
+      - "internal/**"
+      - "external/**"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - ".github/workflows/vscode-plugin.yaml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "universal | platform-specific | both"
+        required: false
+        default: "universal"
+        type: choice
+        options:
+          - universal
+          - platform-specific
+          - both
+  workflow_call:
+    inputs:
+      tag:
+        description: SemVer git tag to build and attach (X.Y.Z)
+        required: true
+        type: string
+      mode:
+        description: "universal | platform-specific | both"
+        required: false
+        default: "universal"
+        type: string
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  resolve-version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      release: ${{ steps.ver.outputs.release }}
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG=""
+          fi
+          if [ -n "$TAG" ]; then
+            if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Tag must match X.Y.Z (got ${TAG})." >&2
+              exit 1
+            fi
+            echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Resolve mode
+        id: mode
+        run: |
+          MODE="${{ inputs.mode || github.event.inputs.mode || 'universal' }}"
+          # On tag push (not workflow_call), default to universal.
+          if [[ "${{ github.event_name }}" == "push" ]]; then MODE="universal"; fi
+          echo "mode=${MODE}" >> "$GITHUB_OUTPUT"
+
+  universal:
+    name: Universal VSIX (all platforms)
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Build universal VSIX
+        run: make vscode-package PLUGIN_VERSION="${{ needs.resolve-version.outputs.version }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxxycode-vscode-${{ needs.resolve-version.outputs.version }}
+          path: editors/vscode/foxxycode-vscode-*.vsix
+          if-no-files-found: error
+      - name: Attach to GitHub Release
+        if: needs.resolve-version.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-version.outputs.version }}
+          files: editors/vscode/foxxycode-vscode-*.vsix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  platform-specific:
+    name: Platform-specific VSIX (${{ matrix.target }})
+    needs: resolve-version
+    if: needs.resolve-version.outputs.mode == 'platform-specific' || needs.resolve-version.outputs.mode == 'both'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            target: linux-x64
+          - goos: linux
+            goarch: arm64
+            target: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            target: darwin-x64
+          - goos: darwin
+            goarch: arm64
+            target: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            target: win32-x64
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Build platform-specific VSIX
+        run: |
+          make vscode-package-target \
+            TARGET=${{ matrix.goos }}-${{ matrix.goarch }} \
+            VSCE_TARGET=${{ matrix.target }} \
+            PLUGIN_VERSION="${{ needs.resolve-version.outputs.version }}"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxxycode-vscode-${{ matrix.target }}-${{ needs.resolve-version.outputs.version }}
+          path: editors/vscode/foxxycode-vscode-${{ matrix.target }}-*.vsix
+          if-no-files-found: error
+      - name: Attach to GitHub Release
+        if: needs.resolve-version.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-version.outputs.version }}
+          files: editors/vscode/foxxycode-vscode-${{ matrix.target }}-*.vsix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-.PHONY: build build-acp test lint clean install print-version intellij-build intellij-run
+.PHONY: build build-acp test lint clean install print-version intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -112,3 +112,27 @@ intellij-build:
 # Launch a sandbox IDE with the plugin (host-platform binary only; fast dev loop).
 intellij-run:
 	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon runIde
+
+# ---- VS Code extension ----
+# Build the foxxycode VS Code extension. Two packaging modes:
+#   make vscode-build           -> universal: bundle ALL 5 desktop binaries into one VSIX
+#   make vscode-build-target TARGET=<goos>-<goarch>
+#                              -> build ONE target binary only (fast dev loop / platform-specific)
+#   make vscode-package         -> universal VSIX at editors/vscode/foxxycode-vscode-$(PLUGIN_VERSION).vsix
+#   make vscode-package-target TARGET=<goos>-<goarch> VSCE_TARGET=<vsce-target>
+#                              -> platform-specific VSIX (one per target)
+# VSCE_TARGET is the VS Code target id (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64);
+# scripts/prepare-binary.mjs prints the Go -> VS Code mapping.
+VSCE_TARGET ?=
+
+vscode-build:
+	cd editors/vscode && npm install --no-fund --no-audit && npm run build
+
+vscode-build-target:
+	cd editors/vscode && npm install --no-fund --no-audit && node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile
+
+vscode-package:
+	cd editors/vscode && npm install --no-fund --no-audit && npm run prepare-binary && npm run compile && npx vsce package -o foxxycode-vscode-$(PLUGIN_VERSION).vsix
+
+vscode-package-target:
+	cd editors/vscode && npm install --no-fund --no-audit && node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile && npx vsce package --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix
