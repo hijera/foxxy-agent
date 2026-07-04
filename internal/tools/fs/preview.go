@@ -10,6 +10,12 @@ import (
 // notifyFileEdit invokes the optional Env.OnFileEdit hook after a successful write.
 // Safe to call with a nil env or nil hook.
 func notifyFileEdit(env *tooling.Env, toolName, absPath string, before, after []byte) {
+	NotifyFileEdit(env, toolName, absPath, before, after)
+}
+
+// NotifyFileEdit invokes the optional Env.OnFileEdit hook after a successful write.
+// Safe to call with a nil env or nil hook.
+func NotifyFileEdit(env *tooling.Env, toolName, absPath string, before, after []byte) {
 	if env == nil || env.OnFileEdit == nil {
 		return
 	}

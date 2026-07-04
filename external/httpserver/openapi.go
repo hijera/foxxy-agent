@@ -19,10 +19,10 @@ func openAPISpec() map[string]interface{} {
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
 			"title": "FoxxyCode HTTP API",
-			"description": "OpenAI-compatible endpoints backed by FoxxyCode sessions and agents. **`GET /v1/models`** returns one list: **agent** and **plan** first (**`owned_by`**: **`foxxycode`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
-				"Classify POST **model** values: **agent** / **plan** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
-				"**`metadata.model`** may appear only on agent/plan requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
-				"**`metadata.reasoning`** (optional, agent/plan only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). " +
+			"description": "OpenAI-compatible endpoints backed by FoxxyCode sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, and **docs** first (**`owned_by`**: **`foxxycode`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
+				"Classify POST **model** values: **agent** / **plan** / **docs** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
+				"**`metadata.model`** may appear only on agent/plan/docs requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
+				"**`metadata.reasoning`** (optional, agent/plan/docs only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). " +
 				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: foxxycode_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
 				"Optional header **X-FoxxyCode-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
@@ -37,7 +37,7 @@ func openAPISpec() map[string]interface{} {
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
-					"description": "Returns **agent**, then **plan** (**`owned_by`**: **`foxxycode`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
+					"description": "Returns **agent**, then **plan**, then **docs** (**`owned_by`**: **`foxxycode`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
 						"Optional **`default_agent_model`** echoes configured **`agent.model`** for clients that default **`metadata.model`** on profile requests. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
@@ -58,8 +58,8 @@ func openAPISpec() map[string]interface{} {
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
-					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
-						"Optional **`metadata`** on agent/plan only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
+					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`docs`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+						"Optional **`metadata`** on agent/plan/docs only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: foxxycode_meta`** before **`[DONE]`**). Otherwise JSON. " +
 						"The last entry in **messages** must have role **user**.",
@@ -110,7 +110,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** only.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, or **`docs`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** only.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -556,7 +556,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -876,7 +876,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"model": map[string]interface{}{
 							"type":        "string",
-							"description": "Any `id` from `GET /v1/models` (agent, plan, or `models[].model`).",
+							"description": "Any `id` from `GET /v1/models` (agent, plan, docs, or `models[].model`).",
 						},
 						"messages": map[string]interface{}{
 							"type":  "array",
@@ -887,7 +887,7 @@ func openAPISpec() map[string]interface{} {
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/docs only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -938,17 +938,17 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan only, `model` key selects `models[].model`.",
+							"description":          "Optional. For agent/plan/docs only, `model` key selects `models[].model`.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
 							"type":        "array",
-							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
+							"description": "Allowed only when **model** is **`agent`**, **`plan`**, or **`docs`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
 						"inline_files": map[string]interface{}{
 							"type":        "array",
-							"description": "Supported for all modes. For **`agent`** / **`plan`**: each file is saved to `~/.foxxycode/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<foxxycode_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
+							"description": "Supported for all modes. For **`agent`** / **`plan`** / **`docs`**: each file is saved to `~/.foxxycode/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<foxxycode_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
 						},
 					},

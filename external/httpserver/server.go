@@ -193,7 +193,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	maxCtx := maxContextDefault(s)
-	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan} {
+	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeDocs} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
@@ -628,7 +628,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Attachments) > 0 && !httpModelIsFoxxyCodeProfile(model) {
-		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, or docs model"}}`, http.StatusBadRequest)
 		return
 	}
 	// inline_files are supported for both direct YAML calls and agent/plan mode.

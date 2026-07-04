@@ -15,7 +15,7 @@ func httpModelListed(cfg *config.Config, sel string) bool {
 		return false
 	}
 	switch sel {
-	case string(session.ModeAgent), string(session.ModePlan):
+	case string(session.ModeAgent), string(session.ModePlan), string(session.ModeDocs):
 		return true
 	default:
 		_, _, err := config.SplitModelRef(sel)
@@ -29,7 +29,7 @@ func httpModelListed(cfg *config.Config, sel string) bool {
 // httpModelIsFoxxyCodeProfile reports whether sel is agent or plan (no provider/rest form).
 func httpModelIsFoxxyCodeProfile(sel string) bool {
 	switch sel {
-	case string(session.ModeAgent), string(session.ModePlan):
+	case string(session.ModeAgent), string(session.ModePlan), string(session.ModeDocs):
 		return true
 	default:
 		return false

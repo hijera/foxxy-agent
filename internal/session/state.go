@@ -22,6 +22,7 @@ type Mode string
 const (
 	ModeAgent Mode = "agent"
 	ModePlan  Mode = "plan"
+	ModeDocs  Mode = "docs"
 )
 
 // State holds the complete state of a session.

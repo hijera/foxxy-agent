@@ -115,6 +115,7 @@ func (m *Manager) sessionResultModes(st *State) *acp.ModeState {
 		AvailableModes: []acp.SessionMode{
 			{ID: "agent", Name: "Agent", Description: "Execute tasks with full tool access"},
 			{ID: "plan", Name: "Plan", Description: "Plan and design without code execution"},
+			{ID: "docs", Name: "Docs", Description: "Generate and update project documentation"},
 		},
 	}
 }
@@ -312,7 +313,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	}
 
 	mode := Mode(snap.Meta.Mode)
-	if mode != ModeAgent && mode != ModePlan {
+	if mode != ModeAgent && mode != ModePlan && mode != ModeDocs {
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
@@ -590,7 +591,7 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 		return fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
-	if params.ModeID != string(ModeAgent) && params.ModeID != string(ModePlan) {
+	if params.ModeID != string(ModeAgent) && params.ModeID != string(ModePlan) && params.ModeID != string(ModeDocs) {
 		return fmt.Errorf("unknown mode: %s", params.ModeID)
 	}
 
@@ -618,7 +619,7 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 
 	switch params.ConfigID {
 	case "mode":
-		if params.Value != string(ModeAgent) && params.Value != string(ModePlan) {
+		if params.Value != string(ModeAgent) && params.Value != string(ModePlan) && params.Value != string(ModeDocs) {
 			return nil, fmt.Errorf("invalid mode value: %q", params.Value)
 		}
 		state.SetMode(params.Value)

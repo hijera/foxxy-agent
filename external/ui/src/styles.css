@@ -3277,6 +3277,11 @@ textarea#composer {
   box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
 }
 
+.composer-tab.mode-docs {
+  border-color: rgba(59, 130, 246, 0.65);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
 .composer-tab.mode-llm {
   border-color: rgba(147, 51, 234, 0.35);
 }
@@ -4991,6 +4996,24 @@ textarea#composer {
   place-items: center;
 }
 
+/* Back buttons (← Back to list / ← Back to sections): flex-center the arrow with
+   the label so the glyph stays vertically aligned across fonts and browsers
+   (a bare "←" text prefix rides high on its line box otherwise). */
+.settings-btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+
+.settings-btn-back-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1em;
+  line-height: 1;
+}
+
 .settings-footer-icon-svg {
   display: block;
 }
@@ -5083,7 +5106,8 @@ textarea#composer {
 
 .settings-array-row {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: flex-end;
   gap: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
@@ -5092,6 +5116,16 @@ textarea#composer {
 .settings-array-row:last-child {
   border-bottom: none;
   padding-bottom: 0;
+}
+
+/* Field block takes the row width; the trash button sits to its right. */
+.settings-array-row-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-array-remove {
+  flex: 0 0 auto;
 }
 
 /* --- Tabbed settings layout: vertical nav + content (desktop), horizontal tab strip (mobile) --- */
@@ -5283,6 +5317,12 @@ textarea#composer {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* Add sits in a flex column (`.settings-master`) which would stretch it full
+   width; keep it content-width like the fieldset Add in Tools and Permissions. */
+.settings-master-add {
+  align-self: flex-start;
 }
 
 .settings-master-row {
@@ -5537,6 +5577,104 @@ textarea#composer {
   .settings-nav-arrow-right {
     border-left: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
   }
+
+  /* Mobile section picker: 2-wide tile grid (title + short description),
+     styled after the Scheduler job rows. */
+  .settings-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 4px 2px 2px;
+    align-content: start;
+    overflow-y: auto;
+    /* Fill the stack so the footer (reload/save) stays pinned at the bottom. */
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .settings-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+    background: color-mix(in srgb, var(--text) 3%, var(--foxxycode-blend-base));
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .settings-tile:hover,
+  .settings-tile:focus-visible {
+    background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+    border-color: color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+  }
+  .settings-tile-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--text) 95%, var(--foxxycode-blend-base));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .settings-tile-desc {
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.3;
+    color: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
+    /* Up to two lines, then ellipsis; full text lives in the title tooltip. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .settings-mobile-detail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+}
+
+/* Mobile section-detail header: back-arrow icon + section name in the SETTINGS
+   bar (rendered only on the mobile section-detail view). */
+.settings.drawer .settings-head-titlegroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings.drawer .settings-head-back {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  background: rgba(20, 20, 22, 0.35);
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.settings.drawer .settings-head-back:hover {
+  background: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.settings.drawer .settings-head-section {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .message-row-permission {

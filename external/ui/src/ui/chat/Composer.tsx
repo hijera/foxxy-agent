@@ -975,6 +975,7 @@ export function Composer(props: {
   function displayMode(id: string): string {
     const m = id || "agent";
     if (m === "plan") return t("composer.modePlan");
+    if (m === "docs") return t("composer.modeDocs");
     if (m === "agent") return t("composer.modeAgent");
     const i = m.lastIndexOf("/");
     if (i >= 0 && i < m.length - 1) {
@@ -982,6 +983,13 @@ export function Composer(props: {
     }
     return m;
   }
+
+  function modeBtnClass(id: string): string {
+    if (id === "plan") return "mode-plan";
+    if (id === "docs") return "mode-docs";
+    return "mode-agent";
+  }
+
   const modeLabel = displayMode(props.mode || "agent");
   const llmLabel = llmVal ? displayLlmId(llmVal, t("composer.model")) : t("composer.model");
   const contextIdle = props.contextIdle === true;
@@ -1446,7 +1454,7 @@ export function Composer(props: {
               <div className="mode">
                 <button
                   type="button"
-                  className={`composer-tab mode-btn ${props.mode === "plan" ? "mode-plan" : "mode-agent"}`}
+                  className={`composer-tab mode-btn ${modeBtnClass(props.mode || "agent")}`}
                   aria-label={t("composer.mode")}
                   title={t("composer.mode")}
                   aria-haspopup="menu"

@@ -79,6 +79,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}{
 		{id: string(session.ModeAgent), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModePlan), ownedBy: ownedByFoxxyCodeSession},
+		{id: string(session.ModeDocs), ownedBy: ownedByFoxxyCodeSession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -95,6 +96,51 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		if item.MaxContextTokens <= 0 {
 			t.Fatalf("row %d: expected max_context_tokens, got %+v", i, item)
 		}
+	}
+}
+
+func TestResponsesDocsProfileSetsSessionMode(t *testing.T) {
+	cfg := &config.Config{
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+	}
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		if st.GetMode() != string(session.ModeDocs) {
+			t.Errorf("runner mode: want %q got %q", session.ModeDocs, st.GetMode())
+		}
+		return "ok", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sn, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"docs","input":"document this","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sn.SessionID)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, body)
+	}
+	st := mgr.SessionByID(sn.SessionID)
+	if st == nil {
+		t.Fatal("session missing")
+	}
+	if st.GetMode() != string(session.ModeDocs) {
+		t.Fatalf("session mode: want docs got %q", st.GetMode())
 	}
 }
 
@@ -137,6 +183,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	wantRows := []want{
 		{id: string(session.ModeAgent)},
 		{id: string(session.ModePlan)},
+		{id: string(session.ModeDocs)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}

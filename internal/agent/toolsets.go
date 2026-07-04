@@ -23,11 +23,28 @@ var planToolNames = []string{
 	"plan_read",
 }
 
+var docsToolNames = []string{
+	"read",
+	"glob",
+	"grep",
+	"websearch",
+	"webfetch",
+	"run_command",
+	"question",
+	"docs_write",
+	"docs_edit",
+}
+
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.
 func ToolSetForMode(mode string) ToolSet {
 	if mode == "plan" {
 		out := make(ToolSet, len(planToolNames))
 		copy(out, planToolNames)
+		return out
+	}
+	if mode == "docs" {
+		out := make(ToolSet, len(docsToolNames))
+		copy(out, docsToolNames)
 		return out
 	}
 	return nil

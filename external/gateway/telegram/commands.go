@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"strings"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/hijera/foxxycode-agent/external/gateway/access"
 	"github.com/hijera/foxxycode-agent/external/gateway/sessionstore"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 // ── /mode ────────────────────────────────────────────────────────────────────
@@ -36,6 +36,7 @@ func modeMenuText(current string) string {
 	desc := map[string]string{
 		string(session.ModeAgent): "executes tasks with full tool access",
 		string(session.ModePlan):  "designs and plans without code execution",
+		string(session.ModeDocs):  "generates and updates project documentation",
 	}
 	return fmt.Sprintf("*Session mode*\n\nCurrent: *%s* — %s\n\nSelect a new mode:", current, desc[current])
 }
@@ -44,6 +45,7 @@ func buildModeKeyboard(current string) tgbotapi.InlineKeyboardMarkup {
 	modes := []struct{ id, label string }{
 		{string(session.ModeAgent), "Agent"},
 		{string(session.ModePlan), "Plan"},
+		{string(session.ModeDocs), "Docs"},
 	}
 	row := make([]tgbotapi.InlineKeyboardButton, 0, len(modes))
 	for _, m := range modes {

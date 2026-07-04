@@ -71,7 +71,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
-- **Two operating modes** - `agent` (full tool access) and `plan` (planning + text files only)
+- **Three operating modes** - `agent` (full tool access), `plan` (planning without code execution), and `docs` (markdown documentation only)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, and **`.codex/rules/`** under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
@@ -195,7 +195,7 @@ To **build the image locally** instead, use **`docker-compose.dev.yml`**: **`doc
 http://127.0.0.1:12345/
 ```
 
-The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent** or **plan** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
+The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, or **docs** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
 
 Sanity check without a browser: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
 
@@ -323,6 +323,17 @@ Planning and documentation mode. Restricted tools:
 When the plan is ready, switch to **agent** mode yourself for full tools and implementation.
 
 Best for: architecture planning, writing specs, design documents, code review.
+
+### Docs Mode
+
+Documentation mode. Explores the codebase and updates markdown files only:
+- Read and search the codebase
+- Write or edit `.md` files (`README.md`, `AGENTS.md`, `DESIGN.md`, `docs/**/*.md`) via **`docs_write`** and **`docs_edit`**
+- Run shell commands for read-only inspection
+
+Cannot modify source code or configuration files outside markdown. Switch to **agent** mode for implementation work.
+
+Best for: keeping README and `docs/` aligned with the code, updating operator guides, API prose.
 
 Use your editor session mode selector (or **`session/set_config_option`**).
 
@@ -498,7 +509,7 @@ By default, `foxxycode acp` and `foxxycode http` store each session bundle under
 
 The foxxycode_todo_* tools keep the active checklist mirrored to `todos/active.md`. A wholesale **`foxxycode_todo_plan_replace`** while items are incomplete is rejected until you finish rows or run **`foxxycode_todo_plan_archive`**; replacing when every row is **`completed`** moves the prior `active.md` into **`todos/archive/`** (`todo-<nanos>.md`). **`foxxycode_todo_plan_archive`** finishes open rows to **`completed`**, writes **`todos/archive/plan_<unix_seconds>.md`**, then clears the session plan when persistence is on.
 
-When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template (embedded defaults, or files under **`prompts.dir`** using **`prompts.agent_prompt`** and **`prompts.plan_prompt`**, which default to **`agent.md`** and **`plan.md`**) via `{{if .TodoList}}` … `{{end}}`. That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
+When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template (embedded defaults, or files under **`prompts.dir`** using **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`**, which default to **`agent.md`**, **`plan.md`**, and **`docs.md`**) via `{{if .TodoList}}` … `{{end}}`. That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
 
 ## Development
 

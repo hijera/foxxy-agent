@@ -5,7 +5,7 @@
 FoxxyCode is modeled as **harness plus execution engine**. This document specifies that engine -
 
 - the **ReAct loop** in `internal/agent` that turns prompts and tools into streamed turns,
-- default **coding-agent** behavior - tool registry, `agent` and `plan` modes, permission gates.
+- default **coding-agent** behavior - tool registry, `agent`, `plan`, and `docs` modes, permission gates.
 
 The same harness may use a narrower tool surface or different clients (automation, not only IDEs).
 
@@ -24,7 +24,7 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
-Templates are **`internal/prompts/agent.md`** and **`plan.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
+Templates are **`internal/prompts/agent.md`**, **`plan.md`**, and **`docs.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
 
 Rendered order matches the markdown files roughly as follows:
 
@@ -149,6 +149,19 @@ Representative builtins exposed to the LLM (registry allowlist):
 - `run_command`
 
 Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
+
+### Docs Mode
+
+Embedded **`docs.md`** restricts built-in mutators to **`docs_write`** and **`docs_edit`**, which accept only `.md` paths under the session CWD (including **`docs/`** and root files such as **`README.md`**). Registry read/search tools and **`run_command`** remain available for exploration.
+
+Representative builtins exposed to the LLM (registry allowlist):
+
+- `read`, `glob`, `grep`
+- `websearch`, `webfetch`
+- `run_command`, `question`
+- `docs_write`, `docs_edit`
+
+Plus MCP tools (**`serverName__toolName`**). Prompts instruct the user to switch to **`agent`** mode for code changes.
 
 ## Built-in Tools Specification
 

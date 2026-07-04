@@ -476,6 +476,26 @@ func TestBuildSkillsPromptMarkdown_noGlobNonCatalogBodyInSystemPrompt(t *testing
 
 // --- toolsets.go -----------------------------------------------------------
 
+func TestDocsToolSetFiltersToReadAndDocsWrite(t *testing.T) {
+	r := tools.NewRegistry()
+	set := ToolSetForMode("docs")
+	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
+	got := make(map[string]bool)
+	for _, d := range filtered {
+		got[d.Name] = true
+	}
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "docs_write", "docs_edit"} {
+		if !got[want] {
+			t.Errorf("docs toolset should include %q", want)
+		}
+	}
+	for _, forbid := range []string{"write", "edit", "plan_write", "foxxycode_todo_plan_read"} {
+		if got[forbid] {
+			t.Errorf("docs toolset should not include %q", forbid)
+		}
+	}
+}
+
 func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 	r := tools.NewRegistry()
 	set := ToolSetForMode("plan")

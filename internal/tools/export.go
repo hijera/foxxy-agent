@@ -32,6 +32,8 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
 	r.Register(PlanReadTool())
+	r.Register(DocsWriteTool())
+	r.Register(DocsEditTool())
 	r.Register(todo.PlanReadTool())
 	r.Register(todo.PlanReplaceTool())
 	r.Register(todo.PlanArchiveTool())

@@ -9,6 +9,7 @@ import (
 const (
 	defaultAgentPromptFile = "agent.md"
 	defaultPlanPromptFile  = "plan.md"
+	defaultDocsPromptFile  = "docs.md"
 )
 
 // Prompts is the YAML prompts section (key prompts).
@@ -16,6 +17,7 @@ type Prompts struct {
 	Dir         string `yaml:"dir" json:"dir"`
 	AgentPrompt string `yaml:"agent_prompt"`
 	PlanPrompt  string `yaml:"plan_prompt"`
+	DocsPrompt  string `yaml:"docs_prompt"`
 }
 
 // ApplyDefaults sets agent_prompt and plan_prompt when empty and trims when set.
@@ -29,6 +31,11 @@ func (c *Prompts) ApplyDefaults() {
 		c.PlanPrompt = defaultPlanPromptFile
 	} else {
 		c.PlanPrompt = strings.TrimSpace(c.PlanPrompt)
+	}
+	if strings.TrimSpace(c.DocsPrompt) == "" {
+		c.DocsPrompt = defaultDocsPromptFile
+	} else {
+		c.DocsPrompt = strings.TrimSpace(c.DocsPrompt)
 	}
 }
 
@@ -46,6 +53,14 @@ func (c *Prompts) PlanFile() string {
 		return s
 	}
 	return defaultPlanPromptFile
+}
+
+// DocsFile returns the template file name for docs mode (under prompts.dir).
+func (c *Prompts) DocsFile() string {
+	if s := strings.TrimSpace(c.DocsPrompt); s != "" {
+		return s
+	}
+	return defaultDocsPromptFile
 }
 
 // Validate normalises the prompts section in place.
