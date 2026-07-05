@@ -25,7 +25,8 @@
   "activationEvents": [
     "onView:foxxycode.view",
     "onCommand:foxxycode.openPanel",
-    "onCommand:foxxycode.openPanel.ru"
+    "onCommand:foxxycode.openPanel.ru",
+    "onCommand:foxxycode.showWelcome"
   ],
   "contributes": {
     "commands": [
@@ -110,6 +111,73 @@
         "title": "%cmd.showLogs.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(output)"
+      },
+      {
+        "command": "foxxycode.showWelcome",
+        "title": "%cmd.showWelcome.title%",
+        "category": "FoxxyCode",
+        "icon": "$(question)"
+      },
+      {
+        "command": "foxxycode.showWelcome.ru",
+        "title": "%cmd.showWelcome.title.ru%",
+        "category": "FoxxyCode",
+        "icon": "$(question)"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "foxxycode.welcome",
+        "title": "%walkthrough.welcome.title%",
+        "description": "%walkthrough.welcome.description%",
+        "steps": [
+          {
+            "id": "openPanel",
+            "title": "%walkthrough.step.openPanel.title%",
+            "description": "%walkthrough.step.openPanel.description%",
+            "media": {
+              "markdown": "media/walkthrough/01-open-panel.md"
+            },
+            "completionEvents": [
+              "onCommand:foxxycode.openPanel"
+            ]
+          },
+          {
+            "id": "apiKey",
+            "title": "%walkthrough.step.apiKey.title%",
+            "description": "%walkthrough.step.apiKey.description%",
+            "media": {
+              "markdown": "media/walkthrough/02-api-key.md"
+            },
+            "completionEvents": [
+              "onCommand:foxxycode.openSettings"
+            ]
+          },
+          {
+            "id": "firstMessage",
+            "title": "%walkthrough.step.firstMessage.title%",
+            "description": "%walkthrough.step.firstMessage.description%",
+            "media": {
+              "markdown": "media/walkthrough/03-first-message.md"
+            }
+          },
+          {
+            "id": "reviewEdits",
+            "title": "%walkthrough.step.reviewEdits.title%",
+            "description": "%walkthrough.step.reviewEdits.description%",
+            "media": {
+              "markdown": "media/walkthrough/04-review-edits.md"
+            }
+          },
+          {
+            "id": "toolbar",
+            "title": "%walkthrough.step.toolbar.title%",
+            "description": "%walkthrough.step.toolbar.description%",
+            "media": {
+              "markdown": "media/walkthrough/05-toolbar.md"
+            }
+          }
+        ]
       }
     ],
     "viewsContainers": {
@@ -186,6 +254,14 @@
         },
         {
           "command": "foxxycode.showLogs.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.showWelcome",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.showWelcome.ru",
           "when": "foxxycode.locale == 'ru'"
         }
       ],

@@ -1,22 +1,23 @@
 import * as vscode from "vscode";
-import { t } from "../i18n/bundle";
-import { openSettingsUi } from "../settings";
 
-/** First-run helper: informs the user that the foxxycode binary is bundled with
- *  the extension and lets them start immediately. Re-runnable by clearing the
- *  globalState flag. Mirrors `editors/intellij/.../ui/FirstRunDialog.kt`. */
+/** Full walkthrough category id: `${publisher}.${name}.${walkthroughId}`. */
+export const WALKTHROUGH_ID = "foxxycode.foxxycode-vscode.foxxycode.welcome";
 
 const STATE_KEY = "firstRunCompleted";
 
+/** Open the FoxxyCode onboarding walkthrough on the Welcome tab. */
+export async function openWelcomeWalkthrough(force = true): Promise<void> {
+  await vscode.commands.executeCommand("workbench.action.openWalkthrough", {
+    category: WALKTHROUGH_ID,
+    force,
+  });
+}
+
+/** First-run helper: opens the walkthrough once per VS Code profile.
+ *  Re-runnable via **FoxxyCode: Show Welcome** or by clearing globalState `firstRunCompleted`.
+ *  Mirrors `editors/intellij/.../ui/FirstRunDialog.kt`. */
 export async function showFirstRunIfNeeded(context: vscode.ExtensionContext): Promise<void> {
   if (context.globalState.get<boolean>(STATE_KEY)) return;
-  const choice = await vscode.window.showInformationMessage(
-    t("firstrun.body"),
-    t("firstrun.openSettings"),
-    t("firstrun.dismiss"),
-  );
-  if (choice === t("firstrun.openSettings")) {
-    await openSettingsUi();
-  }
+  await openWelcomeWalkthrough(true);
   await context.globalState.update(STATE_KEY, true);
 }

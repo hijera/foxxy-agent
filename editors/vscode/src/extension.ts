@@ -4,7 +4,7 @@ import { IdeDiffService } from "./diff/ideDiffService";
 import {
   FoxxyCodePanelController,
 } from "./webview/panel";
-import { showFirstRunIfNeeded } from "./webview/firstRun";
+import { showFirstRunIfNeeded, openWelcomeWalkthrough } from "./webview/firstRun";
 import {
   onSettingsChanged,
   openSettingsUi,
@@ -84,6 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   registerCommandPair(context, "foxxycode.openSettings", () => void openSettingsUi());
   registerCommandPair(context, "foxxycode.showLogs", () => activationOutput?.show());
+  registerCommandPair(context, "foxxycode.showWelcome", () => void openWelcomeWalkthrough(true));
 
   // Live locale refresh + re-read settings for the next process start.
   context.subscriptions.push(

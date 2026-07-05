@@ -53,6 +53,27 @@ defaults:
     shell: bash
 
 jobs:
+  test:
+    name: Extension tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - name: Install dependencies
+        run: cd editors/vscode && npm ci --no-fund --no-audit
+      - name: Typecheck
+        run: cd editors/vscode && npm run typecheck
+      - name: Run tests (includes esbuild bundle build test)
+        run: cd editors/vscode && npm test
+
   resolve-version:
     name: Resolve version
     runs-on: ubuntu-latest

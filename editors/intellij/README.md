@@ -74,6 +74,10 @@ Install the built zip via **Settings | Plugins | ⚙ | Install Plugin from Disk�
 
 ## Using the plugin
 
+### Onboarding
+
+The first time you open the **FoxxyCode** tool window, a multi-step welcome wizard explains where to click (panel location, API key, composer, inline diffs, toolbar). Re-open it anytime via **Tools → Show FoxxyCode Welcome**. If JCEF is unavailable, a text fallback is shown instead.
+
 1. Open the **FoxxyCode** tool window (right side). The plugin starts the bundled `foxxycode http` and
    shows the embedded UI.
 2. In the UI's **Settings**, set a provider API key (or define `OPENAI_API_KEY` in the environment
@@ -126,7 +130,9 @@ src/main/kotlin/dev/foxxycode/intellij/
   ui/FoxxyCodeToolWindowFactory.kt     tool window
   ui/FoxxyCodeBrowserPanel.kt          JCEF browser + toolbar (+ fallbacks)
   ui/FoxxyCodeThemeBridge.kt           IDE LAF → foxxycodeUi theme bridging
-  ui/FirstRunDialog.kt             first-run wizard
+  ui/WelcomeWizardDialog.kt        multi-step JCEF onboarding wizard
+  ui/FoxxyCodeWelcomeAction.kt     Tools menu: re-open onboarding
+  ui/FirstRunDialog.kt             first-run wrapper → WelcomeWizardDialog
   FoxxyCodeBundle.kt                   localized strings (en + ru)
   FoxxyCodeNotifications.kt            notification group
 ```

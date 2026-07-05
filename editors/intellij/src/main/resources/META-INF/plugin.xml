@@ -37,4 +37,13 @@
 
         <notificationGroup id="FoxxyCode" displayType="BALLOON"/>
     </extensions>
+
+    <actions>
+        <action id="FoxxyCodeWelcome"
+                class="dev.foxxycode.intellij.ui.FoxxyCodeWelcomeAction"
+                text="Show FoxxyCode Welcome"
+                description="Re-open the FoxxyCode onboarding tour">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

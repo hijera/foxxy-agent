@@ -65,6 +65,7 @@ describe("package.nls.json parity", () => {
       "cmd.openDevtools.title",
       "cmd.settings.title",
       "cmd.showLogs.title",
+      "cmd.showWelcome.title",
     ]) {
       expect(en[`${base}.ru`], `missing ${base}.ru in en`).toBeTruthy();
       expect(ru[`${base}.ru`], `missing ${base}.ru in ru`).toBeTruthy();

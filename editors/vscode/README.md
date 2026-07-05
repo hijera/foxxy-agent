@@ -89,6 +89,10 @@ npm run compile         # esbuild bundle to out/extension.js
 
 ## Using the extension
 
+### Onboarding
+
+On first activation the extension opens the **Get started with FoxxyCode** walkthrough on the Welcome tab (5 steps: open the panel, set an API key, send a message, review inline diffs, toolbar shortcuts). Re-open it anytime via **FoxxyCode: Show Welcome** in the Command Palette.
+
 1. Open the **FoxxyCode** view from the activity bar (left side). The extension starts the bundled
    `foxxycode http` and shows the embedded UI. Use **FoxxyCode: Open Panel** in the Command Palette
    to open the same UI in an editor tab.
@@ -160,7 +164,7 @@ src/
   util/http.ts                    GET (readiness) + POST (permission) helpers
   webview/panel.ts                WebviewPanel + WebviewView host; iframe + CSP + theme/lang sync
   webview/themeBridge.ts          VS Code color theme → foxxycode theme id
-  webview/firstRun.ts             first-run info message
+  webview/firstRun.ts             first-run walkthrough opener + WALKTHROUGH_ID
   diff/editEvent.ts               one `edit_proposed`/`edit_applied` SSE event
   diff/ideEventClient.ts          SSE reader for `/foxxycode/ide/events`
   diff/lineFragments.ts           pure line-diff helper (testable)
