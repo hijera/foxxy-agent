@@ -37,10 +37,11 @@ const rootSchema: JsonSchema = {
   },
 } as unknown as JsonSchema;
 
-test("derives tabs in schema order with System group and Appearance last", () => {
+test("derives tabs in schema order with Appearance first and System group", () => {
   const sections = deriveSettingsSections(rootSchema);
   const ids = sections.map((s) => s.id);
   expect(ids).toEqual([
+    "appearance",
     "providers",
     "models",
     "agent",
@@ -49,7 +50,6 @@ test("derives tabs in schema order with System group and Appearance last", () =>
     "skills",
     "memory",
     "system",
-    "appearance",
   ]);
 });
 

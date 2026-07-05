@@ -85,7 +85,7 @@ describe("parseAppHash", () => {
     expect(parseAppHash()).toEqual({
       branch: "settings",
       historyOpen: true,
-      appearanceOpen: false,
+      section: null,
     });
   });
 
@@ -94,7 +94,7 @@ describe("parseAppHash", () => {
     expect(parseAppHash()).toEqual({
       branch: "settings",
       historyOpen: false,
-      appearanceOpen: true,
+      section: "appearance",
     });
   });
 
@@ -103,7 +103,7 @@ describe("parseAppHash", () => {
     expect(parseAppHash()).toEqual({
       branch: "settings",
       historyOpen: true,
-      appearanceOpen: true,
+      section: "appearance",
     });
   });
 });
