@@ -259,9 +259,13 @@ export function Settings(props: {
       );
     }
     if (!loadErr) {
-      return (
-        <div className="settings-scroll settings-scroll-placeholder">
-          {section && section.kind === "appearance" ? (
+      // Appearance is client-side content (the theme picker), available before
+      // the config schema loads. Render it in the normal scroll flow — NOT the
+      // centered `settings-scroll-placeholder` used for the "Loading…" spinner,
+      // which shrinks and off-centers the swatch grid.
+      if (section && section.kind === "appearance") {
+        return (
+          <div className="settings-scroll">
             <div className="settings-body">
               <SettingsSection
                 section={section}
@@ -270,9 +274,12 @@ export function Settings(props: {
                 setDoc={setDoc}
               />
             </div>
-          ) : (
-            <p className="settings-muted">{t("settings.loading")}</p>
-          )}
+          </div>
+        );
+      }
+      return (
+        <div className="settings-scroll settings-scroll-placeholder">
+          <p className="settings-muted">{t("settings.loading")}</p>
         </div>
       );
     }
