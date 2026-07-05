@@ -72,7 +72,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
 - **Three operating modes** - `agent` (full tool access), `plan` (planning without code execution), and `docs` (markdown documentation only)
-- **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, and **`.codex/rules/`** under the session cwd - see [Rules](docs/rules.md)
+- **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
@@ -85,6 +85,8 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 ## Editor and IDE integration
 
 FoxxyCode is an **ACP server** (`foxxycode acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`foxxycode http`** UI are clients that share the same **`FOXXYCODE_HOME`** sessions when configured with the same home directory.
+
+Configure clients with the **absolute path** to the binary rather than relying on `PATH` — some harnesses spawn the agent via `cmd /c` or `sh -c` without the user `PATH` (on Windows: `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; see [`docs/install.md`](docs/install.md#windows)).
 
 Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/`**.
 
@@ -108,6 +110,8 @@ build tags, and cross-platform targets. See **[`docs/build.md`](docs/build.md#in
 Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**.
 
 Bootstrap the config: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
+
+> **Windows.** Put the binary at `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; config and sessions live under `%USERPROFILE%\.foxxycode\` (use `$env:USERPROFILE`, not `$HOME`). A terminal open during install does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
 
 Then set a provider key in **`~/.foxxycode/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`foxxycode http`** for the UI, or **`foxxycode acp`** for an editor client.
 
@@ -339,7 +343,7 @@ Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Rules
 
-Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, **`.cursor/rules`**, **`.claude/rules`**, and **`.codex/rules`** when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
+Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/) convention; the root `AGENTS.md` is injected separately as a project docs preamble) when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
 
 Rule files often use Cursor-style frontmatter, for example:
 
@@ -433,7 +437,7 @@ Full guide — access levels, group isolation modes, per-chat overrides, and how
 
 ## Configuration
 
-Full configuration reference in [docs/config.md](docs/config.md).
+Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json) enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header (see `config.example.yaml`).
 
 Key settings:
 
@@ -483,7 +487,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
-- [Configuration](docs/config.md) - full config file reference
+- [Configuration](docs/config.md) - full config file reference; [field tables](docs/config-reference.md) and [JSON Schema](docs/config.schema.json) for editor validation
 - [HTTP API](docs/http-api.md) - REST gateway (**`-tags=http`**) and embedded UI (**`-tags=http,ui`**); includes **`/foxxycode/config`** for live YAML editing from the SPA (**#/settings**).
 - [Embedded UI](docs/ui.md) - functional spec, Vite dev workflow, build tags
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
