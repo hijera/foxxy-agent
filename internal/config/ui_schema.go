@@ -483,12 +483,12 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	doc := map[string]interface{}{
-		"$schema":                "https://json-schema.org/draft/2020-12/schema",
-		"title":                  "FoxxyCode config",
-		"description":            "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.",
-		"type":                   "object",
-		"properties":             props,
-		"additionalProperties":   false,
+		"$schema":                    "https://json-schema.org/draft/2020-12/schema",
+		"title":                      "FoxxyCode config",
+		"description":                "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.",
+		"type":                       "object",
+		"properties":                 props,
+		"additionalProperties":       false,
 		"x-foxxycode-property-order": toIfaceOrder(rootOrder),
 	}
 

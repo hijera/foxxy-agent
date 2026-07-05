@@ -17,9 +17,9 @@ type Agent struct {
 	MaxTurns         int    `yaml:"max_turns"`
 	MaxTokensPerTurn int    `yaml:"max_tokens_per_turn"`
 	// LLMRetryMax is the number of retries after a retryable LLM error such as HTTP 429 (default 3).
-	LLMRetryMax      int `yaml:"llm_retry_max"`
+	LLMRetryMax int `yaml:"llm_retry_max"`
 	// LLMRetryBaseMS is the initial backoff between LLM retries in milliseconds (default 1000).
-	LLMRetryBaseMS   int `yaml:"llm_retry_base_ms"`
+	LLMRetryBaseMS int `yaml:"llm_retry_base_ms"`
 	// LLMMinIntervalMS enforces a minimum gap between consecutive LLM calls in milliseconds (default 0).
 	LLMMinIntervalMS int `yaml:"llm_min_interval_ms"`
 }

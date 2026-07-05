@@ -9,10 +9,11 @@ import (
 type Source string
 
 const (
-	SourceFoxxyCode  Source = "foxxycode"
-	SourceCursor Source = "cursor"
-	SourceClaude Source = "claude"
-	SourceCodex  Source = "codex"
+	SourceFoxxyCode Source = "foxxycode"
+	SourceCursor    Source = "cursor"
+	SourceClaude    Source = "claude"
+	SourceCodex     Source = "codex"
+	SourceAgents    Source = "agents"
 )
 
 // ApplyMode controls how a rule enters the prompt.
@@ -51,9 +52,13 @@ func (r *Rule) CanonicalName() string {
 }
 
 // DedupeKey returns a stable key for catalog deduplication (basename across sources).
+// Nested AGENTS.md files all share a basename, so agents rules key on the full path.
 func (r *Rule) DedupeKey() string {
 	if r == nil {
 		return ""
+	}
+	if r.Source == SourceAgents {
+		return strings.ToLower(filepath.ToSlash(r.FilePath))
 	}
 	return strings.ToLower(filepath.Base(r.FilePath))
 }
