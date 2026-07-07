@@ -23,6 +23,7 @@ alwaysApply: true
 - **`memory`** - **`external/memory`** long-term memory copilot and HTTP session memory routes; **`//go:build memory`**. Recommended together with **`http`** for `/foxxycode/sessions/.../memory/*`. Default full binary in README and Docker includes **`memory`**.
 - **`external/httpserver`** - OpenAI-shaped HTTP API; **`//go:build http`**. Embedded SPA uses **`//go:build http && ui`** with **`external/ui`**. Keep handler registration and **`openapi.go`** in sync.
 - **`external/scheduler`** (**`daemon/`**, **`storage/`**, **`service/`** schedservice, **`tools/`** schedtools) - cron and related tools; scheduler tag.
+- **`internal/desktop`** - Windows WebView2 desktop launcher; **`//go:build desktop && windows`**. Orchestrates **`httpserver.StartHTTP`** plus embedded UI in a native window (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**).
 
 Do not introduce import cycles. If a new package would cycle, split interfaces or move shared types down-layer.
 
