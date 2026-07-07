@@ -102,6 +102,8 @@ export function Settings(props: {
   onConfigSaved?: () => void;
   /** Section id from the `#/settings/<section>` deep link (null = default/grid). */
   initialSection?: string | null;
+  /** Reopen the onboarding form + guided tour (shown in the Appearance tab). */
+  onRestartOnboarding?: () => void;
 }) {
   const { t } = useT();
   const [schema, setSchema] = useState<JsonSchema | null>(null);
@@ -252,6 +254,7 @@ export function Settings(props: {
                 doc={doc}
                 setDoc={setDoc}
                 isMobileShell={isMobileShell}
+                onRestartOnboarding={props.onRestartOnboarding}
               />
             ) : null}
           </div>
@@ -272,6 +275,7 @@ export function Settings(props: {
                 schema={{ type: "object", properties: {} } as JsonSchema}
                 doc={doc}
                 setDoc={setDoc}
+                onRestartOnboarding={props.onRestartOnboarding}
               />
             </div>
           </div>

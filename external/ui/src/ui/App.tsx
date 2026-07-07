@@ -64,6 +64,21 @@ import type { TokenUsage, TranscriptItem } from "./chat/types";
 import { injectBranchNavItems, deduplicateBranchNavs, type BranchPointData } from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
+import {
+  fetchOnboardingStatus,
+  shouldShowOnboarding,
+} from "./onboarding/onboardingStatus";
+import { ProviderPickerDialog } from "./onboarding/ProviderPickerDialog";
+import { GuidedTour } from "./onboarding/GuidedTour";
+import { TOUR_STEPS } from "./onboarding/tourSteps";
+import { isTourSeen, markTourSeen, resetTour } from "./onboarding/tourState";
+import { isDesktopShell } from "./desktopShell";
+import { ProjectDialog } from "./project/ProjectDialog";
+import {
+  fetchProject,
+  projectBasename,
+  type ProjectInfo,
+} from "./project/projectApi";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -781,6 +796,10 @@ export function App() {
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [modelsEpoch, setModelsEpoch] = useState(0);
+  const [showProviderPicker, setShowProviderPicker] = useState(false);
+  const [showTour, setShowTour] = useState(false);
+  const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   /** null until first probe of /foxxycode/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
@@ -1378,6 +1397,17 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelsEpoch]);
 
+  useEffect(() => {
+    void (async () => {
+      const status = await fetchOnboardingStatus();
+      setShowProviderPicker(shouldShowOnboarding(status));
+    })();
+  }, [modelsEpoch]);
+
+  useEffect(() => {
+    void fetchProject().then(setProject);
+  }, []);
+
   // Apply the opened session's saved model/reasoning once the backends list is
   // known. Runs whenever either input lands, so the restore is independent of
   // whether /v1/models or the session messages resolve first after a reload.
@@ -1566,6 +1596,9 @@ export function App() {
         const policy = parseToolsPermissionPolicy(res.data);
         toolsPermissionPolicyRef.current = policy;
         setToolsPermissionPolicy(policy);
+        const { applyStartupUiLocaleFromConfig, readUiLocaleFromConfigDoc } =
+          await import("./i18n/localeConfig");
+        applyStartupUiLocaleFromConfig(readUiLocaleFromConfigDoc(res.data));
       }
     })();
   }, [headers]);
@@ -3116,6 +3149,23 @@ export function App() {
     }
   }, [sessionId, clearSessionRoute]);
 
+  // After the onboarding form is dismissed (saved or skipped), play the guided
+  // tour once — desktop shell only, and only if it has not been seen before.
+  const maybeStartTour = useCallback(() => {
+    if (isDesktopShell() && !isTourSeen()) {
+      setShowTour(true);
+    }
+  }, []);
+
+  // "Restart onboarding" in Settings: close settings, clear the tour-seen flag
+  // so it can replay, and reopen the provider form.
+  const restartOnboarding = useCallback(() => {
+    onCloseSettings();
+    resetTour();
+    setShowTour(false);
+    setShowProviderPicker(true);
+  }, [onCloseSettings]);
+
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -3315,6 +3365,7 @@ export function App() {
               onClose={onCloseSettings}
               onConfigSaved={() => setModelsEpoch((e) => e + 1)}
               initialSection={settingsSection}
+              onRestartOnboarding={restartOnboarding}
             />
           </div>
         ) : null}
@@ -3414,6 +3465,13 @@ export function App() {
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+          {...(project
+            ? {
+                projectName: projectBasename(project.path),
+                projectPath: project.path,
+                onOpenProject: () => setProjectDialogOpen(true),
+              }
+            : {})}
           onSend={(text: string, files?: File[]) => {
             if (
               sessionId.trim() &&
@@ -3454,6 +3512,36 @@ export function App() {
             if (det.data.result !== undefined)
               patch.fullResultText = det.data.result;
             upsertToolCall(patch as any);
+          }}
+        />
+        <ProviderPickerDialog
+          open={showProviderPicker}
+          onSaved={() => {
+            setShowProviderPicker(false);
+            setModelsEpoch((e) => e + 1);
+            maybeStartTour();
+          }}
+          onSkip={() => {
+            setShowProviderPicker(false);
+            maybeStartTour();
+          }}
+        />
+        <GuidedTour
+          open={showTour}
+          steps={TOUR_STEPS}
+          onClose={() => {
+            markTourSeen();
+            setShowTour(false);
+          }}
+        />
+        <ProjectDialog
+          open={projectDialogOpen}
+          project={project}
+          onClose={() => setProjectDialogOpen(false)}
+          onOpened={(info) => {
+            setProject(info);
+            setProjectDialogOpen(false);
+            goHome();
           }}
         />
       </div>

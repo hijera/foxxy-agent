@@ -33,7 +33,7 @@ func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	installDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
 	loader := skills.NewLoader(cfg.Skills.Dirs)
 
-	allLoaded, err := loader.LoadAll(s.defaultCWD, cfg.Paths.Home)
+	allLoaded, err := loader.LoadAll(s.sessionDefaultCWD(), cfg.Paths.Home)
 	if err != nil {
 		http.Error(w, `{"error":{"message":"failed to load skills"}}`, http.StatusInternalServerError)
 		return

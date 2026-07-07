@@ -28,6 +28,7 @@ test("appearance renders outside the centered loading placeholder", async () => 
   await waitFor(() =>
     expect(container.querySelector(".appearance-swatch-grid")).toBeTruthy(),
   );
+  expect(container.querySelector('[data-testid="appearance-locale-picker"]')).toBeTruthy();
 
   // The swatch grid must not be nested inside the centered placeholder box.
   expect(

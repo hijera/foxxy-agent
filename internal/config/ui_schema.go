@@ -475,11 +475,22 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"telegram"},
 			nil),
+		"ui": objectSchema("UI", "Embedded SPA preferences for desktop and HTTP UI.",
+			map[string]interface{}{
+				"locale": map[string]interface{}{
+					"type":        "string",
+					"title":       "UI language",
+					"description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
+					"enum":        []string{"", "en", "ru"},
+				},
+			},
+			[]string{"locale"},
+			nil),
 	}
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways",
+		"prompts", "instructions", "logger", "sessions", "gateways", "ui",
 	}
 
 	doc := map[string]interface{}{

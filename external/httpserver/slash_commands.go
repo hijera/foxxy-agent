@@ -68,7 +68,7 @@ func (s *Server) listSkillSummariesCached(cwdAbs string) ([]skills.SkillSummary,
 func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
 	sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID"))
 	if sid == "" {
-		cwd, err := session.EffectiveSessionCWD("", s.defaultCWD)
+		cwd, err := session.EffectiveSessionCWD("", s.sessionDefaultCWD())
 		if err != nil {
 			http.Error(w, `{"error":{"message":"invalid default cwd"}}`, http.StatusInternalServerError)
 			return "", false
@@ -90,7 +90,7 @@ func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (st
 		if fs != nil && fs.HasPersistedSnapshot(sid) {
 			if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 				SessionID: sid,
-				CWD:       s.defaultCWD,
+				CWD:       s.sessionDefaultCWD(),
 			}); err != nil {
 				http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 				return "", false

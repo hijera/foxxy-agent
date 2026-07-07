@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { t as translate } from "../i18n/i18n";
+import { tSchemaText } from "../i18n/schemaStrings";
 import {
   IconTrash,
   SchemaForm,
@@ -26,7 +28,7 @@ function rowLabel(
       return String(v);
     }
   }
-  return `(unnamed #${index + 1})`;
+  return translate("settings.unnamedItem", { index: index + 1 });
 }
 
 /**
@@ -96,8 +98,8 @@ export function SettingsArraySection(props: {
 
   return (
     <div className="settings-master">
-      {schema.description ? (
-        <p className="settings-field-desc">{schema.description}</p>
+      {tSchemaText(schema.description) ? (
+        <p className="settings-field-desc">{tSchemaText(schema.description)}</p>
       ) : null}
       {arr.length === 0 ? (
         <p className="settings-muted">{t("settings.nothingYet")}</p>

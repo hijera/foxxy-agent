@@ -166,7 +166,7 @@ func (s *Server) foxxycodeSessionCancelGeneration(w http.ResponseWriter, r *http
 		}
 		if _, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       s.defaultCWD,
+			CWD:       s.sessionDefaultCWD(),
 		}); err != nil {
 			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 			return
@@ -653,7 +653,7 @@ func (s *Server) foxxycodeEnsureLoaded(w http.ResponseWriter, r *http.Request, i
 		}
 		_, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
 			SessionID: id,
-			CWD:       s.defaultCWD,
+			CWD:       s.sessionDefaultCWD(),
 		})
 		if err != nil {
 			return nil, err

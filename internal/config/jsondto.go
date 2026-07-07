@@ -23,6 +23,12 @@ type ConfigJSON struct {
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
+	UI           UIJSON           `json:"ui,omitempty"`
+}
+
+// UIJSON mirrors UIConfig for JSON APIs.
+type UIJSON struct {
+	Locale string `json:"locale,omitempty"`
 }
 
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.
@@ -254,6 +260,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		})
 	}
 	out.Gateways = GatewaysJSON{Telegram: tgJSON}
+	out.UI = UIJSON{Locale: c.UI.Locale}
 	return out
 }
 
@@ -334,6 +341,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		})
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg}
+	cfg.UI = UIConfig{Locale: j.UI.Locale}
 	return cfg
 }
 

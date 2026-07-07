@@ -1,10 +1,9 @@
 import type { ChangeEvent, ReactNode } from "react";
 
 import { t } from "../i18n/i18n";
+import { tSchemaEnumLabel, tSchemaText } from "../i18n/schemaStrings";
 import { Combobox } from "./Combobox";
-import {
-  providerApiKeyFieldPlaceholder,
-} from "./providerApiKeyPlaceholder";
+import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
 export function IconTrash(props: { className?: string }) {
@@ -151,11 +150,19 @@ function SchemaField(props: {
 }) {
   const { name, schema, value, onChange, parentObj, fieldOverride } = props;
   const path = props.path ?? name;
-  const label = schema.title || name;
-  const t = schema.type;
+  const label = tSchemaText(schema.title) || name;
+  const desc = tSchemaText(schema.description);
+  // Do not name this `t`: it would shadow the imported i18n t() used below.
+  const fieldType = schema.type;
 
   if (fieldOverride) {
-    const override = fieldOverride({ path, schema, value, onChange, parentObj });
+    const override = fieldOverride({
+      path,
+      schema,
+      value,
+      onChange,
+      parentObj,
+    });
     if (override != null) {
       return <>{override}</>;
     }
@@ -172,7 +179,7 @@ function SchemaField(props: {
     ph = providerApiKeyFieldPlaceholder(pname);
   }
 
-  if (t === "object" && schema.properties) {
+  if (fieldType === "object" && schema.properties) {
     const obj =
       value && typeof value === "object" && !Array.isArray(value)
         ? (value as Record<string, unknown>)
@@ -180,8 +187,8 @@ function SchemaField(props: {
     return (
       <fieldset className="settings-fieldset">
         <legend>{label}</legend>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
+        {desc ? (
+          <p className="settings-field-desc">{desc}</p>
         ) : null}
         <div className="settings-nested">
           {entriesInSchemaOrder(
@@ -204,14 +211,14 @@ function SchemaField(props: {
     );
   }
 
-  if (t === "array" && schema.items) {
+  if (fieldType === "array" && schema.items) {
     const arr = Array.isArray(value) ? [...value] : [];
     const itemSchema = schema.items;
     return (
       <fieldset className="settings-fieldset">
         <legend>{label}</legend>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
+        {desc ? (
+          <p className="settings-field-desc">{desc}</p>
         ) : null}
         <ul className="settings-array">
           {arr.map((row, i) => (
@@ -261,13 +268,13 @@ function SchemaField(props: {
             onChange([...arr, seed]);
           }}
         >
-          Add
+          {t("settings.add")}
         </button>
       </fieldset>
     );
   }
 
-  if (t === "boolean") {
+  if (fieldType === "boolean") {
     const checked = Boolean(value);
     return (
       <div className="settings-row">
@@ -281,9 +288,9 @@ function SchemaField(props: {
           />
           <span>{label}</span>
         </label>
-        {schema.description ? (
+        {desc ? (
           <p className="settings-field-desc settings-field-desc-below-checkbox">
-            {schema.description}
+            {desc}
           </p>
         ) : null}
       </div>
@@ -301,13 +308,17 @@ function SchemaField(props: {
     return (
       <div className="settings-row">
         <span className="settings-label">{label}</span>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
+        {desc ? (
+          <p className="settings-field-desc">{desc}</p>
         ) : null}
         <Combobox
           value={v}
           ariaLabel={label}
-          options={schema.enum.map((opt) => ({ value: String(opt) }))}
+          showOptionLabel
+          options={schema.enum.map((opt) => ({
+            value: String(opt),
+            label: tSchemaEnumLabel(String(opt)),
+          }))}
           onChange={(raw) => {
             const match = schema.enum!.find((x) => String(x) === raw);
             onChange(match !== undefined ? match : raw);
@@ -317,7 +328,7 @@ function SchemaField(props: {
     );
   }
 
-  if (t === "integer" || t === "number") {
+  if (fieldType === "integer" || fieldType === "number") {
     let n: number;
     if (typeof value === "number" && Number.isFinite(value)) {
       n = value;
@@ -333,8 +344,8 @@ function SchemaField(props: {
     return (
       <div className="settings-row">
         <span className="settings-label">{label}</span>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
+        {desc ? (
+          <p className="settings-field-desc">{desc}</p>
         ) : null}
         <input
           className="settings-input"
@@ -343,7 +354,7 @@ function SchemaField(props: {
           min={schema.minimum}
           max={schema.maximum}
           placeholder={ph}
-          title={schema.description}
+          title={desc || undefined}
           aria-label={label}
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const x = e.target.valueAsNumber;
@@ -390,9 +401,7 @@ export function SchemaForm(props: {
 }) {
   const { schema, value, onChange, fieldOverride } = props;
   if (schema.type !== "object" || !schema.properties) {
-    return (
-      <p className="settings-muted">{t("settings.unsupportedSchema")}</p>
-    );
+    return <p className="settings-muted">{t("settings.unsupportedSchema")}</p>;
   }
   return (
     <div className="settings-schema-root">

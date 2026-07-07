@@ -1474,6 +1474,7 @@ export function Composer(props: {
                     title={t("composer.modelTitle")}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === "llm"}
+                    data-testid="composer-model-btn"
                     onClick={(e) => toggleMenu("llm", e.currentTarget)}
                   >
                     {llmLabel}

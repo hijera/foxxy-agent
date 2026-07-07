@@ -1,0 +1,791 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.",
+  "properties": {
+    "agent": {
+      "additionalProperties": false,
+      "description": "Defaults for the main agent loop (model id and safety caps).",
+      "properties": {
+        "llm_min_interval_ms": {
+          "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing).",
+          "title": "LLM min interval ms",
+          "type": "integer"
+        },
+        "llm_retry_base_ms": {
+          "default": 1000,
+          "description": "Initial backoff between LLM retries in milliseconds.",
+          "title": "LLM retry base ms",
+          "type": "integer"
+        },
+        "llm_retry_max": {
+          "default": 3,
+          "description": "Retries after retryable LLM errors such as HTTP 429 before failing the turn.",
+          "title": "LLM retry max",
+          "type": "integer"
+        },
+        "max_tokens_per_turn": {
+          "default": 200000,
+          "description": "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
+          "title": "Max tokens per turn",
+          "type": "integer"
+        },
+        "max_turns": {
+          "default": 30,
+          "description": "Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request.",
+          "title": "Max turns",
+          "type": "integer"
+        },
+        "model": {
+          "default": "openai/gpt-4o",
+          "description": "Logical model id from the models list used when the client omits a model.",
+          "title": "Default model",
+          "type": "string"
+        }
+      },
+      "title": "ReAct agent",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "model",
+        "max_turns",
+        "max_tokens_per_turn",
+        "llm_retry_max",
+        "llm_retry_base_ms",
+        "llm_min_interval_ms"
+      ]
+    },
+    "gateways": {
+      "additionalProperties": false,
+      "description": "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
+      "properties": {
+        "telegram": {
+          "additionalProperties": false,
+          "description": "Telegram bot adapter settings.",
+          "properties": {
+            "admins": {
+              "default": [],
+              "description": "Telegram user IDs with elevated rights; admins always pass access checks.",
+              "items": {
+                "type": "integer"
+              },
+              "title": "Admins",
+              "type": "array"
+            },
+            "chats": {
+              "default": [],
+              "description": "Override isolation and access for specific chats.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "description": "Per-chat access override: all, admins, or group:\u003cname\u003e.",
+                    "title": "Access",
+                    "type": "string"
+                  },
+                  "chat_id": {
+                    "description": "Telegram chat id; negative for groups and supergroups.",
+                    "title": "Chat ID",
+                    "type": "integer"
+                  },
+                  "isolation": {
+                    "description": "Per-chat session isolation override.",
+                    "enum": [
+                      "individual",
+                      "shared",
+                      "admin"
+                    ],
+                    "title": "Isolation",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "chat_id"
+                ],
+                "type": "object",
+                "x-foxxycode-property-order": [
+                  "chat_id",
+                  "isolation",
+                  "access"
+                ]
+              },
+              "title": "Per-chat overrides",
+              "type": "array"
+            },
+            "default_access": {
+              "default": "all",
+              "description": "Fallback access level for chats without an override: all, admins, or group:\u003cname\u003e.",
+              "title": "Default access",
+              "type": "string"
+            },
+            "default_isolation": {
+              "default": "individual",
+              "description": "Fallback session isolation for group chats.",
+              "enum": [
+                "individual",
+                "shared",
+                "admin"
+              ],
+              "title": "Default isolation",
+              "type": "string"
+            },
+            "enabled": {
+              "description": "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "proxy": {
+              "description": "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.",
+              "title": "Proxy",
+              "type": "string"
+            },
+            "rich_messages": {
+              "default": true,
+              "description": "Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported.",
+              "title": "Rich messages",
+              "type": "boolean"
+            },
+            "token": {
+              "default": "${TELEGRAM_BOT_TOKEN}",
+              "description": "BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
+              "title": "Bot token",
+              "type": "string"
+            },
+            "user_groups": {
+              "default": [],
+              "description": "Named sets of user IDs referenced by access as group:\u003cname\u003e.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Name referenced by access as group:\u003cname\u003e.",
+                    "title": "Group name",
+                    "type": "string"
+                  },
+                  "user_ids": {
+                    "description": "Telegram numeric user IDs that belong to this group.",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "title": "User IDs",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object",
+                "x-foxxycode-property-order": [
+                  "name",
+                  "user_ids"
+                ]
+              },
+              "title": "User groups",
+              "type": "array"
+            }
+          },
+          "title": "Telegram",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled",
+            "token",
+            "rich_messages",
+            "proxy",
+            "admins",
+            "default_access",
+            "default_isolation",
+            "user_groups",
+            "chats"
+          ]
+        }
+      },
+      "title": "Messenger gateways",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "telegram"
+      ]
+    },
+    "instructions": {
+      "additionalProperties": false,
+      "description": "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
+      "properties": {
+        "files": {
+          "default": [
+            "AGENTS.md"
+          ],
+          "description": "Filenames relative to session CWD to read as instructions. Defaults to [\"AGENTS.md\"].",
+          "items": {
+            "type": "string"
+          },
+          "title": "Instruction files",
+          "type": "array"
+        }
+      },
+      "title": "Instructions",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "files"
+      ]
+    },
+    "logger": {
+      "additionalProperties": false,
+      "description": "Process log level, outputs, and rotation.",
+      "properties": {
+        "file": {
+          "description": "Destination file when outputs include file.",
+          "title": "Log file path",
+          "type": "string"
+        },
+        "format": {
+          "default": "text",
+          "description": "text for human logs; json for structured logs.",
+          "enum": [
+            "text",
+            "json"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "level": {
+          "default": "info",
+          "description": "Minimum severity written to configured outputs.",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "warning"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "outputs": {
+          "default": [
+            "stderr"
+          ],
+          "description": "Where log lines are written.",
+          "items": {
+            "enum": [
+              "stdout",
+              "stderr",
+              "file"
+            ],
+            "type": "string"
+          },
+          "title": "Outputs",
+          "type": "array"
+        },
+        "rotation": {
+          "additionalProperties": false,
+          "description": "Size-based rotation when logging to a file.",
+          "properties": {
+            "max_files": {
+              "description": "How many rotated segments to retain; 0 uses logger defaults.",
+              "title": "Max files",
+              "type": "integer"
+            },
+            "max_size_mb": {
+              "description": "Rotate after the file reaches this size; 0 uses logger defaults.",
+              "title": "Max file size (MB)",
+              "type": "integer"
+            }
+          },
+          "title": "Rotation",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "max_size_mb",
+            "max_files"
+          ]
+        }
+      },
+      "title": "Logger",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "level",
+        "outputs",
+        "file",
+        "format",
+        "rotation"
+      ]
+    },
+    "mcp_servers": {
+      "default": [],
+      "description": "Model Context Protocol servers started or contacted for new sessions.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "description": "Argv passed after command for stdio MCP servers.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Arguments",
+            "type": "array"
+          },
+          "command": {
+            "description": "Executable for stdio transport (leave empty when using http url).",
+            "title": "Command",
+            "type": "string"
+          },
+          "env": {
+            "description": "Extra environment variables for the stdio child process.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "description": "Environment variable name passed to the MCP process.",
+                  "title": "Variable name",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Variable value.",
+                  "title": "Value",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ],
+              "type": "object"
+            },
+            "title": "Environment",
+            "type": "array"
+          },
+          "headers": {
+            "description": "Optional headers sent with MCP HTTP requests.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "description": "HTTP header name for MCP HTTP transports.",
+                  "title": "Header name",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "HTTP header value.",
+                  "title": "Header value",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "value"
+              ],
+              "type": "object"
+            },
+            "title": "HTTP headers",
+            "type": "array"
+          },
+          "name": {
+            "description": "Stable id referenced by the agent; must be unique in this list.",
+            "title": "Server name",
+            "type": "string"
+          },
+          "type": {
+            "description": "stdio runs a local command; http connects to a remote MCP endpoint.",
+            "title": "Server type",
+            "type": "string"
+          },
+          "url": {
+            "description": "HTTP(S) endpoint when type selects an HTTP-based MCP server.",
+            "title": "MCP URL",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "x-foxxycode-property-order": [
+          "type",
+          "name",
+          "command",
+          "args",
+          "env",
+          "url",
+          "headers"
+        ]
+      },
+      "title": "MCP servers",
+      "type": "array"
+    },
+    "memory": {
+      "additionalProperties": false,
+      "description": "Optional memory copilot (requires memory build tag and provider).",
+      "properties": {
+        "copilot_max_tokens": {
+          "default": 4096,
+          "description": "Completion token cap for memory copilot calls.",
+          "title": "Copilot max tokens",
+          "type": "integer"
+        },
+        "dir": {
+          "description": "Filesystem root for memory markdown; empty uses ${FOXXYCODE_HOME}/memory.",
+          "title": "Memory root",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Turns on the memory copilot for eligible builds.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_search_hits": {
+          "default": 8,
+          "description": "Maximum snippets returned by memory search tools.",
+          "title": "Max search hits",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Logical model override for memory LLM calls; empty uses agent model.",
+          "title": "Memory model",
+          "type": "string"
+        },
+        "persist_max_turns": {
+          "default": 12,
+          "description": "Bounds persist-side LLM rounds in the memory loop.",
+          "title": "Persist max turns",
+          "type": "integer"
+        },
+        "recall_max_turns": {
+          "default": 6,
+          "description": "Bounds recall-side LLM rounds in the memory loop.",
+          "title": "Recall max turns",
+          "type": "integer"
+        }
+      },
+      "title": "Long-term memory",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "model",
+        "dir",
+        "recall_max_turns",
+        "persist_max_turns",
+        "copilot_max_tokens",
+        "max_search_hits"
+      ]
+    },
+    "models": {
+      "default": [
+        {
+          "max_tokens": 4096,
+          "model": "openai/gpt-4o",
+          "temperature": 0.2
+        }
+      ],
+      "description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "max_context_tokens": {
+            "description": "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.",
+            "title": "Max context tokens (UI hint)",
+            "type": "integer"
+          },
+          "max_tokens": {
+            "default": 4096,
+            "description": "Upper bound on completion tokens the model may emit for one assistant message.",
+            "title": "Max tokens",
+            "type": "integer"
+          },
+          "model": {
+            "default": "openai/gpt-4o",
+            "description": "Logical id in the form provider/api-model-id; must match a provider name prefix.",
+            "title": "Model id",
+            "type": "string"
+          },
+          "multimodal": {
+            "description": "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.",
+            "title": "Multimodal",
+            "type": "boolean"
+          },
+          "reasoning_default": {
+            "description": "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
+            "title": "Default reasoning level",
+            "type": "string"
+          },
+          "reasoning_levels": {
+            "description": "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasoning levels",
+            "type": "array"
+          },
+          "temperature": {
+            "default": 0.2,
+            "description": "Sampling temperature for this logical model (0 = deterministic, higher = more random).",
+            "title": "Temperature",
+            "type": "number"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "type": "object",
+        "x-foxxycode-property-order": [
+          "model",
+          "max_tokens",
+          "temperature",
+          "max_context_tokens",
+          "multimodal",
+          "reasoning_levels",
+          "reasoning_default"
+        ]
+      },
+      "title": "Logical models",
+      "type": "array"
+    },
+    "prompts": {
+      "additionalProperties": false,
+      "description": "Built-in system prompt files relative to dir.",
+      "properties": {
+        "agent_prompt": {
+          "default": "agent.md",
+          "description": "Filename for the main agent system prompt.",
+          "title": "Agent prompt file",
+          "type": "string"
+        },
+        "dir": {
+          "description": "Optional override directory for prompt markdown files.",
+          "title": "Prompts directory",
+          "type": "string"
+        },
+        "plan_prompt": {
+          "default": "plan.md",
+          "description": "Filename for plan-mode system prompt.",
+          "title": "Plan prompt file",
+          "type": "string"
+        }
+      },
+      "title": "Prompts",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "dir",
+        "agent_prompt",
+        "plan_prompt"
+      ]
+    },
+    "providers": {
+      "default": [
+        {
+          "name": "openai",
+          "type": "openai"
+        }
+      ],
+      "description": "API credentials and transport selection for upstream LLM vendors.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "api_base": {
+            "description": "Optional override of the default API base URL for this provider.",
+            "title": "API base URL",
+            "type": "string"
+          },
+          "api_key": {
+            "description": "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).",
+            "title": "API key",
+            "type": "string",
+            "x-foxxycode-provider-api-key-env-placeholder": true
+          },
+          "api_key_command": {
+            "description": "Optional credential-helper command. When api_key is empty it is run via the shell and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable.",
+            "title": "API key command",
+            "type": "string"
+          },
+          "name": {
+            "default": "openai",
+            "description": "Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+            "title": "Provider name",
+            "type": "string"
+          },
+          "proxy": {
+            "description": "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection.",
+            "title": "HTTP or SOCKS proxy",
+            "type": "string"
+          },
+          "type": {
+            "default": "openai",
+            "description": "Wire protocol for this provider entry.",
+            "enum": [
+              "openai",
+              "anthropic"
+            ],
+            "title": "Provider type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object",
+        "x-foxxycode-property-order": [
+          "name",
+          "type",
+          "api_base",
+          "api_key",
+          "proxy"
+        ]
+      },
+      "title": "LLM providers",
+      "type": "array"
+    },
+    "scheduler": {
+      "additionalProperties": false,
+      "description": "Cron-style scheduled jobs (requires scheduler build tag).",
+      "properties": {
+        "dir": {
+          "default": "${FOXXYCODE_HOME}/scheduler",
+          "description": "Directory of job markdown definitions.",
+          "title": "Jobs directory",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "When true, this process may run the scheduler daemon and REST.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_queue": {
+          "default": 10,
+          "description": "Maximum concurrent scheduled agent runs.",
+          "title": "Max queue",
+          "type": "integer"
+        },
+        "retain_sessions": {
+          "default": 5,
+          "description": "How many completed scheduler session folders to keep per job id.",
+          "title": "Retain sessions",
+          "type": "integer"
+        },
+        "timeout": {
+          "default": "30m",
+          "description": "Per-job wall-clock limit, e.g. 30m or 1h30m.",
+          "title": "Job timeout",
+          "type": "string"
+        }
+      },
+      "title": "Scheduler",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "dir",
+        "max_queue",
+        "timeout",
+        "retain_sessions"
+      ]
+    },
+    "sessions": {
+      "additionalProperties": false,
+      "description": "Where persisted chat bundles are stored.",
+      "properties": {
+        "dir": {
+          "description": "Override sessions root; empty resolves under FOXXYCODE_HOME.",
+          "title": "Sessions directory",
+          "type": "string"
+        }
+      },
+      "title": "Sessions",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "dir"
+      ]
+    },
+    "skills": {
+      "additionalProperties": false,
+      "description": "Slash commands and skill packs discovered from these directories.",
+      "properties": {
+        "dirs": {
+          "default": [
+            "~/.agents/skills",
+            "${FOXXYCODE_HOME}/skills",
+            "${CWD}/.foxxycode/skills"
+          ],
+          "description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Skill directories",
+          "type": "array"
+        }
+      },
+      "title": "Skills",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "dirs"
+      ]
+    },
+    "tools": {
+      "additionalProperties": false,
+      "description": "Filesystem and shell policy for built-in tools.",
+      "properties": {
+        "command_allowlist": {
+          "default": [],
+          "description": "If non-empty, only these shell command prefixes may run without extra policy.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Command allowlist",
+          "type": "array"
+        },
+        "permission_mode": {
+          "default": "ask",
+          "description": "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
+          "enum": [
+            "ask",
+            "accept_edits",
+            "bypass"
+          ],
+          "title": "Permission mode",
+          "type": "string"
+        }
+      },
+      "title": "Tools and permissions",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "permission_mode",
+        "command_allowlist"
+      ]
+    },
+    "ui": {
+      "additionalProperties": false,
+      "description": "Embedded SPA preferences for desktop and HTTP UI.",
+      "properties": {
+        "locale": {
+          "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
+          "enum": [
+            "",
+            "en",
+            "ru"
+          ],
+          "title": "UI language",
+          "type": "string"
+        }
+      },
+      "title": "UI",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "locale"
+      ]
+    }
+  },
+  "title": "FoxxyCode config",
+  "type": "object",
+  "x-foxxycode-property-order": [
+    "providers",
+    "models",
+    "agent",
+    "tools",
+    "mcp_servers",
+    "skills",
+    "memory",
+    "scheduler",
+    "prompts",
+    "instructions",
+    "logger",
+    "sessions",
+    "gateways",
+    "ui"
+  ]
+}

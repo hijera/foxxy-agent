@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "../i18n/i18n";
 import { Combobox } from "./Combobox";
 import { useProviderModels } from "./useProviderModels";
 
@@ -20,7 +21,7 @@ export function ModelField(props: {
   label?: string | undefined;
 }) {
   const { value, onChange, providers } = props;
-  const label = props.label ?? "Model id";
+  const label = props.label ?? t("settings.modelIdLabel");
 
   const inferred = providerOf(value);
   const [provider, setProvider] = useState<string>(

@@ -20,4 +20,5 @@ type Config struct {
 	HTTPServer   HTTPServerConfig  `yaml:"httpserver"`
 	Scheduler    SchedulerConfig   `yaml:"scheduler"`
 	Gateways     GatewayConfig     `yaml:"gateways"`
+	UI           UIConfig          `yaml:"ui"`
 }

@@ -12,6 +12,7 @@ import (
 
 func (s *Server) registerProvidersRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/providers/{name}/models", s.foxxycodeProviderModelsGet)
+	s.mux.HandleFunc("POST /foxxycode/providers/models-probe", s.foxxycodeProviderModelsProbe)
 }
 
 // foxxycodeProviderModelsGet fetches the model list advertised by a configured
@@ -50,6 +51,42 @@ func (s *Server) foxxycodeProviderModelsGet(w http.ResponseWriter, r *http.Reque
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
 	})
+	writeProviderModelsResult(w, models, err)
+}
+
+// foxxycodeProviderModelsProbe fetches the model list for a provider that is not
+// saved in the config yet (onboarding): credentials arrive in the request body
+// instead of being resolved by provider name. Response shape matches the GET
+// variant: {"ok":true,"models":[...]} or {"ok":false,"error":...,"models":[]}
+// with HTTP 200 on upstream failure so the UI can fall back to manual entry.
+// A malformed body or unsupported provider type returns 400.
+func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Type    string `json:"type"`
+		APIBase string `json:"api_base"`
+		APIKey  string `json:"api_key"`
+		Proxy   string `json:"proxy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if in.Type != "openai" && in.Type != "anthropic" {
+		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "type must be \"openai\" or \"anthropic\"")
+		return
+	}
+
+	models, err := llm.ListModels(r.Context(), llm.ProviderInput{
+		Type:     in.Type,
+		APIKey:   in.APIKey,
+		BaseURL:  in.APIBase,
+		ProxyURL: in.Proxy,
+	})
+	writeProviderModelsResult(w, models, err)
+}
+
+// writeProviderModelsResult encodes the shared model-listing response shape.
+func writeProviderModelsResult(w http.ResponseWriter, models []llm.ModelEntry, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{

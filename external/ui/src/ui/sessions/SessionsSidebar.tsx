@@ -3,6 +3,7 @@ import { useT } from "../i18n/I18nProvider";
 import { appNavHrefDraft, appNavHrefSession } from "../scheduler/hashRoute";
 import { isClientDraftSessionId } from "./draftSessions";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
+import { projectBasename } from "../project/projectApi";
 import {
   sessionRowShowsPermissionPending,
   sessionRowShowsQuestionPending,
@@ -208,6 +209,15 @@ export function SessionsSidebar(props: {
                   {s.title || t("sessions.newChatFallback")}
                 </span>
               </div>
+              {s.cwd ? (
+                <div
+                  className="session-row-cwd"
+                  title={s.cwd}
+                  data-testid={`session-cwd-${s.id}`}
+                >
+                  {projectBasename(s.cwd)}
+                </div>
+              ) : null}
             </a>
             <button
               className="session-trash"

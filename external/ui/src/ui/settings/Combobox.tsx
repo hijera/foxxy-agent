@@ -18,13 +18,32 @@ export function Combobox(props: {
   ariaLabel?: string | undefined;
   testid?: string | undefined;
   disabled?: boolean | undefined;
+  /**
+   * When true, the collapsed input shows the matching option's label instead of
+   * the raw value (used for enum fields with translated labels). While focused the
+   * raw value is shown so it stays editable. Off by default so free-text
+   * comboboxes (provider, model id) keep showing what the user typed.
+   */
+  showOptionLabel?: boolean | undefined;
+  /**
+   * When true, the dropdown list opens upward (above the input) instead of below.
+   * Used where the field sits near the bottom of a constrained container (e.g. the
+   * onboarding modal) so the list stays visible instead of being clipped.
+   */
+  openUp?: boolean | undefined;
 }) {
   const { t } = useT();
   const { value, onChange, options, placeholder, ariaLabel, testid, disabled } = props;
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [highlight, setHighlight] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const shownValue =
+    props.showOptionLabel && !focused
+      ? (options.find((o) => o.value === value)?.label ?? value)
+      : value;
 
   const filtered = useMemo(() => {
     if (!typed) {
@@ -93,7 +112,7 @@ export function Combobox(props: {
         aria-autocomplete="list"
         aria-label={ariaLabel}
         data-testid={testid}
-        value={value}
+        value={shownValue}
         placeholder={placeholder}
         disabled={disabled}
         onChange={(e) => {
@@ -103,9 +122,11 @@ export function Combobox(props: {
           setHighlight(-1);
         }}
         onFocus={() => {
+          setFocused(true);
           setTyped(false);
           setOpen(true);
         }}
+        onBlur={() => setFocused(false)}
         onKeyDown={onKeyDown}
       />
       <button
@@ -123,7 +144,10 @@ export function Combobox(props: {
         ▾
       </button>
       {open && filtered.length > 0 ? (
-        <ul className="settings-combobox-list" role="listbox">
+        <ul
+          className={`settings-combobox-list${props.openUp ? " settings-combobox-list--up" : ""}`}
+          role="listbox"
+        >
           {filtered.map((o, i) => (
             <li
               key={o.value}

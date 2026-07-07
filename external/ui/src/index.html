@@ -54,7 +54,17 @@
         var ql = lt && VALID_LANG[lt] ? lt : null;
         var lm = document.cookie.match(/(?:^|;\s*)foxxycode_ui_lang=([^;]+)/);
         var lc = lm && decodeURIComponent(lm[1].replace(/\+/g, " "));
-        var lang = ql || (lc && VALID_LANG[lc] ? lc : "en");
+        var lang =
+          ql ||
+          (lc && VALID_LANG[lc] ? lc : null) ||
+          (function () {
+            var nav =
+              (typeof navigator !== "undefined" &&
+                (navigator.language || (navigator.languages && navigator.languages[0]))) ||
+              "en";
+            var base = String(nav).trim().toLowerCase().split("-")[0];
+            return base === "ru" ? "ru" : "en";
+          })();
         if (ql && ql !== lc) {
           document.cookie =
             "foxxycode_ui_lang=" +

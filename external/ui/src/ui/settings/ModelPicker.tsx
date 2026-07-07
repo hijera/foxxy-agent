@@ -1,3 +1,4 @@
+import { t } from "../i18n/i18n";
 import { Combobox } from "./Combobox";
 
 /**
@@ -13,7 +14,7 @@ export function ModelPicker(props: {
   description?: string | undefined;
 }) {
   const { value, onChange, models } = props;
-  const label = props.label ?? "Default model";
+  const label = props.label ?? t("settings.defaultModelLabel");
 
   return (
     <div className="settings-row" data-testid="model-picker">

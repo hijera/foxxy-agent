@@ -389,6 +389,109 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/onboarding/status": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "First-run onboarding status",
+					"description": "Reports whether the SPA should show the provider picker modal (missing config, providers, or agent model).",
+					"operationId": "foxxycodeOnboardingStatusGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Onboarding status",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeOnboardingStatus"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/project": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Current project folder",
+					"description": "Returns the current project directory used as the working directory for new sessions. **`source`** is `project` when a project was opened explicitly, `default` when falling back to the process cwd. **`native_picker`** reports whether **POST** `/foxxycode/project/pick-folder` can open a native OS dialog (desktop app only).",
+					"operationId": "foxxycodeProjectGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Current project",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeProject"},
+								},
+							},
+						},
+					},
+				},
+				"put": map[string]interface{}{
+					"summary":     "Open a project folder",
+					"description": "Sets the current project directory. New sessions created afterwards use it as their working directory; existing sessions keep their own cwd. The path must name an existing directory. Also bumps the recent-projects list.",
+					"operationId": "foxxycodeProjectPut",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"path"},
+									"properties": map[string]interface{}{
+										"path": map[string]string{"type": "string", "description": "Absolute path to an existing directory"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Updated current project",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeProject"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/projects/recent": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Recently opened project folders",
+					"description": "Most recently opened first, capped at 15 entries. Entries whose directory no longer exists are kept with **`exists: false`** so clients can flag them.",
+					"operationId": "foxxycodeProjectsRecentGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Recent projects",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeRecentProjects"},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/project/pick-folder": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Open the native folder dialog (desktop only)",
+					"description": "Opens the OS folder picker owned by the desktop window and returns the chosen path. Does **not** change the current project - confirm with **PUT** `/foxxycode/project`. Responds **501** outside the desktop app and **409** while another dialog is already open.",
+					"operationId": "foxxycodeProjectPickFolder",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Dialog result",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeProjectPick"},
+								},
+							},
+						},
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+						"501": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "JSON Schema for FoxxyCode YAML configuration (UI)",
@@ -723,6 +826,34 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/providers/models-probe": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "List models for an unsaved provider (onboarding probe)",
+					"description": "Fetches the model list for a provider that is not saved in the config yet: credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Malformed body or unsupported `type` returns 400.",
+					"operationId": "probeProviderModels",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"type"},
+									"properties": map[string]interface{}{
+										"type":     map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic"}},
+										"api_base": map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. https://api.neuraldeep.ru/v1). Empty uses the type default."},
+										"api_key":  map[string]interface{}{"type": "string"},
+										"proxy":    map[string]interface{}{"type": "string", "description": "Optional proxy URL."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/skills/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a skill",
@@ -792,6 +923,56 @@ func openAPISpec() map[string]interface{} {
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/SkillRow"},
 						},
+					},
+				},
+				"FoxxyCodeOnboardingStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"first_run":          map[string]string{"type": "boolean"},
+						"has_config":         map[string]string{"type": "boolean"},
+						"has_providers":      map[string]string{"type": "boolean"},
+						"has_models":         map[string]string{"type": "boolean"},
+						"has_agent_model":    map[string]string{"type": "boolean"},
+						"missing_api_keys":   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"suggested_defaults": map[string]interface{}{"type": "object"},
+					},
+				},
+				"FoxxyCodeProject": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "foxxycode.project"},
+						"path":   map[string]string{"type": "string", "description": "Current project directory (working directory for new sessions)"},
+						"source": map[string]interface{}{
+							"type": "string",
+							"enum": []interface{}{"project", "default"},
+						},
+						"native_picker": map[string]string{"type": "boolean", "description": "Whether the native OS folder dialog is available (desktop app)"},
+					},
+				},
+				"FoxxyCodeRecentProjects": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "list"},
+						"data": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"path":           map[string]string{"type": "string"},
+									"name":           map[string]string{"type": "string", "description": "Folder basename for compact display"},
+									"last_opened_at": map[string]string{"type": "string", "format": "date-time"},
+									"exists":         map[string]string{"type": "boolean"},
+								},
+							},
+						},
+					},
+				},
+				"FoxxyCodeProjectPick": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":    map[string]string{"type": "string", "example": "foxxycode.project_pick"},
+						"cancelled": map[string]string{"type": "boolean"},
+						"path":      map[string]string{"type": "string", "description": "Chosen directory; empty when cancelled"},
 					},
 				},
 				"FoxxyCodeConfigJSON": map[string]interface{}{

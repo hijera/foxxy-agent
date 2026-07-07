@@ -1,5 +1,6 @@
-import { AppearanceThemePicker } from "../theme/AppearanceModal";
+import { AppearanceLocalePicker, AppearanceThemePicker } from "../theme/AppearanceModal";
 import { useT } from "../i18n/I18nProvider";
+import { tSchemaText } from "../i18n/schemaStrings";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
@@ -43,6 +44,8 @@ export function SettingsSection(props: {
   setDoc: (next: Record<string, unknown>) => void;
   /** Desktop shows the edited item's name on the array-section back button. */
   isMobileShell?: boolean;
+  /** Reopen the onboarding form + guided tour (rendered in the Appearance tab). */
+  onRestartOnboarding?: (() => void) | undefined;
 }) {
   const { t } = useT();
   const { section, schema, doc, setDoc } = props;
@@ -55,7 +58,27 @@ export function SettingsSection(props: {
     setDoc({ ...doc, [key]: value });
 
   if (section.kind === "appearance") {
-    return <AppearanceThemePicker />;
+    return (
+      <>
+        <AppearanceThemePicker />
+        <AppearanceLocalePicker />
+        {props.onRestartOnboarding ? (
+          <div className="appearance-onboarding-restart">
+            <button
+              type="button"
+              className="settings-btn"
+              data-testid="settings-restart-onboarding"
+              onClick={props.onRestartOnboarding}
+            >
+              {t("settings.restartOnboarding")}
+            </button>
+            <p className="appearance-onboarding-restart-hint">
+              {t("settings.restartOnboardingDesc")}
+            </p>
+          </div>
+        ) : null}
+      </>
+    );
   }
 
   if (section.kind === "skills") {
@@ -87,7 +110,7 @@ export function SettingsSection(props: {
                 value={ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)}
                 onChange={(v) => ctx.onChange(v)}
                 providers={providerNames}
-                label={ctx.schema.title || "Model id"}
+                label={tSchemaText(ctx.schema.title) || t("settings.modelIdLabel")}
               />
             ) : null
         : undefined;
@@ -114,7 +137,7 @@ export function SettingsSection(props: {
           }
           return (
             <div key={ck} className="settings-group-block">
-              <p className="appearance-section-label">{sub.title || ck}</p>
+              <p className="appearance-section-label">{tSchemaText(sub.title) || ck}</p>
               <SchemaForm
                 schema={sub}
                 value={asObject(doc[ck])}
@@ -140,8 +163,8 @@ export function SettingsSection(props: {
               value={ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)}
               onChange={(v) => ctx.onChange(v)}
               models={modelIds}
-              label={ctx.schema.title || "Default model"}
-              description={ctx.schema.description}
+              label={tSchemaText(ctx.schema.title) || t("settings.defaultModelLabel")}
+              description={tSchemaText(ctx.schema.description) || undefined}
             />
           ) : null
       : undefined;

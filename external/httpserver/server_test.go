@@ -5,9 +5,11 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -217,7 +219,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/providers/{name}/models", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/sessions/{id}/cancel"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/providers/{name}/models", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -1977,6 +1979,168 @@ func TestResolveDirectYAMLMaxTokens(t *testing.T) {
 func ioReadAllClose(b io.ReadCloser) ([]byte, error) {
 	defer b.Close()
 	return io.ReadAll(b)
+}
+
+func TestOnboardingStatusFirstRun(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfg := &config.Config{
+		Paths: config.Paths{Home: home, CWD: home, ConfigPath: cfgPath},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/foxxycode/onboarding/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(b, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["first_run"] != true {
+		t.Fatalf("first_run %v want true", body["first_run"])
+	}
+	if body["has_providers"] != false {
+		t.Fatalf("has_providers %v want false", body["has_providers"])
+	}
+}
+
+func TestOnboardingStatusConfigured(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "sk-test"
+
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+
+agent:
+  model: "openai/gpt-4o"
+`
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/foxxycode/onboarding/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(b, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["first_run"] != false {
+		t.Fatalf("first_run %v want false", body["first_run"])
+	}
+	if body["has_providers"] != true {
+		t.Fatalf("has_providers %v want true", body["has_providers"])
+	}
+}
+
+func TestStartHTTPLoopback(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+agent:
+  model: "openai/gpt-4o"
+`
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+
+	st, err := StartHTTP(CommandDeps{
+		NewServerRef: func(pp **acp.Server, cfg *config.Config, live func() *config.Config) acp.UpdateSender {
+			return noopSender{}
+		},
+		EnsureHome: func(string) error { return nil },
+		OpenStore: func(root string, cfg *config.Config) (*session.FileStore, error) {
+			root = filepath.Join(home, "sessions")
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				return nil, err
+			}
+			return &session.FileStore{Root: root}, nil
+		},
+	}, StartParams{
+		CLI:        config.CLIPaths{Home: home, CWD: home, Config: cfgPath},
+		ListenAddr: addr,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Shutdown(context.Background()) }()
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- st.ListenAndServe() }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		res, err := http.Get("http://" + st.ListenAddr + "/v1/models")
+		if err == nil {
+			_ = res.Body.Close()
+			if res.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("server not ready")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := st.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ListenAndServe did not stop")
+	}
 }
 
 func shorten(s string, max int) string {

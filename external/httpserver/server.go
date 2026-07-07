@@ -21,6 +21,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -39,6 +40,12 @@ type Server struct {
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
+
+	// projects tracks the current project folder and recent list; nil
+	// degrades the /foxxycode/project endpoints gracefully.
+	projects     *project.Store
+	folderPicker FolderPickerFunc
+	pickerBusy   atomic.Bool
 
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
@@ -74,6 +81,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
 	s.registerFoxxyCodeRoutes()
+	s.registerProjectRoutes()
+	s.registerOnboardingRoutes()
 	s.registerConfigRoutes()
 	s.registerProvidersRoutes()
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPIYAML)
@@ -461,13 +470,13 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		if err := session.ValidateFolderSessionID(sid); err != nil {
 			return nil, "", false, errInvalidSessionHeader
 		}
-		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.defaultCWD)
+		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.sessionDefaultCWD())
 		if err != nil {
 			return nil, "", false, err
 		}
 		return st2, sid, false, nil
 	}
-	res, err := s.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: s.defaultCWD})
+	res, err := s.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: s.sessionDefaultCWD()})
 	if err != nil {
 		return nil, "", false, err
 	}

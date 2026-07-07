@@ -2,6 +2,8 @@ import {
   readUiLocaleCookie,
   type UiLocale,
   writeUiLocaleCookie,
+  mapSystemLocaleToSupported,
+  readNavigatorLanguage,
 } from "./localeCookie";
 
 export const UI_LOCALE_DEFAULT: UiLocale = "en";
@@ -59,7 +61,9 @@ export function bootstrapUiLocaleFromUrlOrCookie(): UiLocale {
   }
   const stored = readUiLocaleCookie();
   const mode =
-    stored !== null ? resolveUiLocale(stored) : readAppliedUiLocale();
+    stored !== null
+      ? resolveUiLocale(stored)
+      : mapSystemLocaleToSupported(readNavigatorLanguage());
   applyUiLocale(mode);
   return mode;
 }

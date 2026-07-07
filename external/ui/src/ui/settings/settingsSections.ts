@@ -1,4 +1,5 @@
 import { t } from "../i18n/i18n";
+import { tSchemaText } from "../i18n/schemaStrings";
 import type { JsonSchema } from "./SchemaForm";
 
 export type SectionKind = "array" | "object" | "group" | "skills" | "appearance";
@@ -59,7 +60,7 @@ function descFor(id: string, sub?: JsonSchema): string | undefined {
   if (SECTION_DESC_IDS.has(id)) {
     return t(`settings.sectionDesc.${id}`);
   }
-  return sub?.description ?? undefined;
+  return tSchemaText(sub?.description) || undefined;
 }
 
 /**
@@ -116,7 +117,7 @@ export function deriveSettingsSections(
     if (key === "skills") {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: tSchemaText(sub.title) || key,
         description: descFor(key, sub),
         kind: "skills",
         schemaKey: key,
@@ -126,7 +127,7 @@ export function deriveSettingsSections(
     if (key in ARRAY_LABEL_FIELDS) {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: tSchemaText(sub.title) || key,
         description: descFor(key, sub),
         kind: "array",
         schemaKey: key,
@@ -136,7 +137,7 @@ export function deriveSettingsSections(
     }
     out.push({
       id: key,
-      label: sub.title || key,
+      label: tSchemaText(sub.title) || key,
       description: descFor(key, sub),
       kind: "object",
       schemaKey: key,

@@ -31,6 +31,21 @@ export function readUiLocaleCookie(): UiLocale | null {
   return null;
 }
 
+export function mapSystemLocaleToSupported(lang: string): UiLocale {
+  const base = lang.trim().toLowerCase().split("-")[0];
+  if (base === "ru") {
+    return "ru";
+  }
+  return "en";
+}
+
+export function readNavigatorLanguage(): string {
+  if (typeof navigator === "undefined") {
+    return "en";
+  }
+  return navigator.language || navigator.languages?.[0] || "en";
+}
+
 export function writeUiLocaleCookie(locale: UiLocale): void {
   if (typeof document === "undefined") {
     return;

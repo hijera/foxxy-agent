@@ -7,15 +7,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
@@ -27,12 +31,197 @@ type CommandDeps struct {
 	OpenStore    func(string, *config.Config) (*session.FileStore, error)
 }
 
-// Run executes the foxxycode http subcommand.
-func Run(args []string, deps CommandDeps) error {
+// StartParams configures PrepareHTTP / StartHTTP.
+type StartParams struct {
+	CLI              config.CLIPaths
+	SessionsRoot     string
+	SessionID        string
+	ListenAddr       string
+	Host             string
+	Port             string
+	LoggerOverrides  config.LoggerCLIOverrides
+	SchedulerEnabled bool
+	// FolderPicker opens a native folder dialog (desktop mode); nil keeps
+	// POST /foxxycode/project/pick-folder at 501.
+	FolderPicker FolderPickerFunc
+}
+
+// StartedHTTP holds a running HTTP stack built by StartHTTP.
+type StartedHTTP struct {
+	Server     *Server
+	Manager    *session.Manager
+	Log        *slog.Logger
+	LogCloser  func() error
+	ListenAddr string
+	Paths      config.Paths
+	Config     *config.Config
+	httpSrv    *http.Server
+}
+
+// StartHTTP resolves config, starts optional scheduler, and builds the HTTP server wrapper.
+func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	if deps.NewServerRef == nil || deps.EnsureHome == nil || deps.OpenStore == nil {
-		return fmt.Errorf("httpserver: incomplete CommandDeps")
+		return nil, fmt.Errorf("httpserver: incomplete CommandDeps")
 	}
 
+	paths, err := config.Resolve(params.CLI)
+	if err != nil {
+		return nil, err
+	}
+	if err := deps.EnsureHome(paths.Home); err != nil {
+		return nil, err
+	}
+
+	cfg, err := config.LoadFromCLI(params.CLI)
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	if params.SchedulerEnabled {
+		cfg.Scheduler.Enabled = true
+	}
+	if err := cfg.Scheduler.Validate(cfg); err != nil {
+		return nil, fmt.Errorf("scheduler: %w", err)
+	}
+
+	cfg.Logger.ApplyOverrides(params.LoggerOverrides)
+	log, logCloser, err := logger.New(cfg.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("log: %w", err)
+	}
+
+	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
+
+	if cfg.SchedulerEffectiveEnabled() {
+		scheduler.Start(context.Background(), cfg, log, paths.CWD)
+	}
+
+	store, err := deps.OpenStore(params.SessionsRoot, cfg)
+	if err != nil {
+		_ = logCloser.Close()
+		return nil, err
+	}
+	log.Info("session persistence enabled", "root", store.Root)
+
+	var srv *acp.Server
+	var mgr *session.Manager
+	live := func() *config.Config {
+		if mgr != nil {
+			return mgr.Cfg()
+		}
+		return cfg
+	}
+	ref := deps.NewServerRef(&srv, cfg, live)
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		c := live()
+		loop := agent.NewAgent(c, st, snd, log)
+		return loop.Run(ctx, prompt)
+	}
+	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	if pid := strings.TrimSpace(params.SessionID); pid != "" {
+		if err := session.ValidateFolderSessionID(pid); err != nil {
+			_ = logCloser.Close()
+			return nil, fmt.Errorf("--session-id: %w", err)
+		}
+		mgr.SetPreferredSessionID(pid)
+	}
+
+	listenAddr := strings.TrimSpace(params.ListenAddr)
+	if listenAddr == "" {
+		hostStr := strings.TrimSpace(params.Host)
+		portStr := strings.TrimSpace(params.Port)
+		listenAddr = net.JoinHostPort(hostStr, portStr)
+		if hostStr == "0.0.0.0" && portStr == "12345" {
+			listenAddr = net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
+		}
+	}
+
+	s := New(cfg, mgr, log, paths.CWD)
+	if ps, err := project.Open(paths.Home); err != nil {
+		log.Warn("project store unavailable", "error", err)
+	} else {
+		// An explicit -cwd flag or FOXXYCODE_CWD wins over the persisted
+		// project; otherwise the last opened project is restored.
+		explicitCWD := strings.TrimSpace(params.CLI.CWD) != "" ||
+			strings.TrimSpace(os.Getenv(config.EnvFOXXYCODECWD)) != ""
+		if explicitCWD {
+			if err := ps.SetCurrent(paths.CWD); err != nil {
+				log.Warn("project seed from cwd", "cwd", paths.CWD, "error", err)
+			}
+		}
+		s.AttachProjectStore(ps)
+	}
+	s.SetFolderPicker(params.FolderPicker)
+	httpSrv := &http.Server{Addr: listenAddr, Handler: s.Handler()}
+
+	return &StartedHTTP{
+		Server:     s,
+		Manager:    mgr,
+		Log:        log,
+		LogCloser:  func() error { return logCloser.Close() },
+		ListenAddr: listenAddr,
+		Paths:      paths,
+		Config:     cfg,
+		httpSrv:    httpSrv,
+	}, nil
+}
+
+// ListenAndServe blocks until the HTTP server stops.
+func (st *StartedHTTP) ListenAndServe() error {
+	st.Log.Info("listening", "addr", st.ListenAddr)
+	return st.httpSrv.ListenAndServe()
+}
+
+// Serve starts listening in a background goroutine. Returns when the listener is ready or ctx is done.
+func (st *StartedHTTP) Serve(ctx context.Context) error {
+	ln, err := net.Listen("tcp", st.ListenAddr)
+	if err != nil {
+		return err
+	}
+	st.ListenAddr = ln.Addr().String()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- st.httpSrv.Serve(ln)
+	}()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		select {
+		case err := <-errCh:
+			return err
+		default:
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+st.ListenAddr+"/v1/models", nil)
+		if err == nil {
+			res, err := http.DefaultClient.Do(req)
+			if err == nil {
+				_ = res.Body.Close()
+				if res.StatusCode == http.StatusOK {
+					return nil
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("http server not ready on %s", st.ListenAddr)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// Shutdown gracefully stops the HTTP server and drains background work.
+func (st *StartedHTTP) Shutdown(ctx context.Context) error {
+	if st.httpSrv != nil {
+		_ = st.httpSrv.Shutdown(ctx)
+	}
+	if st.Server != nil {
+		st.Server.Drain()
+	}
+	if st.LogCloser != nil {
+		return st.LogCloser()
+	}
+	return nil
+}
+
+// Run executes the foxxycode http subcommand.
+func Run(args []string, deps CommandDeps) error {
 	fs := flag.NewFlagSet("http", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "path to config.yaml (FOXXYCODE_CONFIG, else <home>/config.yaml or legacy search paths)")
@@ -61,84 +250,27 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 
-	cli := config.CLIPaths{
-		Home:   strings.TrimSpace(*homeDir),
-		CWD:    strings.TrimSpace(*httpCWD),
-		Config: strings.TrimSpace(*cfgPath),
-	}
-	paths, err := config.Resolve(cli)
-	if err != nil {
-		return err
-	}
-	if err := deps.EnsureHome(paths.Home); err != nil {
-		return err
-	}
-
-	cfg, err := config.LoadFromCLI(cli)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	if *schedulerEnabled {
-		cfg.Scheduler.Enabled = true
-	}
-	if err := cfg.Scheduler.Validate(cfg); err != nil {
-		return fmt.Errorf("scheduler: %w", err)
-	}
-
-	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{
-		Level:  strings.TrimSpace(*logLevel),
-		Output: strings.TrimSpace(*logOutput),
-		File:   strings.TrimSpace(*logFile),
-		Format: strings.TrimSpace(*logFormat),
+	st, err := StartHTTP(deps, StartParams{
+		CLI: config.CLIPaths{
+			Home:   strings.TrimSpace(*homeDir),
+			CWD:    strings.TrimSpace(*httpCWD),
+			Config: strings.TrimSpace(*cfgPath),
+		},
+		SessionsRoot: *sessionsRoot,
+		SessionID:    *persistedSession,
+		Host:         *host,
+		Port:         *port,
+		LoggerOverrides: config.LoggerCLIOverrides{
+			Level:  strings.TrimSpace(*logLevel),
+			Output: strings.TrimSpace(*logOutput),
+			File:   strings.TrimSpace(*logFile),
+			Format: strings.TrimSpace(*logFormat),
+		},
+		SchedulerEnabled: *schedulerEnabled,
 	})
-	log, logCloser, err := logger.New(cfg.Logger)
-	if err != nil {
-		return fmt.Errorf("log: %w", err)
-	}
-	defer func() { _ = logCloser.Close() }()
-
-	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
-
-	if cfg.SchedulerEffectiveEnabled() {
-		scheduler.Start(context.Background(), cfg, log, paths.CWD)
-	}
-
-	store, err := deps.OpenStore(*sessionsRoot, cfg)
 	if err != nil {
 		return err
 	}
-	log.Info("session persistence enabled", "root", store.Root)
-
-	var srv *acp.Server
-	var mgr *session.Manager
-	live := func() *config.Config {
-		if mgr != nil {
-			return mgr.Cfg()
-		}
-		return cfg
-	}
-	ref := deps.NewServerRef(&srv, cfg, live)
-	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		c := live()
-		loop := agent.NewAgent(c, st, snd, log)
-		return loop.Run(ctx, prompt)
-	}
-	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
-	if pid := strings.TrimSpace(*persistedSession); pid != "" {
-		if err := session.ValidateFolderSessionID(pid); err != nil {
-			return fmt.Errorf("--session-id: %w", err)
-		}
-		mgr.SetPreferredSessionID(pid)
-	}
-
-	hostStr := strings.TrimSpace(*host)
-	portStr := strings.TrimSpace(*port)
-	listenAddr := net.JoinHostPort(hostStr, portStr)
-	if hostStr == "0.0.0.0" && portStr == "12345" {
-		listenAddr = net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
-	}
-
-	log.Info("listening", "addr", listenAddr)
-	s := New(cfg, mgr, log, paths.CWD)
-	return ListenAndServe(listenAddr, s)
+	defer func() { _ = st.Shutdown(context.Background()) }()
+	return st.ListenAndServe()
 }

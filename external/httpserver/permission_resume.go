@@ -27,7 +27,7 @@ func (s *Server) tryResumePendingPermission(ctx context.Context, sessionID, tool
 		}
 		if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
 			SessionID: sessionID,
-			CWD:       s.defaultCWD,
+			CWD:       s.sessionDefaultCWD(),
 		}); err != nil {
 			return false
 		}
