@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,8 +76,11 @@ func main() {
 
 	args := os.Args[1:]
 	if len(args) == 0 {
-		printUsage(os.Stderr)
-		os.Exit(1)
+		if err := defaultRun(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 	if args[0] == "-h" || args[0] == "--help" {
 		printUsage(os.Stdout)
@@ -89,6 +93,8 @@ func main() {
 		err = runACP(args[1:])
 	case "http":
 		err = runHTTP(args[1:])
+	case "desktop":
+		err = runDesktop(args[1:])
 	case "gateway":
 		err = runGateway(args[1:])
 	case "sessions":
@@ -116,6 +122,7 @@ func printUsage(w *os.File) {
   %[1]s -v | --version
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s http [flags] (OpenAI-compatible HTTP)
+  %[1]s desktop [flags] (Windows desktop app with embedded UI)
   %[1]s gateway [flags] (messenger gateway: Telegram etc.)
   %[1]s sessions list [flags]
   %[1]s skills list
@@ -227,6 +234,61 @@ func ensureFoxxyCodeHomeLayout(home string) error {
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", p, err)
 		}
+	}
+	return nil
+}
+
+// bootstrapExampleConfig copies config.example.yaml into home when config.yaml is missing.
+func bootstrapExampleConfig(home string) error {
+	if strings.TrimSpace(home) == "" {
+		return nil
+	}
+	dest := filepath.Join(home, "config.yaml")
+	if _, err := os.Stat(dest); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat config: %w", err)
+	}
+	candidates := []string{}
+	if v := strings.TrimSpace(os.Getenv("FOXXYCODE_EXAMPLE_CONFIG")); v != "" {
+		candidates = append(candidates, v)
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "config.example.yaml"))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, "config.example.yaml"))
+	}
+	for _, src := range candidates {
+		if strings.TrimSpace(src) == "" {
+			continue
+		}
+		in, err := os.Open(src)
+		if err != nil {
+			continue
+		}
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			_ = in.Close()
+			return fmt.Errorf("mkdir home: %w", err)
+		}
+		out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			_ = in.Close()
+			return fmt.Errorf("create config: %w", err)
+		}
+		_, copyErr := io.Copy(out, in)
+		closeIn := in.Close()
+		closeOut := out.Close()
+		if copyErr != nil {
+			return fmt.Errorf("copy example config: %w", copyErr)
+		}
+		if closeIn != nil {
+			return closeIn
+		}
+		if closeOut != nil {
+			return closeOut
+		}
+		return nil
 	}
 	return nil
 }

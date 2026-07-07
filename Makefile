@@ -1,4 +1,4 @@
-.PHONY: build build-acp test lint clean install print-version intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
+.PHONY: build build-acp build-desktop test lint clean install print-version intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -9,6 +9,7 @@
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
+#     desktop         Windows WebView2 desktop shell (foxxycode desktop; combine with http ui)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
@@ -46,6 +47,16 @@ endif
 ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
+
+DESKTOP_TAGS := http ui scheduler memory desktop
+DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
+
+build-desktop: ui-build
+	@mkdir -p $(BUILD_DIR)
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+	go build -tags "$(DESKTOP_TAGS)" -trimpath \
+	  -ldflags "$(DESKTOP_LDFLAGS)" \
+	  -o $(BUILD_DIR)/foxxycode-desktop.exe ./cmd/foxxycode/
 
 ui-build:
 	npm --prefix external/ui install --no-fund --no-audit
