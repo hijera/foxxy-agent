@@ -27,6 +27,7 @@ PRESETS: dict[str, list[str]] = {
     "lean": [],
     "full": ["http", "ui", "scheduler", "memory"],
     "gateway": ["http", "ui", "scheduler", "memory", "gateway.telegram"],
+    "desktop": ["http", "ui", "scheduler", "memory", "desktop"],
 }
 
 RELEASE_TARGETS: list[tuple[str, str]] = [
@@ -56,6 +57,7 @@ class BuildOptions:
     all_release: bool = False
     archive: bool = False
     ldflags_strip: bool = False
+    gui: bool = False
     plugin_version: str = ""
     production: bool = True
     vscode_targets: list[str] = field(default_factory=list)
@@ -229,8 +231,10 @@ def ui_build(ui: UI, dry_run: bool) -> None:
     )
 
 
-def ldflags(version: str, strip: bool) -> str:
+def ldflags(version: str, strip: bool, gui: bool = False) -> str:
     parts: list[str] = []
+    if gui:
+        parts.append("-H=windowsgui")
     if strip:
         parts.extend(["-s", "-w"])
     parts.append(f"-X {VERSION_PKG}={version}")
@@ -246,6 +250,7 @@ def go_build_one(
     version: str,
     out_path: Path,
     strip: bool,
+    gui: bool = False,
     dry_run: bool,
 ) -> Path:
     require_tools(ui, ["go"])
@@ -258,7 +263,7 @@ def go_build_one(
         [
             "-trimpath",
             "-ldflags",
-            ldflags(version, strip),
+            ldflags(version, strip, gui),
             "-o",
             str(out_path),
             "./cmd/foxxycode/",
@@ -315,6 +320,7 @@ def build_target_cli(ui: UI, opts: BuildOptions) -> None:
     if opts.preset:
         tags = tags_from_preset(opts.preset)
     tags = normalize_tags(tags)
+    gui = opts.gui or opts.preset == "desktop" or "desktop" in tags
 
     require_tools(ui, ["go"])
     if which("git"):
@@ -327,7 +333,11 @@ def build_target_cli(ui: UI, opts: BuildOptions) -> None:
         ui_build(ui, opts.dry_run)
 
     targets: list[tuple[str, str]] = []
-    if opts.all_release:
+    if opts.preset == "desktop" or gui:
+        if host_platform() != ("windows", "amd64"):
+            ui.warn("Desktop preset: принудительная сборка GOOS=windows GOARCH=amd64")
+        targets = [("windows", "amd64")]
+    elif opts.all_release:
         targets = list(RELEASE_TARGETS)
     elif opts.goos and opts.goarch:
         targets = [(opts.goos, opts.goarch)]
@@ -348,7 +358,8 @@ def build_target_cli(ui: UI, opts: BuildOptions) -> None:
             staging = dist_dir / "_staging" / stem
             out = staging / bin_name(goos)
         else:
-            out = REPO_ROOT / "build" / bin_name(goos)
+            name = "foxxycode-desktop.exe" if gui and goos == "windows" else bin_name(goos)
+            out = REPO_ROOT / "build" / name
 
         go_build_one(
             ui,
@@ -358,6 +369,7 @@ def build_target_cli(ui: UI, opts: BuildOptions) -> None:
             version=version,
             out_path=out,
             strip=opts.ldflags_strip,
+            gui=gui,
             dry_run=opts.dry_run,
         )
         built.append(out)
@@ -886,6 +898,7 @@ def prompt_tags(ui: UI) -> list[str]:
             ("1", "Lean — только ACP, без http/UI/scheduler/memory"),
             ("2", "Full — http ui scheduler memory (как Docker/релизы)"),
             ("3", "Gateway — http ui scheduler memory gateway.telegram"),
+            ("5", "Desktop — Windows WebView2 exe (http ui scheduler memory desktop)"),
             ("4", "Свои теги — выбрать вручную"),
         ],
         default="2",
@@ -896,6 +909,8 @@ def prompt_tags(ui: UI) -> list[str]:
         return tags_from_preset("full")
     if choice == "3":
         return tags_from_preset("gateway")
+    if choice == "5":
+        return tags_from_preset("desktop")
     raw = input(
         "Включить теги (через запятую из: http, ui, scheduler, memory, gateway.telegram, gateway): "
     ).strip()
@@ -950,6 +965,7 @@ def interactive_menu(ui: UI) -> None:
             ("2", "Плагин IntelliJ (JetBrains IDE)"),
             ("3", "Расширение VS Code (VSIX)"),
             ("4", "Всё сразу (CLI для всех платформ + оба плагина)"),
+            ("5", "Desktop Windows exe (WebView2 GUI, foxxycode-desktop.exe)"),
             ("0", "Выход"),
         ],
         default="1",
@@ -965,6 +981,28 @@ def interactive_menu(ui: UI) -> None:
         default="1",
     )
     dry_run = dry == "2"
+
+    if main == "5":
+        tags = tags_from_preset("desktop")
+        strip = prompt_choice(
+            ui,
+            "Оптимизация бинарника (-s -w):",
+            [("1", "Нет (как make build)"), ("2", "Да (как release CI)")],
+            default="1",
+        )
+        opts = BuildOptions(
+            target="cli",
+            tags=tags,
+            preset="desktop",
+            goos="windows",
+            goarch="amd64",
+            all_release=False,
+            archive=False,
+            ldflags_strip=strip == "2",
+            dry_run=dry_run,
+        )
+        build_target_cli(ui, opts)
+        return
 
     if main == "1":
         tags = prompt_tags(ui)
@@ -1063,7 +1101,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--preset",
         choices=list(PRESETS.keys()),
-        help="Пресет тегов: lean, full, gateway.",
+        help="Пресет тегов: lean, full, gateway, desktop.",
     )
     p.add_argument(
         "--tags",
