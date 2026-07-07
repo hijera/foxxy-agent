@@ -151,6 +151,14 @@ go build -tags=http,ui,scheduler,memory \
 
 Lean **ACP-only** binary: **`make build`** (no **`http`** / UI / scheduler / memory tags).
 
+**Windows desktop app** (WebView2 GUI, double-click **`foxxycode-desktop.exe`**):
+
+```bash
+make build-desktop
+```
+
+The desktop app opens projects as folders: the project pill in the chat header opens the native Windows folder dialog, new chats run in the chosen folder, and recently opened projects are kept in `~/.foxxycode/projects.json` (**`GET/PUT /foxxycode/project`**, **`GET /foxxycode/projects/recent`**). Without an explicit **`-cwd`**, the last opened project is restored on start.
+
 Build reference: **[`docs/build.md`](docs/build.md)**.
 
 </details>
@@ -169,6 +177,7 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 | **`scheduler`** | Scheduler daemon and **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
 | **`gateway.telegram`** | Telegram bot adapter — **`foxxycode gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
+| **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; needs **`http`**, **`ui`**, Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
 
 Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
