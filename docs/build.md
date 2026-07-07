@@ -171,8 +171,32 @@ Order does not matter for these tags.
 | **`scheduler`** | Scheduler daemon hooks, **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/scheduler.md`](scheduler.md) · [`external/scheduler/README.md`](../external/scheduler/README.md) |
 | **`gateway.telegram`** | **`foxxycode gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
+| **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`**); combine with **`http`**, **`ui`** | [`docs/build.md`](build.md#desktop-windows-webview2) |
 
 **`make test`** exercises tag combinations (see **`test`** target in [`Makefile`](../Makefile)).
+
+## Desktop (Windows WebView2)
+
+Build a GUI **`foxxycode-desktop.exe`** that embeds the SPA in an Edge WebView2 window (no separate browser, no console window):
+
+```bash
+make build-desktop
+# -> build/foxxycode-desktop.exe
+```
+
+Or cross-compile from Linux/macOS (pure Go, **`CGO_ENABLED=0`**):
+
+```bash
+python scripts/build.py --target cli --preset desktop
+```
+
+**Requirements:** Windows 10+, [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most Win10/11 images). Logs go to **`~/.foxxycode/desktop.log`** because **`-H=windowsgui`** hides stdout/stderr.
+
+**First run:** double-click opens **`/#/chat`** with a provider picker modal (pattern inspired by NeuralDeskApp). Save writes **`config.yaml`** via **`PUT /foxxycode/config`**.
+
+**Licensing note:** desktop builds link [`github.com/jchv/go-webview2`](https://github.com/jchv/go-webview2) (license **`Other/NOASSERTION`** in **`go.mod`**). Review before redistribution.
+
+**Manual smoke:** delete **`%USERPROFILE%\.foxxycode\config.yaml`**, run **`build\foxxycode-desktop.exe`**, complete onboarding, restart and confirm the modal stays closed.
 
 ## Release binaries (CI)
 

@@ -31,6 +31,7 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`httpserver`](#httpserver) | object | OpenAI-compatible HTTP API defaults | `http` |
 | [`scheduler`](#scheduler) | object | Cron scheduler | `scheduler` |
 | [`gateways`](#gateways) | object | Messenger bot adapters | `gateway` / `gateway.telegram` |
+| [`ui`](#ui) | object | Embedded SPA preferences | `http`, `ui` |
 
 "Build tag" means the block only takes effect in binaries built with that `-tags` value; it is parsed and ignored otherwise.
 
@@ -238,6 +239,14 @@ Messenger gateways (`config.GatewayConfig`, `internal/config/gateway.go`; `gatew
 | `default_isolation` | string | no | `individual` | — | `individual`, `shared`, or `admin`. |
 | `user_groups` | list | no | `[]` | — | Named sets: `{name, user_ids}`. Referenced as `group:<name>`. |
 | `chats` | list | no | `[]` | — | Per-chat overrides: `{chat_id, isolation, access}`. `chat_id` is negative for groups/supergroups. |
+
+## `ui`
+
+Embedded SPA preferences (`config.UIConfig`, `internal/config/ui.go`). Used by the desktop launcher and Settings UI when built with `-tags http,ui`.
+
+| Field | Type | Required | Default | Env fallback | Description |
+|---|---|---|---|---|---|
+| `locale` | string | no | `""` (auto) | — | UI language: empty (auto-detect system/browser locale), `en`, or `ru`. |
 
 ## Related environment variables
 

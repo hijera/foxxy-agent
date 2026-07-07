@@ -538,6 +538,20 @@
           }
         }
       }
+    },
+    "ui": {
+      "type": "object",
+      "title": "UI",
+      "description": "Embedded SPA preferences for desktop and HTTP UI.",
+      "additionalProperties": false,
+      "properties": {
+        "locale": {
+          "type": "string",
+          "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
+          "enum": ["", "en", "ru"],
+          "default": ""
+        }
+      }
     }
   }
 }
