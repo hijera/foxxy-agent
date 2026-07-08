@@ -77,6 +77,12 @@ export function extractSessionAssetsXml(content: string): string {
 export function stripFoxxyCodeAttachmentsForUserDisplay(raw: string): string {
   // Strip <foxxycode_session_assets> blocks — backend-injected, not for display.
   let s = raw.replace(/\n*<foxxycode_session_assets>[\s\S]*?<\/foxxycode_session_assets>/gi, "");
+  // Strip <foxxycode_ide_context> blocks — backend-injected IDE open-files context, not for display.
+  s = s.replace(/\n*<foxxycode_ide_context>[\s\S]*?<\/foxxycode_ide_context>/gi, "");
+  // Strip <foxxycode_terminal_context> blocks — backend-injected always-on terminal context, not for display.
+  s = s.replace(/\n*<foxxycode_terminal_context>[\s\S]*?<\/foxxycode_terminal_context>/gi, "");
+  // Strip <foxxycode_terminal_output> blocks — backend-injected @terminal expansion, not for display.
+  s = s.replace(/\n*<foxxycode_terminal_output\b[^>]*>[\s\S]*?<\/foxxycode_terminal_output>/gi, "");
   // Strip legacy bracket annotation from older sessions.
   s = s.replace(
     /\n\n\[Uploaded files saved to session assets \(read-only\):\n[\s\S]*?You can read these files directly or copy them to the workspace as needed\.\]/g,

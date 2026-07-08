@@ -92,6 +92,37 @@ test("switching session refocuses textarea in active chat", () => {
   expect(ta).toHaveFocus();
 });
 
+test("menu flips up on start screen when the window is too short below the trigger", () => {
+  // Simulate a short desktop window with the composer near the bottom: the
+  // trigger sits low, so a downward menu would be clipped and must open up.
+  const innerH = vi
+    .spyOn(window, "innerHeight", "get")
+    .mockReturnValue(360);
+  const rectSpy = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockReturnValue({
+      top: 320,
+      bottom: 340,
+      left: 40,
+      right: 120,
+      width: 80,
+      height: 20,
+      x: 40,
+      y: 320,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+  try {
+    renderComposer({ isEmpty: true });
+    fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveClass("opens-up");
+  } finally {
+    rectSpy.mockRestore();
+    innerH.mockRestore();
+  }
+});
+
 test("yaml model menu opens down on start screen when backends exist", () => {
   renderComposerWithLlm({ isEmpty: true });
 
@@ -325,6 +356,57 @@ test("extending a no-match prefix does not reopen slash menu or refetch", async 
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
   expect(screen.queryByTestId("composer-skill-chip")).toBeNull();
+
+  vi.unstubAllGlobals();
+});
+
+test("opening the @ menu fetches the IDE terminal list", async () => {
+  // The picker menu itself only renders once layout is measured (not in jsdom),
+  // so this asserts the observable wiring: opening @ triggers the terminal-state
+  // GET that feeds the @terminal section. Row/selection logic is unit-tested in
+  // terminalPickerRows.test.ts.
+  const fetchMock = vi.fn((url: unknown) => {
+    if (String(url).includes("/foxxycode/ide/terminal-state")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          terminals: [{ id: "1", name: "zsh", active: true }],
+        }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({ items: [], has_more: false, page: 1 }),
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+
+  fireEvent.change(ta, {
+    target: { value: "@", selectionStart: 1, selectionEnd: 1 },
+  });
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/foxxycode/ide/terminal-state"),
+    ),
+  );
 
   vi.unstubAllGlobals();
 });

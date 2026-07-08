@@ -9,12 +9,14 @@ import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { bootstrapDesktopFlag } from "./ui/desktopShell";
+import { bootstrapEmbedFlag } from "./ui/embedShell";
 
 bootstrapUiThemeFromCookie();
 const bootLocale = bootstrapUiLocaleFromUrlOrCookie();
 initLocale(bootLocale);
 installFoxxyCodeUiApi();
 bootstrapDesktopFlag();
+bootstrapEmbedFlag();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

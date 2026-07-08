@@ -67,8 +67,17 @@ describe("ProviderPickerDialog", () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       if (url === "/v1/models") {
+        // Real shape: synthetic agent/plan/docs pseudo-models (owned_by
+        // "foxxycode") come first, then the configured provider models.
         return new Response(
-          JSON.stringify({ data: [{ id: "openai/gpt-4o" }] }),
+          JSON.stringify({
+            data: [
+              { id: "agent", owned_by: "foxxycode" },
+              { id: "plan", owned_by: "foxxycode" },
+              { id: "docs", owned_by: "foxxycode" },
+              { id: "openai/gpt-4o", owned_by: "openai" },
+            ],
+          }),
           { status: 200 },
         );
       }
@@ -126,6 +135,24 @@ describe("ProviderPickerDialog", () => {
       expect(screen.getByTestId("provider-test-ok")).toBeTruthy(),
     );
     expect(fetchMock).toHaveBeenCalledWith("/v1/models");
+  });
+
+  it("test connection does not auto-select the synthetic agent pseudo-model", async () => {
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-test"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-test-ok")).toBeTruthy(),
+    );
+    const modelInput = screen.getByTestId(
+      "provider-model-id",
+    ) as HTMLInputElement;
+    // Must skip agent/plan/docs (owned_by "foxxycode") and pick the real model.
+    expect(modelInput.value).not.toBe("agent");
+    expect(modelInput.value).toBe("openai/gpt-4o");
   });
 
   it("renders translated strings for the ru locale", () => {

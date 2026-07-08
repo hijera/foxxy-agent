@@ -688,6 +688,104 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/ide/editor-state": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report the IDE's open tabs and active file",
+					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push the currently open editor tabs and the focused file here whenever the editor selection changes. The latest snapshot is injected into subsequent agent turns as a **`<foxxycode_ide_context>`** block so the model knows which files the user is actively viewing. Paths are absolute; **`openFiles`** may be empty and **`activeFile`** may be omitted.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"openFiles": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "Absolute paths of the open editor tabs.",
+										},
+										"activeFile": map[string]interface{}{
+											"type":        "string",
+											"description": "Absolute path of the focused editor, if any.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Snapshot stored"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/ide/terminal-state": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report the IDE's open terminals and their recent output",
+					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push every open terminal here — with an id, name, optional shell/cwd/last command, a bounded tail of recent output, and an **`active`** flag — whenever the terminal state changes. The latest snapshot is injected into subsequent agent turns as a compact **`<foxxycode_terminal_context>`** block, and an **`@terminal`** / **`@terminal:<name>`** mention in the user's message expands to a fuller **`<foxxycode_terminal_output>`** block. Gated per IDE by the **`trackTerminals`** setting.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"terminals": map[string]interface{}{
+											"type":        "array",
+											"description": "Every open IDE terminal.",
+											"items": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"id":          map[string]interface{}{"type": "string", "description": "Client-stable terminal id."},
+													"name":        map[string]interface{}{"type": "string", "description": "Terminal title (required)."},
+													"shell":       map[string]interface{}{"type": "string", "description": "Shell path or name."},
+													"cwd":         map[string]interface{}{"type": "string", "description": "Terminal working directory."},
+													"lastCommand": map[string]interface{}{"type": "string", "description": "Most recently run command."},
+													"output":      map[string]interface{}{"type": "string", "description": "Bounded tail of recent output."},
+													"active":      map[string]interface{}{"type": "boolean", "description": "Whether this is the focused terminal."},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Snapshot stored"},
+						"400": errorResponseRef(),
+					},
+				},
+				"get": map[string]interface{}{
+					"summary":     "List the currently tracked IDE terminals",
+					"description": "Returns the tracked terminals (id, name and **`active`** flag only — no output) so the SPA can populate the **`@terminal`** mention menu.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Tracked terminals",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"terminals": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"id":     map[string]string{"type": "string"},
+														"name":   map[string]string{"type": "string"},
+														"active": map[string]string{"type": "boolean"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",

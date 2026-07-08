@@ -43,6 +43,17 @@ test("Add seeds a new item and opens its form", () => {
   expect(screen.getByTestId("settings-detail-back")).toBeTruthy();
 });
 
+test("detail back button renders a single arrow (no double ←)", () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+  const back = screen.getByTestId("settings-detail-back");
+  const text = (back.textContent ?? "").replace(/\s+/g, " ").trim();
+  // The arrow glyph must come solely from the JSX arrow span, not also from
+  // the i18n label — regression guard against "← ← Back to list".
+  expect(text).toBe("←Back to list");
+  expect((text.match(/←/g) ?? []).length).toBe(1);
+});
+
 test("editing the label field updates the list", () => {
   render(<Harness />);
   fireEvent.click(screen.getByTestId("settings-master-add"));

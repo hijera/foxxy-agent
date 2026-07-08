@@ -25,6 +25,10 @@ import {
 import { segmentComposerMirrorSpans } from "../skills/composerMirrorSegments";
 import { workspacePickRowSubtitle } from "../skills/workspacePickRowSubtitle";
 import {
+  terminalPickerRows,
+  type TerminalRef,
+} from "./terminalPickerRows";
+import {
   pickerRowFromRecent,
   readWorkspaceAtRecents,
   recordWorkspaceAtRecent,
@@ -87,6 +91,37 @@ type PickerFloatRect = {
   maxH: number;
 };
 
+/**
+ * Estimated max height of an open composer menu (the model menu is the tallest:
+ * filter input + the ~175px scroll cap + padding). Used only to decide which way
+ * a menu opens so its items are not clipped by the viewport edge.
+ */
+const MENU_HEIGHT_ESTIMATE = 260;
+
+/**
+ * pickMenuDir chooses whether an anchored composer menu opens downward or upward
+ * from the trigger. It keeps the layout default (start screen opens down, docked
+ * active-chat composer opens up), but flips a downward menu upward when the space
+ * below the trigger is too short to show it and there is more room above. This keeps
+ * every item on-screen in short windows (e.g. the desktop shell) where a downward
+ * menu would otherwise be clipped by the viewport edge. The docked composer already
+ * sits at the bottom, so an upward menu never needs the opposite flip.
+ */
+function pickMenuDir(
+  rect: { top: number; bottom: number },
+  isEmpty: boolean,
+): "opens-up" | "opens-down" {
+  if (!isEmpty) {
+    return "opens-up";
+  }
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  if (spaceBelow < MENU_HEIGHT_ESTIMATE && spaceAbove > spaceBelow) {
+    return "opens-up";
+  }
+  return "opens-down";
+}
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -139,6 +174,8 @@ export function Composer(props: {
   );
   /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
+  /** Direction the anchored menu opens, chosen from available space when it opens. */
+  const [menuDir, setMenuDir] = useState<"opens-up" | "opens-down">("opens-up");
   /** Live query for the model menu filter (only meaningful while `menuOpen === "llm"`). */
   const [llmQuery, setLlmQuery] = useState("");
   const llmFilterRef = useRef<HTMLInputElement | null>(null);
@@ -201,6 +238,10 @@ export function Composer(props: {
     atIdx: number;
     prefix: string;
   } | null>(null);
+  /** IDE terminals for the `@terminal` menu section, refreshed when the `@`
+   *  menu opens (best-effort; empty when no IDE reports terminals). */
+  const [terminalRefs, setTerminalRefs] = useState<TerminalRef[]>([]);
+  const terminalsFetchedAtRef = useRef(0);
   const [caretPos, setCaretPos] = useState(0);
   /** Stacked-shell viewports (`max-width`) use a bottom sheet so the picker is not clipped off-screen. */
   const [pickerUseSheet, setPickerUseSheet] = useState(() => {
@@ -626,6 +667,35 @@ export function Composer(props: {
     [fetchSlashPage, slashNoMatch],
   );
 
+  /** Best-effort refresh of the IDE terminal list (throttled) for the
+   *  `@terminal` menu section. Silent on any failure — terminals are optional. */
+  const refreshTerminals = useCallback(() => {
+    if (Date.now() - terminalsFetchedAtRef.current < 1500) {
+      return;
+    }
+    terminalsFetchedAtRef.current = Date.now();
+    void (async () => {
+      try {
+        const res = await fetch("/foxxycode/ide/terminal-state");
+        if (!res.ok) {
+          return;
+        }
+        const body = (await res.json()) as {
+          terminals?: { id: string; name: string; active?: boolean }[];
+        };
+        setTerminalRefs(
+          (body.terminals || []).map((tm) => ({
+            id: tm.id,
+            name: tm.name,
+            active: !!tm.active,
+          })),
+        );
+      } catch {
+        // best-effort
+      }
+    })();
+  }, []);
+
   const updateAtMenu = useCallback(
     (value: string, caret: number) => {
       const draft = atMenuDraftAtCaret(value, caret);
@@ -637,7 +707,16 @@ export function Composer(props: {
         setAtLoading(false);
         return;
       }
-      if (atNoMatch && draftExtendsFailedAtPrefix(draft, atNoMatch)) {
+      // IDE terminals for the @terminal menu section (best-effort, additive to
+      // the workspace-file rows so the file-search path is unaffected).
+      refreshTerminals();
+      const termRows = terminalPickerRows(draft.prefix, terminalRefs);
+
+      if (
+        atNoMatch &&
+        draftExtendsFailedAtPrefix(draft, atNoMatch) &&
+        termRows.length === 0
+      ) {
         bumpAtFetchGen();
         setAtOpen(false);
         setAtReplace(null);
@@ -653,13 +732,19 @@ export function Composer(props: {
         const wk =
           (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
         const recents = readWorkspaceAtRecents(wk).map(pickerRowFromRecent);
-        setAtItems(recents);
+        setAtItems([...termRows, ...recents]);
         setAtPage(1);
         setAtHasMore(false);
         setAtNoMatch(null);
         setAtLoading(false);
         setAtErr(null);
         return;
+      }
+
+      // Show any matching terminal rows immediately; file results merge below.
+      if (termRows.length > 0) {
+        setAtItems(termRows);
+        setAtNoMatch(null);
       }
 
       atFetchGenRef.current += 1;
@@ -701,12 +786,17 @@ export function Composer(props: {
             return;
           }
           const rows = body.items || [];
-          setAtItems(rows);
+          setAtItems([...termRows, ...rows]);
           setAtPage(1);
           setAtHasMore(!!body.has_more);
           if (rows.length === 0) {
-            setAtNoMatch({ atIdx: after.atIdx, prefix: after.prefix });
-            setAtItems([]);
+            if (termRows.length === 0) {
+              setAtNoMatch({ atIdx: after.atIdx, prefix: after.prefix });
+              setAtItems([]);
+            } else {
+              setAtNoMatch(null);
+              setAtItems(termRows);
+            }
             setAtHasMore(false);
           } else {
             setAtNoMatch(null);
@@ -716,7 +806,7 @@ export function Composer(props: {
             return;
           }
           setAtErr(e instanceof Error ? e.message : t("composer.requestFailed"));
-          setAtItems([]);
+          setAtItems(termRows);
           setAtHasMore(false);
           setAtNoMatch(null);
         } finally {
@@ -726,8 +816,22 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchAtPage, atNoMatch, props.sessionId],
+    [fetchAtPage, atNoMatch, props.sessionId, refreshTerminals, terminalRefs],
   );
+
+  // Re-evaluate the open @ menu once the IDE terminal list arrives so the
+  // terminal rows appear without requiring an extra keystroke. Loop-safe:
+  // terminalRefs only changes via the throttled refreshTerminals fetch.
+  useEffect(() => {
+    if (!atOpen) {
+      return;
+    }
+    const el = taRef.current;
+    if (el) {
+      updateAtMenu(el.value, el.selectionStart ?? el.value.length);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalRefs]);
 
   const updatePickerMenus = useCallback(
     (value: string, caret: number) => {
@@ -852,16 +956,21 @@ export function Composer(props: {
     }
     deferAtDraftPickerTicksRef.current = 2;
     const { from, to } = atReplace;
-    const insert =
-      row.kind === "dir"
+    const isTerminal = row.kind === "terminal";
+    const insert = isTerminal
+      ? `@${row.path_rel} `
+      : row.kind === "dir"
         ? `@${row.path_rel}`
         : `@${row.path_rel.replace(/\/$/, "")} `;
     const next = props.value.slice(0, from) + insert + props.value.slice(to);
     props.onChange(next);
-    recordWorkspaceAtRecent(
-      (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
-      row,
-    );
+    // Terminal mentions are not workspace paths — keep them out of file recents.
+    if (!isTerminal) {
+      recordWorkspaceAtRecent(
+        (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+        row,
+      );
+    }
     setAtOpen(false);
     setAtReplace(null);
     setAtNoMatch(null);
@@ -1008,7 +1117,7 @@ export function Composer(props: {
     ? 0
     : clamp01(typeof pct === "number" ? pct / 100 : 0);
   const usage = contextIdle ? null : props.tokenUsage || null;
-  const modeMenuDirClass = props.isEmpty ? "opens-down" : "opens-up";
+  const modeMenuDirClass = menuDir;
   // On narrow/mobile shells the mode/model/reasoning menus render as a
   // full-width bottom sheet (same family as the slash/at picker sheet) instead
   // of a cramped anchored dropdown.
@@ -1028,7 +1137,9 @@ export function Composer(props: {
       closeMenu();
     } else {
       setLlmQuery("");
-      setMenuAnchorRect(trigger.getBoundingClientRect());
+      const rect = trigger.getBoundingClientRect();
+      setMenuAnchorRect(rect);
+      setMenuDir(pickMenuDir(rect, props.isEmpty));
       setMenuOpen(type);
     }
   }
@@ -1135,7 +1246,11 @@ export function Composer(props: {
                 }}
               >
                 <span className="slash-row-name">@{row.path_rel}</span>
-                <span className="slash-row-desc">{workspacePickRowSubtitle(row)}</span>
+                <span className="slash-row-desc">
+                  {row.kind === "terminal"
+                    ? t("composer.terminalRowDesc")
+                    : workspacePickRowSubtitle(row)}
+                </span>
               </button>
             </li>
           ))}

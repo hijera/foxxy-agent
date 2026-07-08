@@ -28,6 +28,24 @@ test("strips foxxycode_session_assets when no preceding newline", () => {
   expect(stripFoxxyCodeAttachmentsForUserDisplay(raw)).toBe("");
 });
 
+test("strips foxxycode_ide_context block and preceding newlines", () => {
+  const raw =
+    "fix the bug\n\n<foxxycode_ide_context>\n# Active File\nsrc/a.go\n\n# Open Tabs\nsrc/a.go\nsrc/b.go\n</foxxycode_ide_context>";
+  expect(stripFoxxyCodeAttachmentsForUserDisplay(raw)).toBe("fix the bug");
+});
+
+test("strips foxxycode_terminal_context block and preceding newlines", () => {
+  const raw =
+    "run the tests\n\n<foxxycode_terminal_context>\n# Active Terminal: zsh\n$ go test ./...\nok\n</foxxycode_terminal_context>";
+  expect(stripFoxxyCodeAttachmentsForUserDisplay(raw)).toBe("run the tests");
+});
+
+test("strips foxxycode_terminal_output block (with name attr) and preceding newlines", () => {
+  const raw =
+    'check @terminal\n\n<foxxycode_terminal_output name="zsh">\nfull build log\n</foxxycode_terminal_output>';
+  expect(stripFoxxyCodeAttachmentsForUserDisplay(raw)).toBe("check @terminal");
+});
+
 test("strips legacy bracket annotation", () => {
   const raw =
     "hello\n\n[Uploaded files saved to session assets (read-only):\n- /path/to/file.txt\nYou can read these files directly or copy them to the workspace as needed.]";
