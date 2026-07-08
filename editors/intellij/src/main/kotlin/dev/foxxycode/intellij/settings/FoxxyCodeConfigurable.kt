@@ -32,6 +32,8 @@ class FoxxyCodeConfigurable : Configurable {
     private val followThemeCheckBox = JBCheckBox()
     private val nativeDiffsCheckBox = JBCheckBox()
     private val autoApproveCheckBox = JBCheckBox()
+    private val trackOpenFilesCheckBox = JBCheckBox()
+    private val trackTerminalsCheckBox = JBCheckBox()
     private val statusLabel = JBLabel(" ")
 
     private val settings get() = FoxxyCodeSettings.getInstance().state
@@ -78,6 +80,9 @@ class FoxxyCodeConfigurable : Configurable {
             .addSeparator()
             .addComponent(nativeDiffsCheckBox)
             .addComponent(autoApproveCheckBox)
+            .addSeparator()
+            .addComponent(trackOpenFilesCheckBox)
+            .addComponent(trackTerminalsCheckBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
         reset()
@@ -111,7 +116,9 @@ class FoxxyCodeConfigurable : Configurable {
             extraArgsField.text.trim() != s.extraArgs ||
             followThemeCheckBox.isSelected != s.followIdeTheme ||
             nativeDiffsCheckBox.isSelected != s.nativeDiffs ||
-            autoApproveCheckBox.isSelected != s.autoApproveEdits
+            autoApproveCheckBox.isSelected != s.autoApproveEdits ||
+            trackOpenFilesCheckBox.isSelected != s.trackOpenFiles ||
+            trackTerminalsCheckBox.isSelected != s.trackTerminals
     }
 
     override fun apply() {
@@ -126,6 +133,8 @@ class FoxxyCodeConfigurable : Configurable {
         s.followIdeTheme = followThemeCheckBox.isSelected
         s.nativeDiffs = nativeDiffsCheckBox.isSelected
         s.autoApproveEdits = autoApproveCheckBox.isSelected
+        s.trackOpenFiles = trackOpenFilesCheckBox.isSelected
+        s.trackTerminals = trackTerminalsCheckBox.isSelected
         s.firstRunCompleted = true
         reset()
         if (s.language != prevLanguage) {
@@ -146,9 +155,13 @@ class FoxxyCodeConfigurable : Configurable {
         followThemeCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.followTheme")
         nativeDiffsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.nativeDiffs")
         autoApproveCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.autoApprove")
+        trackOpenFilesCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackOpenFiles")
+        trackTerminalsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackTerminals")
         followThemeCheckBox.isSelected = s.followIdeTheme
         nativeDiffsCheckBox.isSelected = s.nativeDiffs
         autoApproveCheckBox.isSelected = s.autoApproveEdits
+        trackOpenFilesCheckBox.isSelected = s.trackOpenFiles
+        trackTerminalsCheckBox.isSelected = s.trackTerminals
         statusLabel.text = " "
     }
 

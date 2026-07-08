@@ -44,5 +44,7 @@
   "cfg.language.description": "UI language of the extension and the embedded SPA (system follows VS Code display language).",
   "cfg.followVscodeTheme.description": "Match FoxxyCode UI theme to the VS Code color theme.",
   "cfg.nativeDiffs.description": "Show native inline diffs in the editor when the agent edits files.",
-  "cfg.autoApproveEdits.description": "Auto-apply edits without asking (still shows the diff, with Revert)."
+  "cfg.autoApproveEdits.description": "Auto-apply edits without asking (still shows the diff, with Revert).",
+  "cfg.trackOpenFiles.description": "Tell the agent which files you have open (open tabs + active file) so it has that context each turn.",
+  "cfg.trackTerminals.description": "Tell the agent about your open terminals and their recent output so it has that context each turn and can resolve @terminal mentions."
 }

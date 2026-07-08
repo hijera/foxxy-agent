@@ -22,6 +22,8 @@
         <applicationService serviceImplementation="dev.foxxycode.intellij.settings.FoxxyCodeSettings"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.process.FoxxyCodeProcessManager"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService"/>
 
         <applicationConfigurable
                 parentId="tools"

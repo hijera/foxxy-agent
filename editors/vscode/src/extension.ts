@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { ProcessManager } from "./process/processManager";
 import { IdeDiffService } from "./diff/ideDiffService";
+import { EditorStateService } from "./ide/editorStateService";
+import { TerminalStateService } from "./ide/terminalStateService";
 import {
   FoxxyCodePanelController,
 } from "./webview/panel";
@@ -37,6 +39,8 @@ import { error, withProgress } from "./notifications";
 
 let processManager: ProcessManager | null = null;
 let diffService: IdeDiffService | null = null;
+let editorStateService: EditorStateService | null = null;
+let terminalStateService: TerminalStateService | null = null;
 let viewProvider: FoxxyCodeViewProvider | null = null;
 let editorPanel: vscode.WebviewPanel | null = null;
 let editorPanelController: FoxxyCodePanelController | null = null;
@@ -60,6 +64,8 @@ export function activate(context: vscode.ExtensionContext): void {
     log,
   });
   diffService = new IdeDiffService(workspaceRoot, log);
+  editorStateService = new EditorStateService(log);
+  terminalStateService = new TerminalStateService(log);
 
   // Activity bar webview view. The view provider owns the start flow so the
   // controller always gets its base URL (see class doc).
@@ -102,6 +108,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   diffService?.dispose();
+  editorStateService?.dispose();
+  terminalStateService?.dispose();
   processManager?.dispose();
   editorPanelController?.dispose();
   viewProvider?.controller?.dispose();
@@ -169,6 +177,8 @@ async function startController(controller: FoxxyCodePanelController): Promise<vo
     const { baseUrl } = await startServer("start");
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
+    editorStateService?.startIfNeeded(baseUrl);
+    terminalStateService?.startIfNeeded(baseUrl);
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);
@@ -187,6 +197,8 @@ async function restartActive(): Promise<void> {
     const { baseUrl } = await startServer("restart");
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
+    editorStateService?.startIfNeeded(baseUrl);
+    terminalStateService?.startIfNeeded(baseUrl);
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
     activationOutput?.appendLine(`[foxxycode] restart failed: ${msg}`);
@@ -270,6 +282,8 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
       const { baseUrl } = await startServer("start");
       await controller.setBaseUrl(baseUrl);
       this.diffService.startIfNeeded(baseUrl);
+      editorStateService?.startIfNeeded(baseUrl);
+      terminalStateService?.startIfNeeded(baseUrl);
     } catch (e) {
       const msg = (e as Error).message ?? String(e);
       activationOutput?.appendLine(`[foxxycode] start failed: ${msg}`);

@@ -44,5 +44,7 @@
   "cfg.language.description": "Язык интерфейса расширения и встроенного SPA (system — язык отображения VS Code).",
   "cfg.followVscodeTheme.description": "Подстраивать тему FoxxyCode UI под цветовую тему VS Code.",
   "cfg.nativeDiffs.description": "Показывать нативные inline-диффы в редакторе при правках агента.",
-  "cfg.autoApproveEdits.description": "Применять правки без запроса (дифф всё равно показывается, с возможностью отката)."
+  "cfg.autoApproveEdits.description": "Применять правки без запроса (дифф всё равно показывается, с возможностью отката).",
+  "cfg.trackOpenFiles.description": "Сообщать агенту, какие файлы у вас открыты (вкладки + активный файл), чтобы он учитывал это в каждом ходе.",
+  "cfg.trackTerminals.description": "Сообщать агенту об открытых терминалах и их последнем выводе, чтобы он учитывал это в каждом ходе и мог обрабатывать упоминания @terminal."
 }

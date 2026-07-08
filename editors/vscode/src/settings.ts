@@ -12,6 +12,8 @@ export interface FoxxyCodeSettings {
   followVscodeTheme: boolean;
   nativeDiffs: boolean;
   autoApproveEdits: boolean;
+  trackOpenFiles: boolean;
+  trackTerminals: boolean;
 }
 
 function readRaw(): vscode.WorkspaceConfiguration {
@@ -31,6 +33,8 @@ export function readSettings(): FoxxyCodeSettings {
     followVscodeTheme: c.get<boolean>("followVscodeTheme", true),
     nativeDiffs: c.get<boolean>("nativeDiffs", true),
     autoApproveEdits: c.get<boolean>("autoApproveEdits", false),
+    trackOpenFiles: c.get<boolean>("trackOpenFiles", true),
+    trackTerminals: c.get<boolean>("trackTerminals", true),
   };
 }
 

@@ -33,6 +33,12 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
         // Show native inline diffs in the editor when the agent edits files.
         var nativeDiffs: Boolean = true
 
+        // Report which files are open (open tabs + active file) to the agent each turn.
+        var trackOpenFiles: Boolean = true
+
+        // Report open terminals + their recent output to the agent each turn (and for @terminal).
+        var trackTerminals: Boolean = true
+
         // UI language: "system" | "en" | "ru". "system" follows Locale.getDefault().
         var language: String = "system"
     }

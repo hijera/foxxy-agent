@@ -17,7 +17,9 @@ import com.intellij.ui.jcef.JBCefBrowser
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeNotifications
 import dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService
+import dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
+import dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
@@ -96,6 +98,10 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 loadUrl(url)
                 // Wire native inline diffs once the server (and its /foxxycode/ide/events stream) is up.
                 FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
+                // Start reporting open tabs / active file to the agent.
+                FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
+                // Start reporting open terminals + recent output to the agent.
+                FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
             },
             onError = { msg -> showError(msg) }
         )
@@ -238,6 +244,8 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                     onReady = { url ->
                         loadUrl(url)
                         FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
+                        FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
+                        FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
                     },
                     onError = { msg -> showError(msg) }
                 )

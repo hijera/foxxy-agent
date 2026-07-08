@@ -432,6 +432,16 @@
           "type": "boolean",
           "default": false,
           "description": "%cfg.autoApproveEdits.description%"
+        },
+        "foxxycode.trackOpenFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cfg.trackOpenFiles.description%"
+        },
+        "foxxycode.trackTerminals": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cfg.trackTerminals.description%"
         }
       }
     }
