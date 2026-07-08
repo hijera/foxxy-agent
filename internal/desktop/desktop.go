@@ -126,6 +126,7 @@ func Run(opts Options) error {
 			Width:  1280,
 			Height: 800,
 			Center: true,
+			IconId: 1, // RT_GROUP_ICON embedded via cmd/foxxycode/rsrc_windows_amd64.syso
 		},
 	})
 	if w == nil {
