@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop test lint clean install print-version intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
+.PHONY: build build-acp build-desktop icon test lint clean install print-version intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -50,6 +50,14 @@ endif
 
 DESKTOP_TAGS := http ui scheduler memory desktop
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
+
+# Regenerate the Windows app icon resource from the source PNG. Run manually when
+# foxxycode2-Photoroom.png changes; the generated .syso is committed so routine
+# builds don't need this step. cmd/foxxycode/rsrc_windows_amd64.syso is auto-linked
+# by every windows/amd64 go build (desktop shell and CLI) as the .exe file icon.
+icon:
+	go run internal/desktop/icon/gen.go foxxycode2-Photoroom.png build/foxxycode.ico
+	go run github.com/akavel/rsrc -arch amd64 -ico build/foxxycode.ico -o cmd/foxxycode/rsrc_windows_amd64.syso
 
 build-desktop: ui-build
 	@mkdir -p $(BUILD_DIR)
