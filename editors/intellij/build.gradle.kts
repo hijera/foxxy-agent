@@ -7,10 +7,15 @@ plugins {
 
 group = "dev.foxxycode"
 // Overridable from CI: ./gradlew buildPlugin -PpluginVersion=1.2.3
-version = (findProperty("pluginVersion") as String?)?.takeIf { it.isNotBlank() } ?: "0.1.1"
+version = (findProperty("pluginVersion") as String?)?.takeIf { it.isNotBlank() } ?: "0.1.3"
 
 repositories {
     mavenCentral()
+}
+
+dependencies {
+    // Plain JUnit4 unit tests (e.g. ProxyEnvironmentTest) — no IntelliJ platform needed.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // ----------------------------------------------------------------------------------
@@ -178,5 +183,17 @@ tasks {
         from(foxxycodeBinRoot) {
             into("${intellij.pluginName.get()}/foxxycode-bin")
         }
+    }
+
+    // ProxyEnvironmentTest is a plain JVM unit test (no IntelliJ platform needed). The IntelliJ
+    // Gradle plugin configures the test JVM to boot through the IDE's
+    // `com.intellij.util.lang.PathClassLoader`; when that loader jar isn't resolvable the test VM
+    // fails to initialize. The override lives inside a Windows `@argfile` alongside the classpath, so
+    // we rewrite the argfile dropping only the `java.system.class.loader` line — keeping the classpath
+    // — and let plain JVM tests run on the default system loader.
+    // ProxyEnvironmentTest is a plain JUnit4 unit test (ProxyEnvironment.buildProxyEnv drives a fake
+    // configurable via reflection — no IntelliJ platform needed).
+    test {
+        useJUnit()
     }
 }

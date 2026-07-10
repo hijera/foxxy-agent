@@ -4,12 +4,15 @@ import { pickFreePort } from "./portUtil";
 import { resolveExisting } from "../binary/binaryResolver";
 import { FoxxyCodeSettings } from "../settings";
 import { t } from "../i18n/bundle";
+import { ProxyEnv, withProxyEnv } from "./proxyEnv";
 
 export interface ProcessManagerOptions {
   extensionPath: string;
   workspaceRoot: string | undefined;
   /** Snapshot of settings at the moment of `start()`/`restart()`. */
   settings: FoxxyCodeSettings;
+  /** Proxy variables derived from the editor's HTTP proxy settings. */
+  proxyEnv?: ProxyEnv;
   /** Logger sink; lines from foxxycode stdout/stderr are forwarded here. */
   log?: (line: string) => void;
   /** Called once host/port are known, before readiness polling begins. */
@@ -30,6 +33,11 @@ export class ProcessManager {
   private startPromiseReject: ((e: Error) => void) | null = null;
 
   constructor(private readonly opts: ProcessManagerOptions) {}
+
+  updateLaunchOptions(settings: FoxxyCodeSettings, proxyEnv?: ProxyEnv): void {
+    this.opts.settings = settings;
+    this.opts.proxyEnv = proxyEnv;
+  }
 
   get baseUrl(): string | null {
     return this._baseUrl;
@@ -76,6 +84,7 @@ export class ProcessManager {
       log?.(`[foxxycode] launching ${binary} ${args.join(" ")}`);
       const child = spawn(binary, args, {
         cwd: workspaceRoot ?? undefined,
+        env: withProxyEnv(process.env, this.opts.proxyEnv ?? {}),
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       });

@@ -79,6 +79,7 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         project.basePath?.let { cmd.addParameters("--cwd", it) }
         if (settings.foxxycodeHome.isNotBlank()) cmd.addParameters("--home", settings.foxxycodeHome)
         if (settings.extraArgs.isNotBlank()) cmd.addParameters(ParametersListUtil.parse(settings.extraArgs))
+        cmd.withEnvironment(ProxyEnvironment.intellijProxyEnvironment())
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())

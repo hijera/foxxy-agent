@@ -59,7 +59,8 @@ func (s *Server) foxxycodeProviderModelsGet(w http.ResponseWriter, r *http.Reque
 // instead of being resolved by provider name. Response shape matches the GET
 // variant: {"ok":true,"models":[...]} or {"ok":false,"error":...,"models":[]}
 // with HTTP 200 on upstream failure so the UI can fall back to manual entry.
-// A malformed body or unsupported provider type returns 400.
+// A malformed body or unsupported provider type returns 400. The api_base is
+// ignored for the neuraldeep type, whose endpoint is fixed (llm.providerBaseURL).
 func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Type    string `json:"type"`
@@ -71,8 +72,8 @@ func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Req
 		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if in.Type != "openai" && in.Type != "anthropic" {
-		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "type must be \"openai\" or \"anthropic\"")
+	if _, ok := config.AllowedLLMProviderTypes[in.Type]; !ok {
+		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "type must be \"openai\", \"anthropic\", or \"neuraldeep\"")
 		return
 	}
 

@@ -28,8 +28,8 @@ export const schemaTextRu: Record<string, string> = {
   "Wire protocol for this provider entry.":
     "Протокол обмена для этой записи провайдера.",
   "API base URL": "Базовый URL API",
-  "Optional override of the default API base URL for this provider.":
-    "Необязательная замена базового URL API по умолчанию для этого провайдера.",
+  "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.":
+    "Необязательная замена базового URL API по умолчанию для этого провайдера. Игнорируется для neuraldeep — он всегда использует https://api.neuraldeep.ru/v1.",
   "API key": "API-ключ",
   "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).":
     "Можно задать ключ напрямую, сослаться на ${ENV} в YAML (подставляется при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание имени провайдера).",
@@ -310,6 +310,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   // provider.type
   openai: "OpenAI",
   anthropic: "Anthropic",
+  neuraldeep: "NeuralDeep",
   // tools.permission_mode
   ask: "Спрашивать",
   accept_edits: "Авто-подтверждение правок",

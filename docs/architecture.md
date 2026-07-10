@@ -103,6 +103,7 @@ Abstracted interface for LLM backends. Configured via `config.yaml`.
 Supported backends (see **`docs/config.md`** for shapes):
 - OpenAI and OpenAI-compatible HTTP APIs (**`type: openai`**)
 - Anthropic (**`type: anthropic`**)
+- NeuralDeep hub (**`type: neuraldeep`**; OpenAI-compatible, fixed endpoint)
 - Ollama and other local OpenAI-compatible stacks (**`api_base`**)
 
 ### Tools Registry (`internal/tools`)

@@ -148,6 +148,37 @@ func TestProviderModelsProbeUpstreamErrorReturnsOKFalse(t *testing.T) {
 	}
 }
 
+// TestProviderModelsProbeAcceptsNeuralDeep asserts the probe accepts the
+// neuraldeep provider type. Its endpoint is pinned server-side and cannot be
+// redirected to a test server, so the request is sent through a dead local proxy:
+// the upstream call fails fast without touching the network, and the handler
+// answers 200 + ok:false. A 400 here would mean the type allowlist rejected it.
+func TestProviderModelsProbeAcceptsNeuralDeep(t *testing.T) {
+	ts := newProviderModelsServer(t, &config.Config{})
+
+	res, err := http.Post(
+		ts.URL+"/foxxycode/providers/models-probe",
+		"application/json",
+		strings.NewReader(`{"type":"neuraldeep","api_key":"nd-key","proxy":"http://127.0.0.1:1"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (neuraldeep is an allowed provider type)", res.StatusCode)
+	}
+	var body struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.OK {
+		t.Fatal("ok = true, want false: the dead proxy must make the upstream call fail")
+	}
+}
+
 func TestProviderModelsProbeBadRequest(t *testing.T) {
 	ts := newProviderModelsServer(t, &config.Config{})
 

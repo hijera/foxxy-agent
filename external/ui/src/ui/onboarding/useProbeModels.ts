@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { FetchedModel } from "../settings/useProviderModels";
 
 export type ProbeModelsInput = {
-  type: "openai" | "anthropic";
+  type: "openai" | "anthropic" | "neuraldeep";
   api_base: string;
   api_key: string;
 };

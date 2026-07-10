@@ -937,8 +937,8 @@ func openAPISpec() map[string]interface{} {
 									"type":     "object",
 									"required": []string{"type"},
 									"properties": map[string]interface{}{
-										"type":     map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic"}},
-										"api_base": map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. https://api.neuraldeep.ru/v1). Empty uses the type default."},
+										"type":     map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic", "neuraldeep"}},
+										"api_base": map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. http://localhost:11434/v1). Empty uses the type default. Ignored for type neuraldeep, whose endpoint is fixed at https://api.neuraldeep.ru/v1."},
 										"api_key":  map[string]interface{}{"type": "string"},
 										"proxy":    map[string]interface{}{"type": "string", "description": "Optional proxy URL."},
 									},

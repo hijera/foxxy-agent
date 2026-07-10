@@ -297,6 +297,7 @@ export const messagesEn: Record<string, string> = {
   "messages.copyMessage": "Copy message",
   "messages.copyErrorMessage": "Copy error message",
   "messages.systemLabel": "System",
+  "messages.systemToggleAriaLabel": "Show error details",
   "messages.thinkingInProgress": "thinking...",
   "messages.thinkingCompleted": "thinking",
   "messages.thinkingSummaryAriaLabel": "Thinking summary",

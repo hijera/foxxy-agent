@@ -303,6 +303,7 @@ export const messagesRu: Record<string, string> = {
   "messages.copyMessage": "Копировать сообщение",
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",
   "messages.systemLabel": "Система",
+  "messages.systemToggleAriaLabel": "Показать детали ошибки",
   "messages.thinkingInProgress": "думаю…",
   "messages.thinkingCompleted": "размышление",
   "messages.thinkingSummaryAriaLabel": "Сводка размышления",

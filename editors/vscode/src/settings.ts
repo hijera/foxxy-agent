@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { localeFromSetting, setLocale, type Locale } from "./i18n/bundle";
+import { proxyEnvFrom, type ProxyEnv } from "./process/proxyEnv";
 
 /** All FoxxyCode settings surfaced under the `foxxycode.*` namespace. */
 export interface FoxxyCodeSettings {
@@ -38,6 +39,12 @@ export function readSettings(): FoxxyCodeSettings {
   };
 }
 
+/** Proxy env vars derived from VS Code's built-in `http.proxy` / `http.noProxy` settings. */
+export function readHttpProxyEnv(): ProxyEnv {
+  const c = vscode.workspace.getConfiguration("http");
+  return proxyEnvFrom(c.get<string>("proxy", ""), c.get<string[]>("noProxy", []));
+}
+
 /** Active locale resolved from the language setting + VS Code display language. */
 export function activeLocale(): Locale {
   const s = readSettings();
@@ -58,10 +65,16 @@ export function syncLocaleContext(): Locale {
   return locale;
 }
 
-/** Subscribe to changes of any `foxxycode.*` setting; returns a disposable. */
+/** Subscribe to settings that affect the launched `foxxycode http` process. */
 export function onSettingsChanged(cb: () => void): vscode.Disposable {
   return vscode.workspace.onDidChangeConfiguration((e) => {
-    if (e.affectsConfiguration("foxxycode")) cb();
+    if (
+      e.affectsConfiguration("foxxycode") ||
+      e.affectsConfiguration("http.proxy") ||
+      e.affectsConfiguration("http.noProxy")
+    ) {
+      cb();
+    }
   });
 }
 

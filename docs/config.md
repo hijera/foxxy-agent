@@ -365,7 +365,7 @@ Inside the raw config file body, **`${CWD}`** and **`${FOXXYCODE_HOME}`** are ex
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**.
 
 YAML split:
 
@@ -381,6 +381,9 @@ Provider needs **`api_key`**. Optional **`proxy`** applies only to this provider
 Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-opus-*`
 
 Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic API base URL (default **`https://api.anthropic.com`**), for example an Anthropic-compatible gateway or relay. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
+
+### `neuraldeep`
+NeuralDeep hub (**`https://hub.neuraldeep.ru`**). It speaks the OpenAI wire protocol, so requests are handled by the OpenAI client, but the endpoint is **fixed** at **`https://api.neuraldeep.ru/v1`**: **`api_base`** is ignored (setting it changes nothing). Provider needs only **`api_key`** — a literal key, a **`"${NEURALDEEP_API_KEY}"`** reference, or empty to read **`NEURALDEEP_API_KEY`** at call time when the provider is named **`neuraldeep`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/gpt-oss-120b`**, plus **`max_tokens`**, **`temperature`**.
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

@@ -2,6 +2,7 @@ package dev.foxxycode.intellij.ui
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.util.Disposer
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
@@ -9,6 +10,9 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
+import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.Action
@@ -58,15 +62,29 @@ class WelcomeWizardDialog(
             return JBScrollPane(label)
         }
         val html = loadWelcomeHtml()
-        browser = JBCefBrowser().also { it.loadHTML(html) }
-        root.add(browser!!.component, BorderLayout.CENTER)
+        // Create the native browser eagerly: the no-arg JBCefBrowser() realizes Chromium lazily on
+        // first getComponent(), and a loadHTML() issued before that is silently dropped — leaving the
+        // wizard blank. setCreateImmediately(true) forces creation now so the load is honored.
+        val b = JBCefBrowser.createBuilder().setCreateImmediately(true).build()
+        browser = b
+        Disposer.register(disposable, b)
+        // Apply the current step only after the page (and its window.setStep) has loaded; also
+        // re-applies on any reload. Mirrors FoxxyCodeBrowserPanel.loadUrl's onLoadEnd pattern.
+        b.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
+            override fun onLoadEnd(browser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
+                if (frame?.isMain == true) {
+                    browser?.executeJavaScript("window.setStep($step)", "about:blank", 0)
+                }
+            }
+        }, b.cefBrowser)
+        root.add(b.component, BorderLayout.CENTER)
+        b.loadHTML(html)
         val nav = JPanel(FlowLayout(FlowLayout.CENTER, JBUI.scale(8), 0))
         nav.add(prevButton)
         nav.add(nextButton)
         nav.add(skipButton)
         root.add(nav, BorderLayout.SOUTH)
         root.preferredSize = JBUI.size(520, 420)
-        goStep(0)
         return root
     }
 

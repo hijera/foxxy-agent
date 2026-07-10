@@ -578,7 +578,7 @@
         "additionalProperties": false,
         "properties": {
           "api_base": {
-            "description": "Optional override of the default API base URL for this provider.",
+            "description": "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.",
             "title": "API base URL",
             "type": "string"
           },
@@ -610,7 +610,8 @@
             "description": "Wire protocol for this provider entry.",
             "enum": [
               "openai",
-              "anthropic"
+              "anthropic",
+              "neuraldeep"
             ],
             "title": "Provider type",
             "type": "string"

@@ -8,6 +8,10 @@ import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
 import type { SectionDescriptor } from "./settingsSections";
 
+const NEURALDEEP_API_BASE = "https://api.neuraldeep.ru/v1";
+
+type FieldOverrideContext = Parameters<FieldOverride>[0];
+
 function asObject(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v)
     ? (v as Record<string, unknown>)
@@ -28,6 +32,43 @@ function stringList(v: unknown, key: string): string[] {
       return "";
     })
     .filter((s) => s.trim() !== "");
+}
+
+function NeuralDeepAPIBaseField(props: { ctx: FieldOverrideContext }) {
+  const { schema } = props.ctx;
+  const label = tSchemaText(schema.title) || "API base URL";
+  const desc = tSchemaText(schema.description);
+
+  // NeuralDeep speaks an OpenAI-compatible API at a fixed endpoint; the base URL
+  // is not user-configurable. Show it read-only but do NOT persist it into the
+  // config: leaving the stored api_base untouched preserves any value entered for
+  // another provider type, so switching back to openai/anthropic restores it. The
+  // backend pins the endpoint regardless (llm.providerBaseURL).
+  return (
+    <div className="settings-row">
+      <span className="settings-label">{label}</span>
+      {desc ? <p className="settings-field-desc">{desc}</p> : null}
+      <input
+        className="settings-input"
+        type="text"
+        value={NEURALDEEP_API_BASE}
+        aria-label={label}
+        title={desc || undefined}
+        readOnly
+      />
+    </div>
+  );
+}
+
+function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
+  const providerType =
+    ctx.parentObj?.type === undefined || ctx.parentObj.type === null
+      ? ""
+      : String(ctx.parentObj.type);
+  if (ctx.path !== "api_base" || providerType !== "neuraldeep") {
+    return null;
+  }
+  return <NeuralDeepAPIBaseField ctx={ctx} />;
 }
 
 /**
@@ -113,7 +154,9 @@ export function SettingsSection(props: {
                 label={tSchemaText(ctx.schema.title) || t("settings.modelIdLabel")}
               />
             ) : null
-        : undefined;
+        : key === "providers"
+          ? neuralDeepAPIBaseOverride
+          : undefined;
     return (
       <SettingsArraySection
         schema={sub}

@@ -182,7 +182,7 @@ describe("ProviderPickerDialog", () => {
     expect(hub.target).toBe("_blank");
   });
 
-  it("fetches models into the combobox and saves neuraldeep/<id> with /v1 base", async () => {
+  it("fetches models into the combobox and saves neuraldeep/<id> without api_base", async () => {
     const onSaved = vi.fn();
     renderPicker({ onSaved });
     fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
@@ -198,9 +198,11 @@ describe("ProviderPickerDialog", () => {
     );
     expect(probeCall).toBeTruthy();
     const probeBody = JSON.parse(String(probeCall![1]?.body));
+    // The neuraldeep provider type pins its own endpoint server-side, so the
+    // probe carries no api_base at all.
     expect(probeBody).toEqual({
-      type: "openai",
-      api_base: "https://api.neuraldeep.ru/v1",
+      type: "neuraldeep",
+      api_base: "",
       api_key: "sk-nd",
     });
     // Open the combobox dropdown and pick the fetched model from the list.
@@ -216,9 +218,28 @@ describe("ProviderPickerDialog", () => {
       (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
     );
     const body = JSON.parse(String(putCall![1]?.body));
-    expect(body.providers[0].api_base).toBe("https://api.neuraldeep.ru/v1");
+    expect(body.providers[0].type).toBe("neuraldeep");
+    expect(body.providers[0].api_base).toBeUndefined();
     expect(body.models[0].model).toBe("neuraldeep/qwen-3");
+    expect(body.models[0].multimodal).toBe(true);
     expect(body.agent.model).toBe("neuraldeep/qwen-3");
+  });
+
+  it("saves the anthropic preset as a non-multimodal model", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-anthropic"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-ant" },
+    });
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0].type).toBe("anthropic");
+    expect(body.models[0].multimodal).toBe(false);
   });
 
   it("falls back to manual model entry when the probe fails", async () => {

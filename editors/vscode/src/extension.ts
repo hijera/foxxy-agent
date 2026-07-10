@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { ProcessManager } from "./process/processManager";
+import type { ProxyEnv } from "./process/proxyEnv";
 import { IdeDiffService } from "./diff/ideDiffService";
 import { EditorStateService } from "./ide/editorStateService";
 import { TerminalStateService } from "./ide/terminalStateService";
@@ -10,6 +11,7 @@ import { showFirstRunIfNeeded, openWelcomeWalkthrough } from "./webview/firstRun
 import {
   onSettingsChanged,
   openSettingsUi,
+  readHttpProxyEnv,
   readSettings,
   syncLocaleContext,
 } from "./settings";
@@ -47,6 +49,8 @@ let editorPanelController: FoxxyCodePanelController | null = null;
 let editorPanelDisposed = false;
 let activationOutput: vscode.OutputChannel | null = null;
 let currentUrl: string | null = null;
+/** Signature of the last-applied proxy env, so we only restart when it actually changes. */
+let lastProxyEnvSig = "";
 
 export function activate(context: vscode.ExtensionContext): void {
   activationOutput = vscode.window.createOutputChannel("FoxxyCode");
@@ -57,10 +61,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const workspaceRoot = currentWorkspaceRoot();
   const log = (line: string): void => activationOutput?.appendLine(line);
 
+  const initialProxyEnv = readHttpProxyEnv();
+  lastProxyEnvSig = proxyEnvSig(initialProxyEnv);
   processManager = new ProcessManager({
     extensionPath: context.extensionPath,
     workspaceRoot,
     settings: readSettings(),
+    proxyEnv: initialProxyEnv,
     log,
   });
   diffService = new IdeDiffService(workspaceRoot, log);
@@ -97,7 +104,15 @@ export function activate(context: vscode.ExtensionContext): void {
     onSettingsChanged(() => {
       syncLocaleContext();
       // Re-snapshot settings so the next start()/restart() uses fresh values.
-      if (processManager) (processManager as any).opts.settings = readSettings();
+      const proxyEnv = readHttpProxyEnv();
+      processManager?.updateLaunchOptions(readSettings(), proxyEnv);
+      // A live proxy change only takes effect on restart: the running process keeps its
+      // spawn-time env. Restart automatically so the new proxy applies without user action.
+      const sig = proxyEnvSig(proxyEnv);
+      if (sig !== lastProxyEnvSig && processManager?.isRunning) {
+        void restartActive();
+      }
+      lastProxyEnvSig = sig;
       activeController()?.refresh();
     }),
   );
@@ -134,6 +149,15 @@ function registerCommandPair(
 function activeController(): FoxxyCodePanelController | null {
   if (editorPanelController && editorPanel && !editorPanelDisposed) return editorPanelController;
   return viewProvider?.controller ?? null;
+}
+
+/** Order-independent signature of a proxy env, used to detect proxy setting changes. */
+function proxyEnvSig(env: ProxyEnv): string {
+  return Object.entries(env)
+    .filter(([, v]) => v)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
 }
 
 function currentWorkspaceRoot(): string | undefined {

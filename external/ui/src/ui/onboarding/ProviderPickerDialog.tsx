@@ -17,10 +17,15 @@ type ProviderPreset = {
   label: string;
   description: string;
   providerName: string;
-  providerType: "openai" | "anthropic";
+  providerType: "openai" | "anthropic" | "neuraldeep";
   apiBase?: string;
-  /** Lock the API base field to the preset value (shown without /v1, saved with it). */
-  apiBaseReadOnly?: boolean;
+  /**
+   * The provider type pins its own endpoint, so apiBase is display-only: shown
+   * read-only (without /v1) and never probed or written to the config.
+   */
+  apiBaseFixed?: boolean;
+  /** Whether the provider's models accept image/file inputs (models[].multimodal). */
+  multimodal: boolean;
   defaultModel: string;
   envKey?: string;
   website?: string;
@@ -40,6 +45,7 @@ const PRESETS: ProviderPreset[] = [
     description: "GPT-4o and compatible models",
     providerName: "openai",
     providerType: "openai",
+    multimodal: true,
     defaultModel: "openai/gpt-4o",
     envKey: "${OPENAI_API_KEY}",
   },
@@ -50,6 +56,7 @@ const PRESETS: ProviderPreset[] = [
     description: "Claude models",
     providerName: "anthropic",
     providerType: "anthropic",
+    multimodal: false,
     defaultModel: "anthropic/claude-sonnet-4-20250514",
     envKey: "${ANTHROPIC_API_KEY}",
   },
@@ -60,6 +67,7 @@ const PRESETS: ProviderPreset[] = [
     description: "Local models via OpenAI-compatible API",
     providerName: "local",
     providerType: "openai",
+    multimodal: true,
     apiBase: "http://127.0.0.1:11434/v1",
     defaultModel: "local/llama3.2",
   },
@@ -71,6 +79,7 @@ const PRESETS: ProviderPreset[] = [
     description: "DeepSeek, Groq, Together, custom api_base",
     providerName: "custom",
     providerType: "openai",
+    multimodal: true,
     defaultModel: "custom/gpt-4o",
   },
   {
@@ -80,10 +89,12 @@ const PRESETS: ProviderPreset[] = [
     label: "NeuralDeep",
     description: "Russian AI hub — models via api.neuraldeep.ru",
     providerName: "neuraldeep",
-    providerType: "openai",
+    providerType: "neuraldeep",
+    multimodal: true,
     apiBase: "https://api.neuraldeep.ru/v1",
-    apiBaseReadOnly: true,
+    apiBaseFixed: true,
     defaultModel: "neuraldeep/default",
+    envKey: "${NEURALDEEP_API_KEY}",
     website: "https://hub.neuraldeep.ru",
   },
 ];
@@ -100,10 +111,11 @@ function buildConfigBody(
     type: preset.providerType,
     api_key: apiKey.trim() || preset.envKey || "",
   };
-  const base = preset.apiBaseReadOnly
-    ? preset.apiBase || ""
-    : apiBase.trim() || preset.apiBase || "";
-  if (base) {
+  // Presets whose provider type pins its own endpoint never write api_base: the
+  // backend would ignore it, and an editable-looking value in the saved YAML only
+  // invites confusion.
+  const base = apiBase.trim() || preset.apiBase || "";
+  if (!preset.apiBaseFixed && base) {
     provider.api_base = base;
   }
   const rawModel = modelId.trim();
@@ -125,7 +137,7 @@ function buildConfigBody(
         model,
         max_tokens: 8192,
         temperature: 0.2,
-        multimodal: preset.providerType === "openai",
+        multimodal: preset.multimodal,
       },
     ],
     agent: {
@@ -167,10 +179,10 @@ export function ProviderPickerDialog(props: {
     [selected],
   );
 
-  /** Base URL actually used for saving and model probing (locked presets ignore
-   * the editable state). */
-  const effectiveApiBase = preset.apiBaseReadOnly
-    ? preset.apiBase || ""
+  /** Base URL sent when probing the provider's model list. Presets with a fixed
+   * endpoint send nothing: the backend pins the URL from the provider type. */
+  const probeApiBase = preset.apiBaseFixed
+    ? ""
     : apiBase.trim() || preset.apiBase || "";
 
   const presetLabel = useCallback(
@@ -216,12 +228,12 @@ export function ProviderPickerDialog(props: {
       return;
     }
     const type = preset.providerType;
-    const base = effectiveApiBase;
+    const base = probeApiBase;
     const handle = window.setTimeout(() => {
       void probeModels({ type, api_base: base, api_key: key });
     }, 600);
     return () => window.clearTimeout(handle);
-  }, [props.open, apiKey, effectiveApiBase, preset.providerType, probeModels]);
+  }, [props.open, apiKey, probeApiBase, preset.providerType, probeModels]);
 
   const configBody = useMemo(
     () =>
@@ -393,7 +405,7 @@ export function ProviderPickerDialog(props: {
           {showApiBase ? (
             <label className="provider-picker-field">
               <span>{t("onboarding.apiBase")}</span>
-              {preset.apiBaseReadOnly ? (
+              {preset.apiBaseFixed ? (
                 <input
                   className="provider-picker-input provider-picker-input--readonly"
                   value={stripV1(preset.apiBase || "")}
@@ -445,7 +457,7 @@ export function ProviderPickerDialog(props: {
                 onClick={() =>
                   void probeModels({
                     type: preset.providerType,
-                    api_base: effectiveApiBase,
+                    api_base: probeApiBase,
                     api_key: apiKey.trim(),
                   })
                 }

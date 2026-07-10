@@ -6,7 +6,7 @@ import type { TranscriptItem } from "../chat/types";
 
 afterEach(() => cleanup());
 
-test("renders system error notice", () => {
+test("renders system error notice collapsed with an expandable body", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Hello" },
     {
@@ -21,7 +21,15 @@ test("renders system error notice", () => {
 
   expect(screen.getByRole("alert")).toBeInTheDocument();
   expect(screen.getByText("System")).toBeInTheDocument();
-  expect(screen.getByText("LLM error: context exceeded")).toBeInTheDocument();
+
+  // The full error text lives inside the disclosure body...
+  const body = document.querySelector(".msg-system-body");
+  expect(body?.textContent).toBe("LLM error: context exceeded");
+
+  // ...and the disclosure is collapsed by default (expand to read).
+  const details = document.querySelector<HTMLDetailsElement>(".msg-system-details");
+  expect(details).toBeTruthy();
+  expect(details?.open).toBe(false);
 });
 
 test("renders user, assistant, and tool call items", () => {

@@ -2365,8 +2365,85 @@ a.rail-brand {
   margin-bottom: 6px;
 }
 
-.msg-system-body {
+/* Collapsible error disclosure (mirrors .thinking-details). */
+.msg-system-details {
   margin: 0;
+  padding-inline: 0;
+}
+
+/* Closed <details> must not reserve space for the body in any engine. */
+.msg-system-details:not([open]) > :not(summary) {
+  display: none !important;
+}
+
+.msg-system-details > summary {
+  list-style: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.msg-system-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.msg-system-summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 18px;
+}
+
+/* Label sits inline in the summary row, so drop the stacked-layout bottom gap. */
+.msg-system-summary .msg-system-label {
+  margin-bottom: 0;
+  flex: 0 0 auto;
+}
+
+.msg-system-chevron {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 16px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%);
+  transition: transform 0.12s ease;
+  color: rgba(255, 168, 168, 0.7);
+}
+
+.msg-system-chevron:after {
+  content: "›";
+  display: block;
+  line-height: 1;
+  font-size: 15px;
+}
+
+.msg-system-details[open] .msg-system-chevron {
+  transform: translateY(-50%) rotate(90deg);
+}
+
+/* One-line preview of the error while collapsed. */
+.msg-system-preview {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: rgba(255, 168, 168, 0.7);
+}
+
+.msg-system-body {
+  margin: 8px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -5452,6 +5529,13 @@ textarea#composer {
   font-size: 0.9rem;
 }
 
+/* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled. */
+.settings-input[readonly] {
+  background: var(--foxxycode-surface-muted);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .settings-array {
   list-style: none;
   margin: 0 0 8px;
@@ -7179,6 +7263,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 [data-theme="light"] .msg-system-body {
   color: #991b1b;
+}
+
+[data-theme="light"] .msg-system-chevron,
+[data-theme="light"] .msg-system-preview {
+  color: rgba(185, 28, 28, 0.7);
 }
 
 /* Without this the dark-theme pink (rgba(255,168,168,...)) shows as a salmon
