@@ -164,6 +164,9 @@ export const messagesRu: Record<string, string> = {
   "onboarding.showKey": "Показать",
   "onboarding.hideKey": "Скрыть",
   "onboarding.apiBase": "Базовый URL API",
+  "onboarding.proxy": "Прокси (необязательно)",
+  "onboarding.proxyHint":
+    "Направить запросы этого провайдера через прокси. Используйте http://, https://, socks5:// или socks5h://. Оставьте пустым для прямого подключения.",
   "onboarding.defaultModel": "Модель по умолчанию",
   "onboarding.fetchModels": "Получить модели",
   "onboarding.refreshModels": "Обновить",

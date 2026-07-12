@@ -160,6 +160,9 @@ export const messagesEn: Record<string, string> = {
   "onboarding.showKey": "Show",
   "onboarding.hideKey": "Hide",
   "onboarding.apiBase": "API base URL",
+  "onboarding.proxy": "Proxy (optional)",
+  "onboarding.proxyHint":
+    "Route this provider's requests through a proxy. Use http://, https://, socks5:// or socks5h://. Leave empty for a direct connection.",
   "onboarding.defaultModel": "Default model",
   "onboarding.fetchModels": "Fetch models",
   "onboarding.refreshModels": "Refresh",

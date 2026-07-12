@@ -103,6 +103,7 @@ function buildConfigBody(
   preset: ProviderPreset,
   apiKey: string,
   apiBase: string,
+  proxy: string,
   modelId: string,
   baseDoc: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -117,6 +118,13 @@ function buildConfigBody(
   const base = apiBase.trim() || preset.apiBase || "";
   if (!preset.apiBaseFixed && base) {
     provider.api_base = base;
+  }
+  // The proxy applies to every provider type (including neuraldeep, whose base
+  // URL is fixed but still routed through the proxy), so it is orthogonal to
+  // apiBaseFixed. Only write it when set — an empty proxy means direct.
+  const proxyURL = proxy.trim();
+  if (proxyURL) {
+    provider.proxy = proxyURL;
   }
   const rawModel = modelId.trim();
   let model: string;
@@ -159,6 +167,7 @@ export function ProviderPickerDialog(props: {
   const [selected, setSelected] = useState<ProviderPresetId>("openai");
   const [apiKey, setApiKey] = useState("");
   const [apiBase, setApiBase] = useState("");
+  const [proxy, setProxy] = useState("");
   const [modelId, setModelId] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -229,11 +238,12 @@ export function ProviderPickerDialog(props: {
     }
     const type = preset.providerType;
     const base = probeApiBase;
+    const proxyURL = proxy.trim();
     const handle = window.setTimeout(() => {
-      void probeModels({ type, api_base: base, api_key: key });
+      void probeModels({ type, api_base: base, api_key: key, proxy: proxyURL });
     }, 600);
     return () => window.clearTimeout(handle);
-  }, [props.open, apiKey, probeApiBase, preset.providerType, probeModels]);
+  }, [props.open, apiKey, probeApiBase, proxy, preset.providerType, probeModels]);
 
   const configBody = useMemo(
     () =>
@@ -241,10 +251,11 @@ export function ProviderPickerDialog(props: {
         preset,
         apiKey,
         apiBase,
+        proxy,
         modelId,
         baseDoc,
       ),
-    [preset, apiKey, apiBase, modelId, baseDoc],
+    [preset, apiKey, apiBase, proxy, modelId, baseDoc],
   );
 
   const testConnection = useCallback(async () => {
@@ -424,6 +435,19 @@ export function ProviderPickerDialog(props: {
             </label>
           ) : null}
 
+          <label className="provider-picker-field">
+            <span>{t("onboarding.proxy")}</span>
+            <input
+              className="provider-picker-input"
+              value={proxy}
+              onChange={(ev) => setProxy(ev.target.value)}
+              placeholder="socks5h://127.0.0.1:1080"
+              autoComplete="off"
+              data-testid="provider-proxy"
+            />
+            <span className="provider-picker-hint">{t("onboarding.proxyHint")}</span>
+          </label>
+
           {preset.website ? (
             <a
               className="provider-picker-hub-link"
@@ -459,6 +483,7 @@ export function ProviderPickerDialog(props: {
                     type: preset.providerType,
                     api_base: probeApiBase,
                     api_key: apiKey.trim(),
+                    proxy: proxy.trim(),
                   })
                 }
                 disabled={modelsLoading || !apiKey.trim()}

@@ -5,6 +5,7 @@ export type ProbeModelsInput = {
   type: "openai" | "anthropic" | "neuraldeep";
   api_base: string;
   api_key: string;
+  proxy: string;
 };
 
 type ProbeModelsResponse = {

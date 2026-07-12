@@ -204,6 +204,7 @@ describe("ProviderPickerDialog", () => {
       type: "neuraldeep",
       api_base: "",
       api_key: "sk-nd",
+      proxy: "",
     });
     // Open the combobox dropdown and pick the fetched model from the list.
     fireEvent.focus(modelInput);
@@ -223,6 +224,49 @@ describe("ProviderPickerDialog", () => {
     expect(body.models[0].model).toBe("neuraldeep/qwen-3");
     expect(body.models[0].multimodal).toBe(true);
     expect(body.agent.model).toBe("neuraldeep/qwen-3");
+  });
+
+  it("sends the proxy in the probe and saves it on the provider", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.change(screen.getByTestId("provider-proxy"), {
+      target: { value: "socks5h://127.0.0.1:1080" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() => {
+      const probeCall = fetchMock.mock.calls.find(
+        (c) => c[0] === "/foxxycode/providers/models-probe",
+      );
+      expect(probeCall).toBeTruthy();
+      const probeBody = JSON.parse(String(probeCall![1]?.body));
+      expect(probeBody.proxy).toBe("socks5h://127.0.0.1:1080");
+    });
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0].proxy).toBe("socks5h://127.0.0.1:1080");
+  });
+
+  it("omits proxy from the saved provider when left empty", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-test-key" },
+    });
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.providers[0].proxy).toBeUndefined();
   });
 
   it("saves the anthropic preset as a non-multimodal model", async () => {
