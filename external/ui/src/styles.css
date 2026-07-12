@@ -5594,6 +5594,32 @@ textarea#composer {
   font-size: 0.9rem;
 }
 
+/* Secret string fields (e.g. provider API key): masked input + reveal toggle. */
+.settings-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-key-row .settings-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-key-toggle {
+  font: inherit;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.settings-key-toggle:hover {
+  opacity: 1;
+}
+
 /* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled. */
 .settings-input[readonly] {
   background: var(--foxxycode-surface-muted);

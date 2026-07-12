@@ -252,6 +252,8 @@ export const messagesRu: Record<string, string> = {
   "settings.backToSections": "К разделам",
   "settings.remove": "Удалить",
   "settings.add": "Добавить",
+  "settings.showKey": "Показать",
+  "settings.hideKey": "Скрыть",
   "settings.removeItem": "Удалить {name}",
   "settings.unnamedItem": "(без имени #{index})",
   "settings.modelIdLabel": "Идентификатор модели",

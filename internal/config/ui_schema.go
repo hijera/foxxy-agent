@@ -184,6 +184,7 @@ func UISchemaMap() map[string]interface{} {
 	providerAPIKey := strProp("API key",
 		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
 	providerAPIKey["x-foxxycode-provider-api-key-env-placeholder"] = true
+	providerAPIKey["x-foxxycode-secret"] = true
 	providerProps := map[string]interface{}{
 		"name": providerName,
 		"type": map[string]interface{}{

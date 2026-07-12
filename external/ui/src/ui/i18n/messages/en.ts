@@ -247,6 +247,8 @@ export const messagesEn: Record<string, string> = {
   "settings.backToSections": "Back to sections",
   "settings.remove": "Remove",
   "settings.add": "Add",
+  "settings.showKey": "Show",
+  "settings.hideKey": "Hide",
   "settings.removeItem": "Remove {name}",
   "settings.unnamedItem": "(unnamed #{index})",
   "settings.modelIdLabel": "Model id",

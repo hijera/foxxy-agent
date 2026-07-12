@@ -1,4 +1,4 @@
-import { useRef, type ChangeEvent, type ReactNode } from "react";
+import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
 
 import { t } from "../i18n/i18n";
 import { tSchemaEnumLabel, tSchemaText } from "../i18n/schemaStrings";
@@ -56,6 +56,7 @@ export type JsonSchema = {
   pattern?: string;
   "x-foxxycode-property-order"?: string[];
   "x-foxxycode-provider-api-key-env-placeholder"?: boolean;
+  "x-foxxycode-secret"?: boolean;
 };
 
 function entriesInSchemaOrder(
@@ -159,6 +160,8 @@ function SchemaField(props: {
   // When this field is the requested focus target (e.g. `api_key` after an
   // import), focus and scroll it into view once on mount via a callback ref.
   const focusedOnce = useRef(false);
+  // Reveal state for secret string fields (e.g. provider api_key); masked by default.
+  const [reveal, setReveal] = useState(false);
   const focusRef = (el: HTMLInputElement | null) => {
     if (el && path === focusPath && !focusedOnce.current) {
       focusedOnce.current = true;
@@ -388,25 +391,39 @@ function SchemaField(props: {
         ? String(schema.default)
         : ""
       : String(value);
+  const secret = schema["x-foxxycode-secret"] === true;
+  const input = (
+    <input
+      ref={focusRef}
+      className="settings-input"
+      type={secret ? (reveal ? "text" : "password") : "text"}
+      value={s}
+      placeholder={ph}
+      pattern={schema.pattern}
+      title={desc || undefined}
+      aria-label={label}
+      autoComplete={secret ? "off" : undefined}
+      onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+    />
+  );
   return (
     <div className="settings-row">
       <span className="settings-label">{label}</span>
-      {schema.description ? (
-        <p className="settings-field-desc">{schema.description}</p>
-      ) : null}
-      <input
-        ref={focusRef}
-        className="settings-input"
-        type="text"
-        value={s}
-        placeholder={ph}
-        pattern={schema.pattern}
-        title={schema.description}
-        aria-label={label}
-        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-          onChange(e.target.value)
-        }
-      />
+      {desc ? <p className="settings-field-desc">{desc}</p> : null}
+      {secret ? (
+        <div className="settings-key-row">
+          {input}
+          <button
+            type="button"
+            className="settings-key-toggle"
+            onClick={() => setReveal((v) => !v)}
+          >
+            {reveal ? t("settings.hideKey") : t("settings.showKey")}
+          </button>
+        </div>
+      ) : (
+        input
+      )}
     </div>
   );
 }

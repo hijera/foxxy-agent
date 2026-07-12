@@ -90,10 +90,29 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		Instructions:   instructionsMD,
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
+	full = languageDirective(a.cfg.UI.Locale) + "\n\n" + full
 	if rs, ok := a.state.(rulesState); ok {
 		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.state.GetMessages(), toolDefs))
 	}
 	return full
+}
+
+// languageDirective returns a system-prompt instruction telling the model which
+// human language to think and respond in, based on the UI locale
+// (config.UIConfig.Locale: "" auto-detect, "en", or "ru").
+func languageDirective(locale string) string {
+	const heading = "## Response language\n\n"
+	const tail = " Only keep code, identifiers, commands, and file paths in their original form."
+	switch strings.TrimSpace(locale) {
+	case "ru":
+		return heading + "Always think and respond in **Russian**, regardless of the language of the " +
+			"code, file contents, tool output, or this system prompt." + tail
+	case "en":
+		return heading + "Always think and respond in **English**, regardless of the language of the " +
+			"code, file contents, tool output, or this system prompt." + tail
+	default: // "" auto-detect
+		return heading + "Think and respond in the same language the user writes to you in." + tail
+	}
 }
 
 // promptVariants returns the ordered per-model then per-family prompt keys for the active
