@@ -75,13 +75,6 @@ import { GuidedTour } from "./onboarding/GuidedTour";
 import { TOUR_STEPS } from "./onboarding/tourSteps";
 import { isTourSeen, markTourSeen, resetTour } from "./onboarding/tourState";
 import { isDesktopShell } from "./desktopShell";
-import { isEditorEmbed } from "./embedShell";
-import { ProjectDialog } from "./project/ProjectDialog";
-import {
-  fetchProject,
-  projectBasename,
-  type ProjectInfo,
-} from "./project/projectApi";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -830,11 +823,6 @@ export function App() {
   const [modelsEpoch, setModelsEpoch] = useState(0);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
-  const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
-  // Editor plugins (VS Code / IntelliJ) embed the SPA and fix the working
-  // directory to the open IDE project, so the project (cwd) picker is hidden.
-  const editorEmbed = isEditorEmbed();
   const [sessionsOpen, setSessionsOpen] = useState(false);
   /** null until first probe of /foxxycode/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
@@ -1532,14 +1520,6 @@ export function App() {
       setShowProviderPicker(shouldShowOnboarding(status));
     })();
   }, [modelsEpoch]);
-
-  useEffect(() => {
-    // Inside an editor plugin the working directory is fixed to the open IDE
-    // project (passed as --cwd), so the project (cwd) picker is hidden and there
-    // is no need to fetch the current project.
-    if (isEditorEmbed()) return;
-    void fetchProject().then(setProject);
-  }, []);
 
   // Apply the opened session's saved model/reasoning once the backends list is
   // known. Runs whenever either input lands, so the restore is independent of
@@ -3627,13 +3607,6 @@ export function App() {
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
-          {...(project && !editorEmbed
-            ? {
-                projectName: projectBasename(project.path),
-                projectPath: project.path,
-                onOpenProject: () => setProjectDialogOpen(true),
-              }
-            : {})}
           onSend={(text: string, files?: File[]) => {
             if (
               sessionId.trim() &&
@@ -3696,18 +3669,6 @@ export function App() {
             setShowTour(false);
           }}
         />
-        {!editorEmbed ? (
-          <ProjectDialog
-            open={projectDialogOpen}
-            project={project}
-            onClose={() => setProjectDialogOpen(false)}
-            onOpened={(info) => {
-              setProject(info);
-              setProjectDialogOpen(false);
-              goHome();
-            }}
-          />
-        ) : null}
       </div>
     </div>
   );

@@ -219,19 +219,6 @@ export const messagesEn: Record<string, string> = {
   "tour.step.send.body":
     "Send your message to run the agent. It stops here too while a turn is in progress.",
 
-  "project.dialogTitle": "Open project",
-  "project.pillTitle": "Current project folder — click to open another",
-  "project.currentLabel": "Current:",
-  "project.browse": "Browse…",
-  "project.pathPlaceholder": "Path to a project folder",
-  "project.recentLabel": "Recent projects",
-  "project.open": "Open",
-  "project.cancel": "Cancel",
-  "project.close": "Close project dialog",
-  "project.missing": "folder missing",
-  "project.pickFailed": "Folder dialog failed",
-  "project.pickerUnavailable": "Native folder dialog is only available in the desktop app",
-
   "settings.themeDark": "Dark",
   "settings.themeLight": "Light",
   "settings.nav.scrollLeft": "Scroll sections left",

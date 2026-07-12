@@ -73,11 +73,6 @@ export function ChatScreen(props: {
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
-  /** Basename of the current project folder (project pill in the header). */
-  projectName?: string;
-  /** Full project path for the pill tooltip. */
-  projectPath?: string;
-  onOpenProject?: () => void;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -196,21 +191,6 @@ export function ChatScreen(props: {
         </div>
       ) : isEmpty ? (
         <div className="hero" id="hero">
-          {props.projectName && props.onOpenProject ? (
-            <button
-              type="button"
-              className="project-pill project-pill--hero"
-              title={props.projectPath || props.projectName}
-              aria-label={t("project.pillTitle")}
-              data-testid="project-pill-hero"
-              onClick={props.onOpenProject}
-            >
-              <span className="project-pill-icon" aria-hidden>
-                📁
-              </span>
-              <span className="project-pill-name">{props.projectName}</span>
-            </button>
-          ) : null}
           <h1 className="hero-title">
             {(() => {
               const verb = t(`chat.heroVerb.${props.heroAccentVerb}`);
@@ -313,13 +293,6 @@ export function ChatScreen(props: {
                   title={props.title}
                   editable={true}
                   onTitleSave={props.onTitleSave}
-                  {...(props.projectName && props.onOpenProject
-                    ? {
-                        projectName: props.projectName,
-                        projectPath: props.projectPath,
-                        onOpenProject: props.onOpenProject,
-                      }
-                    : {})}
                 />
               </div>
             </div>

@@ -4,6 +4,14 @@ import React from "react";
 import { WorkspaceChips } from "./WorkspaceChips";
 import type { WorkspaceContext } from "./workspaceContext";
 import { WORKSPACE_RECENTS_KEY, pushWorkspaceRecent } from "./workspaceRecents";
+import { isEditorEmbed } from "../embedShell";
+
+// Keep the real embedShell exports; override only the embed predicate so tests
+// can flip between browser (false, the jsdom default) and plugin (true).
+vi.mock("../embedShell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../embedShell")>()),
+  isEditorEmbed: vi.fn(() => false),
+}));
 
 const plainCtx: WorkspaceContext = {
   path: "/repos/plain",
@@ -43,6 +51,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.mocked(isEditorEmbed).mockReturnValue(false);
 });
 
 describe("WorkspaceChips", () => {
@@ -56,6 +65,20 @@ describe("WorkspaceChips", () => {
     expect(screen.getByTestId("composer-workspace-chip").textContent).toContain("plain");
     expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
     expect(screen.queryByTestId("composer-worktree-chip")).toBeNull();
+  });
+
+  it("hides the folder chip inside an editor embed but keeps branch and worktree", () => {
+    vi.mocked(isEditorEmbed).mockReturnValue(true);
+    renderChips();
+    expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
+    expect(screen.getByTestId("composer-branch-chip")).toBeTruthy();
+    expect(screen.getByTestId("composer-worktree-checkbox")).toBeTruthy();
+  });
+
+  it("renders no chip row inside an editor embed for a non-git workspace", () => {
+    vi.mocked(isEditorEmbed).mockReturnValue(true);
+    const { container } = renderChips({ context: plainCtx });
+    expect(container.querySelector(".composer-context-chips")).toBeNull();
   });
 
   it("renders the worktree control as a real checkbox", () => {

@@ -20,6 +20,7 @@ import {
   snapshotShellStack,
   subscribeShellStack,
 } from "../shellBreakpoint";
+import { isEditorEmbed } from "../embedShell";
 
 type Props = {
   context: WorkspaceContext | null;
@@ -49,6 +50,9 @@ export function WorkspaceChips(props: Props) {
     serverSnapshotShellStack,
   );
   const menuUseSheet = isMobileShell;
+  // Editor plugins (VS Code / IntelliJ) fix the working directory to the open
+  // IDE project, so folder switching is hidden there; branch/worktree stay.
+  const hideFolderChip = isEditorEmbed();
 
   const ctx = props.context;
   if (!ctx) {
@@ -102,24 +106,32 @@ export function WorkspaceChips(props: Props) {
   const showBranch = branchChipVisible(ctx);
   const worktreeActive = isWorktreeBadgeActive(ctx, props.worktreePref);
 
+  // In an editor embed with the folder chip hidden and no branch/worktree chips
+  // (non-git workspace) there is nothing left to show — skip the empty row.
+  if (hideFolderChip && !showBranch) {
+    return null;
+  }
+
   return (
     <div className="composer-context-chips">
-      <button
-        type="button"
-        className="workspace-chip"
-        data-testid="composer-workspace-chip"
-        title={ctx.path}
-        aria-haspopup="menu"
-        disabled={locked}
-        onClick={(e) => toggleMenu("folder", e.currentTarget)}
-      >
-        <span className="workspace-chip-icon" aria-hidden="true">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-            <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75Z" />
-          </svg>
-        </span>
-        <span className="workspace-chip-label">{folderChipLabel(ctx)}</span>
-      </button>
+      {!hideFolderChip ? (
+        <button
+          type="button"
+          className="workspace-chip"
+          data-testid="composer-workspace-chip"
+          title={ctx.path}
+          aria-haspopup="menu"
+          disabled={locked}
+          onClick={(e) => toggleMenu("folder", e.currentTarget)}
+        >
+          <span className="workspace-chip-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+              <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75Z" />
+            </svg>
+          </span>
+          <span className="workspace-chip-label">{folderChipLabel(ctx)}</span>
+        </button>
+      ) : null}
 
       {showBranch ? (
         <button

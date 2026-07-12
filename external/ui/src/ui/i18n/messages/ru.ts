@@ -223,19 +223,6 @@ export const messagesRu: Record<string, string> = {
   "tour.step.send.body":
     "Отправьте сообщение, чтобы запустить агента. Эта же кнопка останавливает выполнение хода.",
 
-  "project.dialogTitle": "Открыть проект",
-  "project.pillTitle": "Текущая папка проекта — нажмите, чтобы открыть другую",
-  "project.currentLabel": "Текущая:",
-  "project.browse": "Обзор…",
-  "project.pathPlaceholder": "Путь к папке проекта",
-  "project.recentLabel": "Недавние проекты",
-  "project.open": "Открыть",
-  "project.cancel": "Отмена",
-  "project.close": "Закрыть диалог проекта",
-  "project.missing": "папка не найдена",
-  "project.pickFailed": "Не удалось открыть диалог выбора папки",
-  "project.pickerUnavailable": "Нативный диалог выбора папки доступен только в desktop-приложении",
-
   "settings.themeDark": "Тёмная",
   "settings.themeLight": "Светлая",
   "settings.nav.scrollLeft": "Прокрутить разделы влево",

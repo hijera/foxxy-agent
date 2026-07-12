@@ -5,11 +5,6 @@ export function ChatHeader(props: {
   title: string;
   editable?: boolean;
   onTitleSave?: (title: string) => void;
-  /** Basename of the current project folder; renders the project pill. */
-  projectName?: string;
-  /** Full project path, shown as the pill tooltip. */
-  projectPath?: string;
-  onOpenProject?: () => void;
 }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -72,21 +67,6 @@ export function ChatHeader(props: {
           </button>
         )}
       </div>
-      {props.projectName && props.onOpenProject ? (
-        <button
-          type="button"
-          className="project-pill"
-          title={props.projectPath || props.projectName}
-          aria-label={t("project.pillTitle")}
-          data-testid="project-pill"
-          onClick={props.onOpenProject}
-        >
-          <span className="project-pill-icon" aria-hidden>
-            📁
-          </span>
-          <span className="project-pill-name">{props.projectName}</span>
-        </button>
-      ) : null}
     </header>
   );
 }
