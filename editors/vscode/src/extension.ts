@@ -15,7 +15,12 @@ import {
   readSettings,
   syncLocaleContext,
 } from "./settings";
-import { t } from "./i18n/bundle";
+import { t, type Locale } from "./i18n/bundle";
+import {
+  fetchBackendLocale,
+  initLocaleState,
+  setEffectiveLocale,
+} from "./i18n/localeState";
 import { error, withProgress } from "./notifications";
 
 /** FoxxyCode VS Code extension — full port of the JetBrains plugin.
@@ -51,11 +56,26 @@ let activationOutput: vscode.OutputChannel | null = null;
 let currentUrl: string | null = null;
 /** Signature of the last-applied proxy env, so we only restart when it actually changes. */
 let lastProxyEnvSig = "";
+/** globalState key caching the last backend UI locale (for pre-boot strings). */
+const CACHED_LOCALE_KEY = "foxxycode.cachedLocale";
+
+/** Apply a locale switch originating from the embedded SPA: adopt it and refresh
+ *  extension chrome (command titles via the `foxxycode.locale` context key). The
+ *  SPA already re-rendered itself, so we do NOT reload the iframe. */
+function onSpaLocale(locale: Locale): void {
+  setEffectiveLocale(locale);
+  syncLocaleContext();
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   activationOutput = vscode.window.createOutputChannel("FoxxyCode");
   context.subscriptions.push(activationOutput);
   activationOutput.appendLine(`[foxxycode] activate (ext=${context.extensionPath})`);
+  // Seed the UI language from the last known backend value so pre-boot strings
+  // already match; the authoritative ui.locale is fetched once the server is up.
+  initLocaleState(context.globalState.get(CACHED_LOCALE_KEY), (locale) => {
+    void context.globalState.update(CACHED_LOCALE_KEY, locale);
+  });
   syncLocaleContext();
 
   const workspaceRoot = currentWorkspaceRoot();
@@ -199,6 +219,10 @@ async function startController(controller: FoxxyCodePanelController): Promise<vo
   controller.showStatus(t("process.status.starting"));
   try {
     const { baseUrl } = await startServer("start");
+    // Adopt the backend UI language before the first iframe render so its
+    // `?lang=` and the extension chrome agree from the first frame.
+    await fetchBackendLocale(baseUrl);
+    syncLocaleContext();
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
     editorStateService?.startIfNeeded(baseUrl);
@@ -219,6 +243,8 @@ async function restartActive(): Promise<void> {
   controller.showStatus(t("process.status.restarting"));
   try {
     const { baseUrl } = await startServer("restart");
+    await fetchBackendLocale(baseUrl);
+    syncLocaleContext();
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
     editorStateService?.startIfNeeded(baseUrl);
@@ -256,6 +282,7 @@ function openEditorPanel(context: vscode.ExtensionContext): void {
     },
     onRetry: () => void startController(editorPanelController!),
     onOpenSettings: () => void openSettingsUi(),
+    onSpaLocale,
   });
   // Surface the editor-panel toolbar buttons (gated by `foxxycode.editorPanelActive`).
   void vscode.commands.executeCommand("setContext", "foxxycode.editorPanelActive", true);
@@ -293,6 +320,7 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
       onUrl: this.onUrl,
       onRetry: () => void this.start(),
       onOpenSettings: () => void openSettingsUi(),
+      onSpaLocale,
     });
     void this.start();
   }
@@ -304,6 +332,8 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
     controller.showStatus(t("process.status.starting"));
     try {
       const { baseUrl } = await startServer("start");
+      await fetchBackendLocale(baseUrl);
+      syncLocaleContext();
       await controller.setBaseUrl(baseUrl);
       this.diffService.startIfNeeded(baseUrl);
       editorStateService?.startIfNeeded(baseUrl);

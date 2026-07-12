@@ -107,6 +107,7 @@ type SessionMeta struct {
 	AgentMemory       string `json:"agentMemory,omitempty"`
 	Title             string `json:"title,omitempty"`
 	TitlePinned       string `json:"titlePinned,omitempty"`
+	TitleAuto         string `json:"titleAuto,omitempty"`
 	UpdatedAt         string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
@@ -395,6 +396,7 @@ func (f *FileStore) Save(state *State) error {
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
+		TitleAuto:         strings.TrimSpace(state.GetTitleAuto()),
 		UpdatedAt:         updatedAt,
 	}
 	if state.GetSchedulerRun() {
@@ -493,9 +495,13 @@ func stripFoxxyCodeSessionAssetsXML(s string) string {
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.
+// Precedence: user pin > LLM auto-title > first-user-message derived title.
 func persistedConversationTitle(s *State) string {
 	if p := strings.TrimSpace(s.GetTitlePinned()); p != "" {
 		return p
+	}
+	if a := strings.TrimSpace(s.GetTitleAuto()); a != "" {
+		return a
 	}
 	return deriveSessionTitle(s)
 }

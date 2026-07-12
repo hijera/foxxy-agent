@@ -1,8 +1,12 @@
 // Localized strings for the FoxxyCode VS Code extension.
 //
 // Mirrors editors/intellij/src/main/resources/messages/FoxxyCodeBundle{,_ru}.properties 1:1.
-// Resolution order: explicit `foxxycode.language` setting ("en" / "ru"), or `vscode.env.language`
-// when set to "system". Missing keys fall back to English.
+// Resolution order: explicit backend `ui.locale` from config.yaml (the single
+// app-wide language switcher, SPA Settings → General), or `vscode.env.language`
+// when the config says auto. See i18n/localeState.ts. Missing keys fall back
+// to English.
+
+import { resolveLocale } from "./localeState";
 
 export type Locale = "en" | "ru";
 
@@ -18,9 +22,6 @@ const en = {
   "settings.checkbox.followTheme": "Match FoxxyCode UI theme to the VS Code color theme",
   "settings.checkbox.nativeDiffs": "Show native inline diffs in the editor when the agent edits files",
   "settings.checkbox.autoApprove": "Auto-apply edits without asking (still shows the diff, with Revert)",
-  "settings.language.system": "System",
-  "settings.language.en": "English",
-  "settings.language.ru": "Русский",
 
   // First-run
   "firstrun.body": "The foxxycode agent binary is bundled with the FoxxyCode extension and ready to use. The FoxxyCode view in the activity bar will start it automatically. Optional: configure host, port, FoxxyCode home, or override the binary path in Settings.",
@@ -89,9 +90,6 @@ const ru: Record<MessageKey, string> = {
   "settings.checkbox.followTheme": "Подстраивать тему FoxxyCode UI под тему VS Code",
   "settings.checkbox.nativeDiffs": "Показывать нативные inline-диффы в редакторе при правках агента",
   "settings.checkbox.autoApprove": "Применять правки без запроса (дифф всё равно показывается, с возможностью отката)",
-  "settings.language.system": "Системный",
-  "settings.language.en": "English",
-  "settings.language.ru": "Русский",
 
   "firstrun.body": "Бинарник агента foxxycode встроен в расширение FoxxyCode и готов к работе. Вид FoxxyCode в активити-баре запустит его автоматически. При необходимости настройте хост, порт, домашнюю папку FoxxyCode или путь к бинарнику в настройках.",
   "firstrun.openSettings": "Открыть настройки",
@@ -150,18 +148,10 @@ export function setLocale(locale: Locale): void {
   currentLocale = locale;
 }
 
-/** Resolve the active locale from the `foxxycode.language` setting value. */
-export function localeFromSetting(setting: string, envLanguage: string): Locale {
-  if (setting === "en") return "en";
-  if (setting === "ru") return "ru";
-  // "system" or anything else: follow the host environment language.
-  const tag = (envLanguage || "en").toLowerCase();
-  return tag.startsWith("ru") ? "ru" : "en";
-}
-
-/** SPA locale id passed as `?lang=` ("en" or "ru"). Same mapping as the IntelliJ plugin. */
-export function spaLanguageCode(setting: string, envLanguage: string): "en" | "ru" {
-  return localeFromSetting(setting, envLanguage);
+/** SPA locale id passed as `?lang=` ("en" or "ru"). Same mapping as the IntelliJ plugin:
+ *  explicit backend `ui.locale` wins, else the host environment language. */
+export function spaLanguageCode(envLanguage: string): "en" | "ru" {
+  return resolveLocale(envLanguage);
 }
 
 /** Format a message with `{0}`, `{1}`, … placeholders. */

@@ -1,59 +1,30 @@
-export type TitleSuggestDeps = {
-  userText: string;
-  /** Resolves once the persisted session ID for PATCH is known (usually after `/v1/responses` headers). */
+export type SessionTitleRefreshDeps = {
+  /** Resolves once the persisted session ID is known (usually after `/v1/responses` headers). */
   sessionIdPromise: Promise<string>;
-  /** Best current session id for UI (provisional id, then header id once known). */
-  getPreviewSessionId?: () => string;
-  /** Fires as soon as describe returns a non-empty `short`, before PATCH. */
-  onShortReady?: (sessionId: string, title: string) => void;
-  fetchImpl?: typeof fetch;
-  onApplied?: (sessionId: string, title: string) => void;
+  /** Reloads session metadata (title) from the backend for the given session. */
+  refresh: (sessionId: string) => void;
+  /** Delays (ms after the id is known) at which to refresh; defaults cover a few seconds. */
+  delaysMs?: number[];
+  /** Test seam for scheduling; defaults to window.setTimeout. */
+  schedule?: (fn: () => void, ms: number) => void;
 };
 
-async function delay(ms: number): Promise<void> {
-  await new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-/** Fire-and-forget: POST `/foxxycode/describe` without blocking, then PATCH title when describe and session ID are ready. */
-export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
-  const fetchFn = deps.fetchImpl ?? fetch;
-  const trimmed = deps.userText.trim();
-  if (!trimmed) {
-    return;
-  }
+/**
+ * The backend hidden "title" agent generates an LLM session title asynchronously after the first
+ * exchange and persists it. This schedules a few backend refreshes so the freshly generated title
+ * surfaces in the UI shortly after it lands, without the frontend generating or pinning a title.
+ */
+export function scheduleSessionTitleRefresh(
+  deps: SessionTitleRefreshDeps,
+): void {
+  const delays = deps.delaysMs ?? [1000, 2500, 5000, 9000];
+  const schedule =
+    deps.schedule ??
+    ((fn: () => void, ms: number) => {
+      window.setTimeout(fn, ms);
+    });
 
   void (async () => {
-    let describeRes: Response;
-    try {
-      describeRes = await fetchFn("/foxxycode/describe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed }),
-      });
-    } catch {
-      return;
-    }
-    if (!describeRes.ok) {
-      return;
-    }
-    let short = "";
-    try {
-      const data = (await describeRes.json()) as { short?: string };
-      short = (data.short || "").trim();
-    } catch {
-      return;
-    }
-    if (!short) {
-      return;
-    }
-
-    const previewId = (deps.getPreviewSessionId?.() ?? "").trim();
-    if (previewId && deps.onShortReady) {
-      deps.onShortReady(previewId, short);
-    }
-
     let sid: string;
     try {
       sid = (await deps.sessionIdPromise).trim();
@@ -63,27 +34,8 @@ export function startSuggestSessionTitle(deps: TitleSuggestDeps): void {
     if (!sid) {
       return;
     }
-
-    for (let attempt = 0; attempt < 40; attempt++) {
-      let patchRes: Response;
-      try {
-        patchRes = await fetchFn(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: short }),
-        });
-      } catch {
-        await delay(100);
-        continue;
-      }
-      if (patchRes.ok) {
-        deps.onApplied?.(sid, short);
-        return;
-      }
-      if (patchRes.status !== 404) {
-        return;
-      }
-      await delay(100);
+    for (const ms of delays) {
+      schedule(() => deps.refresh(sid), ms);
     }
   })();
 }

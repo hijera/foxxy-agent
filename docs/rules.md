@@ -19,7 +19,7 @@ When `rules.auto_discover` is true (default), FoxxyCode scans:
 
 | Source | Path |
 |--------|------|
-| FoxxyCode | `.foxxycode/rules/` |
+| FoxxyCode | `.foxxyrules` or `.foxyrules` (single file **or** directory), and `.foxxycode/rules/` |
 | Cursor | `.cursor/rules/` |
 | Claude | `.claude/rules/` |
 | Codex | `.codex/rules/` (markdown only in v1) |
@@ -28,6 +28,14 @@ When `rules.auto_discover` is true (default), FoxxyCode scans:
 Duplicate rule files (same basename) resolve with precedence: **foxxycode > cursor > claude > codex > agents**. Nested `AGENTS.md` files are keyed by full path, so they never collapse into each other.
 
 Nested `AGENTS.md` files are always-loaded: no frontmatter, no globs, active immediately. The **root** `AGENTS.md` is not part of this set — it already enters the prompt unconditionally as a project docs preamble (below).
+
+### `.foxxyrules` / `.foxyrules` (top-level project rules)
+
+Cline-style top-level project rules. Each root is accepted as **either** a single file **or** a directory:
+
+- **Single file** (`.foxxyrules` / `.foxyrules`) without frontmatter is **always-loaded** for the session. With frontmatter it honors `globs` / `alwaysApply` like any other rule.
+- **Directory** (`.foxxyrules/*.md`) loads its markdown files like the `.foxxycode/rules/` catalog.
+- `.foxyrules` (one `x`) is an exact alias of `.foxxyrules`. Both count as the **FoxxyCode** source and win basename ties over cursor/claude/codex/agents.
 
 CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog.
 

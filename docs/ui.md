@@ -13,6 +13,21 @@ This page captures the original UI requirements and the intended end state. It i
 - **`color-mix()`** is allowed in `styles.css` **sources** only in the build-resolvable form (**`in srgb`**, arguments statically resolvable per theme — hex/rgb()/`transparent`/`var()` chains). `external/ui/postcss-resolve-color-mix.mjs` compiles every occurrence to Chromium-104-safe literals or per-theme **`--cmix-*`** variables; the build fails on unresolvable expressions.
 - **`npm --prefix external/ui run check:compat`** (part of **`build:go`**) scans the built bundle and fails on baseline regressions.
 
+## Settings sections: General & Appearance
+
+The Settings screen leads with two synthetic client-side tabs before the
+schema-derived config tabs:
+
+- **General** — the single app-wide **Language** picker (Auto / English / Russian).
+  It persists to the backend config (`ui.locale`) and is the only language
+  switcher across browser, desktop, and the VS Code / IntelliJ plugins (see
+  [`docs/intellij-embedding.md`](intellij-embedding.md)). The default tab.
+- **Appearance** — theme only (see below), plus the "Restart onboarding" button.
+
+The raw `ui` config key is hidden from the schema-driven tabs (`HIDDEN_KEYS` in
+`settingsSections.ts`) so the language control is not duplicated; the key still
+round-trips through the footer Save because the whole config doc is PUT back.
+
 ## Appearance (light / dark theme)
 
 - **Default:** dark theme on first visit.

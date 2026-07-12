@@ -9,10 +9,7 @@ import {
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { contextUsagePercent } from "./chat/contextUsage";
-import {
-  HERO_ACCENT_VERBS,
-  pickHeroAccentVerb,
-} from "./chat/heroTitleWords";
+import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
@@ -61,7 +58,11 @@ import {
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
-import { injectBranchNavItems, deduplicateBranchNavs, type BranchPointData } from "./chat/branchInject";
+import {
+  injectBranchNavItems,
+  deduplicateBranchNavs,
+  type BranchPointData,
+} from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import {
@@ -86,7 +87,10 @@ import {
   pickDefaultLlmModelForNewChat,
   pickLlmModelForOpenSession,
 } from "./chat/llmModelSelection";
-import { readReasoningCookie, writeReasoningCookie } from "./chat/reasoningCookie";
+import {
+  readReasoningCookie,
+  writeReasoningCookie,
+} from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import {
@@ -104,7 +108,7 @@ import {
   type ClientDraftSession,
 } from "./sessions/draftSessions";
 import { isRedundantSessionPick } from "./sessions/pickSessionGuard";
-import { startSuggestSessionTitle } from "./sessionTitleSuggest";
+import { scheduleSessionTitleRefresh } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
   extractSessionAssetsXml,
@@ -116,7 +120,11 @@ import {
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "./skills/workspaceAtRecents";
-import { schedulerCancelJob, schedulerListJobs, schedulerRunJob } from "./scheduler/api";
+import {
+  schedulerCancelJob,
+  schedulerListJobs,
+  schedulerRunJob,
+} from "./scheduler/api";
 import {
   parseAppHash,
   setDraftHashInLocation,
@@ -194,7 +202,9 @@ type ToolCallListRow = {
   resultPreviewTruncated?: boolean;
 };
 
-function readMessageCreatedAtUTC(m: Record<string, unknown>): string | undefined {
+function readMessageCreatedAtUTC(
+  m: Record<string, unknown>,
+): string | undefined {
   const raw = m.created_at ?? m.createdAt;
   if (typeof raw !== "string") {
     return undefined;
@@ -272,6 +282,7 @@ type SessionStats = {
     mcp: number;
     subagents: number;
     conversation: number;
+    summary: number;
     estimatedTotal: number;
   };
 };
@@ -350,8 +361,12 @@ function memoryTranscriptFromApi(
       ? { persistDurationMs: row.persistDurationMs }
       : {}),
     ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
-    ...(typeof row.persistSaved === "boolean" ? { persistSaved: row.persistSaved } : {}),
-    ...(row.persistRelativePath ? { persistRelativePath: row.persistRelativePath } : {}),
+    ...(typeof row.persistSaved === "boolean"
+      ? { persistSaved: row.persistSaved }
+      : {}),
+    ...(row.persistRelativePath
+      ? { persistRelativePath: row.persistRelativePath }
+      : {}),
     ...(row.persistTitle ? { persistTitle: row.persistTitle } : {}),
     ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
     ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
@@ -615,10 +630,16 @@ export function App() {
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
-  const [editingUserMsgIdx, setEditingUserMsgIdx] = useState<number | null>(null);
+  const [editingUserMsgIdx, setEditingUserMsgIdx] = useState<number | null>(
+    null,
+  );
   const [editingAssetNote, setEditingAssetNote] = useState("");
-  const [editingFiles, setEditingFiles] = useState<{ name: string; mimeType: string }[]>([]);
-  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(null);
+  const [editingFiles, setEditingFiles] = useState<
+    { name: string; mimeType: string }[]
+  >([]);
+  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(
+    null,
+  );
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
@@ -636,9 +657,9 @@ export function App() {
     () => new Set(),
   );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
-  const [contextBreakdown, setContextBreakdown] = useState<
-    NonNullable<SessionStats["contextBreakdown"]> | null
-  >(null);
+  const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
+    SessionStats["contextBreakdown"]
+  > | null>(null);
 
   const applySessionStatsPayload = useCallback(
     (stats: SessionStats | null | undefined, viewing: boolean) => {
@@ -877,11 +898,7 @@ export function App() {
       applyStreamItemsForSession(key, (prev) => {
         const ridInner = p.requestId;
         const withoutStalePending = prev.filter(
-          (x) =>
-            !(
-              x.type === "question_prompt" &&
-              !x.resolved
-            ),
+          (x) => !(x.type === "question_prompt" && !x.resolved),
         );
         const withoutDup = withoutStalePending.filter(
           (x) =>
@@ -948,11 +965,7 @@ export function App() {
   );
 
   const resolveQuestionPrompt = useCallback(
-    (
-      sessionId: string,
-      itemId: string,
-      resolved: QuestionResolvedState,
-    ) => {
+    (sessionId: string, itemId: string, resolved: QuestionResolvedState) => {
       const key = sessionId.trim();
       if (!key) return;
       setQuestionPendingSids((prev) => {
@@ -973,9 +986,7 @@ export function App() {
           upsertQuestionPromptRecord(key, {
             requestId: hit.payload.requestId.trim(),
             payload: hit.payload,
-            ...(hit.resolved !== undefined
-              ? { resolved: hit.resolved }
-              : {}),
+            ...(hit.resolved !== undefined ? { resolved: hit.resolved } : {}),
           });
         }
         return next;
@@ -985,11 +996,7 @@ export function App() {
   );
 
   const resolvePermissionPrompt = useCallback(
-    (
-      sessionId: string,
-      itemId: string,
-      resolved: PermissionResolvedState,
-    ) => {
+    (sessionId: string, itemId: string, resolved: PermissionResolvedState) => {
       const key = sessionId.trim();
       if (!key) return;
       setPermissionPendingSids((prev) => {
@@ -1397,8 +1404,8 @@ export function App() {
         );
       }
     })();
-  // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelsEpoch]);
 
   useEffect(() => {
@@ -1526,12 +1533,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [
-    sessionsOpen,
-    schedulerOpen,
-    schedulerEditor,
-    closeSchedulerDrawer,
-  ]);
+  }, [sessionsOpen, schedulerOpen, schedulerEditor, closeSchedulerDrawer]);
 
   const loadSessionsList = useCallback(
     async (reset: boolean): Promise<SessionRow[] | null> => {
@@ -1572,7 +1574,9 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
-        setSessionsError(t("sessions.backendUnavailable", { status: res.status }));
+        setSessionsError(
+          t("sessions.backendUnavailable", { status: res.status }),
+        );
         return null;
       }
       setSessionsError(null);
@@ -1597,9 +1601,12 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetchJSON<Record<string, unknown>>("/foxxycode/config", {
-        headers,
-      });
+      const res = await fetchJSON<Record<string, unknown>>(
+        "/foxxycode/config",
+        {
+          headers,
+        },
+      );
       if (res.ok && res.data) {
         const policy = parseToolsPermissionPolicy(res.data);
         toolsPermissionPolicyRef.current = policy;
@@ -1607,6 +1614,9 @@ export function App() {
         const { applyStartupUiLocaleFromConfig, readUiLocaleFromConfigDoc } =
           await import("./i18n/localeConfig");
         applyStartupUiLocaleFromConfig(readUiLocaleFromConfigDoc(res.data));
+        const { setSendMode, readSendModeFromConfigDoc } =
+          await import("./i18n/sendModeConfig");
+        setSendMode(readSendModeFromConfigDoc(res.data));
       }
     })();
   }, [headers]);
@@ -1679,7 +1689,11 @@ export function App() {
 
   async function loadMessages(
     idOverride?: string,
-    opts?: { skipSetItems?: boolean; preserveOnError?: boolean; freshLoad?: boolean },
+    opts?: {
+      skipSetItems?: boolean;
+      preserveOnError?: boolean;
+      freshLoad?: boolean;
+    },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
     if (!sid) {
@@ -1821,9 +1835,7 @@ export function App() {
               expanded: false,
               ...(pd.path ? { path: String(pd.path) } : {}),
               ...(pd.discarded === true ? { discarded: true } : {}),
-              ...(pd.updatedAt
-                ? { updatedAtUtc: String(pd.updatedAt) }
-                : {}),
+              ...(pd.updatedAt ? { updatedAtUtc: String(pd.updatedAt) } : {}),
             });
           }
         }
@@ -2021,10 +2033,12 @@ export function App() {
         { headers: sid === sessionId ? headers : { [HDR]: sid } },
       );
       if (brRes.ok && brRes.data?.branchPoints?.length) {
-        withBranches = deduplicateBranchNavs(injectBranchNavItems(
-          applied.filter((it) => it.type !== "branch_nav"),
-          brRes.data.branchPoints,
-        ));
+        withBranches = deduplicateBranchNavs(
+          injectBranchNavItems(
+            applied.filter((it) => it.type !== "branch_nav"),
+            brRes.data.branchPoints,
+          ),
+        );
         if (sid === viewedSessionIdRef.current.trim()) {
           setSessionHashInLocation(sid, { historySidebar: sessionsOpen });
         }
@@ -2142,7 +2156,9 @@ export function App() {
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
+      armSessionDeleteBackdropSuppressUntil(
+        sessionDeleteBackdropSuppressUntilRef,
+      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2155,7 +2171,9 @@ export function App() {
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
+    armSessionDeleteBackdropSuppressUntil(
+      sessionDeleteBackdropSuppressUntilRef,
+    );
     clearQuestionPromptRecords(id);
     await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -2178,7 +2196,13 @@ export function App() {
     const showBranchError = (msg: string) => {
       applyStreamItemsForSession(sourceSid, (prev) => [
         ...prev,
-        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg, createdAtUtc: new Date().toISOString() },
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level: "error" as const,
+          message: msg,
+          createdAtUtc: new Date().toISOString(),
+        },
       ]);
     };
 
@@ -2197,15 +2221,19 @@ export function App() {
         try {
           const body = (await res.json()) as { error?: { message?: string } };
           if (body?.error?.message) errMsg = body.error.message;
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         showBranchError(errMsg);
         return;
       }
       data = (await res.json()) as { newSessionId?: string };
     } catch (err) {
-      showBranchError(t("app.branchCreationError", {
-        error: err instanceof Error ? err.message : String(err),
-      }));
+      showBranchError(
+        t("app.branchCreationError", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
       return;
     }
     const newSid = (data.newSessionId || "").trim();
@@ -2249,13 +2277,17 @@ export function App() {
             );
             if (brRes.ok && brRes.data?.branchPoints?.length) {
               applyStreamItemsForSession(branchSid, (prev) =>
-                deduplicateBranchNavs(injectBranchNavItems(
-                  prev.filter((it) => it.type !== "branch_nav"),
-                  brRes.data!.branchPoints!,
-                )),
+                deduplicateBranchNavs(
+                  injectBranchNavItems(
+                    prev.filter((it) => it.type !== "branch_nav"),
+                    brRes.data!.branchPoints!,
+                  ),
+                ),
               );
               if (branchSid === viewedSessionIdRef.current.trim()) {
-                setSessionHashInLocation(branchSid, { historySidebar: sessionsOpen });
+                setSessionHashInLocation(branchSid, {
+                  historySidebar: sessionsOpen,
+                });
               }
             }
           } catch {
@@ -2279,18 +2311,18 @@ export function App() {
       if (!skipLeaf) {
         // Resolve the most-recently-active leaf in the branch tree.
         // If a more recent thread exists, navigate there instead of loading this one.
-        const leafId = await resolveLatestLeaf(
-          sessionId,
-          async (sid) => {
-            const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-              `/foxxycode/sessions/${encodeURIComponent(sid)}/branches`,
-              { headers: { [HDR]: sid } },
-            );
-            return r.ok ? (r.data ?? null) : null;
-          },
-        );
+        const leafId = await resolveLatestLeaf(sessionId, async (sid) => {
+          const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
+            `/foxxycode/sessions/${encodeURIComponent(sid)}/branches`,
+            { headers: { [HDR]: sid } },
+          );
+          return r.ok ? (r.data ?? null) : null;
+        });
         if (lifecycle.signal.aborted) return;
-        if (leafId !== sessionId && viewedSessionIdRef.current.trim() === sessionId) {
+        if (
+          leafId !== sessionId &&
+          viewedSessionIdRef.current.trim() === sessionId
+        ) {
           openSessionFromRoute(leafId, { historySidebar: sessionsOpen });
           return;
         }
@@ -2459,8 +2491,9 @@ export function App() {
       setItems([...baseline]);
     }
 
-    const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
-      applyStreamItemsForSession(key, fn);
+    const applyStreamItems = (
+      fn: (prev: TranscriptItem[]) => TranscriptItem[],
+    ) => applyStreamItemsForSession(key, fn);
 
     const branchTokenUsage = (u: TokenUsage | null) => {
       if (u === null) return;
@@ -2500,6 +2533,8 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onCompaction: () =>
+          debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
       });
 
       const syncAssistantFromServer = async () => {
@@ -2516,7 +2551,9 @@ export function App() {
             const c = (m.content || "").trim();
             if (c) {
               last = c;
-              lastCreated = readMessageCreatedAtUTC(m as Record<string, unknown>);
+              lastCreated = readMessageCreatedAtUTC(
+                m as Record<string, unknown>,
+              );
             }
           }
           if (!last) return false;
@@ -2623,21 +2660,23 @@ export function App() {
         sid = randomSessionId();
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
         if (activeDraftId.trim()) {
-          setClientDraftSessions(removeClientDraftSession(activeDraftId.trim()));
+          setClientDraftSessions(
+            removeClientDraftSession(activeDraftId.trim()),
+          );
           setActiveDraftId("");
         }
         openSessionFromRoute(sid);
       }
       sidEffective = sid;
-      let latestPreviewSid = sid;
       postSessionKey = sid.trim();
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       relayAbortBySidRef.current.get(postSessionKey)?.abort();
       relayAbortBySidRef.current.delete(postSessionKey);
 
       let streamKey = postSessionKey;
-      const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
-        applyStreamItemsForSession(streamKey, fn);
+      const applyStreamItems = (
+        fn: (prev: TranscriptItem[]) => TranscriptItem[],
+      ) => applyStreamItemsForSession(streamKey, fn);
 
       const branchTokenUsage = (u: TokenUsage | null) => {
         if (u === null) return;
@@ -2648,29 +2687,13 @@ export function App() {
       };
 
       if (isNewChatFirstSend && sessionIdWhenKnown) {
-        startSuggestSessionTitle({
-          userText: text,
+        // The backend hidden "title" agent generates and persists an LLM session title after the
+        // first exchange (for all clients). Refresh the list a few times so it surfaces in the UI
+        // once it lands. The frontend no longer generates or pins a title itself.
+        scheduleSessionTitleRefresh({
           sessionIdPromise: sessionIdWhenKnown,
-          getPreviewSessionId: () => latestPreviewSid,
-          onShortReady: (cid, ttl) => {
-            setDescribePreview({ sessionId: cid, title: ttl });
-            setSessions((prev) => {
-              const i = prev.findIndex((s) => s.id === cid);
-              if (i >= 0) {
-                return prev.map((s) =>
-                  s.id === cid ? { ...s, title: ttl } : s,
-                );
-              }
-              return [{ id: cid, title: ttl }, ...prev];
-            });
-          },
-          onApplied: (id, appliedTitle) => {
-            setSessions((prev) =>
-              prev.map((s) =>
-                s.id === id ? { ...s, title: appliedTitle } : s,
-              ),
-            );
-            setDescribePreview((p) => (p?.sessionId === id ? null : p));
+          refresh: () => {
+            void loadSessionsList(true);
           },
         });
       }
@@ -2718,7 +2741,8 @@ export function App() {
         stream: true,
       };
       const atts = extractAtFileAttachments(text);
-      const profileModel = mode === "agent" || mode === "plan" || mode === "docs";
+      const profileModel =
+        mode === "agent" || mode === "plan" || mode === "docs";
       if (atts.length > 0 && profileModel) {
         reqBody.attachments = atts;
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
@@ -2730,13 +2754,18 @@ export function App() {
         const inlineFiles = await Promise.all(
           opts.files.map(
             (f) =>
-              new Promise<{ name: string; data_url: string }>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () =>
-                  resolve({ name: f.name, data_url: reader.result as string });
-                reader.onerror = reject;
-                reader.readAsDataURL(f);
-              }),
+              new Promise<{ name: string; data_url: string }>(
+                (resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () =>
+                    resolve({
+                      name: f.name,
+                      data_url: reader.result as string,
+                    });
+                  reader.onerror = reject;
+                  reader.readAsDataURL(f);
+                },
+              ),
           ),
         );
         reqBody.inline_files = inlineFiles;
@@ -2817,7 +2846,6 @@ export function App() {
         removeActiveComposer(oldKey);
         addActiveComposer(postSessionKey);
       }
-      latestPreviewSid = sidEffective;
       releaseSessionId?.(sidEffective);
 
       if (!res.ok || !res.body) {
@@ -2863,6 +2891,8 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onCompaction: () =>
+          debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
       });
 
       const syncAssistantFromServer = async () => {
@@ -2879,7 +2909,9 @@ export function App() {
             const c = (m.content || "").trim();
             if (c) {
               last = c;
-              lastCreated = readMessageCreatedAtUTC(m as Record<string, unknown>);
+              lastCreated = readMessageCreatedAtUTC(
+                m as Record<string, unknown>,
+              );
             }
           }
           if (!last) return false;
@@ -3270,10 +3302,7 @@ export function App() {
       />
 
       <div
-        className={[
-          "shell-main",
-          sessionsOpen ? "shell-history-open" : "",
-        ]
+        className={["shell-main", sessionsOpen ? "shell-history-open" : ""]
           .filter(Boolean)
           .join(" ")}
         style={
@@ -3316,9 +3345,7 @@ export function App() {
             <SchedulerJobsDrawer
               open={schedulerOpen}
               selectedJobId={
-                schedulerEditor?.mode === "edit"
-                  ? schedulerEditor.jobId
-                  : null
+                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
               }
               className="scheduler-dock-drawer"
               onClose={closeSchedulerDrawer}

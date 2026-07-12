@@ -159,6 +159,115 @@ func TestDiscoverAgentsMDSystemsFilter(t *testing.T) {
 	}
 }
 
+func TestDiscoverFoxxyRulesSingleFile(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("FOXXYRULES_FILE_BODY"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory().Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 rule, got %d: %+v", len(got), got)
+	}
+	r := got[0]
+	if r.Source != rules.SourceFoxxyCode {
+		t.Fatalf("source = %q, want foxxycode", r.Source)
+	}
+	if !r.AlwaysApply || r.ApplyMode != rules.ApplyAuto {
+		t.Fatalf("single .foxxyrules must be always-loaded auto: %+v", r)
+	}
+	if r.CanonicalName() != "foxxyrules" {
+		t.Fatalf("canonical name = %q, want foxxyrules", r.CanonicalName())
+	}
+	if !strings.Contains(r.Content, "FOXXYRULES_FILE_BODY") {
+		t.Fatalf("content = %q", r.Content)
+	}
+}
+
+func TestDiscoverFoxxyRulesDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, ".foxxyrules")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "a.md"), []byte("rule a"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "b.md"), []byte("rule b"), 0o644)
+	got, err := rules.DefaultFactory().Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 rules from .foxxyrules dir, got %d: %+v", len(got), got)
+	}
+	for _, r := range got {
+		if r.Source != rules.SourceFoxxyCode {
+			t.Fatalf("source = %q, want foxxycode", r.Source)
+		}
+	}
+}
+
+func TestDiscoverFoxyRulesAlias(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxyrules"), []byte("ALIAS_BODY"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory().Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(got))
+	}
+	if got[0].CanonicalName() != "foxyrules" {
+		t.Fatalf("canonical name = %q, want foxyrules", got[0].CanonicalName())
+	}
+	if !strings.Contains(got[0].Content, "ALIAS_BODY") {
+		t.Fatalf("content = %q", got[0].Content)
+	}
+}
+
+func TestFoxxyRulesInRenderPrompt(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("PROMPT_MARKER"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := rules.DefaultFactory().Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auto := rules.MatchAuto(catalog, nil)
+	out := rules.RenderPrompt(tmp, auto, nil)
+	if !strings.Contains(out, "## Active project rules") {
+		t.Fatalf("missing active rules block: %q", out)
+	}
+	if !strings.Contains(out, "PROMPT_MARKER") {
+		t.Fatalf("prompt missing .foxxyrules body: %q", out)
+	}
+}
+
+func TestFoxxyRulesSystemsFilter(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, ".foxxyrules"), []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"foxxycode"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("foxxycode filter must include .foxxyrules, got %d", len(got))
+	}
+	got, err = rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"cursor"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("cursor filter must exclude .foxxyrules, got %d", len(got))
+	}
+}
+
 func TestParseAtMentions(t *testing.T) {
 	names := rules.ParseAtMentions("Use @foo in text")
 	if len(names) != 1 || names[0] != "foo" {

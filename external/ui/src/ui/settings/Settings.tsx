@@ -262,11 +262,11 @@ export function Settings(props: {
       );
     }
     if (!loadErr) {
-      // Appearance is client-side content (the theme picker), available before
-      // the config schema loads. Render it in the normal scroll flow — NOT the
-      // centered `settings-scroll-placeholder` used for the "Loading…" spinner,
-      // which shrinks and off-centers the swatch grid.
-      if (section && section.kind === "appearance") {
+      // General (language picker) and Appearance (theme picker) are client-side
+      // content, available before the config schema loads. Render them in the
+      // normal scroll flow — NOT the centered `settings-scroll-placeholder` used
+      // for the "Loading…" spinner, which shrinks and off-centers the content.
+      if (section && (section.kind === "appearance" || section.kind === "general")) {
         return (
           <div className="settings-scroll">
             <div className="settings-body">

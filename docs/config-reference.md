@@ -109,6 +109,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 | `agent_prompt` | string | no | `agent.md` | Template file name for agent mode, inside `dir`. |
 | `plan_prompt` | string | no | `plan.md` | Template file name for plan mode, inside `dir`. |
 | `docs_prompt` | string | no | `docs.md` | Template file name for docs mode, inside `dir`. |
+| `per_provider.enabled` | bool | no | `true` | Select a system prompt tuned to the active model for the current mode, resolved most-specific first: per-model `<mode>.<model-slug>.md` -> per-family `<mode>.<family>.md` -> shared `<mode>.md`. The model slug is the model-list id with unsafe characters replaced by `-` (e.g. `openai/gpt-4o` -> `agent.openai-gpt-4o.md` or `plan.openai-gpt-4o.md`). Families: `anthropic`, `openai`, `gemini`, `gpt-oss`, `qwen`, `gemma`, `neuraldeep`. Family defaults are built in; drop your own `agent.<family>.md`, `plan.<family>.md`, or per-model variant into `dir` to override. |
 
 ## `instructions`
 
@@ -201,6 +202,28 @@ Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; im
 | `copilot_max_tokens` | int | no | `4096` | Completion cap for memory LLM calls. |
 | `max_search_hits` | int | no | `8` | Max snippets returned by `memory_search`. |
 
+## `compaction`
+
+Automatic context compaction (`config.CompactionConfig`, `internal/config/compaction.go`; always compiled). When the running prompt approaches the model's context window (`models[].max_context_tokens`), older turns are summarized into one message so the session can continue. The summarized messages stay in the transcript (marked compacted) but are excluded from what is sent to the model.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Turn on auto-compaction. Unset defaults to `true`; set `false` to disable. |
+| `model` | string | no | `""` (agent model) | Exact `models[].model` id used for the summarization pass. |
+| `threshold_percent` | int | no | `85` | Trigger when prompt tokens exceed this percent of the usable context (`max_context_tokens - max_tokens`). Clamped to 50..99. |
+| `keep_last_turns` | int | no | `2` | Most recent user turns preserved verbatim (never summarized). |
+| `max_tokens` | int | no | `4096` | Completion token cap for the summary generation. |
+
+## `title`
+
+Automatic session title generation (`config.TitleConfig`, `internal/config/title.go`; always compiled). After the first exchange in a fresh, non-pinned session, a hidden internal "title" agent generates a short thread title. It runs backend-side so every client (SPA, IntelliJ, VS Code, ACP, CLI) gets the title, pushed live over the session-update stream. A user-pinned title always wins and is never overwritten; the auto-title is generated at most once per session.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Turn on auto-title generation. Unset defaults to `true`; set `false` to disable. |
+| `model` | string | no | `""` (agent model) | Exact `models[].model` id used for the title pass. A small, cheap model is a good choice. |
+| `max_tokens` | int | no | `64` | Completion token cap for the title generation. |
+
 ## `httpserver`
 
 OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config/http.go`; `http` build tag). See [http-api.md](http-api.md).
@@ -247,6 +270,18 @@ Embedded SPA preferences (`config.UIConfig`, `internal/config/ui.go`). Used by t
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `locale` | string | no | `""` (auto) | — | UI language: empty (auto-detect system/browser locale), `en`, or `ru`. |
+| `send_mode` | string | no | `enter` | — | How the main chat composer submits: `enter` (Enter sends, Shift/Ctrl+Enter insert a newline), `ctrl_enter` (Ctrl/Cmd+Enter sends, Enter inserts a newline), or `off` (keyboard send disabled, Send button only). |
+
+## `browser`
+
+Interactive browser automation tool (`config.BrowserConfig`, `internal/config/browser.go`). Drives a local Chrome/Chromium over the DevTools Protocol via chromedp. Requires the `browser` build tag; disabled by default.
+
+| Field | Type | Required | Default | Env fallback | Description |
+|---|---|---|---|---|---|
+| `enabled` | bool | no | `false` | — | Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for builds compiled with the `browser` tag. |
+| `headless` | bool | no | `true` | — | Run the browser without a visible window. Set to `false` to watch the automated session. |
+| `executable_path` | string | no | `""` (auto) | — | Path to a specific Chrome/Chromium binary; empty lets chromedp auto-detect an installed browser. |
+| `timeout_seconds` | int | no | `30` | — | Per-action timeout for navigation, clicks, and other browser operations. |
 
 ## Related environment variables
 

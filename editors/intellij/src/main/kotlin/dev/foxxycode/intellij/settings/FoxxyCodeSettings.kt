@@ -38,9 +38,6 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
 
         // Report open terminals + their recent output to the agent each turn (and for @terminal).
         var trackTerminals: Boolean = true
-
-        // UI language: "system" | "en" | "ru". "system" follows Locale.getDefault().
-        var language: String = "system"
     }
 
     private var myState = State()

@@ -54,6 +54,86 @@
         "llm_min_interval_ms"
       ]
     },
+    "browser": {
+      "additionalProperties": false,
+      "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
+      "properties": {
+        "enabled": {
+          "description": "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "executable_path": {
+          "description": "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser.",
+          "title": "Browser executable",
+          "type": "string"
+        },
+        "headless": {
+          "default": true,
+          "description": "Run the browser without a visible window. Enabled by default; disable to watch the automated session.",
+          "title": "Headless",
+          "type": "boolean"
+        },
+        "timeout_seconds": {
+          "default": 30,
+          "description": "Per-action timeout for navigation, clicks, and other browser operations.",
+          "title": "Action timeout (seconds)",
+          "type": "integer"
+        }
+      },
+      "title": "Browser tool",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "headless",
+        "executable_path",
+        "timeout_seconds"
+      ]
+    },
+    "compaction": {
+      "additionalProperties": false,
+      "description": "Summarize older turns when the conversation approaches the model context window.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Turns on auto-compaction; only fires near the context window.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "keep_last_turns": {
+          "default": 2,
+          "description": "Most recent user turns preserved verbatim.",
+          "title": "Keep last turns",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "default": 4096,
+          "description": "Completion token cap for the summary generation.",
+          "title": "Summary max tokens",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Model override for the summary pass; empty uses agent model.",
+          "title": "Compaction model",
+          "type": "string"
+        },
+        "threshold_percent": {
+          "default": 85,
+          "description": "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99.",
+          "title": "Threshold percent",
+          "type": "integer"
+        }
+      },
+      "title": "Automatic context compaction",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "model",
+        "threshold_percent",
+        "keep_last_turns",
+        "max_tokens"
+      ]
+    },
     "gateways": {
       "additionalProperties": false,
       "description": "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
@@ -551,6 +631,23 @@
           "title": "Prompts directory",
           "type": "string"
         },
+        "per_provider": {
+          "additionalProperties": false,
+          "description": "Select a system prompt tuned to the active model family (falls back to the shared prompt).",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "Use a per-family prompt file (agent.\u003cfamily\u003e.md) when available.",
+              "title": "Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "Per-provider prompts",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled"
+          ]
+        },
         "plan_prompt": {
           "default": "plan.md",
           "description": "Filename for plan-mode system prompt.",
@@ -563,7 +660,8 @@
       "x-foxxycode-property-order": [
         "dir",
         "agent_prompt",
-        "plan_prompt"
+        "plan_prompt",
+        "per_provider"
       ]
     },
     "providers": {
@@ -717,6 +815,36 @@
         "dirs"
       ]
     },
+    "title": {
+      "additionalProperties": false,
+      "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Turns on backend auto-title generation for all clients.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_tokens": {
+          "default": 64,
+          "description": "Completion token cap for the title generation.",
+          "title": "Title max tokens",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Model override for the title pass; empty uses agent model. A small, cheap model is a good choice.",
+          "title": "Title model",
+          "type": "string"
+        }
+      },
+      "title": "Automatic session title",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "model",
+        "max_tokens"
+      ]
+    },
     "tools": {
       "additionalProperties": false,
       "description": "Filesystem and shell policy for built-in tools.",
@@ -762,12 +890,24 @@
           ],
           "title": "UI language",
           "type": "string"
+        },
+        "send_mode": {
+          "default": "enter",
+          "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
+          "enum": [
+            "enter",
+            "ctrl_enter",
+            "off"
+          ],
+          "title": "Sending messages",
+          "type": "string"
         }
       },
       "title": "UI",
       "type": "object",
       "x-foxxycode-property-order": [
-        "locale"
+        "locale",
+        "send_mode"
       ]
     }
   },
@@ -781,12 +921,15 @@
     "mcp_servers",
     "skills",
     "memory",
+    "compaction",
+    "title",
     "scheduler",
     "prompts",
     "instructions",
     "logger",
     "sessions",
     "gateways",
+    "browser",
     "ui"
   ]
 }

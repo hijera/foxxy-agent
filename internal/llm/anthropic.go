@@ -227,7 +227,23 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 
 		switch m.Role {
 		case RoleUser:
-			result = append(result, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
+			if len(m.ImageParts) > 0 {
+				var blocks []anthropic.ContentBlockParamUnion
+				if m.Content != "" {
+					blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+				}
+				for _, ip := range m.ImageParts {
+					if mediaType, b64, ok := splitImageDataURL(ip.DataURL); ok {
+						blocks = append(blocks, anthropic.NewImageBlockBase64(mediaType, b64))
+					}
+				}
+				if len(blocks) == 0 {
+					blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+				}
+				result = append(result, anthropic.NewUserMessage(blocks...))
+			} else {
+				result = append(result, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
+			}
 
 		case RoleAssistant:
 			var blocks []anthropic.ContentBlockParamUnion

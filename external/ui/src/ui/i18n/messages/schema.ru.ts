@@ -50,13 +50,13 @@ export const schemaTextRu: Record<string, string> = {
   "Max tokens": "Макс. токенов",
   "Upper bound on completion tokens the model may emit for one assistant message.":
     "Верхняя граница токенов ответа, которые модель может выдать в одном сообщении ассистента.",
-  "Temperature": "Температура",
+  Temperature: "Температура",
   "Sampling temperature for this logical model (0 = deterministic, higher = more random).":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
   "Max context tokens (UI hint)": "Макс. токенов контекста (подсказка UI)",
   "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.":
     "Необязательная подсказка UI для полосы контекста композера; 0 означает вывести из метаданных провайдера, если доступно.",
-  "Multimodal": "Мультимодальность",
+  Multimodal: "Мультимодальность",
   "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.":
     "Если включено, модель принимает изображения или файлы в дополнение к тексту. Интерфейс предложит прикрепление файлов для сообщений, отправляемых этой моделью.",
   "Reasoning levels": "Уровни рассуждения",
@@ -76,19 +76,19 @@ export const schemaTextRu: Record<string, string> = {
   "Server name": "Имя сервера",
   "Stable id referenced by the agent; must be unique in this list.":
     "Стабильный id, на который ссылается агент; должен быть уникальным в этом списке.",
-  "Command": "Команда",
+  Command: "Команда",
   "Executable for stdio transport (leave empty when using http url).":
     "Исполняемый файл для транспорта stdio (оставьте пустым при использовании http url).",
-  "Arguments": "Аргументы",
+  Arguments: "Аргументы",
   "Argv passed after command for stdio MCP servers.":
     "Аргументы (argv), передаваемые после команды для stdio-серверов MCP.",
-  "Environment": "Окружение",
+  Environment: "Окружение",
   "Extra environment variables for the stdio child process.":
     "Дополнительные переменные окружения для дочернего stdio-процесса.",
   "Variable name": "Имя переменной",
   "Environment variable name passed to the MCP process.":
     "Имя переменной окружения, передаваемой процессу MCP.",
-  "Value": "Значение",
+  Value: "Значение",
   "Variable value.": "Значение переменной.",
   "MCP URL": "URL MCP",
   "HTTP(S) endpoint when type selects an HTTP-based MCP server.":
@@ -137,7 +137,7 @@ export const schemaTextRu: Record<string, string> = {
     "Если список не пуст, без дополнительной политики могут выполняться только эти префиксы команд шелла.",
 
   // Skills
-  "Skills": "Навыки",
+  Skills: "Навыки",
   "Slash commands and skill packs discovered from these directories.":
     "Слэш-команды и наборы навыков, обнаруживаемые в этих каталогах.",
   "Skill directories": "Каталоги навыков",
@@ -169,8 +169,40 @@ export const schemaTextRu: Record<string, string> = {
   "Maximum snippets returned by memory search tools.":
     "Максимальное число фрагментов, возвращаемых инструментами поиска по памяти.",
 
+  // Compaction
+  "Automatic context compaction": "Автоматическое сжатие контекста",
+  "Summarize older turns when the conversation approaches the model context window.":
+    "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
+  "Turns on auto-compaction; only fires near the context window.":
+    "Включает авто-сжатие; срабатывает только у предела окна контекста.",
+  "Compaction model": "Модель сжатия",
+  "Model override for the summary pass; empty uses agent model.":
+    "Замена модели для прохода сводки; пусто — используется модель агента.",
+  "Threshold percent": "Порог, %",
+  "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99.":
+    "Срабатывает при этом проценте полезного контекста (max_context_tokens - max_tokens); 50..99.",
+  "Keep last turns": "Сохранять последних шагов",
+  "Most recent user turns preserved verbatim.":
+    "Сколько последних шагов пользователя сохраняется без изменений.",
+  "Summary max tokens": "Макс. токенов сводки",
+  "Completion token cap for the summary generation.":
+    "Лимит токенов ответа для генерации сводки.",
+
+  // Title
+  "Automatic session title": "Автоматический заголовок сессии",
+  "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.":
+    "Генерирует короткий заголовок диалога после первого обмена в новой, не закреплённой сессии.",
+  "Turns on backend auto-title generation for all clients.":
+    "Включает генерацию заголовка на бэкенде для всех клиентов.",
+  "Title model": "Модель заголовка",
+  "Model override for the title pass; empty uses agent model. A small, cheap model is a good choice.":
+    "Замена модели для прохода заголовка; пусто — используется модель агента. Хорошо подойдёт маленькая дешёвая модель.",
+  "Title max tokens": "Макс. токенов заголовка",
+  "Completion token cap for the title generation.":
+    "Лимит токенов ответа для генерации заголовка.",
+
   // Scheduler
-  "Scheduler": "Планировщик",
+  Scheduler: "Планировщик",
   "Cron-style scheduled jobs (requires scheduler build tag).":
     "Задачи по расписанию в стиле cron (требует сборки с тегом scheduler).",
   "When true, this process may run the scheduler daemon and REST.":
@@ -189,7 +221,7 @@ export const schemaTextRu: Record<string, string> = {
     "Сколько папок завершённых сессий планировщика хранить на каждый id задачи.",
 
   // Prompts
-  "Prompts": "Промпты",
+  Prompts: "Промпты",
   "Built-in system prompt files relative to dir.":
     "Встроенные файлы системных промптов относительно каталога.",
   "Prompts directory": "Каталог промптов",
@@ -201,31 +233,36 @@ export const schemaTextRu: Record<string, string> = {
   "Plan prompt file": "Файл промпта плана",
   "Filename for plan-mode system prompt.":
     "Имя файла системного промпта режима планирования.",
+  "Per-provider prompts": "Промпты по провайдеру",
+  "Select a system prompt tuned to the active model family (falls back to the shared prompt).":
+    "Выбирать системный промпт под семейство активной модели (с откатом на общий промпт).",
+  "Use a per-family prompt file (agent.<family>.md) when available.":
+    "Использовать файл промпта под семейство (agent.<family>.md), когда он есть.",
 
   // Instructions
-  "Instructions": "Инструкции",
+  Instructions: "Инструкции",
   "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).":
     "Файлы, читаемые из рабочего каталога сессии и добавляемые к системному промпту как инструкции проекта (совместимо с AGENTS.md).",
   "Instruction files": "Файлы инструкций",
   'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].':
-    "Имена файлов относительно CWD сессии для чтения как инструкций. По умолчанию [\"AGENTS.md\"].",
+    'Имена файлов относительно CWD сессии для чтения как инструкций. По умолчанию ["AGENTS.md"].',
 
   // Logger
-  "Logger": "Логирование",
+  Logger: "Логирование",
   "Process log level, outputs, and rotation.":
     "Уровень логов процесса, выводы и ротация.",
-  "Level": "Уровень",
+  Level: "Уровень",
   "Minimum severity written to configured outputs.":
     "Минимальная важность, записываемая в настроенные выводы.",
-  "Outputs": "Выводы",
+  Outputs: "Выводы",
   "Where log lines are written.": "Куда записываются строки логов.",
   "Log file path": "Путь к файлу лога",
   "Destination file when outputs include file.":
     "Файл назначения, когда в выводах указан file.",
-  "Format": "Формат",
+  Format: "Формат",
   "text for human logs; json for structured logs.":
     "text — для человекочитаемых логов; json — для структурированных.",
-  "Rotation": "Ротация",
+  Rotation: "Ротация",
   "Size-based rotation when logging to a file.":
     "Ротация по размеру при записи логов в файл.",
   "Max file size (MB)": "Макс. размер файла (МБ)",
@@ -236,7 +273,7 @@ export const schemaTextRu: Record<string, string> = {
     "Сколько ротированных сегментов хранить; 0 — значения логгера по умолчанию.",
 
   // Sessions
-  "Sessions": "Сессии",
+  Sessions: "Сессии",
   "Where persisted chat bundles are stored.":
     "Где хранятся сохранённые наборы чатов.",
   "Sessions directory": "Каталог сессий",
@@ -247,9 +284,9 @@ export const schemaTextRu: Record<string, string> = {
   "Messenger gateways": "Шлюзы мессенджеров",
   "Telegram bot gateway (requires the gateway or gateway.telegram build tag).":
     "Шлюз Telegram-бота (требует сборки с тегом gateway или gateway.telegram).",
-  "Telegram": "Telegram",
+  Telegram: "Telegram",
   "Telegram bot adapter settings.": "Настройки адаптера Telegram-бота.",
-  "Enabled": "Включено",
+  Enabled: "Включено",
   "Run the Telegram bot (requires the gateway or gateway.telegram build tag).":
     "Запускать Telegram-бота (требует сборки с тегом gateway или gateway.telegram).",
   "Bot token": "Токен бота",
@@ -258,10 +295,10 @@ export const schemaTextRu: Record<string, string> = {
   "Rich messages": "Rich-сообщения",
   "Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported.":
     "Использовать Rich Messages из Bot API 10.1: родной Markdown агента отображается как есть, активность инструментов стримится как заглушка «Размышление», а выполненные инструменты показываются в сворачиваемом блоке. При отсутствии поддержки — откат к устаревшему форматированию.",
-  "Proxy": "Прокси",
+  Proxy: "Прокси",
   "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.":
     "Необязательный исходящий прокси для запросов к Telegram API. Используйте http, https, socks5 или socks5h.",
-  "Admins": "Администраторы",
+  Admins: "Администраторы",
   "Telegram user IDs with elevated rights; admins always pass access checks.":
     "ID пользователей Telegram с повышенными правами; администраторы всегда проходят проверки доступа.",
   "Default access": "Доступ по умолчанию",
@@ -285,20 +322,39 @@ export const schemaTextRu: Record<string, string> = {
   "Chat ID": "ID чата",
   "Telegram chat id; negative for groups and supergroups.":
     "ID чата Telegram; отрицательный для групп и супергрупп.",
-  "Isolation": "Изоляция",
+  Isolation: "Изоляция",
   "Per-chat session isolation override.":
     "Переопределение изоляции сессий для чата.",
-  "Access": "Доступ",
+  Access: "Доступ",
   "Per-chat access override: all, admins, or group:<name>.":
     "Переопределение доступа для чата: all, admins или group:<name>.",
 
   // UI
-  "UI": "Интерфейс",
+  UI: "Интерфейс",
   "Embedded SPA preferences for desktop and HTTP UI.":
     "Настройки встроенного SPA для десктопа и HTTP-интерфейса.",
   "UI language": "Язык интерфейса",
   "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.":
     "Локаль интерфейса встроенного SPA. Пусто — автоопределение из системы или локали браузера.",
+  "Sending messages": "Отправка сообщений",
+  'How the main chat composer submits a message. "enter": Enter sends (Shift/Ctrl+Enter insert a newline). "ctrl_enter": Ctrl/Cmd+Enter sends (Enter inserts a newline). "off": disable keyboard send (Send button only).':
+    "Как основное окно чата отправляет сообщение. «enter»: отправка по Enter (Shift/Ctrl+Enter — перенос строки). «ctrl_enter»: отправка по Ctrl/Cmd+Enter (Enter — перенос строки). «off»: отправка с клавиатуры отключена (только кнопкой «Отправить»).",
+
+  // Browser tool
+  "Browser tool": "Инструмент браузера",
+  "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).":
+    "Интерактивный инструмент автоматизации браузера (требует build-тег browser; управляет локальным Chrome/Chromium через chromedp).",
+  "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.":
+    "Включает интерактивные инструменты браузера (navigate, click, fill, screenshot, ...) для поддерживаемых сборок.",
+  Headless: "Без окна (headless)",
+  "Run the browser without a visible window. Enabled by default; disable to watch the automated session.":
+    "Запускать браузер без видимого окна. Включено по умолчанию; отключите, чтобы наблюдать за сессией.",
+  "Browser executable": "Исполняемый файл браузера",
+  "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser.":
+    "Необязательный путь к конкретному бинарю Chrome/Chromium. Пусто — chromedp сам найдёт установленный браузер.",
+  "Action timeout (seconds)": "Таймаут действия (секунды)",
+  "Per-action timeout for navigation, clicks, and other browser operations.":
+    "Таймаут на каждое действие: навигацию, клики и прочие операции браузера.",
 };
 
 /**
@@ -336,4 +392,8 @@ export const schemaEnumLabelRu: Record<string, string> = {
   "": "Авто",
   en: "English",
   ru: "Русский",
+  // ui.send_mode
+  enter: "Enter",
+  ctrl_enter: "Ctrl+Enter",
+  off: "Отключено",
 };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { t as translate } from "../i18n/i18n";
 import { tSchemaText } from "../i18n/schemaStrings";
@@ -47,12 +47,37 @@ export function SettingsArraySection(props: {
   /** When true (desktop), the item form's back button shows the item's name
    * (provider / model) instead of the generic "Back to list". */
   backLabelUsesItemName?: boolean | undefined;
+  /** Extra action(s) rendered beside Add in the list view (e.g. provider Import). */
+  renderListExtraActions?:
+    | ((api: {
+        appendItems: (items: unknown[], focusPath?: string) => void;
+      }) => ReactNode)
+    | undefined;
+  /** Content rendered under the item form in the edit view (e.g. provider Export). */
+  renderItemFooter?:
+    | ((ctx: { item: Record<string, unknown>; index: number }) => ReactNode)
+    | undefined;
 }) {
   const { t } = useT();
   const { schema, value, onChange, labelField, fieldOverride } = props;
   const [view, setView] = useState<View>({ mode: "list" });
+  // Field path to focus once after opening an item form (set by appendItems).
+  const [pendingFocusPath, setPendingFocusPath] = useState<string | null>(null);
   const itemSchema = schema.items;
   const arr = Array.isArray(value) ? value : [];
+
+  // Append parsed items, then open the first new item's form, focusing the
+  // requested field (e.g. `api_key` right after an import). Kept generic:
+  // callers pre-reconcile item identity (name uniqueness) before appending.
+  const appendItems = (items: unknown[], focusPath?: string) => {
+    if (items.length === 0) {
+      return;
+    }
+    const firstNewIndex = arr.length;
+    onChange([...arr, ...items]);
+    setPendingFocusPath(focusPath ?? null);
+    setView({ mode: "edit", index: firstNewIndex });
+  };
 
   if (!itemSchema) {
     return <p className="settings-muted">{t("settings.noItemSchema")}</p>;
@@ -72,7 +97,10 @@ export function SettingsArraySection(props: {
             className="settings-btn settings-btn-back"
             data-testid="settings-detail-back"
             title={t("settings.backToList")}
-            onClick={() => setView({ mode: "list" })}
+            onClick={() => {
+              setPendingFocusPath(null);
+              setView({ mode: "list" });
+            }}
           >
             <span className="settings-btn-back-arrow" aria-hidden>
               ←
@@ -86,12 +114,16 @@ export function SettingsArraySection(props: {
           schema={itemSchema}
           value={item}
           fieldOverride={fieldOverride}
+          focusPath={pendingFocusPath ?? undefined}
           onChange={(nv) => {
             const next = [...arr];
             next[index] = nv;
             onChange(next);
           }}
         />
+        {props.renderItemFooter
+          ? props.renderItemFooter({ item, index })
+          : null}
       </div>
     );
   }
@@ -130,19 +162,25 @@ export function SettingsArraySection(props: {
           ))}
         </ul>
       )}
-      <button
-        type="button"
-        className="settings-btn settings-master-add"
-        data-testid="settings-master-add"
-        onClick={() => {
-          const seed = defaultForSchema(itemSchema);
-          const next = [...arr, seed];
-          onChange(next);
-          setView({ mode: "edit", index: next.length - 1 });
-        }}
-      >
-        {props.addLabel ?? t("settings.add")}
-      </button>
+      <div className="settings-master-actions">
+        <button
+          type="button"
+          className="settings-btn settings-master-add"
+          data-testid="settings-master-add"
+          onClick={() => {
+            const seed = defaultForSchema(itemSchema);
+            const next = [...arr, seed];
+            onChange(next);
+            setPendingFocusPath(null);
+            setView({ mode: "edit", index: next.length - 1 });
+          }}
+        >
+          {props.addLabel ?? t("settings.add")}
+        </button>
+        {props.renderListExtraActions
+          ? props.renderListExtraActions({ appendItems })
+          : null}
+      </div>
     </div>
   );
 }

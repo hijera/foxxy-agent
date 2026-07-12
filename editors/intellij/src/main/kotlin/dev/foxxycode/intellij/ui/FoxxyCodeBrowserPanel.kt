@@ -1,7 +1,13 @@
 package dev.foxxycode.intellij.ui
 
+import com.google.gson.JsonPrimitive
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
+import com.intellij.ide.dnd.DnDDropHandler
+import com.intellij.ide.dnd.DnDEvent
+import com.intellij.ide.dnd.DnDSupport
+import com.intellij.ide.dnd.DnDTargetChecker
+import com.intellij.ide.dnd.TransferableWrapper
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
@@ -14,7 +20,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefBrowserBase
+import com.intellij.ui.jcef.JBCefJSQuery
 import dev.foxxycode.intellij.FoxxyCodeBundle
+import dev.foxxycode.intellij.FoxxyCodeLocaleState
 import dev.foxxycode.intellij.FoxxyCodeNotifications
 import dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService
 import dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService
@@ -37,6 +46,8 @@ import javax.swing.SwingConstants
  */
 class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
     private var browser: JBCefBrowser? = null
+    /** JS→Kotlin channel: the SPA calls this when its locale changes (single app-wide switcher). */
+    private var localeQuery: JBCefJSQuery? = null
     private val center = JPanel(BorderLayout())
     private var toolbarComponent: JComponent? = null
 
@@ -125,11 +136,18 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         val b = browser ?: JBCefBrowser(finalUrl).also {
             browser = it
             Disposer.register(this, it)
-            // After each page load: install compatibility shims/error overlay, then sync theme.
+            // JS→Kotlin channel for SPA-originated locale changes. Created before
+            // the first load so onLoadEnd can inject its subscription.
+            val query = JBCefJSQuery.create(it as JBCefBrowserBase)
+            query.addHandler { value -> onSpaLocale(value); null }
+            Disposer.register(it, query)
+            localeQuery = query
+            // After each page load: install compatibility shims/error overlay, then sync theme + locale.
             it.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(b: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
                     if (frame?.isMain == true) {
                         injectBootstrap()
+                        injectLocaleBridge()
                         syncTheme()
                         syncLocale()
                     }
@@ -138,7 +156,77 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         }
         b.loadURL(finalUrl)
         setCenter(b.component)
+        installFileDropTarget(b.component)
         panelMode = PanelMode.BROWSER
+    }
+
+    /** Guard so the drop target is registered on the browser component only once. */
+    private var fileDropInstalled = false
+
+    /**
+     * Accepts file drags from the Project view onto the browser and inserts each dropped
+     * file into the composer as a short `@`-mention (via [insertFileMention]). Uses the
+     * IntelliJ DnD framework so it works over the heavyweight JCEF component. Best-effort:
+     * a drag that carries no files is ignored so normal editor DnD is unaffected.
+     */
+    private fun installFileDropTarget(component: JComponent) {
+        if (fileDropInstalled) return
+        fileDropInstalled = true
+        val browserRef = browser ?: return
+        DnDSupport.createBuilder(component)
+            .setTargetChecker(
+                DnDTargetChecker { event ->
+                    if (droppedProjectFiles(event).isNotEmpty()) {
+                        event.isDropPossible = true
+                        true
+                    } else {
+                        false
+                    }
+                },
+            )
+            .setDropHandler(
+                DnDDropHandler { event ->
+                    for (rel in droppedProjectFiles(event)) {
+                        insertFileMention(rel)
+                    }
+                },
+            )
+            .setDisposableParent(browserRef)
+            .install()
+    }
+
+    /** Project-relative POSIX paths for files carried by a DnD event (empty when none). */
+    private fun droppedProjectFiles(event: DnDEvent): List<String> {
+        val attached = event.attachedObject
+        if (attached !is TransferableWrapper) return emptyList()
+        val files = attached.asFileList() ?: return emptyList()
+        val base = project.basePath ?: return emptyList()
+        val basePath = try {
+            java.nio.file.Paths.get(base)
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        val out = ArrayList<String>()
+        for (f in files) {
+            if (f.isDirectory) continue
+            val rel = try {
+                basePath.relativize(f.toPath()).toString().replace('\\', '/')
+            } catch (e: Exception) {
+                continue
+            }
+            if (rel.isEmpty() || rel.startsWith("..")) continue
+            out.add(rel)
+        }
+        return out
+    }
+
+    /** Pushes a workspace-relative path into the SPA composer as an `@`-mention chip. */
+    private fun insertFileMention(relPath: String) {
+        val b = browser ?: return
+        val json = JsonPrimitive(relPath).toString()
+        val js =
+            "(function(){ try { if (window.foxxycodeUi && window.foxxycodeUi.insertFileMention) window.foxxycodeUi.insertFileMention($json); } catch (e) {} })();"
+        b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
     }
 
     private fun appendLangParam(url: String): String {
@@ -153,6 +241,39 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         val lang = FoxxyCodeBundle.spaLanguageCode().replace("\"", "")
         val js = "(function(){ try { if (window.foxxycodeUi) window.foxxycodeUi.setLocale(\"$lang\"); } catch (e) {} })();"
         b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
+    }
+
+    /**
+     * Subscribes to SPA-driven locale changes: when the user flips the single
+     * app-wide switcher (SPA Settings → General), the SPA calls back through the
+     * JBCefJSQuery channel so plugin chrome re-localizes. The guard resets on each
+     * page load, so a reload re-subscribes exactly once.
+     */
+    private fun injectLocaleBridge() {
+        val b = browser ?: return
+        val query = localeQuery ?: return
+        val js = """
+            (function(){ try {
+              if (window.foxxycodeUi && !window.__foxxycodeLocaleBridge) {
+                window.__foxxycodeLocaleBridge = true;
+                window.foxxycodeUi.onLocaleChange(function (l) { ${query.inject("l")} });
+              }
+            } catch (e) {} })();
+        """.trimIndent()
+        b.cefBrowser.executeJavaScript(js, b.cefBrowser.url ?: "", 0)
+    }
+
+    /** Handles a locale value pushed from the SPA; publishes a change when it differs. */
+    private fun onSpaLocale(value: String?) {
+        val lang = value?.trim()
+        if (lang != "en" && lang != "ru") return
+        if (FoxxyCodeLocaleState.update(lang)) {
+            ApplicationManager.getApplication().invokeLater {
+                ApplicationManager.getApplication().messageBus
+                    .syncPublisher(FoxxyCodeLanguageListener.TOPIC)
+                    .languageChanged()
+            }
+        }
     }
 
     /**

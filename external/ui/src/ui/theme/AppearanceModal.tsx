@@ -1,12 +1,6 @@
-import { useCallback, useEffect, useSyncExternalStore, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { themeLabel } from "../i18n/i18n";
-import {
-  persistUiLocalePreference,
-  readUiLocaleFromConfigDoc,
-  type UiLocalePreference,
-} from "../i18n/localeConfig";
-import { getLocale, onLocaleChange } from "../i18n/i18n";
 import {
   UI_THEME_IDS,
   LIGHT_THEMES,
@@ -83,79 +77,6 @@ function ThemeSwatch(props: {
         {label}
       </span>
     </button>
-  );
-}
-
-/** AppearanceLocalePicker renders the UI language segmented control. */
-export function AppearanceLocalePicker() {
-  const { t } = useT();
-  const activeLocale = useSyncExternalStore(onLocaleChange, getLocale, () => "en");
-  const [pref, setPref] = useState<UiLocalePreference>("");
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/foxxycode/config");
-        if (!res.ok) {
-          return;
-        }
-        const doc = (await res.json()) as Record<string, unknown>;
-        if (!cancelled) {
-          setPref(readUiLocaleFromConfigDoc(doc));
-          setLoaded(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setLoaded(true);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const pick = useCallback((next: UiLocalePreference) => {
-    setPref(next);
-    void persistUiLocalePreference(next);
-  }, []);
-
-  const options: { id: UiLocalePreference; label: string }[] = [
-    { id: "", label: t("settings.locale.auto") },
-    { id: "en", label: t("settings.locale.en") },
-    { id: "ru", label: t("settings.locale.ru") },
-  ];
-
-  return (
-    <div className="appearance-sheet-body" data-testid="appearance-locale-picker">
-      <p className="appearance-section-label">{t("settings.appearance.locale")}</p>
-      <div
-        className="appearance-locale-row"
-        role="group"
-        aria-label={t("settings.appearance.locale")}
-      >
-        {options.map((opt) => (
-          <button
-            key={opt.id || "auto"}
-            type="button"
-            className={[
-              "appearance-locale-btn",
-              loaded && pref === opt.id ? "is-active" : "",
-              !loaded && activeLocale === opt.id ? "is-active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            aria-pressed={loaded ? pref === opt.id : activeLocale === opt.id}
-            data-testid={`locale-pref-${opt.id || "auto"}`}
-            onClick={() => pick(opt.id)}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 

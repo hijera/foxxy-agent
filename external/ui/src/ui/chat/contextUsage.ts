@@ -7,6 +7,7 @@ export type ContextBreakdownLike = {
   mcp?: number;
   subagents?: number;
   conversation?: number;
+  summary?: number;
   estimatedTotal?: number;
 };
 
@@ -30,7 +31,8 @@ export function contextUsedTokens(
     Math.max(0, breakdown.skills || 0) +
     Math.max(0, breakdown.mcp || 0) +
     Math.max(0, breakdown.subagents || 0) +
-    Math.max(0, breakdown.conversation || 0)
+    Math.max(0, breakdown.conversation || 0) +
+    Math.max(0, breakdown.summary || 0)
   );
 }
 

@@ -353,6 +353,28 @@ func dataURLMIME(dataURL string) string {
 	return ""
 }
 
+// splitImageDataURL splits an image data URI ("data:image/png;base64,<data>") into
+// its media type and base64 payload. Returns ok=false for non-image or non-base64
+// data URIs.
+func splitImageDataURL(dataURL string) (mediaType, b64 string, ok bool) {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return "", "", false
+	}
+	comma := strings.IndexByte(dataURL, ',')
+	if comma < 0 {
+		return "", "", false
+	}
+	header := dataURL[5:comma]
+	if !strings.Contains(header, ";base64") {
+		return "", "", false
+	}
+	mediaType = strings.TrimSuffix(header, ";base64")
+	if !strings.HasPrefix(mediaType, "image/") {
+		return "", "", false
+	}
+	return mediaType, dataURL[comma+1:], true
+}
+
 // decodeDataURL extracts and base64-decodes the payload from a data URI.
 // Returns the raw string on failure (best-effort).
 func decodeDataURL(dataURL string) string {

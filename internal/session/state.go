@@ -74,6 +74,11 @@ type State struct {
 	// TitlePinned, when set, is written to session.json and overrides derived titles from the first user message.
 	TitlePinned string
 
+	// TitleAuto is the LLM-generated session title (hidden "title" agent). It is written to
+	// session.json and used when no user pin is set, taking precedence over the first-message
+	// derived title. A user pin always wins.
+	TitleAuto string
+
 	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
 	MemoryCopilotBlock string
 
@@ -380,6 +385,28 @@ func (s *State) SetTitlePinnedWithoutPersist(text string) {
 	s.mu.Unlock()
 }
 
+// GetTitleAuto returns the LLM-generated session title, if any. It is superseded by a user pin.
+func (s *State) GetTitleAuto() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.TitleAuto
+}
+
+// SetTitleAuto sets the auto-generated title and persists session metadata when a store is attached.
+func (s *State) SetTitleAuto(text string) {
+	s.mu.Lock()
+	s.TitleAuto = strings.TrimSpace(text)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetTitleAutoWithoutPersist restores the auto-generated title from disk without writing.
+func (s *State) SetTitleAutoWithoutPersist(text string) {
+	s.mu.Lock()
+	s.TitleAuto = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
 // GetMemoryCopilotBlock returns ephemeral recall text for the current user turn.
 func (s *State) GetMemoryCopilotBlock() string {
 	s.mu.RLock()
@@ -589,6 +616,15 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	s.mu.Lock()
 	s.Messages = msgs
 	s.mu.Unlock()
+}
+
+// ReplaceMessagesAndPersist replaces conversation history and persists it. Used by auto-compaction
+// to swap older turns for a summary message while keeping the rewritten transcript on disk.
+func (s *State) ReplaceMessagesAndPersist(msgs []llm.Message) {
+	s.mu.Lock()
+	s.Messages = msgs
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // RestoreMetaWithoutPersist restores mode, model/reasoning/memory, and permission mode from disk (no persistence callback).

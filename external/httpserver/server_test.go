@@ -1737,6 +1737,80 @@ func TestFoxxyCodeWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 	}
 }
 
+func TestFoxxyCodeWorkspaceRelativizePost(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	wd := filepath.Join(root, "wd")
+	for _, d := range []string{filepath.Join(home, "memory"), filepath.Join(wd, "pkg")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, nil)
+	srv := New(cfg, mgr, slog.Default(), wd)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	inside := filepath.Join(wd, "pkg", "readme.md")
+	outside := filepath.Join(root, "elsewhere", "x.go")
+	reqBody, _ := json.Marshal(map[string]interface{}{"paths": []string{inside, outside}})
+	rsp, err := http.Post(ts.URL+"/foxxycode/workspace/relativize", "application/json", strings.NewReader(string(reqBody)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Items []struct {
+			PathRel string `json:"path_rel"`
+			OK      bool   `json:"ok"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(rsp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	_ = rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK || len(body.Items) != 2 {
+		t.Fatalf("status=%d items=%+v", rsp.StatusCode, body.Items)
+	}
+	if !body.Items[0].OK || body.Items[0].PathRel != "pkg/readme.md" {
+		t.Fatalf("inside path: %+v", body.Items[0])
+	}
+	if body.Items[1].OK {
+		t.Fatalf("outside path should be rejected: %+v", body.Items[1])
+	}
+
+	// file:// URIs are accepted via the uris field.
+	uri := "file://" + filepath.ToSlash(inside)
+	if !strings.HasPrefix(filepath.ToSlash(inside), "/") {
+		uri = "file:///" + filepath.ToSlash(inside) // Windows drive path
+	}
+	uriReq, _ := json.Marshal(map[string]interface{}{"uris": []string{uri}})
+	ur, err := http.Post(ts.URL+"/foxxycode/workspace/relativize", "application/json", strings.NewReader(string(uriReq)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ubody struct {
+		Items []struct {
+			PathRel string `json:"path_rel"`
+			OK      bool   `json:"ok"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(ur.Body).Decode(&ubody); err != nil {
+		t.Fatal(err)
+	}
+	_ = ur.Body.Close()
+	if ur.StatusCode != http.StatusOK || len(ubody.Items) != 1 || !ubody.Items[0].OK || ubody.Items[0].PathRel != "pkg/readme.md" {
+		t.Fatalf("uri relativize: status=%d %+v", ur.StatusCode, ubody.Items)
+	}
+}
+
 func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	var mu sync.Mutex
 	var captured []acp.ContentBlock

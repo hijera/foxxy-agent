@@ -127,6 +127,8 @@ export type ConsumeComposerSseParams = {
   onQuestion?: (payload: Record<string, unknown>) => void;
   /** FoxxyCode extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
   onPermission?: (payload: Record<string, unknown>) => void;
+  /** FoxxyCode extension. Fired when auto-compaction summarizes older turns (CompactionUpdate payload). */
+  onCompaction?: (payload: Record<string, unknown>) => void;
 };
 
 export type ConsumeComposerSseResult = {
@@ -155,6 +157,7 @@ export async function consumeComposerSseReader(
     applyMemoryChunkToItems,
     onQuestion,
     onPermission,
+    onCompaction,
   } = p;
 
       const toolQueue: Array<
@@ -419,6 +422,16 @@ export async function consumeComposerSseReader(
                   tokenBaselineRef.current.total + (u.totalTokens || 0),
               };
               setTokenUsage(merged);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "compaction") {
+            try {
+              const payload = JSON.parse(ev.data) as Record<string, unknown>;
+              onCompaction?.(payload);
             } catch {
               // ignore
             }

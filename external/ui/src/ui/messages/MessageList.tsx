@@ -278,6 +278,7 @@ export function MessageList(props: {
             {...(permissionWaitingToolCallIds.has(it.toolCallId)
               ? { permissionWaiting: true }
               : {})}
+            {...(props.sessionId ? { sessionId: props.sessionId } : {})}
             {...(props.onFetchToolCallFull
               ? { onFetchToolCallFull: props.onFetchToolCallFull }
               : {})}

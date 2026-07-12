@@ -20,15 +20,28 @@ type ConfigJSON struct {
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
+	Compaction   CompactionJSON   `json:"compaction,omitempty"`
+	Title        TitleJSON        `json:"title,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
+	Browser      BrowserJSON      `json:"browser,omitempty"`
+}
+
+// BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
+// value round-trips as "use default" (true) rather than an explicit false.
+type BrowserJSON struct {
+	Enabled        bool   `json:"enabled,omitempty"`
+	Headless       *bool  `json:"headless,omitempty"`
+	ExecutablePath string `json:"executable_path,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Locale string `json:"locale,omitempty"`
+	Locale   string `json:"locale,omitempty"`
+	SendMode string `json:"send_mode,omitempty"`
 }
 
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.
@@ -102,9 +115,16 @@ type AgentJSON struct {
 
 // PromptsJSON mirrors Prompts for JSON APIs.
 type PromptsJSON struct {
-	Dir         string `json:"dir,omitempty"`
-	AgentPrompt string `json:"agent_prompt,omitempty"`
-	PlanPrompt  string `json:"plan_prompt,omitempty"`
+	Dir         string                  `json:"dir,omitempty"`
+	AgentPrompt string                  `json:"agent_prompt,omitempty"`
+	PlanPrompt  string                  `json:"plan_prompt,omitempty"`
+	PerProvider *PerProviderPromptsJSON `json:"per_provider,omitempty"`
+}
+
+// PerProviderPromptsJSON mirrors PerProviderPrompts. Enabled is a pointer so an
+// unset value round-trips as "use default" rather than an explicit false.
+type PerProviderPromptsJSON struct {
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // SkillsJSON mirrors Skills for JSON APIs.
@@ -172,6 +192,24 @@ type MemoryJSON struct {
 	MaxSearchHits    int    `json:"max_search_hits,omitempty"`
 }
 
+// CompactionJSON mirrors CompactionConfig. Enabled is a pointer so an unset value round-trips as
+// "use default" (true) rather than an explicit false.
+type CompactionJSON struct {
+	Enabled          *bool  `json:"enabled,omitempty"`
+	Model            string `json:"model,omitempty"`
+	ThresholdPercent int    `json:"threshold_percent,omitempty"`
+	KeepLastTurns    int    `json:"keep_last_turns,omitempty"`
+	MaxTokens        int    `json:"max_tokens,omitempty"`
+}
+
+// TitleJSON mirrors TitleConfig. Enabled is a pointer so an unset value round-trips as
+// "use default" (true) rather than an explicit false.
+type TitleJSON struct {
+	Enabled   *bool  `json:"enabled,omitempty"`
+	Model     string `json:"model,omitempty"`
+	MaxTokens int    `json:"max_tokens,omitempty"`
+}
+
 // HTTPServerJSON mirrors HTTPServerConfig.
 type HTTPServerJSON struct {
 	Host string `json:"host,omitempty"`
@@ -210,6 +248,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt,
 	}
+	if c.Prompts.PerProvider.Enabled != nil {
+		out.Prompts.PerProvider = &PerProviderPromptsJSON{Enabled: c.Prompts.PerProvider.Enabled}
+	}
 	out.Instructions = InstructionsJSON{Files: append([]string(nil), c.Instructions.Files...)}
 	out.Skills = SkillsJSON{Dirs: append([]string(nil), c.Skills.Dirs...)}
 	for _, s := range c.MCPServers {
@@ -237,6 +278,14 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
+	out.Compaction = CompactionJSON{
+		Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
+		ThresholdPercent: c.Compaction.ThresholdPercent, KeepLastTurns: c.Compaction.KeepLastTurns,
+		MaxTokens: c.Compaction.MaxTokens,
+	}
+	out.Title = TitleJSON{
+		Enabled: c.Title.Enabled, Model: c.Title.Model, MaxTokens: c.Title.MaxTokens,
+	}
 	out.HTTPServer = HTTPServerJSON{Host: c.HTTPServer.Host, Port: c.HTTPServer.Port}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
@@ -260,7 +309,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		})
 	}
 	out.Gateways = GatewaysJSON{Telegram: tgJSON}
-	out.UI = UIJSON{Locale: c.UI.Locale}
+	out.UI = UIJSON{Locale: c.UI.Locale, SendMode: c.UI.SendMode}
+	out.Browser = BrowserJSON{
+		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
+		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
+	}
 	return out
 }
 
@@ -286,6 +339,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt,
+	}
+	if j.Prompts.PerProvider != nil {
+		cfg.Prompts.PerProvider = PerProviderPrompts{Enabled: j.Prompts.PerProvider.Enabled}
 	}
 	cfg.Instructions = Instructions{Files: append([]string(nil), j.Instructions.Files...)}
 	cfg.Skills = Skills{
@@ -318,6 +374,14 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
+	cfg.Compaction = CompactionConfig{
+		Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
+		ThresholdPercent: j.Compaction.ThresholdPercent, KeepLastTurns: j.Compaction.KeepLastTurns,
+		MaxTokens: j.Compaction.MaxTokens,
+	}
+	cfg.Title = TitleConfig{
+		Enabled: j.Title.Enabled, Model: j.Title.Model, MaxTokens: j.Title.MaxTokens,
+	}
 	cfg.HTTPServer = HTTPServerConfig{Host: j.HTTPServer.Host, Port: j.HTTPServer.Port}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
@@ -341,7 +405,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		})
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg}
-	cfg.UI = UIConfig{Locale: j.UI.Locale}
+	cfg.UI = UIConfig{Locale: j.UI.Locale, SendMode: j.UI.SendMode}
+	cfg.Browser = BrowserConfig{
+		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,
+		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,
+	}
 	return cfg
 }
 

@@ -1,4 +1,4 @@
-import type { ChangeEvent, ReactNode } from "react";
+import { useRef, type ChangeEvent, type ReactNode } from "react";
 
 import { t } from "../i18n/i18n";
 import { tSchemaEnumLabel, tSchemaText } from "../i18n/schemaStrings";
@@ -147,13 +147,28 @@ function SchemaField(props: {
   parentObj?: Record<string, unknown> | undefined;
   path?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
+  focusPath?: string | undefined;
 }) {
-  const { name, schema, value, onChange, parentObj, fieldOverride } = props;
+  const { name, schema, value, onChange, parentObj, fieldOverride, focusPath } =
+    props;
   const path = props.path ?? name;
   const label = tSchemaText(schema.title) || name;
   const desc = tSchemaText(schema.description);
   // Do not name this `t`: it would shadow the imported i18n t() used below.
   const fieldType = schema.type;
+  // When this field is the requested focus target (e.g. `api_key` after an
+  // import), focus and scroll it into view once on mount via a callback ref.
+  const focusedOnce = useRef(false);
+  const focusRef = (el: HTMLInputElement | null) => {
+    if (el && path === focusPath && !focusedOnce.current) {
+      focusedOnce.current = true;
+      el.focus();
+      // scrollIntoView is unavailable in jsdom (tests) — guard the call.
+      if (typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ block: "center" });
+      }
+    }
+  };
 
   if (fieldOverride) {
     const override = fieldOverride({
@@ -203,6 +218,7 @@ function SchemaField(props: {
               parentObj={obj}
               path={path ? `${path}.${k}` : k}
               fieldOverride={fieldOverride}
+              focusPath={focusPath}
               onChange={(nv) => onChange({ ...obj, [k]: nv })}
             />
           ))}
@@ -230,6 +246,7 @@ function SchemaField(props: {
                   value={row}
                   path={path}
                   fieldOverride={fieldOverride}
+                  focusPath={focusPath}
                   parentObj={
                     row !== null &&
                     row !== undefined &&
@@ -378,6 +395,7 @@ function SchemaField(props: {
         <p className="settings-field-desc">{schema.description}</p>
       ) : null}
       <input
+        ref={focusRef}
         className="settings-input"
         type="text"
         value={s}
@@ -398,8 +416,10 @@ export function SchemaForm(props: {
   value: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
   fieldOverride?: FieldOverride | undefined;
+  /** Dotted field path to focus + scroll into view once on mount (e.g. `api_key`). */
+  focusPath?: string | undefined;
 }) {
-  const { schema, value, onChange, fieldOverride } = props;
+  const { schema, value, onChange, fieldOverride, focusPath } = props;
   if (schema.type !== "object" || !schema.properties) {
     return <p className="settings-muted">{t("settings.unsupportedSchema")}</p>;
   }
@@ -417,6 +437,7 @@ export function SchemaForm(props: {
           parentObj={value}
           path={k}
           fieldOverride={fieldOverride}
+          focusPath={focusPath}
           onChange={(nv) => onChange({ ...value, [k]: nv })}
         />
       ))}

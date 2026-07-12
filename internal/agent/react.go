@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -38,6 +39,7 @@ type SessionState interface {
 	EffectiveReasoning(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
+	ReplaceMessagesAndPersist(msgs []llm.Message)
 	GetMCPClients() []*mcp.Client
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
@@ -53,6 +55,9 @@ type SessionState interface {
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
 	IsUserCancelledTurn() bool
+	GetTitlePinned() string
+	GetTitleAuto() string
+	SetTitleAuto(text string)
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -63,7 +68,34 @@ type Agent struct {
 	log             *slog.Logger
 	registry        *tools.Registry
 	providerFactory func(llm.ProviderInput) (llm.Provider, error)
+
+	imgMu             sync.Mutex
+	pendingToolImages []llm.ImagePart
 }
+
+// addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
+// ReAct loop can inject it as a user-role vision block for the next model turn.
+func (a *Agent) addToolImage(part llm.ImagePart) {
+	a.imgMu.Lock()
+	defer a.imgMu.Unlock()
+	a.pendingToolImages = append(a.pendingToolImages, part)
+}
+
+// takeToolImages returns and clears the buffered tool images.
+func (a *Agent) takeToolImages() []llm.ImagePart {
+	a.imgMu.Lock()
+	defer a.imgMu.Unlock()
+	if len(a.pendingToolImages) == 0 {
+		return nil
+	}
+	out := a.pendingToolImages
+	a.pendingToolImages = nil
+	return out
+}
+
+// browserVisionNote accompanies screenshots injected after browser tool calls so the
+// model knows the attached images show the current page state.
+const browserVisionNote = "The image(s) below are screenshot(s) captured by the browser tool, showing the current page. Inspect them before deciding the next action."
 
 // NewAgent creates an Agent for a prompt turn.
 func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, log *slog.Logger) *Agent {
@@ -186,9 +218,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
+	toolEnv.AddToolImage = func(dataURL, filePath, name string) {
+		a.addToolImage(llm.ImagePart{DataURL: dataURL, FilePath: filePath, Name: name})
+	}
 	a.wireFileEditHook(toolEnv)
 
-	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
 }
 
 // wireFileEditHook connects Env.OnFileEdit to the update sender so filesystem writes are
@@ -232,11 +267,13 @@ func (a *Agent) runReActLoop(
 	contextFiles []string,
 	activeSkills []*skills.Skill,
 	maxTurns int,
+	allowTitleGen bool,
 ) (string, error) {
 	var totalInputTokens, totalOutputTokens int
 	var turnIndex int
 	var lastStatsWrite time.Time
 	var emptyContinuations int
+	var lastInputTokens int
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
@@ -247,6 +284,16 @@ func (a *Agent) runReActLoop(
 		// state after foxxycode_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
 			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
+		}
+
+		// Auto-compaction: when the conversation approaches the context window, summarize older
+		// turns and rebuild the payload from the rewritten history. Non-fatal on error.
+		if did, err := a.maybeCompact(ctx, provider, lastInputTokens); err != nil {
+			if a.log != nil {
+				a.log.Warn("context compaction failed", "err", err)
+			}
+		} else if did {
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
 		}
 
 		// Call LLM and stream response.
@@ -396,6 +443,7 @@ func (a *Agent) runReActLoop(
 		// Accumulate and broadcast token usage after each LLM call.
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
+		lastInputTokens = response.InputTokens
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
 			SessionUpdate: acp.UpdateTypeTokenUsage,
 			InputTokens:   response.InputTokens,
@@ -463,6 +511,18 @@ func (a *Agent) runReActLoop(
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
 
+		// After the first assistant response, generate a short session title off the hot path.
+		// Internal guards make this a no-op when the title is pinned or already generated, and it
+		// uses a detached context so it survives the turn ending. Non-fatal by design. Only the
+		// fresh-prompt path titles; resume/continue turns never do.
+		if allowTitleGen && turn == 0 {
+			titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			go func() {
+				defer titleCancel()
+				a.maybeGenerateTitle(titleCtx, provider)
+			}()
+		}
+
 		// If no tool calls, we're done — unless the model produced no visible answer at
 		// all (empty content). Some models (notably gpt-oss / harmony endpoints) sometimes
 		// end a turn with only internal reasoning — occasionally leaking a tool call into
@@ -510,6 +570,22 @@ func (a *Agent) runReActLoop(
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
+		}
+
+		// Inject any screenshots produced by browser tools this round as a user-role
+		// vision block so the model can see the page. This reuses the existing image
+		// path (RoleUser ImageParts) rather than extending the text-only tool-result
+		// contract. It is added to the live LLM message slice only (not persisted): the
+		// UI renders the screenshot from the tool-call result's saved path, and keeping
+		// it out of history avoids a spurious user bubble in the transcript and re-sending
+		// every screenshot on later turns.
+		if imgs := a.takeToolImages(); len(imgs) > 0 {
+			messages = append(messages, llm.Message{
+				Role:       llm.RoleUser,
+				Content:    browserVisionNote,
+				ImageParts: imgs,
+				CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			})
 		}
 	}
 
@@ -749,6 +825,11 @@ func augmentUserMessageWithInvokedSkills(userText string, allSkills []*skills.Sk
 
 func isLLMHistoryMessage(m llm.Message) bool {
 	if m.PlanDocument != nil && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 && strings.TrimSpace(m.Reasoning) == "" {
+		return false
+	}
+	// Messages superseded by a compaction summary stay in the transcript for UI/replay but are
+	// excluded from the payload sent to the model (the summary carries their content).
+	if m.Compacted {
 		return false
 	}
 	return true

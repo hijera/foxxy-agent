@@ -13,9 +13,12 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.util.execution.ParametersListUtil
+import com.google.gson.JsonParser
 import dev.foxxycode.intellij.FoxxyCodeBundle
+import dev.foxxycode.intellij.FoxxyCodeLocaleState
 import dev.foxxycode.intellij.binary.FoxxyCodeBinaryResolver
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
+import dev.foxxycode.intellij.ui.FoxxyCodeLanguageListener
 import java.net.HttpURLConnection
 import java.net.URI
 
@@ -100,8 +103,44 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         val url = "http://$host:$port/"
         waitForReady(url, indicator)
         baseUrl = url
+        adoptBackendLocale(url)
         log.info("FoxxyCode ready at $url")
         return url
+    }
+
+    /**
+     * Fetch `ui.locale` from the backend config (the single app-wide language
+     * source) and adopt it before the browser panel loads, so its `?lang=` and
+     * the plugin chrome agree from the first frame. Best-effort: any failure
+     * keeps the current locale. Publishes a language-change notification when
+     * the value actually changed so already-open panels re-localize.
+     */
+    private fun adoptBackendLocale(url: String) {
+        val locale = try {
+            val conn = URI.create(url + "foxxycode/config").toURL().openConnection() as HttpURLConnection
+            conn.connectTimeout = 3000
+            conn.readTimeout = 3000
+            conn.requestMethod = "GET"
+            val code = conn.responseCode
+            val body = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else null
+            conn.disconnect()
+            body?.let {
+                val o = JsonParser.parseString(it).asJsonObject
+                val ui = if (o.has("ui") && o.get("ui").isJsonObject) o.getAsJsonObject("ui") else null
+                val raw = ui?.let { u -> if (u.has("locale") && !u.get("locale").isJsonNull) u.get("locale").asString else null }
+                if (raw == "en" || raw == "ru") raw else null
+            }
+        } catch (e: Exception) {
+            log.info("could not read backend ui.locale: ${e.message}")
+            return
+        }
+        if (FoxxyCodeLocaleState.update(locale)) {
+            ApplicationManager.getApplication().invokeLater {
+                ApplicationManager.getApplication().messageBus
+                    .syncPublisher(FoxxyCodeLanguageListener.TOPIC)
+                    .languageChanged()
+            }
+        }
     }
 
     private fun waitForReady(url: String, indicator: ProgressIndicator) {

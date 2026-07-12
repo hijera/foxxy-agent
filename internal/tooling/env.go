@@ -65,6 +65,12 @@ type Env struct {
 	// with the resolved absolute path and the full before/after content. Optional; wired by
 	// the runner so native editor clients can render a diff. Tools must nil-check before use.
 	OnFileEdit func(toolName, absPath string, before, after []byte)
+
+	// AddToolImage lets a tool hand an image (e.g. a browser screenshot) to the agent so it is
+	// injected into the next model turn as a user-role vision block. dataURL is a
+	// "data:<mime>;base64,..." payload; filePath is the absolute path where the asset was saved
+	// (may be empty). Optional; wired by the runner. Tools must nil-check before use.
+	AddToolImage func(dataURL, filePath, name string)
 }
 
 // CommandAllowed returns true if the given shell command matches an entry

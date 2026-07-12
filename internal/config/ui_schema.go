@@ -398,6 +398,24 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enabled", "model", "dir", "recall_max_turns", "persist_max_turns", "copilot_max_tokens", "max_search_hits"},
 			nil),
+		"compaction": objectSchema("Automatic context compaction", "Summarize older turns when the conversation approaches the model context window.",
+			map[string]interface{}{
+				"enabled":           boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
+				"model":             strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
+				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99."),
+				"keep_last_turns":   intProp("Keep last turns", "Most recent user turns preserved verbatim."),
+				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation."),
+			},
+			[]string{"enabled", "model", "threshold_percent", "keep_last_turns", "max_tokens"},
+			nil),
+		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
+			map[string]interface{}{
+				"enabled":    boolProp("Enabled", "Turns on backend auto-title generation for all clients."),
+				"model":      strProp("Title model", "Model override for the title pass; empty uses agent model. A small, cheap model is a good choice."),
+				"max_tokens": intProp("Title max tokens", "Completion token cap for the title generation."),
+			},
+			[]string{"enabled", "model", "max_tokens"},
+			nil),
 		"scheduler": objectSchema("Scheduler", "Cron-style scheduled jobs (requires scheduler build tag).",
 			map[string]interface{}{
 				"enabled":         boolProp("Enabled", "When true, this process may run the scheduler daemon and REST."),
@@ -413,8 +431,15 @@ func UISchemaMap() map[string]interface{} {
 				"dir":          strProp("Prompts directory", "Optional override directory for prompt markdown files."),
 				"agent_prompt": strProp("Agent prompt file", "Filename for the main agent system prompt."),
 				"plan_prompt":  strProp("Plan prompt file", "Filename for plan-mode system prompt."),
+				"per_provider": objectSchema("Per-provider prompts",
+					"Select a system prompt tuned to the active model family (falls back to the shared prompt).",
+					map[string]interface{}{
+						"enabled": boolProp("Enabled", "Use a per-family prompt file (agent.<family>.md) when available."),
+					},
+					[]string{"enabled"},
+					nil),
 			},
-			[]string{"dir", "agent_prompt", "plan_prompt"},
+			[]string{"dir", "agent_prompt", "plan_prompt", "per_provider"},
 			nil),
 		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
 			map[string]interface{}{
@@ -475,6 +500,15 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"telegram"},
 			nil),
+		"browser": objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
+			map[string]interface{}{
+				"enabled":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
+				"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
+				"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
+				"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
+			},
+			[]string{"enabled", "headless", "executable_path", "timeout_seconds"},
+			nil),
 		"ui": objectSchema("UI", "Embedded SPA preferences for desktop and HTTP UI.",
 			map[string]interface{}{
 				"locale": map[string]interface{}{
@@ -483,14 +517,20 @@ func UISchemaMap() map[string]interface{} {
 					"description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
 					"enum":        []string{"", "en", "ru"},
 				},
+				"send_mode": map[string]interface{}{
+					"type":        "string",
+					"title":       "Sending messages",
+					"description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
+					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
+				},
 			},
-			[]string{"locale"},
+			[]string{"locale", "send_mode"},
 			nil),
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways", "ui",
+		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
+		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "ui",
 	}
 
 	doc := map[string]interface{}{

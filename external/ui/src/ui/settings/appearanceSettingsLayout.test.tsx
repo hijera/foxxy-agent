@@ -4,7 +4,9 @@ import { Settings } from "./Settings";
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
+  // Only clear stubbed globals (fetch); restoreAllMocks would also reset the
+  // shared window.matchMedia mock from vitest.setup.ts and break later renders.
+  vi.unstubAllGlobals();
 });
 
 // Regression: while the config schema is still loading (fetch pending, no error),
@@ -28,12 +30,35 @@ test("appearance renders outside the centered loading placeholder", async () => 
   await waitFor(() =>
     expect(container.querySelector(".appearance-swatch-grid")).toBeTruthy(),
   );
-  expect(container.querySelector('[data-testid="appearance-locale-picker"]')).toBeTruthy();
+  // The language picker moved to the General tab; Appearance is theme-only.
+  expect(container.querySelector('[data-testid="general-locale-picker"]')).toBeNull();
 
   // The swatch grid must not be nested inside the centered placeholder box.
   expect(
     container.querySelector(
       ".settings-scroll-placeholder .appearance-swatch-grid",
+    ),
+  ).toBeNull();
+});
+
+test("general (language) renders outside the centered loading placeholder", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise<Response>(() => {})),
+  );
+
+  const { container } = render(
+    <Settings onClose={() => {}} initialSection="general" />,
+  );
+
+  await waitFor(() =>
+    expect(
+      container.querySelector('[data-testid="general-locale-picker"]'),
+    ).toBeTruthy(),
+  );
+  expect(
+    container.querySelector(
+      '.settings-scroll-placeholder [data-testid="general-locale-picker"]',
     ),
   ).toBeNull();
 });

@@ -253,6 +253,181 @@ func TestDefaultSource(t *testing.T) {
 	}
 }
 
+func TestRenderForFamilyDirVariantSelected(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "agent.md"), []byte("BASE {{.CWD}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "agent.anthropic.md"), []byte("ANTHROPIC {{.CWD}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := prompts.RenderForFamily("agent", "anthropic", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ANTHROPIC /p" {
+		t.Fatalf("expected family variant, got %q", got)
+	}
+}
+
+func TestRenderForFamilyDirFallsBackToBase(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "agent.md"), []byte("BASE {{.CWD}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No agent.gemini.md present: must fall back to agent.md.
+	got, err := prompts.RenderForFamily("agent", "gemini", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "BASE /p" {
+		t.Fatalf("expected base fallback, got %q", got)
+	}
+}
+
+func TestRenderForFamilyEmbeddedFallsBackToBase(t *testing.T) {
+	// A family with no embedded variant must render the same as the base agent prompt.
+	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fam, err := prompts.RenderForFamily("agent", "no-such-family", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fam != base {
+		t.Error("unknown family should fall back to the base embedded agent prompt")
+	}
+}
+
+func TestRenderForVariantsPrefersMostSpecific(t *testing.T) {
+	tmp := t.TempDir()
+	mustWrite(t, filepath.Join(tmp, "agent.md"), "BASE {{.CWD}}")
+	mustWrite(t, filepath.Join(tmp, "agent.anthropic.md"), "FAMILY {{.CWD}}")
+	mustWrite(t, filepath.Join(tmp, "agent.anthropic-claude-x.md"), "MODEL {{.CWD}}")
+
+	// Model slug is first in the list, so it wins over the family variant.
+	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "MODEL /p" {
+		t.Fatalf("expected per-model variant, got %q", got)
+	}
+}
+
+func TestRenderForVariantsFallsThroughToFamilyThenBase(t *testing.T) {
+	tmp := t.TempDir()
+	mustWrite(t, filepath.Join(tmp, "agent.md"), "BASE {{.CWD}}")
+	mustWrite(t, filepath.Join(tmp, "agent.anthropic.md"), "FAMILY {{.CWD}}")
+
+	// No per-model file: falls through to the family variant.
+	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "FAMILY /p" {
+		t.Fatalf("expected family fallback, got %q", got)
+	}
+
+	// Neither model nor family file: falls through to base.
+	got2, err := prompts.RenderForVariants("agent", []string{"gemini-2", "gemini"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2 != "BASE /p" {
+		t.Fatalf("expected base fallback, got %q", got2)
+	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEmbeddedFamilyVariantsRender(t *testing.T) {
+	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
+	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fam := range families {
+		t.Run(fam, func(t *testing.T) {
+			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+				CWD:    "/home/user/project",
+				UTCNow: fixtureUTC,
+			})
+			if err != nil {
+				t.Fatalf("render family %q: %v", fam, err)
+			}
+			if got == base {
+				t.Errorf("family %q should differ from the base agent prompt", fam)
+			}
+			if !strings.Contains(got, "Model-family notes") {
+				t.Errorf("family %q prompt should contain a model-family notes section", fam)
+			}
+			// Shared template variables must survive in every family variant.
+			if !strings.Contains(got, "/home/user/project") || !strings.Contains(got, fixtureUTC) {
+				t.Errorf("family %q prompt dropped shared template sections", fam)
+			}
+		})
+	}
+}
+
+func TestEmbeddedOpenAIAgentPromptOptimizedForOpenAIAPI(t *testing.T) {
+	got, err := prompts.RenderForFamily("agent", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("render openai agent prompt: %v", err)
+	}
+	for _, want := range []string{
+		"OpenAI API development prompt",
+		"Responses API",
+		"Chat Completions",
+		"reasoning_effort",
+		"phase",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("OpenAI agent prompt should contain %q", want)
+		}
+	}
+}
+
+func TestEmbeddedOpenAIPlanVariantRender(t *testing.T) {
+	base, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("render base plan prompt: %v", err)
+	}
+	got, err := prompts.RenderForFamily("plan", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("render openai plan prompt: %v", err)
+	}
+	if got == base {
+		t.Fatal("OpenAI plan variant should differ from the base plan prompt")
+	}
+	for _, want := range []string{
+		"Mode: Plan",
+		"OpenAI API planning prompt",
+		"Responses API",
+		"reasoning_effort",
+		"plan_write",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("OpenAI plan prompt should contain %q", want)
+		}
+	}
+}
+
 func TestRenderWithFallbackNoPanic(t *testing.T) {
 	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
 	if result == "" {

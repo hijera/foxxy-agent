@@ -14,6 +14,11 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
 import { DiffView } from "./DiffView";
+import { BrowserAction } from "./BrowserAction";
+import {
+  isBrowserToolName,
+  parseBrowserActionResult,
+} from "./browserActionDisplay";
 
 function safePrettyJSON(text: string): string {
   try {
@@ -96,6 +101,7 @@ export function ToolCallMessage(props: {
   startedAtMs?: number;
   /** When true, wall-clock label stops (e.g. awaiting permission). */
   permissionWaiting?: boolean;
+  sessionId?: string | undefined;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
 }) {
   const { t } = useT();
@@ -121,6 +127,12 @@ export function ToolCallMessage(props: {
     (props.kind || "").toLowerCase() === "question";
 
   const isPatchTool = rawName.toLowerCase() === "apply_patch";
+
+  const isBrowserTool = isBrowserToolName(rawName);
+  const browserInfo = useMemo(
+    () => (isBrowserTool ? parseBrowserActionResult(props.resultText) : null),
+    [isBrowserTool, props.resultText],
+  );
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -296,16 +308,22 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
+  const showBrowserAction = isBrowserTool && !!browserInfo;
+  const showJsonArgs =
+    !!args && !isQuestionTool && !isPatchTool && !isBrowserTool;
   const showDiffView = isPatchTool && !!patchContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
   const showJsonResult =
-    !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
+    !isQuestionTool &&
+    !isPatchTool &&
+    !isBrowserTool &&
+    !!(resultBody && resultBody.length > 0);
   const hasBody =
     isQuestionTool ||
+    showBrowserAction ||
     showJsonArgs ||
     showDiffView ||
     showPatchResult ||
@@ -351,6 +369,12 @@ export function ToolCallMessage(props: {
                 resultText={resultBody}
                 status={props.status}
                 t={t}
+              />
+            ) : null}
+            {showBrowserAction && browserInfo ? (
+              <BrowserAction
+                info={browserInfo}
+                sessionId={(props.sessionId || "").trim()}
               />
             ) : null}
             {showJsonArgs ? (

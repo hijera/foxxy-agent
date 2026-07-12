@@ -28,6 +28,10 @@ export interface PanelControllerOptions {
   onRetry?: () => void;
   /** Called when the user clicks Open Settings in an error view. */
   onOpenSettings?: () => void;
+  /** Called when the embedded SPA switches its UI language (the user flipped
+   *  the single app-wide switcher in SPA Settings → General). The SPA already
+   *  re-rendered itself; only extension chrome needs to follow — no reload. */
+  onSpaLocale?: (locale: "en" | "ru") => void;
 }
 
 /** Controller over either a `WebviewPanel` (editor area) or a `WebviewView`
@@ -46,8 +50,9 @@ export class FoxxyCodePanelController {
   ) {
     webview.options = { enableScripts: true, enableForms: true };
 
-    // Receive Retry / Open Settings clicks from the error HTML.
-    webview.onDidReceiveMessage((msg: { type?: string }) => {
+    // Receive Retry / Open Settings clicks from the error HTML, plus locale
+    // changes forwarded from the embedded SPA by the wrapper script.
+    webview.onDidReceiveMessage((msg: { type?: string; locale?: string }) => {
       switch (msg?.type) {
         case "foxxycode:retry":
           this.opts.onRetry?.();
@@ -58,17 +63,21 @@ export class FoxxyCodePanelController {
         case "foxxycode:reload":
           this.reload();
           break;
+        case "foxxycode:locale":
+          if (msg.locale === "en" || msg.locale === "ru") {
+            this.opts.onSpaLocale?.(msg.locale);
+          }
+          break;
       }
     }, undefined, this.disposables);
 
-    // Live theme + language switching: reload the iframe with updated query params.
+    // Live theme switching: reload the iframe with updated query params.
+    // (Language has no VS Code setting — it follows the backend config and the
+    // SPA-originated foxxycode:locale message above.)
     this.disposables.push(
       vscode.window.onDidChangeActiveColorTheme(() => this.refresh()),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (
-          e.affectsConfiguration("foxxycode.language") ||
-          e.affectsConfiguration("foxxycode.followVscodeTheme")
-        ) {
+        if (e.affectsConfiguration("foxxycode.followVscodeTheme")) {
           this.refresh();
         }
       }),
@@ -130,7 +139,7 @@ export class FoxxyCodePanelController {
     if (!this.base) return;
     const settings = readSettings();
     const theme = settings.followVscodeTheme ? currentFoxxyCodeTheme() : "dark";
-    const lang = spaLanguageCode(settings.language, vscode.env.language);
+    const lang = spaLanguageCode(vscode.env.language);
     const localUrl = appendQueryParams(this.base, { theme, lang, embed: EMBED_ID });
     // asExternalUri converts http://127.0.0.1:PORT/ to a forwarded URI in remote
     // workspaces (Remote SSH / Codespaces / WSL). Locally it returns the same URL.
@@ -147,8 +156,7 @@ export class FoxxyCodePanelController {
   }
 
   private activeHtmlLang(): "en" | "ru" {
-    const settings = readSettings();
-    return spaLanguageCode(settings.language, vscode.env.language);
+    return spaLanguageCode(vscode.env.language);
   }
 
   private frameHtml(src: string, lang: "en" | "ru"): string {
@@ -175,6 +183,22 @@ export class FoxxyCodePanelController {
 <iframe id="foxxy" src="${escapeAttr(src)}" title="FoxxyCode" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
 <script nonce="${this.nonce}">
   (function () {
+    // Forward SPA locale changes (embedLocaleBridge postMessage from the
+    // cross-origin iframe) to the extension host so command titles follow the
+    // single app-wide language switcher without reloading the iframe.
+    try {
+      var vscodeApi = acquireVsCodeApi();
+      var frame = document.getElementById("foxxy");
+      window.addEventListener("message", function (ev) {
+        if (
+          frame && ev.source === frame.contentWindow && ev.data &&
+          ev.data.type === "foxxycode:locale" &&
+          (ev.data.locale === "en" || ev.data.locale === "ru")
+        ) {
+          vscodeApi.postMessage({ type: "foxxycode:locale", locale: ev.data.locale });
+        }
+      });
+    } catch (e) {}
     // Polyfill crypto.randomUUID for older embedded Chromium (< 92) — the SPA
     // calls it when creating a chat draft and crashes to a blank page without it.
     try {

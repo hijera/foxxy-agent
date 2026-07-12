@@ -317,6 +317,14 @@ const (
 	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 	UpdateTypeFileEdit                = "file_edit"
+	UpdateTypeCompaction              = "compaction"
+	UpdateTypeSessionTitle            = "session_title"
+)
+
+// Compaction phase values for CompactionUpdate.Phase.
+const (
+	CompactionPhaseStart = "start"
+	CompactionPhaseDone  = "done"
 )
 
 // AvailableCommand is one slash command advertised to ACP clients.
@@ -411,6 +419,23 @@ type TokenUsageUpdate struct {
 	InputTokens   int    `json:"inputTokens"`
 	OutputTokens  int    `json:"outputTokens"`
 	TotalTokens   int    `json:"totalTokens"`
+}
+
+// CompactionUpdate marks the start or completion of an automatic context-compaction pass, where
+// older turns are summarized to keep the conversation within the model's context window.
+type CompactionUpdate struct {
+	SessionUpdate   string `json:"sessionUpdate"` // "compaction"
+	Phase           string `json:"phase"`         // "start" | "done"
+	RemovedMessages int    `json:"removedMessages,omitempty"`
+	TokensBefore    int    `json:"tokensBefore,omitempty"`
+	TokensAfter     int    `json:"tokensAfter,omitempty"`
+}
+
+// SessionTitleUpdate carries a newly generated session title (from the hidden "title" agent) so
+// connected clients can update their session list and header live, without re-fetching.
+type SessionTitleUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "session_title"
+	Title         string `json:"title"`
 }
 
 // MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.

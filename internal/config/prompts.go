@@ -14,10 +14,25 @@ const (
 
 // Prompts is the YAML prompts section (key prompts).
 type Prompts struct {
-	Dir         string `yaml:"dir" json:"dir"`
-	AgentPrompt string `yaml:"agent_prompt"`
-	PlanPrompt  string `yaml:"plan_prompt"`
-	DocsPrompt  string `yaml:"docs_prompt"`
+	Dir         string             `yaml:"dir" json:"dir"`
+	AgentPrompt string             `yaml:"agent_prompt"`
+	PlanPrompt  string             `yaml:"plan_prompt"`
+	DocsPrompt  string             `yaml:"docs_prompt"`
+	PerProvider PerProviderPrompts `yaml:"per_provider" json:"per_provider"`
+}
+
+// PerProviderPrompts selects a system prompt tuned to the active model family
+// (agent.<family>.md), falling back to the shared prompt when no variant exists.
+type PerProviderPrompts struct {
+	// Enabled is a pointer so an unset value defaults to true while an explicit
+	// false is preserved. Use PerProviderEnabled to read the effective value.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// PerProviderEnabled reports whether per-family prompt selection is active.
+// Unset (nil) defaults to true.
+func (c *Prompts) PerProviderEnabled() bool {
+	return c.PerProvider.Enabled == nil || *c.PerProvider.Enabled
 }
 
 // ApplyDefaults sets agent_prompt and plan_prompt when empty and trims when set.
@@ -36,6 +51,10 @@ func (c *Prompts) ApplyDefaults() {
 		c.DocsPrompt = defaultDocsPromptFile
 	} else {
 		c.DocsPrompt = strings.TrimSpace(c.DocsPrompt)
+	}
+	if c.PerProvider.Enabled == nil {
+		enabled := true
+		c.PerProvider.Enabled = &enabled
 	}
 }
 

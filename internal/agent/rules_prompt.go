@@ -42,6 +42,7 @@ func computeContextBreakdown(
 	skillsTok := session.EstimateTokens(skillsMD)
 	mcpTok := estimateMCPTokens(toolDefs)
 	convTok := session.EstimateTokens(conversationText(messages))
+	summaryTok := session.EstimateTokens(compactionSummaryText(messages))
 	fullTok := session.EstimateTokens(fullSystem)
 	sysTok := fullTok - toolsTok - rulesTok - skillsTok
 	if sysTok < 0 {
@@ -55,19 +56,39 @@ func computeContextBreakdown(
 		MCP:             mcpTok,
 		Subagents:       0,
 		Conversation:    convTok,
+		Summary:         summaryTok,
 	}
 	b.Sum()
 	return b
 }
 
+// conversationText concatenates the messages that are actually sent to the model. Compacted
+// messages (superseded by a summary) and the summary itself are excluded — the summary is
+// accounted for separately via compactionSummaryText / the Summary breakdown category.
 func conversationText(msgs []llm.Message) string {
 	var b strings.Builder
 	for _, m := range msgs {
+		if m.Compacted || m.CompactionSummary {
+			continue
+		}
 		if strings.TrimSpace(m.Content) == "" {
 			continue
 		}
 		b.WriteString(string(m.Role))
 		b.WriteString(":\n")
+		b.WriteString(m.Content)
+		b.WriteString("\n\n")
+	}
+	return b.String()
+}
+
+// compactionSummaryText concatenates the content of compaction summary messages.
+func compactionSummaryText(msgs []llm.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		if !m.CompactionSummary || strings.TrimSpace(m.Content) == "" {
+			continue
+		}
 		b.WriteString(m.Content)
 		b.WriteString("\n\n")
 	}

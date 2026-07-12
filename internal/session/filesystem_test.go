@@ -212,6 +212,52 @@ func TestListSnapshotsSkipsSchedulerSessions(t *testing.T) {
 	}
 }
 
+func TestTitleAutoPersistenceAndPrecedence(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	id := "sess_title_auto"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "first user message text here"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "assistant reply"})
+
+	// With no pin, the auto-title takes precedence over the first-message derived title.
+	st.SetTitleAuto("Refactoring the parser")
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.TitleAuto != "Refactoring the parser" {
+		t.Errorf("TitleAuto not persisted: %q", snap.Meta.TitleAuto)
+	}
+	if snap.Meta.Title != "Refactoring the parser" {
+		t.Errorf("resolved Title should equal auto-title, got %q", snap.Meta.Title)
+	}
+
+	// A user pin overrides the auto-title in the resolved Title.
+	st.SetTitlePinned("My pinned title")
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err = fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Title != "My pinned title" {
+		t.Errorf("pin should win over auto-title, got %q", snap.Meta.Title)
+	}
+	if snap.Meta.TitleAuto != "Refactoring the parser" {
+		t.Errorf("auto-title should still round-trip alongside pin, got %q", snap.Meta.TitleAuto)
+	}
+}
+
 func TestFilterSnapshotListForSearchMatchesFirstUserNotTitle(t *testing.T) {
 	root := t.TempDir()
 	fs := &FileStore{Root: root}

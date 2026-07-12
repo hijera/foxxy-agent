@@ -74,7 +74,11 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText)
 	}
 	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
-	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), prompts.TemplateData{
+	var promptVariants []string
+	if a.cfg.Prompts.PerProviderEnabled() {
+		promptVariants = a.promptVariants()
+	}
+	full := prompts.RenderWithFallbackForVariants(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,
@@ -90,6 +94,36 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.state.GetMessages(), toolDefs))
 	}
 	return full
+}
+
+// promptVariants returns the ordered per-model then per-family prompt keys for the active
+// model, most-specific first. The per-model key is the model-list id (e.g. openai/gpt-4o)
+// slugified for filenames; the family key is derived from the resolved provider type and
+// API model. Empty and duplicate keys are dropped.
+func (a *Agent) promptVariants() []string {
+	modelID := a.state.EffectiveModelID(a.cfg)
+	modelSlug := prompts.ModelSlug(modelID)
+	family := ""
+	if rm, err := a.cfg.ResolveLLM(modelID); err == nil {
+		family = prompts.Family(rm.ProviderType, rm.Model)
+	}
+	var variants []string
+	for _, v := range []string{modelSlug, family} {
+		if v == "" {
+			continue
+		}
+		dup := false
+		for _, existing := range variants {
+			if existing == v {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			variants = append(variants, v)
+		}
+	}
+	return variants
 }
 
 func discardedPlansPromptBlock(slugs []string) string {

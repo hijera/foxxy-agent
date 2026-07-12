@@ -16,7 +16,7 @@
 package prompts
 
 import (
-	_ "embed"
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,23 +64,34 @@ type TemplateData struct {
 	UTCNow string
 }
 
-// Embedded default prompt template files.
+// Embedded default prompt template files. The glob covers the base per-mode
+// templates (agent.md, plan.md, docs.md) and any per-family variants
+// (for example agent.anthropic.md) selected by Family.
 //
-//go:embed agent.md
-var defaultAgentPrompt string
-
-//go:embed plan.md
-var defaultPlanPrompt string
-
-//go:embed docs.md
-var defaultDocsPrompt string
+//go:embed *.md
+var embeddedPrompts embed.FS
 
 // Render renders the prompt template for the given mode with the provided data.
 // promptsDir must be empty to use built-in templates; otherwise it is a directory that
 // contains the files named agentFile, planFile, and docsFile (for example agent.md, plan.md, docs.md).
 // mode must be "agent", "plan", or "docs". Unknown modes use the agent template file.
 func Render(mode, promptsDir, agentFile, planFile, docsFile string, data TemplateData) (string, error) {
-	src, err := loadSource(mode, promptsDir, agentFile, planFile, docsFile)
+	return RenderForFamily(mode, "", promptsDir, agentFile, planFile, docsFile, data)
+}
+
+// RenderForFamily is Render with a provider family. When family is non-empty it selects the
+// per-family template variant (for example agent.anthropic.md), falling back to the base
+// per-mode template when the variant does not exist. family "" behaves exactly like Render.
+func RenderForFamily(mode, family, promptsDir, agentFile, planFile, docsFile string, data TemplateData) (string, error) {
+	return RenderForVariants(mode, familyVariants(family), promptsDir, agentFile, planFile, docsFile, data)
+}
+
+// RenderForVariants is Render with an ordered list of variant keys, most-specific first
+// (for example a per-model slug then a provider family). The first key whose template file
+// (agent.<key>.md) exists is used; otherwise the base per-mode template is rendered. A nil
+// or empty list behaves exactly like Render.
+func RenderForVariants(mode string, variants []string, promptsDir, agentFile, planFile, docsFile string, data TemplateData) (string, error) {
+	src, err := loadSource(mode, variants, promptsDir, agentFile, planFile, docsFile)
 	if err != nil {
 		return "", err
 	}
@@ -100,24 +111,67 @@ func Render(mode, promptsDir, agentFile, planFile, docsFile string, data Templat
 
 // RenderWithFallback renders the prompt and returns a safe default on error.
 func RenderWithFallback(mode, promptsDir, agentFile, planFile, docsFile string, data TemplateData) string {
-	s, err := Render(mode, promptsDir, agentFile, planFile, docsFile, data)
+	return RenderWithFallbackForVariants(mode, nil, promptsDir, agentFile, planFile, docsFile, data)
+}
+
+// RenderWithFallbackForFamily renders the per-family prompt and returns a safe default on error.
+func RenderWithFallbackForFamily(mode, family, promptsDir, agentFile, planFile, docsFile string, data TemplateData) string {
+	return RenderWithFallbackForVariants(mode, familyVariants(family), promptsDir, agentFile, planFile, docsFile, data)
+}
+
+// RenderWithFallbackForVariants renders the most-specific available variant and returns a
+// safe default on error.
+func RenderWithFallbackForVariants(mode string, variants []string, promptsDir, agentFile, planFile, docsFile string, data TemplateData) string {
+	s, err := RenderForVariants(mode, variants, promptsDir, agentFile, planFile, docsFile, data)
 	if err != nil {
 		return fallbackPrompt(mode, data.CWD)
 	}
 	return s
 }
 
+// familyVariants wraps a single family key into a variant list (empty family -> nil).
+func familyVariants(family string) []string {
+	if strings.TrimSpace(family) == "" {
+		return nil
+	}
+	return []string{family}
+}
+
 // DefaultSource returns the built-in template source for a mode.
 // Useful for displaying to the user so they can customize it.
 func DefaultSource(mode string) string {
-	switch mode {
-	case "plan":
-		return defaultPlanPrompt
-	case "docs":
-		return defaultDocsPrompt
-	default:
-		return defaultAgentPrompt
+	return defaultSourceForVariants(mode, nil)
+}
+
+// defaultSourceForVariants returns the embedded template for a mode, preferring the first
+// embedded variant that exists and falling back to the base per-mode file.
+func defaultSourceForVariants(mode string, variants []string) string {
+	base := fileNameForMode(mode)
+	for _, v := range variants {
+		if fam := familyFileName(base, v); fam != base {
+			if b, err := embeddedPrompts.ReadFile(fam); err == nil {
+				return string(b)
+			}
+		}
 	}
+	b, err := embeddedPrompts.ReadFile(base)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// familyFileName inserts ".<family>" before the extension of base.
+// familyFileName("agent.md", "anthropic") == "agent.anthropic.md".
+// An empty family returns base unchanged.
+func familyFileName(base, family string) string {
+	f := strings.TrimSpace(family)
+	if f == "" {
+		return base
+	}
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	return stem + "." + f + ext
 }
 
 func fileNameForMode(mode string) string {
@@ -132,29 +186,52 @@ func fileNameForMode(mode string) string {
 }
 
 // loadSource returns the template source: files from promptsDir when set, built-in otherwise.
-func loadSource(mode, promptsDir, agentFile, planFile, docsFile string) (string, error) {
+// variants is an ordered list of keys tried most-specific first (agent.<key>.md); the base
+// file is always the final fallback (embedded for built-ins, on-disk for promptsDir).
+func loadSource(mode string, variants []string, promptsDir, agentFile, planFile, docsFile string) (string, error) {
 	dir := strings.TrimSpace(promptsDir)
 	if dir == "" {
-		return DefaultSource(mode), nil
+		return defaultSourceForVariants(mode, variants), nil
 	}
 
-	fn := strings.TrimSpace(agentFile)
+	base := strings.TrimSpace(agentFile)
 	switch mode {
 	case "plan":
-		fn = strings.TrimSpace(planFile)
+		base = strings.TrimSpace(planFile)
 	case "docs":
-		fn = strings.TrimSpace(docsFile)
+		base = strings.TrimSpace(docsFile)
 	}
-	if fn == "" {
-		fn = fileNameForMode(mode)
+	if base == "" {
+		base = fileNameForMode(mode)
 	}
 
-	path := filepath.Join(dir, fn)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read prompt file %q: %w", path, err)
+	// Prefer variant files on disk (most-specific first), then fall back to the base file.
+	candidates := make([]string, 0, len(variants)+1)
+	seen := make(map[string]struct{}, len(variants)+1)
+	add := func(fn string) {
+		if _, dup := seen[fn]; dup {
+			return
+		}
+		seen[fn] = struct{}{}
+		candidates = append(candidates, fn)
 	}
-	return string(data), nil
+	for _, v := range variants {
+		if fam := familyFileName(base, v); fam != base {
+			add(fam)
+		}
+	}
+	add(base)
+
+	var lastErr error
+	for _, fn := range candidates {
+		path := filepath.Join(dir, fn)
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return string(data), nil
+		}
+		lastErr = err
+	}
+	return "", fmt.Errorf("read prompt file %q: %w", filepath.Join(dir, base), lastErr)
 }
 
 func fallbackPrompt(mode, cwd string) string {

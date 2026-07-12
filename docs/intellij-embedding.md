@@ -98,6 +98,12 @@ Settings | Tools | FoxxyCode in the plugin).
 Supported SPA locales: `en` (default), `ru`. The active locale is the `lang`
 attribute on `<html>`, persisted in the `foxxycode_ui_lang` cookie.
 
+**Single source of truth:** the UI language is stored once, in the backend
+config (`ui.locale` in `config.yaml`, values `""` = auto, `"en"`, `"ru"`), and
+edited from one place only — the SPA **Settings → General** language picker. The
+IntelliJ and VS Code plugins no longer have their own language setting; they read
+`ui.locale` from the backend and follow live changes made in the SPA.
+
 ### 1. `?lang=` query parameter (initial load, pre-first-paint)
 
 ```text
@@ -107,32 +113,46 @@ http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
 Precedence: query parameter > cookie > default (`en`). A valid query value is
 applied before the first paint and written to the cookie.
 
-The FoxxyCode IntelliJ plugin maps **Settings | Tools | FoxxyCode → Language**
-(`system` / `en` / `ru`) to `?lang=en` or `?lang=ru` on every JCEF load
-(`system` follows `Locale.getDefault()`, Russian when the JVM default language
-is `ru`).
+On server start the plugin fetches `GET /foxxycode/config`, reads `ui.locale`,
+and resolves the `?lang=` value: an explicit `en`/`ru` from the config, otherwise
+the host default (`Locale.getDefault()`, Russian when the JVM default language is
+`ru`). Passing `?lang=` on load keeps the SPA's first paint and the plugin chrome
+in agreement even in auto mode — the URL param intentionally beats the SPA cookie,
+while the SPA's own picker still shows "Auto" because it renders the config value,
+not the active locale.
 
-### 2. Live switching from the plugin
+### 2. Live switching, both directions
 
-When the user changes language in plugin settings, call:
+- **Plugin → SPA:** when the plugin locale changes (config re-read on restart, or
+  a change relayed from the SPA), it injects
+  `window.foxxycodeUi.setLocale('<en|ru>')` after each page load. The SPA updates
+  without a full reload.
+- **SPA → plugin:** when the user flips the language in **Settings → General**, the
+  SPA notifies the host. In JCEF the plugin subscribes via
+  `window.foxxycodeUi.onLocaleChange(...)` wired to a `JBCefJSQuery`; the callback
+  adopts the new locale and publishes `FoxxyCodeLanguageListener.TOPIC` so the
+  toolbar and any status/error panels re-localize. (In the VS Code webview, where
+  the SPA runs in a cross-origin iframe, the SPA `window.parent.postMessage`s the
+  same payload — see below.)
 
-```kotlin
-browser.cefBrowser.executeJavaScript(
-    "window.foxxycodeUi && window.foxxycodeUi.setLocale('${spaLang}')",
-    browser.cefBrowser.url,
-    0,
-)
+`setLocale` is a no-op when the locale is unchanged (it does not notify
+listeners), so the plugin→SPA→plugin round-trip cannot loop.
+
+**VS Code postMessage contract** — the SPA (`embedLocaleBridge.ts`) posts to the
+webview wrapper, which forwards to the extension host:
+
+```jsonc
+{ "type": "foxxycode:locale", "locale": "en" | "ru" }
 ```
 
-where `spaLang` is `"en"` or `"ru"` (same mapping as above). The SPA updates
-without a full reload.
-
-### Kotlin example (theme + language)
+### Kotlin example (theme + locale bridge)
 
 ```kotlin
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ui.JBColor
 import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefBrowserBase
+import com.intellij.ui.jcef.JBCefJSQuery
 
 fun ideTheme(): String = if (JBColor.isBright()) "light" else "dark"
 
@@ -150,17 +170,11 @@ project.messageBus.connect(disposable).subscribe(
     },
 )
 
-// Follow FoxxyCode plugin language changes (Settings | Tools | FoxxyCode > Language).
-project.messageBus.connect(disposable).subscribe(
-    FoxxyCodeLanguageListener.TOPIC,
-    FoxxyCodeLanguageListener {
-        browser.cefBrowser.executeJavaScript(
-            "window.foxxycodeUi && window.foxxycodeUi.setLocale('${spaLang()}')",
-            browser.cefBrowser.url,
-            0,
-        )
-    },
-)
+// SPA → plugin: adopt locale changes made in the SPA Settings → General picker.
+val localeQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+localeQuery.addHandler { locale -> adoptLocale(locale); null }
+// After each page load, subscribe once:
+//   window.foxxycodeUi.onLocaleChange(function (l) { ${localeQuery.inject("l")} });
 ```
 
 Any of the 7 theme ids can be substituted for `light`/`dark` — e.g. map the
@@ -207,9 +221,13 @@ Differences from the IntelliJ embedding:
 
 - **Host element:** VS Code webviews load external URLs only via an `<iframe>` inside the webview
   HTML. The extension cannot `executeJavaScript` into a cross-origin iframe (unlike JCEF), so live
-  theme/language switching is done by reloading the iframe with updated `?theme=` / `?lang=`
-  parameters. Initial load is still flash-free thanks to `?theme=` being applied before first
-  paint.
+  theme switching is done by reloading the iframe with an updated `?theme=` parameter. Initial load
+  is still flash-free thanks to `?theme=` being applied before first paint.
+- **Locale:** like IntelliJ, the extension has no language setting — it reads `ui.locale` from the
+  backend config on start and resolves `?lang=`. SPA-driven changes come back via the
+  `{ type: "foxxycode:locale", locale }` `postMessage` the iframe sends to the webview wrapper,
+  which forwards it to the extension host; the host adopts the locale and refreshes command titles
+  via the `foxxycode.locale` context key, without reloading the iframe.
 - **CSP:** the webview HTML sets `frame-src http://127.0.0.1:* http://localhost:*;` so the iframe
   can load the loopback foxxycode server on its auto-picked port.
 - **Embed id:** the extension passes `?embed=intellij` because the SPA currently specialises only

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initLocale } from "../i18n/i18n";
 import { installFoxxyCodeUiApi } from "./foxxycodeUiApi";
 import { UI_THEME_IDS } from "./themeCookie";
+import { subscribeFileMention } from "../skills/fileMentionBus";
 
 function clearThemeState() {
   delete window.foxxycodeUi;
@@ -100,5 +101,21 @@ describe("window.foxxycodeUi", () => {
     off();
     window.foxxycodeUi!.setLocale("en");
     expect(seen).toEqual(["ru"]);
+  });
+
+  it("insertFileMention forwards a path to the file-mention bus", () => {
+    const seen: string[] = [];
+    const off = subscribeFileMention((p) => seen.push(p));
+    expect(window.foxxycodeUi!.insertFileMention("src/foo.ts")).toBe(true);
+    expect(seen).toEqual(["src/foo.ts"]);
+    off();
+  });
+
+  it("insertFileMention rejects empty/whitespace without emitting", () => {
+    const seen: string[] = [];
+    const off = subscribeFileMention((p) => seen.push(p));
+    expect(window.foxxycodeUi!.insertFileMention("   ")).toBe(false);
+    expect(seen).toEqual([]);
+    off();
   });
 });

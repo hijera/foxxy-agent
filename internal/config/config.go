@@ -100,6 +100,12 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Memory.Validate(cfg); err != nil {
 		return fmt.Errorf("memory: %w", err)
 	}
+	if err := cfg.Compaction.Validate(cfg); err != nil {
+		return fmt.Errorf("compaction: %w", err)
+	}
+	if err := cfg.Title.Validate(cfg); err != nil {
+		return fmt.Errorf("title: %w", err)
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
@@ -114,6 +120,9 @@ func validateSubconfigs(cfg *Config) error {
 	cfg.UI.Normalize()
 	if err := cfg.UI.Validate(); err != nil {
 		return fmt.Errorf("ui: %w", err)
+	}
+	if err := cfg.Browser.Validate(); err != nil {
+		return fmt.Errorf("browser: %w", err)
 	}
 	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
@@ -148,6 +157,12 @@ func applyDefaults(cfg *Config) {
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()
 
+	cfg.Compaction.Normalize()
+	cfg.Compaction.ApplyDefaults()
+
+	cfg.Title.Normalize()
+	cfg.Title.ApplyDefaults()
+
 	cfg.Scheduler.Normalize(p)
 	cfg.Scheduler.ApplyDefaults(p)
 
@@ -158,6 +173,8 @@ func applyDefaults(cfg *Config) {
 
 	cfg.UI.Normalize()
 	cfg.UI.ApplyDefaults()
+
+	cfg.Browser.ApplyDefaults()
 
 	if len(cfg.Providers) == 0 && len(cfg.Models) == 0 {
 		if key := os.Getenv("OPENAI_API_KEY"); key != "" {

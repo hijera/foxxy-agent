@@ -11,6 +11,7 @@ export type ContextBreakdown = {
   mcp: number;
   subagents: number;
   conversation: number;
+  summary: number;
   estimatedTotal: number;
 };
 
@@ -28,6 +29,7 @@ const SEGMENTS: {
   { key: "mcp", labelKey: "chat.contextSegment.mcp", cssVar: "--ctx-seg-mcp" },
   { key: "subagents", labelKey: "chat.contextSegment.subagents", cssVar: "--ctx-seg-subagents" },
   { key: "conversation", labelKey: "chat.contextSegment.conversation", cssVar: "--ctx-seg-conversation" },
+  { key: "summary", labelKey: "chat.contextSegment.summary", cssVar: "--ctx-seg-summary" },
 ];
 
 function fmtInt(n: number | undefined): string {

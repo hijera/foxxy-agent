@@ -13,7 +13,6 @@ import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.binary.FoxxyCodeBinaryResolver
 import java.io.File
 import javax.swing.JButton
-import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JPanel
 
@@ -23,7 +22,6 @@ import javax.swing.JPanel
  * empty to use the bundled one.
  */
 class FoxxyCodeConfigurable : Configurable {
-    private val languageBox = JComboBox<String>()
     private val pathField = TextFieldWithBrowseButton()
     private val hostField = JBTextField()
     private val portField = JBTextField()
@@ -59,8 +57,6 @@ class FoxxyCodeConfigurable : Configurable {
         }
 
         val panel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(FoxxyCodeBundle.message("settings.label.language"), languageBox)
-            .addSeparator()
             .addLabeledComponent(
                 FoxxyCodeBundle.message("settings.label.binaryPath"),
                 pathField
@@ -108,8 +104,7 @@ class FoxxyCodeConfigurable : Configurable {
 
     override fun isModified(): Boolean {
         val s = settings
-        return languageCode(languageBox.selectedIndex) != s.language ||
-            pathField.text.trim() != s.binaryPath ||
+        return pathField.text.trim() != s.binaryPath ||
             hostField.text.trim() != s.host ||
             (portField.text.trim().toIntOrNull() ?: 0) != s.fixedPort ||
             homeField.text.trim() != s.foxxycodeHome ||
@@ -123,8 +118,6 @@ class FoxxyCodeConfigurable : Configurable {
 
     override fun apply() {
         val s = settings
-        val prevLanguage = s.language
-        s.language = languageCode(languageBox.selectedIndex)
         s.binaryPath = pathField.text.trim()
         s.host = hostField.text.trim().ifBlank { "127.0.0.1" }
         s.fixedPort = (portField.text.trim().toIntOrNull() ?: 0).coerceIn(0, 65535)
@@ -137,16 +130,10 @@ class FoxxyCodeConfigurable : Configurable {
         s.trackTerminals = trackTerminalsCheckBox.isSelected
         s.firstRunCompleted = true
         reset()
-        if (s.language != prevLanguage) {
-            ApplicationManager.getApplication().messageBus
-                .syncPublisher(dev.foxxycode.intellij.ui.FoxxyCodeLanguageListener.TOPIC)
-                .languageChanged()
-        }
     }
 
     override fun reset() {
         val s = settings
-        refreshLanguageBox(s.language)
         pathField.text = s.binaryPath
         hostField.text = s.host
         portField.text = s.fixedPort.toString()
@@ -163,31 +150,5 @@ class FoxxyCodeConfigurable : Configurable {
         trackOpenFilesCheckBox.isSelected = s.trackOpenFiles
         trackTerminalsCheckBox.isSelected = s.trackTerminals
         statusLabel.text = " "
-    }
-
-    private fun refreshLanguageBox(selectedCode: String) {
-        languageBox.removeAllItems()
-        for ((label, code) in languageOptions()) {
-            languageBox.addItem(label)
-            if (code == selectedCode) {
-                languageBox.selectedIndex = languageBox.itemCount - 1
-            }
-        }
-        if (languageBox.selectedIndex < 0 && languageBox.itemCount > 0) {
-            languageBox.selectedIndex = 0
-        }
-    }
-
-    companion object {
-        private val LANGUAGE_CODES = listOf("system", "en", "ru")
-
-        private fun languageOptions(): List<Pair<String, String>> = listOf(
-            FoxxyCodeBundle.message("settings.language.system") to "system",
-            FoxxyCodeBundle.message("settings.language.en") to "en",
-            FoxxyCodeBundle.message("settings.language.ru") to "ru",
-        )
-
-        private fun languageCode(index: Int): String =
-            LANGUAGE_CODES.getOrElse(index) { "system" }
     }
 }

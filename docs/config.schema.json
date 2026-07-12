@@ -155,6 +155,19 @@
           "type": "string",
           "description": "File name inside prompts.dir for docs mode.",
           "default": "docs.md"
+        },
+        "per_provider": {
+          "type": "object",
+          "title": "Per-provider prompts",
+          "description": "Select a system prompt tuned to the active model family (agent.<family>.md), falling back to the shared prompt.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Use a per-family prompt file when one exists. Defaults to true.",
+              "default": true
+            }
+          }
         }
       }
     },
@@ -397,6 +410,62 @@
         }
       }
     },
+    "compaction": {
+      "type": "object",
+      "title": "Automatic context compaction",
+      "description": "Summarize older turns when the conversation approaches the model's context window.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on auto-compaction. Unset defaults to true; set false to disable.",
+          "default": true
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used for the summarization pass; empty falls back to agent.model.",
+          "default": ""
+        },
+        "threshold_percent": {
+          "type": "integer",
+          "description": "Trigger when prompt tokens exceed this percent of the usable context (max_context_tokens - max_tokens). Clamped to 50..99.",
+          "default": 85
+        },
+        "keep_last_turns": {
+          "type": "integer",
+          "description": "Number of most recent user turns preserved verbatim (never summarized).",
+          "default": 2
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for the summary generation.",
+          "default": 4096
+        }
+      }
+    },
+    "title": {
+      "type": "object",
+      "title": "Automatic session title generation",
+      "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session. Runs backend-side for all clients.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on auto-title generation. Unset defaults to true; set false to disable.",
+          "default": true
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used for the title pass; empty falls back to agent.model. A small, cheap model is a good choice.",
+          "default": ""
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for the title generation.",
+          "default": 64
+        }
+      }
+    },
     "httpserver": {
       "type": "object",
       "title": "HTTP gateway",
@@ -550,6 +619,40 @@
           "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
           "enum": ["", "en", "ru"],
           "default": ""
+        },
+        "send_mode": {
+          "type": "string",
+          "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
+          "enum": ["enter", "ctrl_enter", "off"],
+          "default": "enter"
+        }
+      }
+    },
+    "browser": {
+      "type": "object",
+      "title": "Browser tool",
+      "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.",
+          "default": false
+        },
+        "headless": {
+          "type": "boolean",
+          "description": "Run the browser without a visible window. Enabled by default; disable to watch the automated session.",
+          "default": true
+        },
+        "executable_path": {
+          "type": "string",
+          "description": "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser.",
+          "default": ""
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Per-action timeout for navigation, clicks, and other browser operations.",
+          "default": 30
         }
       }
     }

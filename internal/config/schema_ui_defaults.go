@@ -4,6 +4,10 @@ package config
 // and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
 // and field semantics where possible.
 func SchemaExampleConfigJSON() *ConfigJSON {
+	perProviderEnabled := true
+	compactionEnabled := true
+	titleEnabled := true
+	browserHeadless := true
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
 			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
@@ -27,6 +31,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Dir:         "",
 			AgentPrompt: "agent.md",
 			PlanPrompt:  "plan.md",
+			PerProvider: &PerProviderPromptsJSON{Enabled: &perProviderEnabled},
 		},
 		Instructions: InstructionsJSON{
 			Files: []string{"AGENTS.md"},
@@ -60,6 +65,18 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
 		},
+		Compaction: CompactionJSON{
+			Enabled:          &compactionEnabled,
+			Model:            "",
+			ThresholdPercent: CompactionDefaultThresholdPercent,
+			KeepLastTurns:    CompactionDefaultKeepLastTurns,
+			MaxTokens:        CompactionDefaultMaxTokens,
+		},
+		Title: TitleJSON{
+			Enabled:   &titleEnabled,
+			Model:     "",
+			MaxTokens: TitleDefaultMaxTokens,
+		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
 			Dir:            "${FOXXYCODE_HOME}/scheduler",
@@ -75,6 +92,13 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 				DefaultAccess:    string(AccessAll),
 				DefaultIsolation: string(IsolationIndividual),
 			},
+		},
+		UI: UIJSON{SendMode: UISendModeEnter},
+		Browser: BrowserJSON{
+			Enabled:        false,
+			Headless:       &browserHeadless,
+			ExecutablePath: "",
+			TimeoutSeconds: BrowserDefaultTimeoutSeconds,
 		},
 	}
 }

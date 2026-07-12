@@ -45,6 +45,7 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 	r.Register(toolweb.WebFetchTool())
 	r.Register(toolssh.SSHRunCommandTool())
 	registerSchedulerTools(r, cfg)
+	registerBrowserTools(r, cfg)
 	return r
 }
 

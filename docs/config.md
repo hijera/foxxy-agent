@@ -113,6 +113,16 @@ prompts:
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
+  # Per-provider prompts: when enabled (default), each mode can pick a prompt
+  # tuned to the active model, resolved most-specific first:
+  #   <mode>.<model-slug>.md  per-model (model-list id, "/" -> "-": openai/gpt-4o
+  #                           -> agent.openai-gpt-4o.md or plan.openai-gpt-4o.md)
+  #   <mode>.<family>.md      per-family (anthropic, openai, gemini, gpt-oss, qwen,
+  #                           gemma, neuraldeep); family defaults are built in
+  #   <mode>.md               shared fallback
+  # Place custom variants in dir. Set enabled: false to always use the shared prompt.
+  per_provider:
+    enabled: true
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:

@@ -17,8 +17,11 @@ type Config struct {
 	Logger       Logger            `yaml:"logger"`
 	Sessions     Sessions          `yaml:"sessions"`
 	Memory       MemoryConfig      `yaml:"memory"`
+	Compaction   CompactionConfig  `yaml:"compaction"`
+	Title        TitleConfig       `yaml:"title"`
 	HTTPServer   HTTPServerConfig  `yaml:"httpserver"`
 	Scheduler    SchedulerConfig   `yaml:"scheduler"`
 	Gateways     GatewayConfig     `yaml:"gateways"`
 	UI           UIConfig          `yaml:"ui"`
+	Browser      BrowserConfig     `yaml:"browser"`
 }

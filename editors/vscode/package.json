@@ -408,16 +408,6 @@
           "default": "",
           "description": "%cfg.extraArgs.description%"
         },
-        "foxxycode.language": {
-          "type": "string",
-          "enum": [
-            "system",
-            "en",
-            "ru"
-          ],
-          "default": "system",
-          "description": "%cfg.language.description%"
-        },
         "foxxycode.followVscodeTheme": {
           "type": "boolean",
           "default": true,

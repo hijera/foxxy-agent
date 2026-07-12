@@ -19,6 +19,7 @@ const rootSchema: JsonSchema = {
     "logger",
     "sessions",
     "gateways",
+    "ui",
   ],
   properties: {
     providers: { type: "array", title: "LLM providers", items: { type: "object" } },
@@ -34,13 +35,15 @@ const rootSchema: JsonSchema = {
     logger: { type: "object", title: "Logger", properties: {} },
     sessions: { type: "object", title: "Sessions", properties: {} },
     gateways: { type: "object", title: "Messenger gateways", properties: {} },
+    ui: { type: "object", title: "UI", properties: {} },
   },
 } as unknown as JsonSchema;
 
-test("derives tabs in schema order with Appearance first and System group", () => {
+test("derives tabs in schema order with General and Appearance first and System group", () => {
   const sections = deriveSettingsSections(rootSchema);
   const ids = sections.map((s) => s.id);
   expect(ids).toEqual([
+    "general",
     "appearance",
     "providers",
     "models",
@@ -51,6 +54,11 @@ test("derives tabs in schema order with Appearance first and System group", () =
     "memory",
     "system",
   ]);
+});
+
+test("the ui schema key is hidden — its locale is edited by the General picker", () => {
+  const ids = deriveSettingsSections(rootSchema).map((s) => s.id);
+  expect(ids).not.toContain("ui");
 });
 
 test("array sections carry their label field", () => {
@@ -82,8 +90,9 @@ test("skills is its own combined tab; labels come from schema titles", () => {
   expect(byId.agent.label).toBe("ReAct agent");
 });
 
-test("Appearance tab is present even without a schema", () => {
+test("General and Appearance tabs are present even without a schema", () => {
   const sections = deriveSettingsSections(null);
-  expect(sections).toHaveLength(1);
-  expect(sections[0].id).toBe("appearance");
+  expect(sections).toHaveLength(2);
+  expect(sections[0].id).toBe("general");
+  expect(sections[1].id).toBe("appearance");
 });

@@ -1,4 +1,5 @@
-import { AppearanceLocalePicker, AppearanceThemePicker } from "../theme/AppearanceModal";
+import { AppearanceThemePicker } from "../theme/AppearanceModal";
+import { GeneralLocalePicker, GeneralSendModePicker } from "./GeneralSection";
 import { useT } from "../i18n/I18nProvider";
 import { tSchemaText } from "../i18n/schemaStrings";
 import { ModelField } from "./ModelField";
@@ -6,6 +7,9 @@ import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
+import { ProviderExportButtons } from "./ProviderExportButtons";
+import { ProviderImportMenu } from "./ProviderImportMenu";
+import { uniqueProviderName } from "./providerTransfer";
 import type { SectionDescriptor } from "./settingsSections";
 
 const NEURALDEEP_API_BASE = "https://api.neuraldeep.ru/v1";
@@ -75,8 +79,8 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
  * SettingsSection renders the active settings tab. Object sections render their
  * sub-schema fields directly (the tab already names the section); array sections
  * become master–detail lists; the System group stacks its child object sections;
- * Skills and Appearance are special tabs. Model fields receive custom editors via
- * the SchemaForm fieldOverride hook.
+ * Skills, General (language) and Appearance are special tabs. Model fields
+ * receive custom editors via the SchemaForm fieldOverride hook.
  */
 export function SettingsSection(props: {
   section: SectionDescriptor;
@@ -98,11 +102,19 @@ export function SettingsSection(props: {
   const setKey = (key: string, value: unknown) =>
     setDoc({ ...doc, [key]: value });
 
+  if (section.kind === "general") {
+    return (
+      <>
+        <GeneralLocalePicker doc={doc} setDoc={setDoc} />
+        <GeneralSendModePicker doc={doc} setDoc={setDoc} />
+      </>
+    );
+  }
+
   if (section.kind === "appearance") {
     return (
       <>
         <AppearanceThemePicker />
-        <AppearanceLocalePicker />
         {props.onRestartOnboarding ? (
           <div className="appearance-onboarding-restart">
             <button
@@ -157,6 +169,7 @@ export function SettingsSection(props: {
         : key === "providers"
           ? neuralDeepAPIBaseOverride
           : undefined;
+    const isProviders = key === "providers";
     return (
       <SettingsArraySection
         schema={sub}
@@ -165,6 +178,35 @@ export function SettingsSection(props: {
         labelField={section.labelField}
         fieldOverride={override}
         backLabelUsesItemName={!props.isMobileShell}
+        renderListExtraActions={
+          isProviders
+            ? ({ appendItems }) => (
+                <ProviderImportMenu
+                  onImport={(items) => {
+                    // Reconcile provider name collisions before appending so the
+                    // saved config stays valid (unique provider names).
+                    const taken = [...providerNames];
+                    const reconciled = items.map((it) => {
+                      const nm = uniqueProviderName(
+                        String(it.name ?? ""),
+                        taken,
+                      );
+                      if (nm) {
+                        taken.push(nm);
+                      }
+                      return { ...it, name: nm };
+                    });
+                    appendItems(reconciled, "api_key");
+                  }}
+                />
+              )
+            : undefined
+        }
+        renderItemFooter={
+          isProviders
+            ? ({ item }) => <ProviderExportButtons provider={item} />
+            : undefined
+        }
       />
     );
   }

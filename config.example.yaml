@@ -90,6 +90,15 @@ prompts:
   # File names inside prompts.dir (defaults: agent.md, plan.md)
   # agent_prompt: "agent.md"
   # plan_prompt: "plan.md"
+  # Per-provider prompts: pick a system prompt tuned to the active model, resolved
+  # most-specific first:
+  #   agent.<model-slug>.md   e.g. agent.openai-gpt-4o.md  (model-list id, "/" -> "-")
+  #   agent.<family>.md       e.g. agent.anthropic.md / agent.gemini.md
+  #   agent.md                shared fallback
+  # Family defaults are built in; per-model files live in dir (this prompts.dir).
+  # Enabled by default; set to false to always use the shared agent.md.
+  per_provider:
+    enabled: true
 
 skills:
   # dirs is the list of directories scanned for skills and rules.
@@ -166,6 +175,26 @@ tools:
 #   copilot_max_tokens: 4096
 #   max_search_hits: 8
 
+# Automatic context compaction: when the running prompt approaches the model's context window
+# (models[].max_context_tokens), older turns are summarized into one message so the session can
+# continue. Enabled by default; it only fires near the window. compaction.model is used ONLY for
+# the summary pass — leave empty to reuse agent.model.
+# compaction:
+#   enabled: true
+#   model: ""
+#   threshold_percent: 85   # trigger at this % of usable context (max_context_tokens - max_tokens); clamp 50..99
+#   keep_last_turns: 2      # most recent user turns kept verbatim
+#   max_tokens: 4096        # completion cap for the summary
+
+# Automatic session title: after the first exchange in a fresh, non-pinned session, a hidden
+# internal "title" agent generates a short thread title. Runs backend-side for all clients
+# (SPA, IntelliJ, VS Code, ACP, CLI). A user-pinned title always wins and is never overwritten.
+# title.model is used ONLY for the title pass — leave empty to reuse agent.model.
+# title:
+#   enabled: true
+#   model: ""
+#   max_tokens: 64          # completion cap for the title
+
 # Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
 # Run the bot with: foxxycode gateway --config config.yaml
 # gateways:
@@ -201,3 +230,19 @@ logger:
   rotation:
     max_size_mb: 0
     max_files: 0
+
+# Embedded SPA preferences (desktop launcher and HTTP UI, built with -tags http,ui).
+# ui:
+#   locale: ""            # "" = auto-detect system/browser locale; or "en" / "ru"
+#   send_mode: "enter"    # how the main composer submits:
+#                         #   "enter"      Enter sends (Shift/Ctrl+Enter = newline)
+#                         #   "ctrl_enter" Ctrl/Cmd+Enter sends (Enter = newline)
+#                         #   "off"        keyboard send disabled (Send button only)
+
+# Interactive browser automation tool (built with -tags browser; disabled by default).
+# Drives a local Chrome/Chromium over the DevTools Protocol via chromedp.
+# browser:
+#   enabled: false          # turn on navigate/click/fill/screenshot/... tools
+#   headless: true          # false to watch the automated session in a real window
+#   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
+#   timeout_seconds: 30     # per-action timeout

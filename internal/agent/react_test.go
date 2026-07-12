@@ -365,6 +365,61 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 	}
 }
 
+// --- system_prompt.go: per-provider prompt selection -----------------------
+
+func TestBuildSystemPromptPerProviderSelectsFamily(t *testing.T) {
+	newAgentFor := func(perProviderEnabled bool) *Agent {
+		st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+		cfg := &config.Config{
+			Providers: []config.ProviderConfig{{Name: "anthropic", Type: "anthropic", APIKey: "test"}},
+			Models:    []config.ModelEntry{{Model: "anthropic/claude-x", MaxTokens: 100}},
+			Agent:     config.Agent{Model: "anthropic/claude-x"},
+		}
+		cfg.Agent.ApplyDefaults()
+		cfg.Prompts.ApplyDefaults()
+		cfg.Prompts.PerProvider.Enabled = &perProviderEnabled
+		return NewAgent(cfg, st, nil, nil)
+	}
+
+	// Enabled: the anthropic family variant (agent.anthropic.md) carries a
+	// "Model-family notes" section that the shared agent.md does not.
+	on := newAgentFor(true).buildSystemPrompt("agent", nil, nil, "", nil)
+	if !strings.Contains(on, "Model-family notes") {
+		t.Fatal("expected anthropic family prompt when per-provider prompts are enabled")
+	}
+
+	// Disabled: falls back to the shared base prompt without family notes.
+	off := newAgentFor(false).buildSystemPrompt("agent", nil, nil, "", nil)
+	if strings.Contains(off, "Model-family notes") {
+		t.Fatal("expected shared base prompt when per-provider prompts are disabled")
+	}
+}
+
+func TestBuildSystemPromptPerModelFileFromDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "agent.md"), []byte("SHARED {{.CWD}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Model ref anthropic/claude-x slugifies to anthropic-claude-x.
+	if err := os.WriteFile(filepath.Join(dir, "agent.anthropic-claude-x.md"), []byte("PERMODEL {{.CWD}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "anthropic", Type: "anthropic", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "anthropic/claude-x", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "anthropic/claude-x"},
+	}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	cfg.Prompts.Dir = dir
+	a := NewAgent(cfg, st, nil, nil)
+	got := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	if !strings.Contains(got, "PERMODEL") {
+		t.Fatalf("expected per-model prompt file to be selected, got: %.80s", got)
+	}
+}
+
 // --- system_prompt.go: skills injection ------------------------------------
 
 // TestAugmentUserMessageWithInvokedSkills_bodyInjected verifies that when a user

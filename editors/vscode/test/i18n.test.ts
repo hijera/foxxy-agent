@@ -1,30 +1,55 @@
-import { describe, it, expect } from "vitest";
-import { localeFromSetting, setLocale, t, spaLanguageCode } from "../src/i18n/bundle";
+import { afterEach, describe, it, expect } from "vitest";
+import { setLocale, t, spaLanguageCode } from "../src/i18n/bundle";
+import {
+  localeFromConfigJson,
+  resolveLocale,
+  setEffectiveLocale,
+} from "../src/i18n/localeState";
 
-describe("localeFromSetting", () => {
-  it("honours explicit en/ru", () => {
-    expect(localeFromSetting("en", "ru")).toBe("en");
-    expect(localeFromSetting("ru", "en")).toBe("ru");
+afterEach(() => {
+  // Reset the module-level effective locale so tests don't leak state.
+  setEffectiveLocale(null);
+});
+
+describe("resolveLocale", () => {
+  it("honours an explicit backend locale over the host language", () => {
+    setEffectiveLocale("en");
+    expect(resolveLocale("ru")).toBe("en");
+    setEffectiveLocale("ru");
+    expect(resolveLocale("en")).toBe("ru");
   });
 
-  it("follows env language when set to system", () => {
-    expect(localeFromSetting("system", "ru")).toBe("ru");
-    expect(localeFromSetting("system", "en")).toBe("en");
-    expect(localeFromSetting("system", "fr")).toBe("en");
-    expect(localeFromSetting("system", "")).toBe("en");
-  });
-
-  it("falls back to env for unknown values", () => {
-    expect(localeFromSetting("klingon", "ru")).toBe("ru");
+  it("follows the host language when the backend locale is auto (null)", () => {
+    setEffectiveLocale(null);
+    expect(resolveLocale("ru")).toBe("ru");
+    expect(resolveLocale("ru-RU")).toBe("ru");
+    expect(resolveLocale("en")).toBe("en");
+    expect(resolveLocale("fr")).toBe("en");
+    expect(resolveLocale("")).toBe("en");
   });
 });
 
 describe("spaLanguageCode", () => {
-  it("matches localeFromSetting for en/ru", () => {
-    expect(spaLanguageCode("en", "ru")).toBe("en");
-    expect(spaLanguageCode("ru", "en")).toBe("ru");
-    expect(spaLanguageCode("system", "ru")).toBe("ru");
-    expect(spaLanguageCode("system", "en")).toBe("en");
+  it("mirrors resolveLocale for the ?lang= param", () => {
+    setEffectiveLocale("ru");
+    expect(spaLanguageCode("en")).toBe("ru");
+    setEffectiveLocale(null);
+    expect(spaLanguageCode("ru")).toBe("ru");
+    expect(spaLanguageCode("en")).toBe("en");
+  });
+});
+
+describe("localeFromConfigJson", () => {
+  it("extracts an explicit ui.locale", () => {
+    expect(localeFromConfigJson('{"ui":{"locale":"ru"}}')).toBe("ru");
+    expect(localeFromConfigJson('{"ui":{"locale":"en"}}')).toBe("en");
+  });
+
+  it("returns null for auto, missing, or malformed values", () => {
+    expect(localeFromConfigJson('{"ui":{"locale":""}}')).toBeNull();
+    expect(localeFromConfigJson('{"ui":{}}')).toBeNull();
+    expect(localeFromConfigJson("{}")).toBeNull();
+    expect(localeFromConfigJson("not json")).toBeNull();
   });
 });
 

@@ -12,13 +12,17 @@ type Factory struct {
 
 // DefaultFactory returns built-in providers in discover precedence order (lowest wins on dedupe).
 func DefaultFactory() *Factory {
-	return NewFactory(
+	providers := []Provider{
 		&AgentsProvider{},
 		NewMarkdownProvider(SourceCodex, ".codex/rules"),
 		NewMarkdownProvider(SourceClaude, ".claude/rules"),
 		NewMarkdownProvider(SourceCursor, ".cursor/rules"),
 		NewMarkdownProvider(SourceFoxxyCode, ".foxxycode/rules"),
-	)
+	}
+	for _, root := range foxxyRulesRoots {
+		providers = append(providers, &FoxxyRulesProvider{rootRel: root})
+	}
+	return NewFactory(providers...)
 }
 
 // NewFactory creates a factory with the given providers (later providers win dedupe by basename).

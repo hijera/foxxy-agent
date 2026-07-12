@@ -19,6 +19,14 @@ import {
   atMenuDraftAtCaret,
 } from "../skills/draftAt";
 import {
+  uniqueMentionLabel,
+  normalizeRelPath,
+  type MentionEntry,
+} from "../skills/uniqueMentionLabel";
+import { expandDroppedMentions } from "../skills/expandDroppedMentions";
+import { parseDroppedPaths } from "../skills/parseDroppedPaths";
+import { subscribeFileMention } from "../skills/fileMentionBus";
+import {
   draftExtendsFailedSlashPrefix,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
@@ -50,6 +58,11 @@ import {
 import { fileTypeIcon } from "../messages/fileTypeIcon";
 import { useT } from "../i18n/I18nProvider";
 import { getLocale } from "../i18n/i18n";
+import {
+  getSendMode,
+  onSendModeChange,
+  DEFAULT_SEND_MODE,
+} from "../i18n/sendModeConfig";
 
 function fmtBytes(n: number, t: (key: string, params?: Record<string, string | number>) => string): string {
   if (n < 1024) return t("composer.bytesB", { n });
@@ -169,6 +182,11 @@ export function Composer(props: {
     snapshotShellStack,
     serverSnapshotShellStack,
   );
+  const sendMode = useSyncExternalStore(
+    onSendModeChange,
+    getSendMode,
+    () => DEFAULT_SEND_MODE,
+  );
   const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | null>(
     null,
   );
@@ -190,6 +208,27 @@ export function Composer(props: {
   const contextHostRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  /**
+   * Short-label → full-relative-path map for files dropped onto the composer.
+   * The textarea shows the short **`@label`** chip; **`handleSend`** expands each
+   * mapped label back to its full **`@path`** before sending. A ref mirrors the
+   * state so external drops (the file-mention bus) read the latest map without a
+   * stale closure.
+   */
+  const [droppedMentions, setDroppedMentions] = useState<MentionEntry[]>([]);
+  const droppedMentionsRef = useRef<MentionEntry[]>([]);
+  useEffect(() => {
+    droppedMentionsRef.current = droppedMentions;
+  }, [droppedMentions]);
+  // Drop map is per-draft: forget it once the composer is cleared (sent / reset).
+  useEffect(() => {
+    if (props.value === "" && droppedMentionsRef.current.length > 0) {
+      droppedMentionsRef.current = [];
+      setDroppedMentions([]);
+    }
+  }, [props.value]);
+  /** True while a file drag hovers the composer field (drop-target highlight). */
+  const [dropActive, setDropActive] = useState(false);
   const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** True while an enhance-prompt request is in flight (spins the wand, disables re-entry). */
   const [enhancing, setEnhancing] = useState(false);
@@ -991,6 +1030,147 @@ export function Composer(props: {
     });
   };
 
+  /**
+   * Inserts a workspace-relative file path at the caret as a short **`@label`** chip
+   * and records the label → path mapping. Shared by native drops (VS Code) and the
+   * file-mention bus (IntelliJ push). Reads the live textarea value/caret so it works
+   * when invoked from outside a React event.
+   */
+  const insertFileMention = useCallback(
+    (pathRel: string) => {
+      const rel = normalizeRelPath(pathRel);
+      if (rel === "") {
+        return;
+      }
+      const el = taRef.current;
+      const value = el ? el.value : props.value;
+      const caret = el ? el.selectionStart ?? value.length : value.length;
+      const existing = droppedMentionsRef.current;
+      const label = uniqueMentionLabel(rel, existing);
+      const before = value.slice(0, caret);
+      const after = value.slice(caret);
+      const lead = before !== "" && !/\s$/.test(before) ? " " : "";
+      const insert = `${lead}@${label} `;
+      const next = before + insert + after;
+
+      if (!existing.some((e) => normalizeRelPath(e.pathRel) === rel)) {
+        const nextMap = [...existing, { label, pathRel: rel }];
+        droppedMentionsRef.current = nextMap;
+        setDroppedMentions(nextMap);
+      }
+      props.onChange(next);
+      const pos = caret + insert.length;
+      requestAnimationFrame(() => {
+        const e2 = taRef.current;
+        if (!e2) {
+          return;
+        }
+        e2.focus();
+        e2.setSelectionRange(pos, pos);
+      });
+    },
+    [props.onChange, props.value],
+  );
+
+  // IntelliJ pushes an already-relative path via window.foxxycodeUi.insertFileMention
+  // → the file-mention bus. Subscribe once; insertFileMention is stable enough.
+  useEffect(() => subscribeFileMention((rel) => insertFileMention(rel)), [insertFileMention]);
+
+  /** Converts absolute dropped paths to workspace-relative via the backend (VS Code). */
+  const relativizePaths = useCallback(
+    async (absPaths: string[]): Promise<string[]> => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const sid = (props.sessionId || "").trim();
+      if (sid) {
+        headers["X-FoxxyCode-Session-ID"] = sid;
+      }
+      const res = await fetch("/foxxycode/workspace/relativize", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ paths: absPaths }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const body = (await res.json()) as {
+        items?: { path_rel?: string; ok?: boolean }[];
+      };
+      return (body.items || [])
+        .filter((it) => it.ok && (it.path_rel || "").trim() !== "")
+        .map((it) => it.path_rel!.trim());
+    },
+    [props.sessionId],
+  );
+
+  /** True when a drag carries files / file URIs (so we claim it, not text drags). */
+  const dragHasFiles = (dt: DataTransfer | null): boolean => {
+    if (!dt) {
+      return false;
+    }
+    return Array.from(dt.types || []).some(
+      (ty) => ty === "Files" || ty === "text/uri-list",
+    );
+  };
+
+  const handleComposerDragOver = (ev: React.DragEvent<HTMLDivElement>) => {
+    if (!dragHasFiles(ev.dataTransfer)) {
+      return;
+    }
+    // Claim the drop so the host (VS Code) does not open the file in an editor.
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+    if (!dropActive) {
+      setDropActive(true);
+    }
+  };
+
+  const handleComposerDrop = (ev: React.DragEvent<HTMLDivElement>) => {
+    const dt = ev.dataTransfer;
+    if (!dragHasFiles(dt)) {
+      return;
+    }
+    ev.preventDefault();
+    setDropActive(false);
+    const paths = parseDroppedPaths({
+      uriList: dt.getData("text/uri-list"),
+      plain: dt.getData("text/plain"),
+    });
+    if (paths.length === 0) {
+      return;
+    }
+    void (async () => {
+      try {
+        const rels = await relativizePaths(paths);
+        for (const r of rels) {
+          insertFileMention(r);
+        }
+      } catch {
+        // Best-effort: a failed relativize just inserts nothing.
+      }
+    })();
+  };
+
+  /** Trims, expands dropped short-labels to full paths, then sends. */
+  const handleSend = useCallback(() => {
+    if (props.generating) {
+      return;
+    }
+    const raw = props.value.trim();
+    if (raw === "") {
+      return;
+    }
+    const txt = expandDroppedMentions(raw, droppedMentionsRef.current);
+    if (attachedFiles.length > 0) {
+      const files = [...attachedFiles];
+      setAttachedFiles([]);
+      props.onSend(txt, files);
+    } else {
+      props.onSend(txt);
+    }
+  }, [props.generating, props.value, props.onSend, attachedFiles]);
+
   const loadMoreSlash = () => {
     if (!slashOpen || slashLoading || !slashHasMore) {
       return;
@@ -1325,7 +1505,17 @@ export function Composer(props: {
               })}
             </div>
           ) : null}
-          <div className="composer-field-wrap" ref={composerFieldWrapRef}>
+          <div
+            className={
+              dropActive
+                ? "composer-field-wrap composer-drop-active"
+                : "composer-field-wrap"
+            }
+            ref={composerFieldWrapRef}
+            onDragOver={handleComposerDragOver}
+            onDragLeave={() => setDropActive(false)}
+            onDrop={handleComposerDrop}
+          >
             <div className="composer-stack">
               {maskComposerText ? (
                 <div className="composer-mirror" aria-hidden="true">
@@ -1486,26 +1676,25 @@ export function Composer(props: {
                       // On mobile: Enter inserts a newline (browser default). Send is button-only.
                       return;
                     }
-                    // Desktop: Shift+Enter = newline (browser default, not intercepted).
+                    // Shift+Enter always inserts a newline (browser default).
                     if (ev.shiftKey) {
                       return;
                     }
-                    // Desktop: Enter or Ctrl+Enter = send.
+                    // Desktop: which key combo sends depends on ui.send_mode.
+                    // "off": keyboard send disabled (Send button only).
+                    if (sendMode === "off") {
+                      return;
+                    }
+                    const withCtrl = ev.ctrlKey || ev.metaKey;
+                    // "enter": plain Enter sends; Ctrl/Cmd+Enter inserts a newline.
+                    // "ctrl_enter": Ctrl/Cmd+Enter sends; plain Enter inserts a newline.
+                    const shouldSend =
+                      sendMode === "ctrl_enter" ? withCtrl : !withCtrl;
+                    if (!shouldSend) {
+                      return;
+                    }
                     ev.preventDefault();
-                    if (props.generating) {
-                      return;
-                    }
-                    const txt = props.value.trim();
-                    if (!txt) {
-                      return;
-                    }
-                    if (attachedFiles.length > 0) {
-                      const files = [...attachedFiles];
-                      setAttachedFiles([]);
-                      props.onSend(txt, files);
-                    } else {
-                      props.onSend(txt);
-                    }
+                    handleSend();
                   }
                 }}
               />
@@ -1671,17 +1860,7 @@ export function Composer(props: {
                     props.onStop?.();
                     return;
                   }
-                  const txt = props.value.trim();
-                  if (!txt) {
-                    return;
-                  }
-                  if (attachedFiles.length > 0) {
-                    const files = [...attachedFiles];
-                    setAttachedFiles([]);
-                    props.onSend(txt, files);
-                  } else {
-                    props.onSend(txt);
-                  }
+                  handleSend();
                 }}
               >
                 {props.generating ? (

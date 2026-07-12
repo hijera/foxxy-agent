@@ -6,6 +6,7 @@ import {
   setLocale as setUiI18nLocale,
 } from "../i18n/i18n";
 import type { UiLocale } from "../i18n/localeCookie";
+import { emitFileMention } from "../skills/fileMentionBus";
 
 /**
  * Stable global API for host embeddings (IntelliJ/PhpStorm plugin via JCEF).
@@ -31,6 +32,12 @@ export type FoxxyCodeUiApi = {
   getLocale(): UiLocale;
   /** Fires on every locale change regardless of source. Returns unsubscribe. */
   onLocaleChange(cb: (locale: UiLocale) => void): () => void;
+  /**
+   * Inserts a workspace-relative file path into the composer as a short **`@`**-mention
+   * chip (host drag-and-drop entry point; used by the IntelliJ plugin). Returns false
+   * (and does nothing) for an empty/whitespace path.
+   */
+  insertFileMention(pathRel: string): boolean;
 };
 
 declare global {
@@ -116,6 +123,14 @@ export function installFoxxyCodeUiApi(): void {
       return () => {
         localeListeners.delete(cb);
       };
+    },
+    insertFileMention(pathRel: string): boolean {
+      const p = (pathRel || "").trim();
+      if (p === "") {
+        return false;
+      }
+      emitFileMention(p);
+      return true;
     },
   };
 }

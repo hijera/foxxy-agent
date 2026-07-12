@@ -1,15 +1,17 @@
 import * as vscode from "vscode";
-import { localeFromSetting, setLocale, type Locale } from "./i18n/bundle";
+import { setLocale, type Locale } from "./i18n/bundle";
+import { resolveLocale } from "./i18n/localeState";
 import { proxyEnvFrom, type ProxyEnv } from "./process/proxyEnv";
 
-/** All FoxxyCode settings surfaced under the `foxxycode.*` namespace. */
+/** All FoxxyCode settings surfaced under the `foxxycode.*` namespace.
+ *  The UI language is intentionally absent: it lives in the backend config
+ *  (`ui.locale`, edited in the SPA Settings → General) — see i18n/localeState.ts. */
 export interface FoxxyCodeSettings {
   binaryPath: string;
   host: string;
   port: number;
   home: string;
   extraArgs: string;
-  language: "system" | "en" | "ru";
   followVscodeTheme: boolean;
   nativeDiffs: boolean;
   autoApproveEdits: boolean;
@@ -30,7 +32,6 @@ export function readSettings(): FoxxyCodeSettings {
     port: c.get<number>("port", 0),
     home: c.get<string>("home", ""),
     extraArgs: c.get<string>("extraArgs", ""),
-    language: c.get<"system" | "en" | "ru">("language", "system"),
     followVscodeTheme: c.get<boolean>("followVscodeTheme", true),
     nativeDiffs: c.get<boolean>("nativeDiffs", true),
     autoApproveEdits: c.get<boolean>("autoApproveEdits", false),
@@ -45,10 +46,9 @@ export function readHttpProxyEnv(): ProxyEnv {
   return proxyEnvFrom(c.get<string>("proxy", ""), c.get<string[]>("noProxy", []));
 }
 
-/** Active locale resolved from the language setting + VS Code display language. */
+/** Active locale: backend `ui.locale` when known, else the VS Code display language. */
 export function activeLocale(): Locale {
-  const s = readSettings();
-  return localeFromSetting(s.language, vscode.env.language);
+  return resolveLocale(vscode.env.language);
 }
 
 /** Re-apply the i18n locale so `t()` uses the latest setting. */

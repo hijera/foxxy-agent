@@ -27,6 +27,31 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 	userTurn := 0
 	for i := 0; i < len(msgs); i++ {
 		msg := msgs[i]
+
+		// Messages superseded by auto-compaction are kept on disk but not re-rendered on reload.
+		// Count compacted user turns so the memory-trace indices of the retained tail stay aligned.
+		if msg.Compacted {
+			if msg.Role == llm.RoleUser {
+				userTurn++
+			}
+			continue
+		}
+		// The synthetic summary message stands in for the compacted turns: show it as a distinct
+		// compaction note followed by its summary text.
+		if msg.CompactionSummary {
+			_ = m.server.SendSessionUpdate(sessionID, acp.CompactionUpdate{
+				SessionUpdate: acp.UpdateTypeCompaction,
+				Phase:         acp.CompactionPhaseDone,
+			})
+			if txt := strings.TrimSpace(msg.Content); txt != "" {
+				_ = m.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+					SessionUpdate: "agent_message_chunk",
+					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: txt},
+				})
+			}
+			continue
+		}
+
 		switch msg.Role {
 		case llm.RoleUser:
 			userTurn++

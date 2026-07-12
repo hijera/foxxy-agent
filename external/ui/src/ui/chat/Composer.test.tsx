@@ -9,8 +9,12 @@ import {
 } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { Composer } from "./Composer";
+import { setSendMode, DEFAULT_SEND_MODE } from "../i18n/sendModeConfig";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setSendMode(DEFAULT_SEND_MODE);
+});
 
 function renderComposer(opts: { isEmpty: boolean }) {
   return render(
@@ -198,6 +202,50 @@ test("send play disabled when input empty", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend).toHaveBeenCalledWith("test input");
   });
+
+function renderSendModeComposer(onSend: () => void) {
+  render(
+    <Composer
+      value="hi"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  return screen.getByRole("textbox", { name: "Message" });
+}
+
+test("send_mode enter: plain Enter sends, Ctrl+Enter does not", () => {
+  setSendMode("enter");
+  const onSend = vi.fn();
+  const ta = renderSendModeComposer(onSend);
+  fireEvent.keyDown(ta, { key: "Enter", code: "Enter" });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(ta, { key: "Enter", code: "Enter", ctrlKey: true });
+  expect(onSend).toHaveBeenCalledTimes(1);
+});
+
+test("send_mode ctrl_enter: Ctrl+Enter sends, plain Enter does not", () => {
+  setSendMode("ctrl_enter");
+  const onSend = vi.fn();
+  const ta = renderSendModeComposer(onSend);
+  fireEvent.keyDown(ta, { key: "Enter", code: "Enter" });
+  expect(onSend).not.toHaveBeenCalled();
+  fireEvent.keyDown(ta, { key: "Enter", code: "Enter", ctrlKey: true });
+  expect(onSend).toHaveBeenCalledTimes(1);
+});
+
+test("send_mode off: neither Enter nor Ctrl+Enter sends", () => {
+  setSendMode("off");
+  const onSend = vi.fn();
+  const ta = renderSendModeComposer(onSend);
+  fireEvent.keyDown(ta, { key: "Enter", code: "Enter" });
+  fireEvent.keyDown(ta, { key: "Enter", code: "Enter", ctrlKey: true });
+  expect(onSend).not.toHaveBeenCalled();
+});
 
 test("Tab key selects first slash command from picker", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -484,6 +532,7 @@ test("context tooltip hidden until pointer leaves ring after closing breakdown",
     mcp: 0,
     subagents: 0,
     conversation: 100,
+    summary: 0,
     estimatedTotal: 400,
   };
   render(
@@ -522,6 +571,7 @@ test("click context ring opens breakdown popover; Escape closes", () => {
     mcp: 50,
     subagents: 0,
     conversation: 1200,
+    summary: 0,
     estimatedTotal: 2000,
   };
   render(
@@ -556,6 +606,7 @@ test("context popover percent follows breakdown not cumulative tokenUsage pct", 
     mcp: 0,
     subagents: 0,
     conversation: 6074,
+    summary: 0,
     estimatedTotal: 23787,
   };
   render(
@@ -591,6 +642,7 @@ test("context meter fill width reflects usage percent", () => {
     mcp: 0,
     subagents: 0,
     conversation: 400,
+    summary: 0,
     estimatedTotal: 2000,
   };
   render(
@@ -626,6 +678,7 @@ function stubMatchMediaMobile(isMobile: boolean) {
 
 test("desktop: Ctrl+Enter calls onSend", () => {
   stubMatchMediaMobile(false);
+  setSendMode("ctrl_enter");
   const onSend = vi.fn();
   render(
     <Composer

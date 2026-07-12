@@ -389,6 +389,70 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/workspace/relativize": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Relativize absolute paths to session cwd",
+					"description": "Converts absolute filesystem **`paths`** and/or **`file://`** / **`vscode-file://`** **`uris`** into workspace-relative POSIX paths under the session **cwd**. Backs the IDE drag-and-drop flow (a dropped file becomes an **`@`**-mention). Each result carries **`ok`**; paths outside the workspace (or the cwd root itself) return **`ok:false`**. Session **cwd** is selected by **X-FoxxyCode-Session-ID** (default session cwd otherwise).",
+					"operationId": "foxxycodeWorkspaceRelativize",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the relativization root.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"paths": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "Absolute filesystem paths.",
+										},
+										"uris": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "file:// / vscode-file:// URIs.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Relativized rows (order matches paths then uris)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string"},
+											"items": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"path_rel": map[string]string{"type": "string", "description": "POSIX path relative to cwd (empty when ok is false)."},
+														"ok":       map[string]string{"type": "boolean", "description": "False when the path is outside the workspace or cannot be resolved."},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/onboarding/status": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "First-run onboarding status",
@@ -601,6 +665,30 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Activity payload"},
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/assets/{name}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Serve a session asset file",
+					"description": "Returns the raw bytes of a file from the session assets directory (browser-tool screenshots, pasted images, etc.). **name** must be a bare file name; path separators and traversal segments are rejected. Referenced by the browser-tool transcript cards.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Asset file name (no path separators).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Asset bytes"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},

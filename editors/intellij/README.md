@@ -91,16 +91,19 @@ FoxxyCode UI theme to the IDE theme"**. Toolbar buttons: Restart, Reload, Open i
 ### Language
 
 The plugin UI (settings panel, first-run dialog, toolbar, notifications, native diff prompts) is
-available in **English** and **Russian**. In **Settings | Tools | FoxxyCode**, use the **Language**
-dropdown:
+available in **English** and **Russian**. There is a single language switcher for the whole
+application, in the embedded FoxxyCode web UI: **Settings → General → Language** (Auto / English /
+Russian). It persists to the backend config (`ui.locale`); the plugin has no language dropdown of
+its own.
 
-- **System** (default) — follows the JVM locale (`Locale.getDefault()`), which matches the IDE
-  language on most JetBrains installations. On a Russian-locale system the plugin starts in Russian
-  on first launch without any configuration.
+- **Auto** — follows the JVM locale (`Locale.getDefault()`), which matches the IDE language on most
+  JetBrains installations. On a Russian-locale system the plugin starts in Russian without any
+  configuration.
 - **English** / **Русский** — force a specific language regardless of the OS locale.
 
-Missing translation keys fall back to English automatically. The embedded FoxxyCode web UI inside JCEF
-has its own language settings and is not affected by this selector.
+The plugin reads `ui.locale` from the backend on start and updates live when you flip the switcher
+in the web UI (relayed over the JCEF `window.foxxycodeUi.onLocaleChange` bridge). Missing translation
+keys fall back to English automatically.
 
 ### Troubleshooting
 

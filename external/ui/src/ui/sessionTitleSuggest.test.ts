@@ -1,143 +1,61 @@
-import { afterEach, expect, test, vi } from "vitest";
-import { startSuggestSessionTitle } from "./sessionTitleSuggest";
+import { expect, test } from "vitest";
+import { scheduleSessionTitleRefresh } from "./sessionTitleSuggest";
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+test("refreshes the session at each delay once the id is known", async () => {
+  const scheduled: Array<{ ms: number; run: () => void }> = [];
+  const refreshed: string[] = [];
+
+  scheduleSessionTitleRefresh({
+    sessionIdPromise: Promise.resolve("sess_x"),
+    refresh: (sid) => refreshed.push(sid),
+    delaysMs: [10, 20, 30],
+    schedule: (fn, ms) => scheduled.push({ ms, run: fn }),
+  });
+
+  // Wait for the async id resolution to schedule the refreshes.
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(scheduled.map((s) => s.ms)).toEqual([10, 20, 30]);
+
+  // Fire the scheduled callbacks: each refreshes the resolved session id.
+  scheduled.forEach((s) => s.run());
+  expect(refreshed).toEqual(["sess_x", "sess_x", "sess_x"]);
 });
 
-test("describe is requested before session id promise resolves", async () => {
-  let releaseSid!: (id: string) => void;
-  const sidPromise = new Promise<string>((resolve) => {
-    releaseSid = resolve;
-  });
+test("does nothing when the session id resolves empty", async () => {
+  const scheduled: number[] = [];
+  const refreshed: string[] = [];
 
-  const order: string[] = [];
-
-  const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/foxxycode/describe")) {
-      order.push("describe");
-      return new Response(
-        JSON.stringify({ object: "foxxycode.describe", short: "My title" }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-    }
-    if (url.includes("/foxxycode/sessions/sess_x") && !url.includes("/messages")) {
-      order.push("patch");
-      return new Response(JSON.stringify({ object: "foxxycode.session_patched" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    return new Response("not found", { status: 404 });
-  });
-
-  startSuggestSessionTitle({
-    userText: "please explain async rust patterns in detail",
-    sessionIdPromise: sidPromise,
-    fetchImpl: fetchImpl as unknown as typeof fetch,
-  });
-
-  await vi.waitFor(() => {
-    expect(order).toContain("describe");
-  });
-  expect(order).not.toContain("patch");
-
-  releaseSid("sess_x");
-
-  await vi.waitFor(() => {
-    expect(order).toEqual(["describe", "patch"]);
-  });
-});
-
-test("onShortReady runs after describe and before PATCH resolves", async () => {
-  let releaseSid!: (id: string) => void;
-  const sidPromise = new Promise<string>((resolve) => {
-    releaseSid = resolve;
-  });
-
-  const order: string[] = [];
-  const preview: Array<{ sid: string; title: string }> = [];
-
-  const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/foxxycode/describe")) {
-      order.push("describe");
-      return new Response(JSON.stringify({ short: "Fast title" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (url.includes("/foxxycode/sessions/sess_x") && !url.includes("/messages")) {
-      order.push("patch");
-      return new Response(JSON.stringify({ object: "foxxycode.session_patched" }), {
-        status: 200,
-      });
-    }
-    return new Response("not found", { status: 404 });
-  });
-
-  startSuggestSessionTitle({
-    userText: "four word message here",
-    sessionIdPromise: sidPromise,
-    getPreviewSessionId: () => "sess_x",
-    onShortReady: (sid, title) => {
-      order.push("short_ready");
-      preview.push({ sid, title });
+  scheduleSessionTitleRefresh({
+    sessionIdPromise: Promise.resolve("   "),
+    refresh: (sid) => refreshed.push(sid),
+    delaysMs: [10],
+    schedule: (fn, ms) => {
+      scheduled.push(ms);
+      fn();
     },
-    fetchImpl: fetchImpl as unknown as typeof fetch,
   });
 
-  await vi.waitFor(() => {
-    expect(order).toEqual(["describe", "short_ready"]);
-  });
-  expect(order).not.toContain("patch");
+  await Promise.resolve();
+  await Promise.resolve();
 
-  releaseSid("sess_x");
-
-  await vi.waitFor(() => {
-    expect(order).toEqual(["describe", "short_ready", "patch"]);
-  });
-  expect(preview).toEqual([{ sid: "sess_x", title: "Fast title" }]);
+  expect(scheduled).toEqual([]);
+  expect(refreshed).toEqual([]);
 });
 
-test("retries PATCH when session returns 404 until ok", async () => {
-  let patchAttempts = 0;
-  const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/foxxycode/describe")) {
-      return new Response(JSON.stringify({ short: "T" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (url.includes("/foxxycode/sessions/sid1")) {
-      patchAttempts++;
-      if (patchAttempts < 3) {
-        return new Response("missing", { status: 404 });
-      }
-      return new Response(JSON.stringify({ object: "foxxycode.session_patched" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    return new Response("no", { status: 404 });
+test("does nothing when the session id promise rejects", async () => {
+  const scheduled: number[] = [];
+
+  scheduleSessionTitleRefresh({
+    sessionIdPromise: Promise.reject(new Error("no id")),
+    refresh: () => scheduled.push(-1),
+    delaysMs: [10],
+    schedule: (_fn, ms) => scheduled.push(ms),
   });
 
-  const applied: Array<{ sid: string; title: string }> = [];
+  await Promise.resolve();
+  await Promise.resolve();
 
-  startSuggestSessionTitle({
-    userText: "one two three four",
-    sessionIdPromise: Promise.resolve("sid1"),
-    fetchImpl: fetchImpl as unknown as typeof fetch,
-    onApplied: (sid, title) => applied.push({ sid, title }),
-  });
-
-  await vi.waitFor(() => {
-    expect(applied).toEqual([{ sid: "sid1", title: "T" }]);
-  });
+  expect(scheduled).toEqual([]);
 });

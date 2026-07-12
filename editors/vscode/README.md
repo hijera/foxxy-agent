@@ -101,21 +101,31 @@ On first activation the extension opens the **Get started with FoxxyCode** walkt
 
 Reconfigure anytime in **Settings → Extensions → FoxxyCode**: optional binary path override (leave
 empty to use the bundled foxxycode), host, port (0 = auto), FoxxyCode home, extra `foxxycode http`
-args, **"Match FoxxyCode UI theme to the VS Code color theme"**, native inline diffs, auto-apply
-edits, and UI language. Toolbar buttons on the webview title bar: Restart, Reload, Open in Browser,
-Open DevTools, Settings.
+args, **"Match FoxxyCode UI theme to the VS Code color theme"**, native inline diffs, and auto-apply
+edits. The UI language is **not** an extension setting — it is set once in the FoxxyCode UI
+(**Settings → General**) and shared across the whole app. Toolbar buttons on the webview title bar:
+Restart, Reload, Open in Browser, Open DevTools, Settings.
 
 ### Language
 
-The extension UI is available in **English** and **Russian**:
+The extension UI is available in **English** and **Russian**. There is a single language switcher
+for the whole application: **FoxxyCode UI → Settings → General → Language** (Auto / English /
+Russian), which persists to the backend config (`ui.locale`). The extension has no language setting
+of its own.
 
-- **Runtime strings** (notifications, first-run message, diff prompts, progress indicators, error views) follow the **FoxxyCode: Language** setting (`foxxycode.language`):
-  - **System** (default) — follows `vscode.env.language` (the VS Code display language).
-  - **English** / **Русский** — force a specific language.
-- **Command titles** in the Command Palette and webview toolbar also follow `foxxycode.language` (dual command variants gated by `foxxycode.locale`).
-- **Settings descriptions** and the activity-bar view container title follow the **VS Code display language** via `package.nls.json` / `package.nls.ru.json`. VS Code resolves those statically from `vscode.env.language`; they cannot be overridden by `foxxycode.language` alone. When **System** is selected, everything stays in sync.
+- **Runtime strings** (notifications, first-run message, diff prompts, progress indicators, error
+  views) and **command titles** (Command Palette and webview toolbar, dual variants gated by the
+  `foxxycode.locale` context key) follow the backend `ui.locale`: the extension reads it on start
+  and updates live when you flip the switcher inside the embedded SPA. When `ui.locale` is **Auto**,
+  they follow `vscode.env.language` (the VS Code display language).
+- **Settings descriptions** and the activity-bar view container title follow the **VS Code display
+  language** via `package.nls.json` / `package.nls.ru.json`. VS Code resolves those statically from
+  `vscode.env.language`; they cannot be overridden by `ui.locale`. With the display language and
+  **Auto** aligned, everything stays in sync.
 
-The selected language is forwarded to the embedded SPA via the `?lang=` URL parameter and applied on every iframe reload. Missing translation keys fall back to English automatically.
+The resolved locale is forwarded to the embedded SPA via the `?lang=` URL parameter on load; live
+changes flow back from the SPA over the `{ type: "foxxycode:locale", locale }` webview message.
+Missing translation keys fall back to English automatically.
 
 ### Theme
 

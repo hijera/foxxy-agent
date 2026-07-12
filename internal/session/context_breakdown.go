@@ -4,14 +4,17 @@ import "unicode/utf8"
 
 // ContextBreakdown estimates token usage by prompt category (v1: runes/4).
 type ContextBreakdown struct {
-	SystemPrompt     int `json:"systemPrompt"`
-	ToolDefinitions  int `json:"toolDefinitions"`
-	Rules            int `json:"rules"`
-	Skills           int `json:"skills"`
-	MCP              int `json:"mcp"`
-	Subagents        int `json:"subagents"`
-	Conversation     int `json:"conversation"`
-	EstimatedTotal   int `json:"estimatedTotal"`
+	SystemPrompt    int `json:"systemPrompt"`
+	ToolDefinitions int `json:"toolDefinitions"`
+	Rules           int `json:"rules"`
+	Skills          int `json:"skills"`
+	MCP             int `json:"mcp"`
+	Subagents       int `json:"subagents"`
+	Conversation    int `json:"conversation"`
+	// Summary is the estimated size of compaction summary messages (older turns folded into a
+	// concise summary by auto-compaction). Tracked separately from Conversation for the HUD.
+	Summary        int `json:"summary"`
+	EstimatedTotal int `json:"estimatedTotal"`
 }
 
 // EstimateTokens approximates tokens from text length.
@@ -29,5 +32,5 @@ func (b *ContextBreakdown) Sum() {
 		return
 	}
 	b.EstimatedTotal = b.SystemPrompt + b.ToolDefinitions + b.Rules + b.Skills +
-		b.MCP + b.Subagents + b.Conversation
+		b.MCP + b.Subagents + b.Conversation + b.Summary
 }

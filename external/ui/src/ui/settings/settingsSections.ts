@@ -2,10 +2,16 @@ import { t } from "../i18n/i18n";
 import { tSchemaText } from "../i18n/schemaStrings";
 import type { JsonSchema } from "./SchemaForm";
 
-export type SectionKind = "array" | "object" | "group" | "skills" | "appearance";
+export type SectionKind =
+  | "array"
+  | "object"
+  | "group"
+  | "skills"
+  | "appearance"
+  | "general";
 
 export type SectionDescriptor = {
-  /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
+  /** Unique id: a config key, or a synthetic id ("system", "appearance", "general"). */
   id: string;
   /** Tab label. */
   label: string;
@@ -19,6 +25,14 @@ export type SectionDescriptor = {
   /** For group sections: config keys grouped under this tab. */
   childKeys?: string[] | undefined;
 };
+
+/**
+ * Config keys never shown as their own schema tab. `ui` (ui.locale) is edited
+ * by the curated language picker in the synthetic General tab; a raw schema
+ * form for it would be a duplicate control. The key still round-trips through
+ * the footer Save because the whole config doc is PUT back unchanged.
+ */
+const HIDDEN_KEYS = ["ui"];
 
 /** Config keys folded into the single "System" tab (rarely edited). */
 export const SYSTEM_KEYS = [
@@ -44,6 +58,7 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
  * keys fall back to the schema description.
  */
 const SECTION_DESC_IDS = new Set([
+  "general",
   "appearance",
   "providers",
   "models",
@@ -67,13 +82,20 @@ function descFor(id: string, sub?: JsonSchema): string | undefined {
  * deriveSettingsSections turns the root config JSON Schema into ordered tab
  * descriptors. Top-level schema properties map 1:1 to tabs (using the schema's
  * `x-foxxycode-property-order` and each property's `title`), except that the rarely
- * edited tail keys are folded into a single "System" tab and a synthetic
- * client-side "Appearance" tab is placed first (the default tab). The Appearance
- * tab is present even when no schema is available (theme is purely client-side).
+ * edited tail keys are folded into a single "System" tab and two synthetic tabs
+ * lead the list: "General" (the UI language picker, the default tab) and
+ * "Appearance" (the client-side theme picker). Both are present even when no
+ * schema is available.
  */
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
 ): SectionDescriptor[] {
+  const general: SectionDescriptor = {
+    id: "general",
+    label: t("settings.section.general"),
+    description: descFor("general"),
+    kind: "general",
+  };
   const appearance: SectionDescriptor = {
     id: "appearance",
     label: t("settings.section.appearance"),
@@ -82,7 +104,7 @@ export function deriveSettingsSections(
   };
 
   if (!schema || schema.type !== "object" || !schema.properties) {
-    return [appearance];
+    return [general, appearance];
   }
 
   const props = schema.properties;
@@ -97,7 +119,7 @@ export function deriveSettingsSections(
 
   const emit = (key: string) => {
     const sub = props[key];
-    if (!sub || seen.has(key)) {
+    if (!sub || seen.has(key) || HIDDEN_KEYS.includes(key)) {
       return;
     }
     seen.add(key);
@@ -152,5 +174,5 @@ export function deriveSettingsSections(
     emit(key);
   }
 
-  return [appearance, ...out];
+  return [general, appearance, ...out];
 }

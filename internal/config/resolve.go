@@ -13,7 +13,10 @@ type ResolvedLLM struct {
 	BaseURL      string
 	ProxyURL     string
 	MaxTokens    int
-	Temperature  float64
+	// MaxContextTokens is the model's context window (models[].max_context_tokens), 0 when unset.
+	// Used by auto-compaction to detect when history approaches the window.
+	MaxContextTokens int
+	Temperature      float64
 }
 
 // FindProvider returns the provider with the given name, or nil.
@@ -54,13 +57,14 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		return nil, fmt.Errorf("model %q: provider %q not found", ref, provName)
 	}
 	return &ResolvedLLM{
-		ProviderType: prov.Type,
-		Model:        entry.APIModel(),
-		APIKey:       prov.EffectiveAPIKey(),
-		BaseURL:      prov.APIBase,
-		ProxyURL:     prov.Proxy,
-		MaxTokens:    entry.MaxTokens,
-		Temperature:  entry.Temperature,
+		ProviderType:     prov.Type,
+		Model:            entry.APIModel(),
+		APIKey:           prov.EffectiveAPIKey(),
+		BaseURL:          prov.APIBase,
+		ProxyURL:         prov.Proxy,
+		MaxTokens:        entry.MaxTokens,
+		MaxContextTokens: entry.MaxContextTokens,
+		Temperature:      entry.Temperature,
 	}, nil
 }
 
