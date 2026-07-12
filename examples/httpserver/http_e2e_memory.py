@@ -25,7 +25,7 @@ def http_json(method: str, url: str, body: dict[str, Any] | None, headers: dict[
         with urllib.request.urlopen(req, timeout=300) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             out = json.loads(raw) if raw.strip() else {}
-            resp_headers = {k: v for k, v in resp.headers.items()}
+            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
             return resp.status, out, resp_headers
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="replace")
@@ -70,7 +70,7 @@ def main() -> int:
     if code != 200:
         print("chat 1 failed", file=sys.stderr)
         return 1
-    sid = (headers.get("X-FoxxyCode-Session-Id") or headers.get("X-FoxxyCode-Session-ID") or "").strip()
+    sid = (headers.get("x-foxxycode-session-id") or "").strip()
     if not sid:
         print("missing X-FoxxyCode-Session-ID", file=sys.stderr)
         return 1

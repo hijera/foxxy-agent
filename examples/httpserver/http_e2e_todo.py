@@ -24,7 +24,7 @@ def http_json(method: str, url: str, body: dict[str, Any] | None, headers: dict[
         with urllib.request.urlopen(req, timeout=300) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             out = json.loads(raw) if raw.strip() else {}
-            resp_headers = {k: v for k, v in resp.headers.items()}
+            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
             return resp.status, out, resp_headers
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="replace")
@@ -68,7 +68,7 @@ The file must include the final checklist and one sentence recap.
         print("bad chat completion code", code, file=sys.stderr)
         return 1
     _ = cc
-    _sid = (headers.get("X-FoxxyCode-Session-Id") or headers.get("X-FoxxyCode-Session-ID") or "").strip()
+    _sid = (headers.get("x-foxxycode-session-id") or "").strip()
     if not _sid:
         print("missing X-FoxxyCode-Session-ID header", file=sys.stderr)
         return 1
