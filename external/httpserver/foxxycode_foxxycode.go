@@ -116,6 +116,8 @@ func describePickPhraseFromLLM(llmRaw string, userWords []string) string {
 
 func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/workspace/files", s.foxxycodeWorkspaceFilesGet)
+	s.mux.HandleFunc("GET /foxxycode/workspace/context", s.foxxycodeWorkspaceContextGet)
+	s.mux.HandleFunc("GET /foxxycode/workspace/folders", s.foxxycodeWorkspaceFoldersGet)
 	s.mux.HandleFunc("POST /foxxycode/workspace/relativize", s.foxxycodeWorkspaceRelativizePost)
 	s.mux.HandleFunc("GET /foxxycode/slash-commands", s.foxxycodeSlashCommandsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions", s.foxxycodeSessionsList)
@@ -129,6 +131,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}", s.foxxycodeSessionAssetGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/stats", s.foxxycodeSessionStatsGet)
 	s.mux.HandleFunc("PATCH /foxxycode/sessions/{id}", s.foxxycodeSessionPatch)
+	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/workspace", s.foxxycodeSessionWorkspacePost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/cancel", s.foxxycodeSessionCancelGeneration)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/question", s.foxxycodeSessionQuestionPost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/permission", s.foxxycodeSessionPermissionPost)

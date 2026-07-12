@@ -2,6 +2,7 @@ import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import { GeneralLocalePicker, GeneralSendModePicker } from "./GeneralSection";
 import { useT } from "../i18n/I18nProvider";
 import { tSchemaText } from "../i18n/schemaStrings";
+import { applyModelsChange } from "./applyModelsChange";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
@@ -170,11 +171,18 @@ export function SettingsSection(props: {
           ? neuralDeepAPIBaseOverride
           : undefined;
     const isProviders = key === "providers";
+    // Renaming a logical model id must follow through to the default-model
+    // references (agent.model / memory.model), or the saved config becomes
+    // invalid ("not found in models list"). applyModelsChange reconciles them.
+    const onArrayChange =
+      key === "models"
+        ? (v: unknown[]) => setDoc(applyModelsChange(doc, v))
+        : (v: unknown[]) => setKey(key, v);
     return (
       <SettingsArraySection
         schema={sub}
         value={asArray(doc[key])}
-        onChange={(v) => setKey(key, v)}
+        onChange={onArrayChange}
         labelField={section.labelField}
         fieldOverride={override}
         backLabelUsesItemName={!props.isMobileShell}
