@@ -5,13 +5,12 @@ import {
   permissionPromptDetail,
   permissionPromptTitle,
 } from "./permissionPromptDisplay";
+import { submitPermissionChoice } from "./permissionSubmit";
 import type {
   FoxxyCodePermissionPayload,
   PermissionResolvedState,
 } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
-
-const HDR = "X-FoxxyCode-Session-ID";
 
 export type PermissionPromptSectionProps = {
   itemId: string;
@@ -39,17 +38,7 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
       setSubmitting(true);
       try {
         try {
-          await fetch(
-            `/foxxycode/sessions/${encodeURIComponent(sid)}/permission`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                [HDR]: sid,
-              },
-              body: JSON.stringify({ toolCallId: tcid, optionId }),
-            },
-          );
+          await submitPermissionChoice(sid, tcid, optionId);
         } catch {
           // still unblock transcript on transient network errors
         }

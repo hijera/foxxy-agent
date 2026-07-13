@@ -197,3 +197,61 @@ func TestMaybeGenerateTitleStripsSessionAssets(t *testing.T) {
 		}
 	}
 }
+
+func TestMaybeGenerateTitleStripsInjectedIDEAndTerminalContext(t *testing.T) {
+	// The always-on <foxxycode_ide_context> / <foxxycode_terminal_context> environment blocks and
+	// attribute-bearing <foxxycode_terminal_output name="..."> mentions are appended to the stored
+	// user message each turn. None of them must leak into the title-model prompt.
+	cfg := titleConfig(t)
+	st := &session.State{ID: "s", CWD: t.TempDir(), Mode: session.ModeAgent}
+	content := "тест\n\n<foxxycode_ide_context>\n# Active File\nsites/all/modules/foo.php\n</foxxycode_ide_context>" +
+		"\n\n<foxxycode_terminal_context>\nnpm run dev\n</foxxycode_terminal_context>" +
+		"\n\n<foxxycode_terminal_output name=\"zsh\">\n$ ls\n</foxxycode_terminal_output>"
+	st.ReplaceMessagesWithoutPersist([]llm.Message{
+		{Role: llm.RoleUser, Content: content},
+		{Role: llm.RoleAssistant, Content: "sure"},
+	})
+	prov := &summarizeProvider{summary: "Some title"}
+	a := NewAgent(cfg, st, &titleSender{}, nil)
+
+	a.maybeGenerateTitle(context.Background(), prov)
+
+	if prov.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", prov.calls)
+	}
+	for _, m := range prov.seen {
+		if m.Role != llm.RoleUser {
+			continue
+		}
+		for _, tag := range []string{"<foxxycode_ide_context>", "<foxxycode_terminal_context>", "<foxxycode_terminal_output"} {
+			if strings.Contains(m.Content, tag) {
+				t.Fatalf("injected block %q leaked to title model: %q", tag, m.Content)
+			}
+		}
+		if !strings.Contains(m.Content, "тест") {
+			t.Fatalf("user text dropped from title prompt: %q", m.Content)
+		}
+	}
+}
+
+func TestMaybeGenerateTitleUsesMainProviderWhenNoTitleModel(t *testing.T) {
+	// With title.model unset, the title pass must run on the same provider the chat request uses
+	// (the one passed into maybeGenerateTitle), not skip generation.
+	cfg := titleConfig(t)
+	if cfg.Title.Model != "" {
+		t.Fatalf("precondition: title model must be empty, got %q", cfg.Title.Model)
+	}
+	st := &session.State{ID: "s", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.ReplaceMessagesWithoutPersist(firstExchange())
+	main := &summarizeProvider{summary: "Main-model title"}
+	a := NewAgent(cfg, st, &titleSender{}, nil)
+
+	a.maybeGenerateTitle(context.Background(), main)
+
+	if main.calls != 1 {
+		t.Fatalf("main provider called %d times, want 1 (fallback to request model)", main.calls)
+	}
+	if got := st.GetTitleAuto(); got != "Main-model title" {
+		t.Fatalf("TitleAuto = %q, want title from the main provider", got)
+	}
+}

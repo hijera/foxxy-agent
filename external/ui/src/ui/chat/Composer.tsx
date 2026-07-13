@@ -50,6 +50,7 @@ import {
   snapshotShellStack,
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
+import { isEditorEmbed } from "../embedShell";
 import { contextUsagePercent } from "./contextUsage";
 import {
   filterLlmModels,
@@ -197,6 +198,10 @@ export function Composer(props: {
     getSendMode,
     () => DEFAULT_SEND_MODE,
   );
+  // Editor plugin panels (VS Code / IntelliJ) are narrow but keyboard-driven,
+  // so a physical Enter must still obey ui.send_mode (Enter by default) rather
+  // than fall back to the touch/phone newline-only behavior.
+  const enterInsertsNewline = isMobileShell && !isEditorEmbed();
   const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | null>(
     null,
   );
@@ -1693,8 +1698,8 @@ export function Composer(props: {
                     return;
                   }
                   if (ev.key === "Enter") {
-                    if (isMobileShell) {
-                      // On mobile: Enter inserts a newline (browser default). Send is button-only.
+                    if (enterInsertsNewline) {
+                      // On mobile (non-embed): Enter inserts a newline (browser default). Send is button-only.
                       return;
                     }
                     // Shift+Enter always inserts a newline (browser default).

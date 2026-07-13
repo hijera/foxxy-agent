@@ -258,6 +258,53 @@ func TestTitleAutoPersistenceAndPrecedence(t *testing.T) {
 	}
 }
 
+func TestDerivedTitleStripsInjectedContextBlocks(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	id := "sess_derived_title"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No pin and no auto-title: the resolved title falls back to the first user message, which
+	// carries the agent-injected environment blocks. Those must be stripped, leaving only "тест".
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "тест\n\n<foxxycode_ide_context>\n# Active File\nsites/all/modules/foo.php\n</foxxycode_ide_context>"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Title != "тест" {
+		t.Errorf("derived title should strip injected context, got %q", snap.Meta.Title)
+	}
+}
+
+func TestStripInjectedContextBlocks(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain", "just a title", "just a title"},
+		{"ide_context", "тест\n\n<foxxycode_ide_context>\n# Active File\nfoo.php\n</foxxycode_ide_context>", "тест\n\n"},
+		{"terminal_output attrs", "run this <foxxycode_terminal_output name=\"zsh\">$ ls\n</foxxycode_terminal_output> please", "run this  please"},
+		{"unterminated", "hello <foxxycode_ide_context>\n# Active File", "hello "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := StripInjectedContextBlocks(tc.in); got != tc.want {
+				t.Fatalf("StripInjectedContextBlocks(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFilterSnapshotListForSearchMatchesFirstUserNotTitle(t *testing.T) {
 	root := t.TempDir()
 	fs := &FileStore{Root: root}

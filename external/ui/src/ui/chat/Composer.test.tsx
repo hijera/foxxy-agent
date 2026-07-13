@@ -14,6 +14,7 @@ import { setSendMode, DEFAULT_SEND_MODE } from "../i18n/sendModeConfig";
 afterEach(() => {
   cleanup();
   setSendMode(DEFAULT_SEND_MODE);
+  delete document.documentElement.dataset.embed;
 });
 
 function renderComposer(opts: { isEmpty: boolean }) {
@@ -754,6 +755,78 @@ test("mobile: clicking Send button calls onSend", () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(onSend).toHaveBeenCalledWith("hello");
+  vi.unstubAllGlobals();
+});
+
+// Editor plugin panels (VS Code / IntelliJ) are narrow enough to trip the mobile
+// breakpoint, but they are keyboard-driven and must still honor ui.send_mode.
+test("narrow editor embed: Enter sends by default (send_mode enter)", () => {
+  document.documentElement.dataset.embed = "intellij";
+  stubMatchMediaMobile(true);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(onSend).toHaveBeenCalledWith("hello");
+  vi.unstubAllGlobals();
+});
+
+test("narrow editor embed: ctrl_enter mode — plain Enter newlines, Ctrl+Enter sends", () => {
+  document.documentElement.dataset.embed = "intellij";
+  stubMatchMediaMobile(true);
+  setSendMode("ctrl_enter");
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(onSend).not.toHaveBeenCalled();
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(onSend).toHaveBeenCalledWith("hello");
+  vi.unstubAllGlobals();
+});
+
+test("narrow editor embed: off mode — no keyboard send", () => {
+  document.documentElement.dataset.embed = "intellij";
+  stubMatchMediaMobile(true);
+  setSendMode("off");
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.keyDown(ta, { key: "Enter" });
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  expect(onSend).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
 

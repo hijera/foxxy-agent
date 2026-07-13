@@ -75,6 +75,21 @@ import { GuidedTour } from "./onboarding/GuidedTour";
 import { TOUR_STEPS } from "./onboarding/tourSteps";
 import { isTourSeen, markTourSeen, resetTour } from "./onboarding/tourState";
 import { isDesktopShell } from "./desktopShell";
+import {
+  DesktopNotifications,
+  type DesktopNotification,
+  type DesktopPermissionNotification,
+  type DesktopPlanNotification,
+} from "./desktop/DesktopNotifications";
+import {
+  armNotificationSoundUnlock,
+  playNotificationSound,
+} from "./desktop/desktopNotifySound";
+import {
+  permissionPromptDetail,
+  permissionPromptTitle,
+} from "./chat/permissionPromptDisplay";
+import { submitPermissionChoice } from "./chat/permissionSubmit";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -653,6 +668,15 @@ export function App() {
   const [permissionPendingSids, setPermissionPendingSids] = useState<
     Set<string>
   >(() => new Set(permissionPendingSessionIdsFromStorage()));
+  // Desktop-only bottom-right toasts (permission prompts + plan-ready).
+  const [desktopNotifications, setDesktopNotifications] = useState<
+    DesktopNotification[]
+  >([]);
+  // Plan-ready keys (`${sessionId}:${slug}`) already surfaced as a toast, so we
+  // don't re-notify on message reloads or when re-opening an old session.
+  const notifiedPlanKeysRef = useRef<Set<string>>(new Set());
+  const prevGeneratingRef = useRef(false);
+  const prevGenSessionRef = useRef("");
   const [toolsPermissionPolicy, setToolsPermissionPolicy] =
     useState<ToolsPermissionPolicy | null>(null);
   const toolsPermissionPolicyRef = useRef<ToolsPermissionPolicy | null>(null);
@@ -809,6 +833,66 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [sessionId, generating, refreshSessionStats]);
 
+  // Arm audio unlock once so the first desktop chime is not swallowed by the
+  // browser autoplay policy.
+  useEffect(() => {
+    if (isDesktopShell()) {
+      armNotificationSoundUnlock();
+    }
+  }, []);
+
+  // Desktop plan-ready toast + chime. Fires on the generation-finished edge
+  // (true -> false) for the viewed session, so merely opening an old session
+  // with an existing plan never notifies. Plans present when a turn *starts*
+  // are seeded as already-seen so only a freshly produced plan triggers.
+  useEffect(() => {
+    const sid = sessionId.trim();
+    const was = prevGeneratingRef.current;
+    const wasSid = prevGenSessionRef.current;
+    prevGeneratingRef.current = generating;
+    prevGenSessionRef.current = sid;
+    if (!isDesktopShell() || !sid || wasSid !== sid) {
+      return;
+    }
+    if (!was && generating) {
+      for (const it of itemsRef.current) {
+        if (it.type === "plan_document" && it.slug) {
+          notifiedPlanKeysRef.current.add(`${sid}:${it.slug}`);
+        }
+      }
+      return;
+    }
+    if (was && !generating) {
+      const timers = [0, 350, 900].map((delay) =>
+        window.setTimeout(() => {
+          if (viewedSessionIdRef.current.trim() !== sid) return;
+          for (const it of itemsRef.current) {
+            if (it.type !== "plan_document" || !it.slug || it.discarded) {
+              continue;
+            }
+            const planKey = `${sid}:${it.slug}`;
+            if (notifiedPlanKeysRef.current.has(planKey)) continue;
+            notifiedPlanKeysRef.current.add(planKey);
+            const body = (it.name || it.overview || "").trim();
+            const planNotif: DesktopPlanNotification = {
+              kind: "plan",
+              id: `plan_${planKey}`,
+              sessionId: sid,
+              slug: it.slug,
+              title: t("desktopNotify.planReadyTitle"),
+              body,
+            };
+            setDesktopNotifications((prev) => [...prev, planNotif]);
+            playNotificationSound();
+            break;
+          }
+        }, delay),
+      );
+      return () => timers.forEach((tm) => window.clearTimeout(tm));
+    }
+    return;
+  }, [generating, sessionId]);
+
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
 
   const sessionsForSidebar = useMemo(
@@ -958,6 +1042,28 @@ export function App() {
         }
         return [...withoutDup, row];
       });
+      if (isDesktopShell()) {
+        const notif: DesktopPermissionNotification = {
+          kind: "permission",
+          id: `perm_${tcid}`,
+          sessionId: key,
+          toolCallId: tcid,
+          itemId: stablePermissionPromptItemId(tcid),
+          title: permissionPromptTitle(p),
+          detail: permissionPromptDetail(p),
+          options: p.options.map((o) => ({
+            optionId: o.optionId,
+            name: o.name,
+          })),
+        };
+        setDesktopNotifications((prev) => [
+          ...prev.filter(
+            (n) => !(n.kind === "permission" && n.toolCallId === tcid),
+          ),
+          notif,
+        ]);
+        playNotificationSound();
+      }
     },
     [],
   );
@@ -1002,6 +1108,10 @@ export function App() {
         next.delete(key);
         return next;
       });
+      // Co-dismiss the matching desktop toast (whether resolved here or inline).
+      setDesktopNotifications((prev) =>
+        prev.filter((n) => !(n.kind === "permission" && n.itemId === itemId)),
+      );
       applyStreamItemsForSession(key, (prev) => {
         const hit = prev.find(
           (x) => x.type === "permission_prompt" && x.id === itemId,
@@ -3667,6 +3777,46 @@ export function App() {
           onClose={() => {
             markTourSeen();
             setShowTour(false);
+          }}
+        />
+        <DesktopNotifications
+          notifications={desktopNotifications}
+          onDismiss={(id) =>
+            setDesktopNotifications((prev) => prev.filter((n) => n.id !== id))
+          }
+          onPermissionChoose={(n, optionId, label) => {
+            void (async () => {
+              try {
+                await submitPermissionChoice(
+                  n.sessionId,
+                  n.toolCallId,
+                  optionId,
+                );
+              } catch {
+                // still resolve locally on transient network errors
+              }
+              resolvePermissionPrompt(n.sessionId, n.itemId, {
+                optionId,
+                summaryLine: label,
+              });
+            })();
+          }}
+          onRunPlan={(n) => {
+            setDesktopNotifications((prev) =>
+              prev.filter((x) => x.id !== n.id),
+            );
+            const sid = n.sessionId.trim();
+            if (
+              !sid ||
+              sid !== sessionId.trim() ||
+              activeComposerSidRef.current.has(sid)
+            ) {
+              return;
+            }
+            void streamResponses(t("chat.runPlanMessage"), {
+              modeOverride: "agent",
+              runPlanSlug: n.slug,
+            });
           }}
         />
       </div>

@@ -7,6 +7,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 //go:embed prompts/title.md
@@ -94,7 +95,7 @@ func firstUserMessageContent(history []llm.Message) string {
 		if m.Role != llm.RoleUser {
 			continue
 		}
-		text := strings.TrimSpace(stripSessionAssetsXML(m.Content))
+		text := strings.TrimSpace(session.StripInjectedContextBlocks(m.Content))
 		if text != "" {
 			return text
 		}
@@ -131,23 +132,4 @@ func cleanTitle(raw string) string {
 		return line
 	}
 	return ""
-}
-
-// stripSessionAssetsXML removes <foxxycode_session_assets>...</foxxycode_session_assets> blocks.
-func stripSessionAssetsXML(s string) string {
-	const open = "<foxxycode_session_assets>"
-	const close = "</foxxycode_session_assets>"
-	for {
-		start := strings.Index(strings.ToLower(s), open)
-		if start < 0 {
-			break
-		}
-		end := strings.Index(strings.ToLower(s[start:]), close)
-		if end < 0 {
-			s = s[:start]
-			break
-		}
-		s = s[:start] + s[start+end+len(close):]
-	}
-	return s
 }

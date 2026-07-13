@@ -144,14 +144,32 @@ jobs:
             fi
           }
 
+          # Windows WebView2 desktop shell (foxxy-only). go-webview2 is pure Go
+          # (no cgo), so it cross-compiles on ubuntu like the CLI targets. Tags and
+          # ldflags mirror `make build-desktop` (DESKTOP_TAGS + -H=windowsgui).
+          build_desktop() {
+            local stem="foxxycode-desktop_${VERSION}_windows_amd64"
+            local bindir="$DIST/_staging/${stem}"
+            mkdir -p "$bindir"
+            GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+              go build \
+              -tags="${GO_BUILD_TAGS},desktop" \
+              -trimpath \
+              -ldflags "-H=windowsgui $LDFLAGS" \
+              -o "$bindir/foxxycode-desktop.exe" \
+              ./cmd/foxxycode/
+            (cd "$bindir" && zip -q "$DIST/${stem}.zip" "foxxycode-desktop.exe")
+          }
+
           build_target linux amd64
           build_target linux arm64
           build_target windows amd64
           build_target darwin amd64
           build_target darwin arm64
+          build_desktop
 
           rm -rf "$DIST/_staging"
-          (cd "$DIST" && sha256sum foxxycode_*.tar.gz foxxycode_*.zip > SHA256SUMS)
+          (cd "$DIST" && sha256sum foxxycode_*.tar.gz foxxycode_*.zip foxxycode-desktop_*.zip > SHA256SUMS)
           ls -la "$DIST"
 
       - name: Upload assets to GitHub Release

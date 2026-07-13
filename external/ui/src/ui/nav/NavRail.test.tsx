@@ -5,7 +5,7 @@ import { NavRail } from "./NavRail";
 
 afterEach(() => cleanup());
 
-test("nav brand uses FoxxyCode agent label (compact rail)", () => {
+test("nav brand new-chat affordance renders a plus icon (compact rail)", () => {
   render(
     <NavRail
       onNewChat={() => {}}
@@ -21,13 +21,13 @@ test("nav brand uses FoxxyCode agent label (compact rail)", () => {
     />,
   );
 
-  expect(
-    screen.getByRole("link", { name: "FoxxyCode agent home" }),
-  ).toBeInTheDocument();
-  expect(screen.getByText("agent")).toBeInTheDocument();
+  const home = screen.getByRole("link", { name: "FoxxyCode agent home" });
+  expect(home).toBeInTheDocument();
+  expect(home.querySelector(".rail-brand-plus")).not.toBeNull();
+  expect(home).not.toHaveTextContent("agent");
 });
 
-test("nav brand uses FoxxyCode agent label (wide header row)", () => {
+test("nav brand new-chat affordance renders a plus icon (wide header row)", () => {
   render(
     <NavRail
       onNewChat={() => {}}
@@ -43,10 +43,10 @@ test("nav brand uses FoxxyCode agent label (wide header row)", () => {
     />,
   );
 
-  expect(
-    screen.getByRole("link", { name: "FoxxyCode agent home" }),
-  ).toBeInTheDocument();
-  expect(screen.getByTestId("nav-home")).toHaveTextContent("FoxxyCode agent");
+  const home = screen.getByTestId("nav-home");
+  expect(home).toBeInTheDocument();
+  expect(home.querySelector(".rail-brand-plus")).not.toBeNull();
+  expect(home).not.toHaveTextContent("FoxxyCode");
 });
 
 test("nav hides Scheduler when showScheduler is false", () => {

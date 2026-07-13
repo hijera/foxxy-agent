@@ -75,6 +75,27 @@ function IconSettings(props: { className?: string }) {
   );
 }
 
+/** Plus glyph for the new-chat brand affordance (top-left of the rail). */
+function IconPlus(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M12 5v14M5 12h14"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Three equal-width lines (symmetric hamburger) for collapse wide rail; not a global app drawer. */
 function IconSidebarCollapse(props: { className?: string }) {
   return (
@@ -189,10 +210,7 @@ export function NavRail(props: {
                   sameTabInAppNavClick(ev, props.onNewChat)
                 }
               >
-                <span className="rail-brand-text-header-single">
-                  {t("nav.brandTitle")}{" "}
-                  <span className="rail-brand-header-agent">{t("nav.brandSub")}</span>
-                </span>
+                <IconPlus className="rail-brand-plus" />
               </a>
             </div>
           ) : (
@@ -242,10 +260,7 @@ export function NavRail(props: {
                 sameTabInAppNavClick(ev, props.onNewChat)
               }
             >
-              <span className="rail-brand-text">
-                <span className="rail-brand-title">{t("nav.brandTitle")}</span>
-                <span className="rail-brand-sub">{t("nav.brandSub")}</span>
-              </span>
+              <IconPlus className="rail-brand-plus" />
             </a>
             <span className="rail-tip" role="tooltip">
               {t("nav.newChatTooltip")}

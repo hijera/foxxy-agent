@@ -464,7 +464,7 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
-			text := stripFoxxyCodeSessionAssetsXML(strings.TrimSpace(msg.Content))
+			text := StripInjectedContextBlocks(strings.TrimSpace(msg.Content))
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -475,16 +475,42 @@ func deriveSessionTitle(s *State) string {
 	return ""
 }
 
-// stripFoxxyCodeSessionAssetsXML removes <foxxycode_session_assets>...</foxxycode_session_assets> blocks from s.
-func stripFoxxyCodeSessionAssetsXML(s string) string {
-	const open = "<foxxycode_session_assets>"
-	const close = "</foxxycode_session_assets>"
+// injectedContextTags are the agent-injected <foxxycode_*> environment wrapper tags appended to
+// user messages each turn (see internal/agent/react.go). They carry IDE/terminal/asset context
+// that must be removed before deriving a human-readable session title.
+var injectedContextTags = []string{
+	"foxxycode_session_assets",
+	"foxxycode_ide_context",
+	"foxxycode_terminal_context",
+	"foxxycode_terminal_output",
+}
+
+// StripInjectedContextBlocks removes agent-injected <foxxycode_*> environment blocks
+// (session_assets, ide_context, terminal_context, terminal_output) so a clean title can be
+// derived from the user's actual message text. Matching is case-insensitive and tolerates
+// attributes on the opening tag (e.g. <foxxycode_terminal_output name="...">).
+func StripInjectedContextBlocks(s string) string {
+	for _, tag := range injectedContextTags {
+		s = stripXMLBlock(s, tag)
+	}
+	return s
+}
+
+// stripXMLBlock removes every <tag ...>...</tag> span from s. The opening tag is matched by the
+// "<tag" prefix so attribute-bearing tags are handled; an unterminated opening tag truncates the
+// remainder. Matching is case-insensitive.
+func stripXMLBlock(s, tag string) string {
+	open := "<" + tag
+	close := "</" + tag + ">"
+	lowerOpen := strings.ToLower(open)
+	lowerClose := strings.ToLower(close)
 	for {
-		start := strings.Index(strings.ToLower(s), strings.ToLower(open))
+		lower := strings.ToLower(s)
+		start := strings.Index(lower, lowerOpen)
 		if start < 0 {
 			break
 		}
-		end := strings.Index(strings.ToLower(s[start:]), strings.ToLower(close))
+		end := strings.Index(lower[start:], lowerClose)
 		if end < 0 {
 			s = s[:start]
 			break

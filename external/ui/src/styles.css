@@ -979,6 +979,19 @@ a.rail-brand {
   box-sizing: border-box;
 }
 
+/* New-chat plus glyph that replaced the FoxxyCode/agent brand text. */
+.rail-brand-plus {
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+}
+
+.rail-brand:hover .rail-brand-plus {
+  color: var(--text);
+}
+
 .rail-brand-header {
   flex: 1 1 auto;
   flex-shrink: 1;
@@ -6707,6 +6720,96 @@ textarea#composer {
 
 .permission-prompt-btn--reject:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+/* Desktop-only bottom-right notification toasts (permission prompts + plan ready). */
+.desktop-toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.desktop-toast {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  padding: 12px 14px;
+  box-sizing: border-box;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  animation: desktop-toast-in 160ms ease-out;
+}
+
+@keyframes desktop-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.desktop-toast-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+.desktop-toast-close:hover {
+  color: var(--text);
+}
+
+.desktop-toast-title {
+  margin: 0;
+  padding-right: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
+}
+
+.desktop-toast-detail {
+  margin: 0;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
+}
+
+.desktop-toast-body {
+  font-size: 13px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+}
+
+.desktop-toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .message-row-question {

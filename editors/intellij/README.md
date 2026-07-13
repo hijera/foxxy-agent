@@ -26,9 +26,9 @@ IDE  ──tool window──▶  JBCefBrowser  ──http──▶  foxxycode ht
 
 ## Requirements
 
-- An IntelliJ-platform IDE, **build 223 (2022.3) or newer** (no upper bound), running on a JetBrains
+- An IntelliJ-platform IDE, **build 222 (2022.2) or newer** (no upper bound), running on a JetBrains
   Runtime with JCEF (the default). Without JCEF the plugin falls back to "Open in browser".
-- The plugin compiles against the 2022.3 SDK with **Java 17** bytecode (Gradle IntelliJ Plugin 1.x).
+- The plugin compiles against the 2022.2.1 SDK with **Java 17** bytecode (Gradle IntelliJ Plugin 1.x).
 - **Build prerequisites (host machine):** Go (per the root `go.mod`), Node.js with npm, and a
   **JDK 17** for Gradle. These are required for `buildPlugin` / `runIde` because the foxxycode binary
   and its embedded SPA are built locally during plugin assembly.
@@ -68,7 +68,7 @@ and resolved at runtime by `FoxxyCodeBinaryResolver` for the running IDE's platf
 
 Install the built zip via **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
 
-> **Gradle distribution.** The first build downloads Gradle 8.10.2 and the IntelliJ IDEA 2022.3 SDK,
+> **Gradle distribution.** The first build downloads Gradle 8.10.2 and the IntelliJ IDEA 2022.2.1 SDK,
 > then caches both. Easiest alternative: open `editors/intellij/` in IntelliJ IDEA as a Gradle
 > project — the IDE provides Gradle and a JDK.
 

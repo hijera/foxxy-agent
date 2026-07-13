@@ -138,9 +138,11 @@ val foxxycodeVerifyBinaries by tasks.registering {
     }
 }
 
-// Compile against IntelliJ IDEA Community 2022.3 so the plugin runs on build 223 and newer.
+// Compile against IntelliJ IDEA Community 2022.2.1 so the plugin runs on build 222 and newer
+// (PhpStorm / any IntelliJ-based IDE 2022.2.1+). Building against the floor makes the compiler
+// reject any accidental use of a 223+ API.
 intellij {
-    version.set("2022.3")
+    version.set("2022.2.1")
     type.set("IC")
     downloadSources.set(false)
     // Pure-Kotlin plugin, no @NotNull/form instrumentation needed.
@@ -154,16 +156,17 @@ java {
 
 tasks {
     patchPluginXml {
-        sinceBuild.set("223")
+        sinceBuild.set("222")
         // Empty upper bound: keep the plugin compatible with newer IDE builds.
         untilBuild.set("")
     }
 
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions {
-            // 2022.3 runs on JBR 17 and bundles Kotlin 1.7 — stay within both.
+            // 2022.2 runs on JBR 17 and bundles Kotlin 1.6 — stay within both so the
+            // plugin doesn't reference stdlib APIs absent from the 2022.2 runtime.
             jvmTarget = "17"
-            apiVersion = "1.7"
+            apiVersion = "1.6"
         }
     }
 
