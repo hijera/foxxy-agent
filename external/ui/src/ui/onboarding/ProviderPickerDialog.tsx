@@ -93,7 +93,7 @@ const PRESETS: ProviderPreset[] = [
     multimodal: true,
     apiBase: "https://api.neuraldeep.ru/v1",
     apiBaseFixed: true,
-    defaultModel: "neuraldeep/default",
+    defaultModel: "neuraldeep/gpt-oss-120b",
     envKey: "${NEURALDEEP_API_KEY}",
     website: "https://hub.neuraldeep.ru",
   },
@@ -217,7 +217,10 @@ export function ProviderPickerDialog(props: {
   useEffect(() => {
     setTestOk(false);
     setError(null);
-    setModelId("");
+    // Pre-select the neuraldeep default so its model shows in the combobox
+    // instead of only as placeholder text; other providers start empty.
+    const next = PRESETS.find((p) => p.id === selected) ?? PRESETS[0];
+    setModelId(selected === "neuraldeep" ? next.defaultModel : "");
     resetModels();
     if (selected === "ollama") {
       setApiBase((b) => b || "http://127.0.0.1:11434/v1");

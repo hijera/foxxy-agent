@@ -137,4 +137,45 @@ class ProxyEnvironmentTest {
         )
         assertEquals("http://first.proxy:8080", url)
     }
+
+    // --- normalizeNoProxy (loopback always excluded) ---
+
+    @Test
+    fun `normalizeNoProxy without exceptions still excludes loopback`() {
+        assertEquals("localhost,127.0.0.1,::1", ProxyEnvironment.normalizeNoProxy(null))
+        assertEquals("localhost,127.0.0.1,::1", ProxyEnvironment.normalizeNoProxy("   "))
+    }
+
+    @Test
+    fun `normalizeNoProxy prepends loopback and normalizes separators`() {
+        assertEquals(
+            "localhost,127.0.0.1,::1,.internal,10.0.0.0/8",
+            ProxyEnvironment.normalizeNoProxy(".internal, 10.0.0.0/8"),
+        )
+    }
+
+    @Test
+    fun `normalizeNoProxy dedupes loopback the user also listed`() {
+        assertEquals(
+            "localhost,127.0.0.1,::1,corp.example",
+            ProxyEnvironment.normalizeNoProxy("localhost; corp.example; 127.0.0.1"),
+        )
+    }
+
+    // --- buildEnvFromResolved (ProxySelector path) ---
+
+    @Test
+    fun `buildEnvFromResolved fills every proxy and no_proxy variable`() {
+        val env = ProxyEnvironment.buildEnvFromResolved("http://proxy.local:3128", ".internal")
+        for (key in proxyKeys) assertEquals("http://proxy.local:3128", env[key])
+        assertEquals("localhost,127.0.0.1,::1,.internal", env["NO_PROXY"])
+        assertEquals("localhost,127.0.0.1,::1,.internal", env["no_proxy"])
+    }
+
+    @Test
+    fun `buildEnvFromResolved forwards a socks url and still excludes loopback`() {
+        val env = ProxyEnvironment.buildEnvFromResolved("socks5://127.0.0.1:1080", null)
+        assertEquals("socks5://127.0.0.1:1080", env["ALL_PROXY"])
+        assertEquals("localhost,127.0.0.1,::1", env["NO_PROXY"])
+    }
 }

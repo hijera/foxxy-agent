@@ -10,7 +10,7 @@ A machine-readable [JSON Schema](config.schema.json) accompanies this reference.
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). `${FOXXYCODE_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
 
 ## Top-level keys
 
@@ -46,7 +46,7 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep`, which always uses `https://api.neuraldeep.ru/v1`. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the shell when `api_key` is empty; trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
-| `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. |
+| `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -255,7 +255,7 @@ Messenger gateways (`config.GatewayConfig`, `internal/config/gateway.go`; `gatew
 |---|---|---|---|---|---|
 | `enabled` | bool | no | `false` | — | Activate the Telegram adapter. |
 | `token` | string | no | `""` | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather. Empty reads the env var (e.g. via `~/.foxxycode/.env`). |
-| `proxy` | string | no | direct | — | Outbound proxy: `http`, `https`, `socks5`, `socks5h`. |
+| `proxy` | string | no | direct | — | Outbound proxy: `http`, `https`, `socks5`, `socks5h`. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 | `rich_messages` | bool | no | `false` | — | Bot API 10.1 Rich Messages; falls back to legacy formatting when unsupported. |
 | `admins` | int list | no | `[]` | — | Telegram user IDs with elevated rights; always pass access checks. |
 | `default_access` | string | no | `all` | — | `all`, `admins`, or `group:<name>`. |

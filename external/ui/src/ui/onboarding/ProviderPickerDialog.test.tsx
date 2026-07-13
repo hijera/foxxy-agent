@@ -138,10 +138,11 @@ describe("ProviderPickerDialog", () => {
   });
 
   it("test connection does not auto-select the synthetic agent pseudo-model", async () => {
+    // Uses the default (openai) preset, whose model field starts empty, so the
+    // test-connection auto-select fires and must skip the synthetic pseudo-models.
     renderPicker({});
-    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
     fireEvent.change(screen.getByTestId("provider-api-key"), {
-      target: { value: "sk-nd" },
+      target: { value: "sk-test" },
     });
     fireEvent.click(screen.getByTestId("provider-test"));
     await waitFor(() =>
@@ -153,6 +154,17 @@ describe("ProviderPickerDialog", () => {
     // Must skip agent/plan/docs (owned_by "foxxycode") and pick the real model.
     expect(modelInput.value).not.toBe("agent");
     expect(modelInput.value).toBe("openai/gpt-4o");
+  });
+
+  it("pre-selects the neuraldeep default model in the combobox", async () => {
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    const modelInput = (await waitFor(() =>
+      screen.getByTestId("provider-model-id"),
+    )) as HTMLInputElement;
+    // The neuraldeep preset seeds its recommended default so it is visible, not
+    // just placeholder text; other presets start empty.
+    expect(modelInput.value).toBe("neuraldeep/gpt-oss-120b");
   });
 
   it("renders translated strings for the ru locale", () => {

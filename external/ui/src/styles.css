@@ -7754,7 +7754,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .appearance-swatch {
   display: flex;
   flex-direction: column;
-  border: 2px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  min-width: 0;
+  /* Literal fallback first so an undefined/late var never drops the whole
+     border shorthand (Chromium 102 / old JCEF). The resolved var wins when set. */
+  border: 2px solid rgba(127, 127, 127, 0.16);
+  border-color: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
@@ -7778,6 +7782,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 5px;
   padding: 10px 10px 8px;
   height: 72px;
+  /* Force full width instead of relying on column-flex align stretch, which old
+     Chromium (102 / JCEF) can collapse — leaving the colored area only content-wide. */
+  width: 100%;
+  align-self: stretch;
+  min-width: 0;
   box-sizing: border-box;
   position: relative;
   overflow: hidden;
@@ -7813,6 +7822,9 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .appearance-swatch-label {
   display: block;
+  width: 100%;
+  align-self: stretch;
+  box-sizing: border-box;
   padding: 6px 10px;
   font-size: 0.78rem;
   font-weight: 500;

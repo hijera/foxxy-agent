@@ -58,7 +58,7 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	}
 
 	originalData := append([]byte(nil), data...)
-	expanded := os.ExpandEnv(ExpandPathVars(string(data), paths))
+	expanded := expandEnvEscaped(ExpandPathVars(string(data), paths))
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {

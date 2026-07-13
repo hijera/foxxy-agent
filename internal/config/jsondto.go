@@ -428,9 +428,27 @@ func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
 }
 
 // MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on field).
+// Always-literal secret fields (proxy URLs) are "$"-escaped so the load-time expansion pass restores
+// them verbatim instead of resolving "$WORD"/"$N" fragments to empty environment variables.
 func MarshalConfigYAML(cfg *Config) ([]byte, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
-	return yaml.Marshal(cfg)
+	return yaml.Marshal(escapeYAMLSecrets(cfg))
+}
+
+// escapeYAMLSecrets returns a copy of cfg with always-literal proxy URLs "$"-escaped for disk.
+// It copies only what it mutates (the Providers slice and the gateway proxy string), leaving the
+// caller's in-memory *Config untouched — the live config keeps the real, unescaped values.
+func escapeYAMLSecrets(cfg *Config) *Config {
+	out := *cfg
+	if len(cfg.Providers) > 0 {
+		out.Providers = make([]ProviderConfig, len(cfg.Providers))
+		copy(out.Providers, cfg.Providers)
+		for i := range out.Providers {
+			out.Providers[i].Proxy = escapeYAMLDollar(out.Providers[i].Proxy)
+		}
+	}
+	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
+	return &out
 }

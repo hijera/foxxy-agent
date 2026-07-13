@@ -366,6 +366,15 @@ Values already in the process environment (e.g. set by the shell, Docker, system
 Any config value can reference environment variables using `${VAR_NAME}` syntax.
 The agent resolves these at startup.
 
+**Literal `$` in a value:** because expansion runs over the raw file, a value that must contain a
+literal dollar sign (e.g. a proxy or API-key secret like `$2y$10$…`) has to double it as `$$` — `$$`
+expands back to a single `$`, exactly like docker-compose / envsubst. Without this, fragments such as
+`$2y` or `$10` are treated as environment-variable references and resolve to empty strings, silently
+corrupting the secret. The Settings UI does this automatically for the `proxy` fields
+(`providers[].proxy` and `gateways.telegram.proxy`), which are always treated as literal URLs and do
+**not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
+write `$$` by hand.
+
 Special variables in YAML (before parse) and in path strings:
 
 - **`${FOXXYCODE_HOME}`** - resolved `FOXXYCODE_HOME` directory

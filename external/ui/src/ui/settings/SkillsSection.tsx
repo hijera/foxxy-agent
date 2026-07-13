@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { t } from "../i18n/i18n";
 import { SchemaForm, type JsonSchema } from "./SchemaForm";
 
 type InstalledSkill = {
@@ -73,7 +74,10 @@ export function SkillsSection(props: {
       const action = skill.enabled ? "disable" : "enable";
       const res = await apiPost(`/foxxycode/skills/${encodeURIComponent(skill.name)}/${action}`);
       if (!res.ok) {
-        setError(res.error || `Failed to ${action}`);
+        setError(
+          res.error ||
+            t(action === "enable" ? "settings.skills.enableFailed" : "settings.skills.disableFailed"),
+        );
       } else {
         await loadInstalled();
       }
@@ -86,19 +90,23 @@ export function SkillsSection(props: {
       <SchemaForm schema={schema} value={value} onChange={onChange} />
 
       <p className="appearance-section-label settings-skills-installed-label">
-        Installed skills
+        {t("settings.skills.installedLabel")}
       </p>
       <p className="settings-field-desc">
-        Install skills via <code>npx skills</code> or <code>npx skillsbd</code> — they land in{" "}
-        <code>~/.agents/skills/</code> and are picked up automatically.
+        {t("settings.skills.installHintBefore")} <code>npx skills</code>{" "}
+        {t("settings.skills.installHintOr")} <code>npx skillsbd</code>{" "}
+        {t("settings.skills.installHintLand")} <code>~/.agents/skills/</code>{" "}
+        {t("settings.skills.installHintAfter")}
       </p>
       {error ? <p className="settings-error">{error}</p> : null}
 
       {loading ? (
-        <p className="settings-muted">Loading…</p>
+        <p className="settings-muted">{t("settings.loading")}</p>
       ) : installed.length === 0 ? (
         <p className="settings-muted">
-          No skills found. Use <code>npx skills</code> or <code>npx skillsbd</code> to install.
+          {t("settings.skills.emptyBefore")} <code>npx skills</code>{" "}
+          {t("settings.skills.installHintOr")} <code>npx skillsbd</code>{" "}
+          {t("settings.skills.emptyAfter")}
         </p>
       ) : (
         <ul className="skills-list">
@@ -119,9 +127,9 @@ export function SkillsSection(props: {
                 className="settings-btn skills-list-item-toggle"
                 disabled={!!busy[sk.name]}
                 onClick={() => onToggle(sk)}
-                title={sk.enabled ? "Disable" : "Enable"}
+                title={sk.enabled ? t("settings.skills.disable") : t("settings.skills.enable")}
               >
-                {sk.enabled ? "Disable" : "Enable"}
+                {sk.enabled ? t("settings.skills.disable") : t("settings.skills.enable")}
               </button>
             </li>
           ))}

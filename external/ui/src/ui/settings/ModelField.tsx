@@ -46,7 +46,7 @@ export function ModelField(props: {
             reset();
           }}
           options={providers.map((p) => ({ value: p }))}
-          ariaLabel="Provider"
+          ariaLabel={t("settings.providerLabel")}
           testid="model-field-provider"
           placeholder="provider"
         />
@@ -57,19 +57,17 @@ export function ModelField(props: {
           disabled={!provider || loading}
           onClick={() => void fetchModels(provider)}
         >
-          {loading ? "Fetching…" : "Fetch models"}
+          {loading ? t("onboarding.fetchingModels") : t("onboarding.fetchModels")}
         </button>
       </div>
 
       {fetched && error ? (
         <p className="settings-field-desc">
-          Couldn't fetch models: {error}. Type the model id manually below.
+          {t("settings.modelsFetchError", { error })}
         </p>
       ) : null}
       {fetched && !error && models.length === 0 ? (
-        <p className="settings-field-desc">
-          No models returned. Type the model id manually below.
-        </p>
+        <p className="settings-field-desc">{t("settings.modelsFetchEmpty")}</p>
       ) : null}
 
       <Combobox
