@@ -198,7 +198,7 @@ func UISchemaMap() map[string]interface{} {
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the shell and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
 		"proxy": strProp("HTTP or SOCKS proxy",
-			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection."),
+			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or connect directly when there is none."),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),

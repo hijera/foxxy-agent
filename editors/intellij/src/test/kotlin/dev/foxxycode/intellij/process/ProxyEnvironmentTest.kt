@@ -14,17 +14,24 @@ import java.net.Proxy
  */
 class ProxyEnvironmentTest {
 
-    /** Mirrors the fields/methods ProxyEnvironment reads reflectively off HttpConfigurable. */
+    /**
+     * Mirrors the fields/methods ProxyEnvironment reads reflectively off HttpConfigurable. Matches the
+     * real 222/223 contract: the proxy host/port/flags are public fields, but the login is exposed
+     * *only* as getProxyLogin() — there is no `proxyLogin` field (verified against the SDK jars).
+     */
     @Suppress("PropertyName")
     class FakeConfigurable(
         @JvmField var USE_HTTP_PROXY: Boolean = false,
         @JvmField var PROXY_HOST: String = "",
         @JvmField var PROXY_PORT: Int = 0,
         @JvmField var PROXY_AUTHENTICATION: Boolean = false,
-        @JvmField var proxyLogin: String = "",
         @JvmField var PROXY_EXCEPTIONS: String = "",
+        private val login: String = "",
         private val plainPassword: String = "",
     ) {
+        @Suppress("unused")
+        fun getProxyLogin(): String = login
+
         @Suppress("unused")
         fun getPlainProxyPassword(): String = plainPassword
     }
@@ -54,6 +61,11 @@ class ProxyEnvironmentTest {
         assertNull(env["NO_PROXY"])
     }
 
+    /**
+     * Regression: the login used to be read as a `proxyLogin` *field*, which does not exist on
+     * HttpConfigurable (222/223). Credentials were silently dropped and an authenticating proxy
+     * answered 407. It must be read from getProxyLogin().
+     */
     @Test
     fun `credentials are url-encoded into the authority`() {
         val env = ProxyEnvironment.buildProxyEnv(
@@ -62,11 +74,26 @@ class ProxyEnvironmentTest {
                 PROXY_HOST = "proxy.local",
                 PROXY_PORT = 3128,
                 PROXY_AUTHENTICATION = true,
-                proxyLogin = "user name",
+                login = "user name",
                 plainPassword = "p@ss:word/",
             ),
         )
         assertEquals("http://user%20name:p%40ss%3Aword%2F@proxy.local:3128", env["HTTP_PROXY"])
+    }
+
+    @Test
+    fun `credentials are omitted when proxy authentication is off`() {
+        val env = ProxyEnvironment.buildProxyEnv(
+            FakeConfigurable(
+                USE_HTTP_PROXY = true,
+                PROXY_HOST = "proxy.local",
+                PROXY_PORT = 3128,
+                PROXY_AUTHENTICATION = false,
+                login = "user",
+                plainPassword = "secret",
+            ),
+        )
+        assertEquals("http://proxy.local:3128", env["HTTP_PROXY"])
     }
 
     @Test
@@ -177,5 +204,42 @@ class ProxyEnvironmentTest {
         val env = ProxyEnvironment.buildEnvFromResolved("socks5://127.0.0.1:1080", null)
         assertEquals("socks5://127.0.0.1:1080", env["ALL_PROXY"])
         assertEquals("localhost,127.0.0.1,::1", env["NO_PROXY"])
+    }
+
+    // --- log masking (credentials must never reach the IDE log) ---
+
+    @Test
+    fun `password is masked in the logged proxy url`() {
+        assertEquals(
+            "http://user%20name:***@proxy.local:3128",
+            ProxyEnvironment.maskProxyPassword("http://user%20name:p%40ss@proxy.local:3128"),
+        )
+    }
+
+    @Test
+    fun `url without credentials is left alone`() {
+        assertEquals(
+            "http://proxy.local:3128",
+            ProxyEnvironment.maskProxyPassword("http://proxy.local:3128"),
+        )
+    }
+
+    @Test
+    fun `describe masks the password and names the source`() {
+        val resolved = ProxyEnvironment.Resolved(
+            "legacy-manual",
+            mapOf("HTTP_PROXY" to "http://u:secret@proxy.local:3128", "NO_PROXY" to "localhost"),
+        )
+        val line = ProxyEnvironment.describe(resolved)
+        assertTrue(line.contains("source=legacy-manual"))
+        assertTrue(line.contains("http://u:***@proxy.local:3128"))
+        assertTrue("password leaked into the log line", !line.contains("secret"))
+    }
+
+    @Test
+    fun `describe reports no proxy when none was resolved`() {
+        val line = ProxyEnvironment.describe(ProxyEnvironment.Resolved("legacy-none", emptyMap()))
+        assertTrue(line.contains("source=legacy-none"))
+        assertTrue(line.contains("HTTP_PROXY=<none>"))
     }
 }

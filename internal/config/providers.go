@@ -36,7 +36,9 @@ type ProviderConfig struct {
 	// provider fetch short-lived or login-issued keys without storing a static secret
 	// in the config. On failure resolution falls back to the conventional env var.
 	APIKeyCommand string `yaml:"api_key_command"`
-	// Proxy is an optional HTTP, HTTPS, SOCKS5, or SOCKS5h proxy URL for outbound LLM requests for this provider only.
+	// Proxy is an optional HTTP, HTTPS, SOCKS5, or SOCKS5h proxy URL for outbound LLM requests for this
+	// provider only. It overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g.
+	// forwarded by the IDE plugin); when empty, that environment proxy is used instead.
 	Proxy string `yaml:"proxy"`
 }
 

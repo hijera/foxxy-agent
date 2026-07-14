@@ -29,20 +29,69 @@ internal object ProxyEnvironment {
     // external host yields the proxy such requests will use (internal/external split PACs agree here).
     private const val PROBE_URL = "https://api.openai.com"
 
-    fun intellijProxyEnvironment(): Map<String, String> {
-        // Primary: ask the IDE's installed ProxySelector for the effective proxy. This is
-        // version-agnostic — it consults whatever proxy API the running IDE uses (manual,
-        // auto-detect, PAC) — so it works on build 233+ where the legacy HttpConfigurable public
-        // fields below are no longer backed by the current settings.
-        resolveViaProxySelector()?.let { return it }
+    /** How the proxy env was resolved, for logging. */
+    data class Resolved(val source: String, val env: Map<String, String>)
 
-        // Fallback (older IDEs / headless / no selector installed): read the legacy
-        // HttpConfigurable fields directly.
+    fun intellijProxyEnvironment(): Map<String, String> = resolveProxyEnvironment().env
+
+    /**
+     * Resolves the proxy env, picking the path that is actually correct for the running IDE.
+     *
+     * On 233+ the legacy [HttpConfigurable] public fields no longer track the live settings, so the
+     * IDE-wide [ProxySelector] is the only reliable source. On <=232 those fields *are* the live API
+     * (verified against the 222/223 SDKs), and the selector's `CommonProxy` can fall back to the JVM
+     * default selector — leaking an OS-level proxy the IDE was never configured with. So: selector on
+     * modern IDEs, legacy fields on old ones.
+     */
+    internal fun resolveProxyEnvironment(): Resolved {
+        if (hasModernProxyApi()) {
+            // Only forward a proxy the IDE actually has configured; DirectProxy means "No proxy".
+            if (!modernProxyConfigured()) return Resolved("modern-direct", emptyMap())
+            resolveViaProxySelector()?.let { return Resolved("modern-selector", it) }
+            return Resolved("modern-none", emptyMap())
+        }
         val configurable = HttpConfigurable.getInstance()
         val manual = buildProxyEnv(configurable)
-        if (manual.isNotEmpty()) return manual
-        // Fall back to "Auto-detect proxy settings" (PAC/WPAD), which the manual path does not cover.
-        return autoDetectedProxyEnv(configurable)
+        if (manual.isNotEmpty()) return Resolved("legacy-manual", manual)
+        // "Auto-detect proxy settings" (PAC/WPAD), which the manual path does not cover.
+        val pac = autoDetectedProxyEnv(configurable)
+        if (pac.isNotEmpty()) return Resolved("legacy-pac", pac)
+        return Resolved("legacy-none", emptyMap())
+    }
+
+    /** True on 233+, where `ProxySettings`/`ProxyConfiguration` replaced the HttpConfigurable fields. */
+    private fun hasModernProxyApi(): Boolean =
+        runCatching { Class.forName("com.intellij.util.net.ProxySettings") }.isSuccess
+
+    /** True when the modern IDE has a proxy configured (i.e. the configuration is not DirectProxy). */
+    private fun modernProxyConfigured(): Boolean = runCatching {
+        val settings = Class.forName("com.intellij.util.net.ProxySettings")
+            .getMethod("getInstance").invoke(null) ?: return false
+        val config = settings.javaClass.getMethod("getProxyConfiguration").invoke(settings) ?: return false
+        !config.javaClass.name.contains("DirectProxy")
+    }.getOrDefault(false)
+
+    /**
+     * Renders the resolved env for the IDE log with the proxy password masked, so credentials never
+     * reach disk. Pure/testable.
+     */
+    internal fun describe(resolved: Resolved): String {
+        val proxy = resolved.env["HTTP_PROXY"]?.let { maskProxyPassword(it) } ?: "<none>"
+        val noProxy = resolved.env["NO_PROXY"] ?: "<none>"
+        return "proxy source=${resolved.source} HTTP_PROXY=$proxy NO_PROXY=$noProxy"
+    }
+
+    /** Replaces the password in a `scheme://user:pass@host:port` URL with `***`. */
+    internal fun maskProxyPassword(url: String): String {
+        val at = url.lastIndexOf('@')
+        if (at < 0) return url
+        val schemeEnd = url.indexOf("://")
+        if (schemeEnd < 0 || at < schemeEnd) return url
+        val authority = url.substring(schemeEnd + 3, at)
+        val colon = authority.indexOf(':')
+        if (colon < 0) return url
+        val user = authority.substring(0, colon)
+        return url.substring(0, schemeEnd + 3) + user + ":***" + url.substring(at)
     }
 
     /**
@@ -195,7 +244,11 @@ internal object ProxyEnvironment {
 
     private fun authPrefix(configurable: Any): String {
         if (booleanField(configurable, "PROXY_AUTHENTICATION") != true) return ""
-        val login = stringField(configurable, "proxyLogin")?.takeIf { it.isNotBlank() } ?: return ""
+        // The login is exposed as getProxyLogin() — there is no `proxyLogin` field on HttpConfigurable
+        // (verified against the 222 and 223 SDKs). Reading it as a field silently dropped the
+        // credentials, so an authenticating proxy answered 407.
+        val login = (stringMethod(configurable, "getProxyLogin") ?: stringField(configurable, "proxyLogin"))
+            ?.takeIf { it.isNotBlank() } ?: return ""
         val password = stringMethod(configurable, "getPlainProxyPassword")
             ?: stringMethod(configurable, "getProxyPassword")
             ?: ""
