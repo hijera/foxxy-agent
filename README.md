@@ -19,26 +19,9 @@
 > This fork keeps the upstream architecture and stays merge-compatible with it, while rebranding the
 > distribution (repository, binary name, releases) and focusing on easy IDE adaptation.
 
-| Desktop (1920×1080) | Mobile (390×844) |
-|---|---|
-| ![Start screen](docs/assets/screenshot-fullhd-start.png) | ![Mobile start](docs/assets/screenshot-mobile-start.png) |
+![Initial picture](docs/assets/foxxycode1.png)
 
-<details>
-<summary>More screenshots</summary>
 
-| Chat | Mobile chat |
-|---|---|
-| ![Chat](docs/assets/screenshot-fullhd-chat.png) | ![Mobile chat](docs/assets/screenshot-mobile-chat.png) |
-| **History** | **Scheduler** |
-| ![History](docs/assets/screenshot-fullhd-history.png) | ![Scheduler](docs/assets/screenshot-fullhd-scheduler.png) |
-| **Settings** | **Settings — Skills** |
-| ![Settings](docs/assets/screenshot-fullhd-settings.png) | ![Settings Skills](docs/assets/screenshot-fullhd-settings-skills.png) |
-| **Settings — Appearance** | |
-| ![Settings Appearance](docs/assets/screenshot-fullhd-settings-appearance.png) | |
-
-Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`foxxycode http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md). The UI targets **Chromium 104** (JCEF) and supports IDE-driven theme switching for embedding in an IntelliJ IDEA / PhpStorm plugin: [`docs/intellij-embedding.md`](docs/intellij-embedding.md).
-
-</details>
 
 FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many FoxxyCode instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
 
