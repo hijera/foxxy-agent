@@ -41,8 +41,11 @@ import { pickStreamMutationBase } from "./chat/streamMutationBase";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
+  resolvedPermissionToolCallIds,
   upsertPermissionPromptRecord,
 } from "./chat/permissionPromptSessionStore";
+import { permissionPromptInsertIndex } from "./chat/permissionPromptPlacement";
+import { trimTranscriptForTurnReplay } from "./chat/transcriptTurnTrim";
 import {
   parseToolsPermissionPolicy,
   type ToolsPermissionPolicy,
@@ -50,6 +53,7 @@ import {
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import {
   clearQuestionPromptRecords,
+  loadQuestionPromptRecords,
   mergeStoredQuestionPromptsIntoTranscript,
   patchQuestionToolArgsFromPromptRecords,
   pickRicherQuestionToolArgs,
@@ -764,6 +768,10 @@ export function App() {
   const userStoppedSidRef = useRef<Set<string>>(new Set());
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  /** Latest scheduleLiveStreamReconnect (assigned each render, declared later). */
+  const scheduleLiveStreamReconnectRef = useRef<
+    (sid: string, delayMs?: number) => void
+  >(() => {});
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
@@ -972,6 +980,16 @@ export function App() {
       if (!p) return;
       const key = p.sessionId.trim();
       if (!key) return;
+      // A relay rejoin replays the turn's SSE from the start — don't re-show a
+      // question the user already answered.
+      const rid = p.requestId.trim();
+      if (
+        loadQuestionPromptRecords(key).some(
+          (r) => r.requestId.trim() === rid && r.resolved,
+        )
+      ) {
+        return;
+      }
       setQuestionPendingSids((prev) => {
         const next = new Set(prev);
         next.add(key);
@@ -1010,6 +1028,9 @@ export function App() {
       const key = p.sessionId.trim();
       if (!key) return;
       const tcid = p.toolCall.toolCallId.trim();
+      // A relay rejoin replays the turn's SSE from the start, so this event can
+      // arrive again for a prompt the user already answered — don't re-show it.
+      if (resolvedPermissionToolCallIds(key).has(tcid)) return;
       setPermissionPendingSids((prev) => {
         const next = new Set(prev);
         next.add(key);
@@ -1035,16 +1056,12 @@ export function App() {
           toolCallId: tcid,
           payload: p,
         });
-        // Insert right after the corresponding tool_call if it's already in the transcript.
-        const tcIdx = withoutDup.findIndex(
-          (x) => x.type === "tool_call" && x.toolCallId === tcid,
-        );
-        if (tcIdx >= 0) {
-          const result = [...withoutDup];
-          result.splice(tcIdx + 1, 0, row);
-          return result;
-        }
-        return [...withoutDup, row];
+        // Below the tool_call AND the composing assistant bubble, so the Allow
+        // card never renders above the text that introduced the tool.
+        const insertAt = permissionPromptInsertIndex(withoutDup, tcid);
+        const result = [...withoutDup];
+        result.splice(insertAt, 0, row);
+        return result;
       });
       if (isDesktopShell()) {
         const notif: DesktopPermissionNotification = {
@@ -1099,6 +1116,9 @@ export function App() {
         }
         return next;
       });
+      // Same safety net as permissions: re-attach if the stream died while pending.
+      liveReconnectAttemptsRef.current.delete(key);
+      scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
   );
@@ -1142,6 +1162,11 @@ export function App() {
           void loadSessionsList(true);
         }, delayMs);
       }
+      // Safety net: if the live stream died while this prompt was pending, the
+      // turn continues server-side after the answer — re-attach so the
+      // continuation renders live (no-op when a stream is already attached).
+      liveReconnectAttemptsRef.current.delete(key);
+      scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
   );
@@ -2743,16 +2768,23 @@ export function App() {
     if (attempts >= LIVE_RECONNECT_MAX) return;
     liveReconnectAttemptsRef.current.set(key, attempts + 1);
     window.setTimeout(() => {
-      void reconnectLiveStreamIfActive(key, { reconcileIfDone: true });
+      // Go through the ref so the delayed call uses the current render's closure.
+      reconnectLiveStreamRef.current(key, { reconcileIfDone: true });
     }, delayMs);
   }
 
-  // Keep a stable handle to the latest reconnect fn so the foreground listener can
-  // subscribe once while always calling the current render's closure.
-  const reconnectLiveStreamRef = useRef<(sid: string) => void>(() => {});
-  reconnectLiveStreamRef.current = (sid: string) => {
-    void reconnectLiveStreamIfActive(sid);
+  // Stable handles to the latest closures so once-subscribed listeners and
+  // stable useCallbacks always invoke the current render's versions.
+  const reconnectLiveStreamRef = useRef<
+    (sid: string, opts?: { reconcileIfDone?: boolean }) => void
+  >(() => {});
+  reconnectLiveStreamRef.current = (
+    sid: string,
+    opts?: { reconcileIfDone?: boolean },
+  ) => {
+    void reconnectLiveStreamIfActive(sid, opts);
   };
+  scheduleLiveStreamReconnectRef.current = scheduleLiveStreamReconnect;
 
   // On return to foreground (alt-tab back, tool window shown), re-attach to any
   // in-flight turn whose live stream was cut while the webview was backgrounded.
@@ -2784,9 +2816,13 @@ export function App() {
     addActiveComposer(key);
     const assistantId = newId("a");
     streamingAssistantBySidRef.current.set(key, assistantId);
-    streamShadowBySidRef.current.set(key, [...baseline]);
+    // The relay replays the in-flight turn's SSE from the start, so drop any
+    // partial turn output already loaded from disk — the replay rebuilds it in
+    // emission order (otherwise the turn's text would render twice).
+    const replayBase = trimTranscriptForTurnReplay(baseline);
+    streamShadowBySidRef.current.set(key, [...replayBase]);
     if (viewedSessionIdRef.current.trim() === key) {
-      setItems([...baseline]);
+      setItems([...replayBase]);
     }
 
     const applyStreamItems = (

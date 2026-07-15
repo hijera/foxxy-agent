@@ -884,6 +884,56 @@ func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	}
 }
 
+func TestFoxxyCodeSessionActivityReportsPermissionPending(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	sd := store.SessionPath(sid)
+	if err := session.WritePendingPermission(sd, acp.PermissionRequestParams{
+		SessionID: sid,
+		ToolCall: acp.PermissionToolCall{
+			ToolCallID: "call_pending",
+			Title:      "Run: run_command",
+			Kind:       "run_command",
+			Status:     "pending",
+		},
+		Options: []acp.PermissionOption{
+			{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+		},
+	}, "run_command", `{"command":"x"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions/" + url.PathEscape(sid) + "/activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("status %d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		PermissionPending bool `json:"permissionPending"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if !parsed.PermissionPending {
+		t.Fatalf("expected permissionPending true when a pending permission file exists; body=%s", b)
+	}
+}
+
 func TestFoxxyCodeSessionPatchMarkActivityRead(t *testing.T) {
 	mgr, srv, sessRoot := testHTTPServerPersist(t)
 	store := &session.FileStore{Root: sessRoot}

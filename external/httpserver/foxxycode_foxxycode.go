@@ -799,12 +799,13 @@ func (s *Server) foxxycodeSessionActivityGet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	out := map[string]interface{}{
-		"object":          "foxxycode.session_activity",
-		"sessionId":       id,
-		"turnActive":      turnActive,
-		"activitySeq":     actSeq,
-		"readActivitySeq": readSeq,
-		"unreadComplete":  actSeq > readSeq && !turnActive,
+		"object":            "foxxycode.session_activity",
+		"sessionId":         id,
+		"turnActive":        turnActive,
+		"activitySeq":       actSeq,
+		"readActivitySeq":   readSeq,
+		"unreadComplete":    actSeq > readSeq && !turnActive,
+		"permissionPending": session.PendingPermissionHeld(dir),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
