@@ -330,9 +330,9 @@ Best for: code generation, refactoring, debugging, feature implementation.
 ### Plan Mode
 
 Planning and documentation mode. Restricted tools:
-- Read files (no write to code files)
-- Write/edit text and markdown files
-- Search codebase
+- Read and search the workspace
+- Use shell and configured MCP tools for inspection
+- Save and load design plans with the dedicated plan tools
 
 When the plan is ready, switch to **agent** mode yourself for full tools and implementation.
 
@@ -340,12 +340,13 @@ Best for: architecture planning, writing specs, design documents, code review.
 
 ### Docs Mode
 
-Documentation mode. Explores the codebase and updates markdown files only:
-- Read and search the codebase
-- Write or edit `.md` files (`README.md`, `AGENTS.md`, `DESIGN.md`, `docs/**/*.md`) via **`docs_write`** and **`docs_edit`**
-- Run shell commands for read-only inspection
+Documentation maintenance mode with a closed tool surface:
+- Review requests are non-mutating unless the user explicitly asks for an update
+- Read and search the workspace, then verify claims against implementation and observable tests
+- Write or edit `.md` files under the session CWD via guarded **`docs_write`** and **`docs_edit`** tools
+- No shell, MCP, general filesystem mutators, plan tools, or todo tools
 
-Cannot modify source code or configuration files outside markdown. Switch to **agent** mode for implementation work.
+The Markdown writers reject out-of-workspace and symlink escapes, protect **`internal/prompts/`**, require explicit opt-in before overwriting an existing file, and require a non-empty unique exact match for targeted edits unless replacing all matches deliberately. Switch to **agent** mode for source-code or configuration changes.
 
 Best for: keeping README and `docs/` aligned with the code, updating operator guides, API prose.
 

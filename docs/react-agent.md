@@ -152,16 +152,16 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 
 ### Docs Mode
 
-Embedded **`docs.md`** restricts built-in mutators to **`docs_write`** and **`docs_edit`**, which accept only `.md` paths under the session CWD (including **`docs/`** and root files such as **`README.md`**). Registry read/search tools and **`run_command`** remain available for exploration.
+Embedded **`docs.md`** distinguishes review-only requests from explicit documentation edits and treats implemented behavior plus observable tests as the primary evidence. Built-in mutators are restricted to **`docs_write`** and **`docs_edit`**, which accept only `.md` paths under the session CWD, reject symlink escapes, and protect **`internal/prompts/`**. **`docs_write`** requires an explicit overwrite flag for an existing file, while **`docs_edit`** requires a non-empty exact match that is unique unless **`replaceAll`** is set.
 
 Representative builtins exposed to the LLM (registry allowlist):
 
 - `read`, `glob`, `grep`
 - `websearch`, `webfetch`
-- `run_command`, `question`
+- `question`
 - `docs_write`, `docs_edit`
 
-Plus MCP tools (**`serverName__toolName`**). Prompts instruct the user to switch to **`agent`** mode for code changes.
+Docs mode does not expose **`run_command`** or MCP tools because those surfaces cannot currently guarantee read-only execution. Prompts instruct the user to switch to **`agent`** mode for code or configuration changes.
 
 ## Built-in Tools Specification
 

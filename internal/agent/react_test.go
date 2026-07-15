@@ -539,15 +539,32 @@ func TestDocsToolSetFiltersToReadAndDocsWrite(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "docs_write", "docs_edit"} {
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "question", "docs_write", "docs_edit"} {
 		if !got[want] {
 			t.Errorf("docs toolset should include %q", want)
 		}
 	}
-	for _, forbid := range []string{"write", "edit", "plan_write", "foxxycode_todo_plan_read"} {
+	for _, forbid := range []string{"write", "edit", "run_command", "plan_write", "foxxycode_todo_plan_read"} {
 		if got[forbid] {
 			t.Errorf("docs toolset should not include %q", forbid)
 		}
+	}
+}
+
+func TestModeAllowsMCPTools(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		want bool
+	}{
+		{mode: "agent", want: true},
+		{mode: "plan", want: true},
+		{mode: "docs", want: false},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			if got := ModeAllowsMCPTools(tc.mode); got != tc.want {
+				t.Fatalf("ModeAllowsMCPTools(%q) = %v, want %v", tc.mode, got, tc.want)
+			}
+		})
 	}
 }
 

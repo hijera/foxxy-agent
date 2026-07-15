@@ -100,6 +100,18 @@ func TestRenderDocsPrompt(t *testing.T) {
 	if strings.Contains(result, "Save design plans with **`plan_write`**") {
 		t.Error("docs prompt should not instruct plan_write usage")
 	}
+	if !strings.Contains(result, "review, explain, compare, or recommend") {
+		t.Error("docs prompt should distinguish review-only requests from edits")
+	}
+	if !strings.Contains(result, "implemented behavior and observable tests as primary evidence") {
+		t.Error("docs prompt should define the source-of-truth hierarchy")
+	}
+	if strings.Contains(result, "Use tools from any **MCP** server") {
+		t.Error("docs prompt should not advertise unrestricted MCP tools")
+	}
+	if strings.Contains(result, "Run shell commands with **`run_command`**") {
+		t.Error("docs prompt should not advertise unrestricted shell access")
+	}
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {

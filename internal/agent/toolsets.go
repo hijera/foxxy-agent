@@ -29,7 +29,6 @@ var docsToolNames = []string{
 	"grep",
 	"websearch",
 	"webfetch",
-	"run_command",
 	"question",
 	"docs_write",
 	"docs_edit",
@@ -48,6 +47,13 @@ func ToolSetForMode(mode string) ToolSet {
 		return out
 	}
 	return nil
+}
+
+// ModeAllowsMCPTools reports whether external MCP tools are exposed in a mode.
+// Docs mode keeps a closed, documentation-only mutation surface because MCP
+// servers do not currently expose enforceable read-only guarantees.
+func ModeAllowsMCPTools(mode string) bool {
+	return mode != "docs"
 }
 
 // Unrestricted reports whether the set imposes no name filter.

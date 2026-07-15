@@ -131,7 +131,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 	toolSet := ToolSetForMode(mode)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if toolSet.Unrestricted() || mode == "plan" {
+	if ModeAllowsMCPTools(mode) {
 		for _, mcpClient := range a.state.GetMCPClients() {
 			for _, t := range mcpClient.Tools() {
 				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))

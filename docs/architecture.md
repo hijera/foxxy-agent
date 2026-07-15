@@ -71,14 +71,14 @@ Handles:
 - `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
-- `session/set_mode` - switch between `agent` and `plan` modes (legacy, kept in sync with config options)
+- `session/set_mode` - switch between `agent`, `plan`, and `docs` modes (legacy, kept in sync with config options)
 - `session/set_config_option` - change mode or model for the session (preferred ACP API)
 
 ### Session Manager (`internal/session`)
 
 Maintains the state for each conversation session:
 - Conversation history (messages, tool results)
-- Current operating mode (`agent` / `plan`)
+- Current operating mode (`agent` / `plan` / `docs`)
 - Optional model override per session (when the user selects a model via ACP)
 - Connected MCP server clients
 - Working directory
@@ -89,8 +89,8 @@ Maintains the state for each conversation session:
 
 The core reasoning engine (**`react.go`**):
 
-1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`**, applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no filter), then appends MCP tool definitions from connected servers when the mode is **`agent`** or **`plan`**.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`** and **`prompts.plan_prompt`** (defaults **`agent.md`** and **`plan.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render).
+1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`** and **`plan`**, but not in the closed **`docs`** tool surface.
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`docs.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render).
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
@@ -126,12 +126,15 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**,
   **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**)
 
-**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**), then MCP tools from connected servers are appended the same way as in agent mode.
+**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means no registry filtering. **Plan** and **Docs** use fixed registry allowlists; **`ModeAllowsMCPTools`** separately limits MCP exposure to Agent and Plan.
 
 Agents see:
 
 - **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, etc.) plus MCP tools from connected servers.
-- **`plan`** mode - the allowlisted builtins above plus MCP tools. Built-in writes, todo tools, scheduler, and memory tools are not advertised to the LLM.
+- **`plan`** mode - **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, and **`plan_read`**, plus MCP tools. General workspace writes, todo tools, scheduler tools, and memory tools are not advertised to the LLM.
+- **`docs`** mode - **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`question`**, **`docs_write`**, and **`docs_edit`**. It receives neither **`run_command`** nor MCP tools, so its only built-in mutations are the guarded Markdown writers.
+
+The Docs writers accept only **`.md`** paths inside the session CWD, reject paths that escape after resolving symlinks, and protect **`internal/prompts/`**. **`docs_write`** requires **`overwrite: true`** before replacing an existing file; **`docs_edit`** requires a non-empty exact **`oldString`** that is unique unless **`replaceAll`** is set. The Docs prompt also treats review-only requests as non-mutating and requires an explicit user request before changing documentation.
 
 `run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /foxxycode/sessions/{id}/question`**).
 
@@ -205,12 +208,18 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 
 ### `plan` mode
 - Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
-- **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, plus any **MCP** tools from configured servers
+- **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, **`plan_read`**, plus any **MCP** tools from configured servers
 - No built-in workspace writes or **foxxycode** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 
+### `docs` mode
+- Closed documentation-maintenance surface enforced by **`internal/agent.ToolSetForMode("docs")`**
+- Read/search/web/question tools plus guarded **`docs_write`** and **`docs_edit`** Markdown writers
+- No shell, MCP, general filesystem mutators, plan tools, todo tools, scheduler tools, or memory tools
+- Suitable for: evidence-based documentation reviews and explicit Markdown documentation updates without code changes
+
 Mode switching:
-- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent` or `plan`
+- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, or `docs`
 - Agent sends `current_mode_update` and `config_option_update` when mode changes
 
 ## Directory Structure

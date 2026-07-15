@@ -16,7 +16,7 @@ func DocsWriteTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name: "docs_write",
-			Description: "Create or overwrite a markdown documentation file (.md only). " +
+			Description: "Create a markdown documentation file, or overwrite one only with explicit opt-in (.md only). " +
 				"Allowed targets include README.md, AGENTS.md, DESIGN.md, and files under docs/. " +
 				"Cannot modify source code or internal/prompts templates.",
 			InputSchema: map[string]interface{}{
@@ -30,6 +30,10 @@ func DocsWriteTool() *tooling.Tool {
 						"type":        "string",
 						"description": "Full markdown content to write",
 					},
+					"overwrite": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Must be true to replace an existing file (default: false)",
+					},
 				},
 				"required": []interface{}{"path", "content"},
 			},
@@ -40,8 +44,9 @@ func DocsWriteTool() *tooling.Tool {
 }
 
 type docsWriteArgs struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Overwrite bool   `json:"overwrite"`
 }
 
 func executeDocsWrite(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -53,6 +58,13 @@ func executeDocsWrite(_ context.Context, argsJSON string, env *tooling.Env) (str
 	path, err := resolveDocsPath(args.Path, env.CWD)
 	if err != nil {
 		return "", fmt.Errorf("docs_write: %w", err)
+	}
+	if _, err := os.Lstat(path); err == nil {
+		if !args.Overwrite {
+			return "", fmt.Errorf("docs_write: %s already exists; set overwrite to true after reading the full file", args.Path)
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("docs_write stat: %w", err)
 	}
 
 	var before []byte

@@ -29,7 +29,7 @@ func DocsEditTool() *tooling.Tool {
 					},
 					"oldString": map[string]interface{}{
 						"type":        "string",
-						"description": "Text to search for (exact match)",
+						"description": "Non-empty exact text to replace; must be unique unless replaceAll is true",
 					},
 					"newString": map[string]interface{}{
 						"type":        "string",
@@ -40,7 +40,7 @@ func DocsEditTool() *tooling.Tool {
 						"description": "Replace every occurrence of oldString (default: false)",
 					},
 				},
-				"required": []interface{}{"path", "newString"},
+				"required": []interface{}{"path", "oldString", "newString"},
 			},
 		},
 		RequiresPermission: false,
@@ -97,17 +97,18 @@ func applyDocsEdit(content string, args docsEditArgs) (string, error) {
 	replaceAll := args.ReplaceAll != nil && *args.ReplaceAll
 
 	if old == "" {
-		return args.NewString, nil
+		return "", fmt.Errorf("oldString must not be empty; use docs_write with overwrite for a full rewrite")
 	}
-	if replaceAll {
-		if !strings.Contains(content, old) {
-			return "", fmt.Errorf("oldString not found in file")
-		}
-		return strings.ReplaceAll(content, old, args.NewString), nil
-	}
-	idx := strings.Index(content, old)
-	if idx < 0 {
+	matches := strings.Count(content, old)
+	if matches == 0 {
 		return "", fmt.Errorf("oldString not found in file")
 	}
+	if replaceAll {
+		return strings.ReplaceAll(content, old, args.NewString), nil
+	}
+	if matches > 1 {
+		return "", fmt.Errorf("oldString matches %d locations; provide a larger unique range or set replaceAll", matches)
+	}
+	idx := strings.Index(content, old)
 	return content[:idx] + args.NewString + content[idx+len(old):], nil
 }
