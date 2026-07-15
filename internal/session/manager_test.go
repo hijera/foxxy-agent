@@ -465,6 +465,43 @@ func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testin
 	}
 }
 
+func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
+	runBlock := make(chan struct{})
+	cont := make(chan struct{})
+	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(runBlock)
+		<-cont
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("turn should be inactive before prompt")
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = m.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+			SessionID: sn.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
+		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+	}()
+	<-runBlock
+	if !m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("turn should be active while runner is in flight")
+	}
+	close(cont)
+	wg.Wait()
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("turn should be inactive after completion")
+	}
+}
+
 func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	skRoot := t.TempDir()
 	skillDir := filepath.Join(skRoot, "probe")
