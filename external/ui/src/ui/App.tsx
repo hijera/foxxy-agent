@@ -760,6 +760,10 @@ export function App() {
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
+  /** Session ids the user explicitly stopped, so a dropped stream is not auto-rejoined. */
+  const userStoppedSidRef = useRef<Set<string>>(new Set());
+  /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
+  const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
@@ -2680,6 +2684,92 @@ export function App() {
     });
   }
 
+  // Max auto-reconnect attempts before giving up (until the next clean stream or focus).
+  const LIVE_RECONNECT_MAX = 5;
+
+  /**
+   * When a live composer stream drops before its final [DONE] (e.g. the embedded
+   * Chromium throttled/aborted the fetch while the webview was backgrounded), the
+   * turn keeps running on the backend. Re-attach to it via the composer relay so the
+   * answer keeps rendering without a manual page reload. No-op when the turn already
+   * finished or a local composer is already streaming for this session.
+   */
+  async function reconnectLiveStreamIfActive(
+    rawSid: string,
+    opts?: { reconcileIfDone?: boolean },
+  ): Promise<void> {
+    const key = rawSid.trim();
+    if (!key) return;
+    if (userStoppedSidRef.current.has(key)) {
+      userStoppedSidRef.current.delete(key);
+      return;
+    }
+    if (activeComposerSidRef.current.has(key)) return;
+    let active = false;
+    try {
+      const act = await fetchJSON<{ turnActive?: boolean }>(
+        `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
+        { headers: { [HDR]: key } },
+      );
+      active = !!(act.ok && act.data?.turnActive);
+    } catch {
+      return;
+    }
+    if (!active) {
+      liveReconnectAttemptsRef.current.delete(key);
+      // The turn already finished. If we got here from a dropped stream, pull the
+      // persisted transcript so a stuck partial assistant is replaced by the result.
+      if (opts?.reconcileIfDone && !activeComposerSidRef.current.has(key)) {
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+        });
+      }
+      return;
+    }
+    if (activeComposerSidRef.current.has(key)) return;
+    const loaded = await loadMessages(key, {
+      skipSetItems: viewedSessionIdRef.current.trim() !== key,
+    });
+    if (!loaded) return;
+    if (activeComposerSidRef.current.has(key)) return;
+    await rejoinComposerLiveStream(key, loaded);
+  }
+
+  function scheduleLiveStreamReconnect(rawSid: string, delayMs = 400): void {
+    const key = rawSid.trim();
+    if (!key) return;
+    if (userStoppedSidRef.current.has(key)) return;
+    const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
+    if (attempts >= LIVE_RECONNECT_MAX) return;
+    liveReconnectAttemptsRef.current.set(key, attempts + 1);
+    window.setTimeout(() => {
+      void reconnectLiveStreamIfActive(key, { reconcileIfDone: true });
+    }, delayMs);
+  }
+
+  // Keep a stable handle to the latest reconnect fn so the foreground listener can
+  // subscribe once while always calling the current render's closure.
+  const reconnectLiveStreamRef = useRef<(sid: string) => void>(() => {});
+  reconnectLiveStreamRef.current = (sid: string) => {
+    void reconnectLiveStreamIfActive(sid);
+  };
+
+  // On return to foreground (alt-tab back, tool window shown), re-attach to any
+  // in-flight turn whose live stream was cut while the webview was backgrounded.
+  useEffect(() => {
+    const onForeground = () => {
+      if (document.visibilityState !== "visible") return;
+      const sid = viewedSessionIdRef.current.trim();
+      if (sid) reconnectLiveStreamRef.current(sid);
+    };
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("focus", onForeground);
+    return () => {
+      document.removeEventListener("visibilitychange", onForeground);
+      window.removeEventListener("focus", onForeground);
+    };
+  }, []);
+
   async function rejoinComposerLiveStream(
     sid: string,
     baseline: TranscriptItem[],
@@ -2724,6 +2814,7 @@ export function App() {
       const carry = { buf: "" };
       const {
         streamErrorMessage,
+        endedWithoutDone,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -2811,6 +2902,16 @@ export function App() {
         return;
       }
 
+      if (endedWithoutDone) {
+        // Relay was cut before [DONE]; the turn is likely still running. Schedule
+        // another re-attach and leave the transcript as-is for now.
+        flushToolQueue();
+        finishThinking();
+        scheduleLiveStreamReconnect(key);
+        return;
+      }
+      liveReconnectAttemptsRef.current.delete(key);
+
       flushToolQueue();
       finishThinking();
       ensureAssistant({
@@ -2878,6 +2979,9 @@ export function App() {
       }
       sidEffective = sid;
       postSessionKey = sid.trim();
+      // Fresh send supersedes any prior user-stop / reconnect budget for this session.
+      userStoppedSidRef.current.delete(postSessionKey);
+      liveReconnectAttemptsRef.current.delete(postSessionKey);
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       relayAbortBySidRef.current.get(postSessionKey)?.abort();
       relayAbortBySidRef.current.delete(postSessionKey);
@@ -3083,6 +3187,7 @@ export function App() {
 
       const {
         streamErrorMessage,
+        endedWithoutDone,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -3171,6 +3276,18 @@ export function App() {
         return;
       }
 
+      if (endedWithoutDone) {
+        // POST stream was cut before [DONE] (e.g. background throttling). Mark the
+        // turn as handled so the finally-block does not stamp it incomplete, then
+        // schedule a re-attach that resumes rendering if the turn is still running.
+        flushToolQueue();
+        finishThinking();
+        completedNormally = true;
+        scheduleLiveStreamReconnect(postSessionKey.trim());
+        return;
+      }
+      liveReconnectAttemptsRef.current.delete(postSessionKey.trim());
+
       flushToolQueue();
 
       finishThinking();
@@ -3252,6 +3369,9 @@ export function App() {
         });
         void loadSessionsList(true);
         markViewedSessionActivityRead(postSessionKey.trim());
+        // The fetch threw before a clean end (e.g. background network abort). If the
+        // turn is still running server-side and this was not a user stop, re-attach.
+        scheduleLiveStreamReconnect(postSessionKey.trim());
       }
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
@@ -3262,6 +3382,9 @@ export function App() {
   function stopActiveGeneration(): void {
     const sid = sessionId.trim();
     if (!sid) return;
+    // Mark as user-stopped so a resulting stream drop is not auto-rejoined.
+    userStoppedSidRef.current.add(sid);
+    liveReconnectAttemptsRef.current.delete(sid);
     // Always send the server-side cancel so Stop works even after page reload.
     void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
       method: "POST",

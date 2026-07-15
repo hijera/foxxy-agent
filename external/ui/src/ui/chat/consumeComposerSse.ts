@@ -133,6 +133,13 @@ export type ConsumeComposerSseParams = {
 
 export type ConsumeComposerSseResult = {
   streamErrorMessage: string | null;
+  /**
+   * True when the reader closed before the terminating `[DONE]` and without a
+   * reported stream error — i.e. the connection was cut mid-turn (e.g. the
+   * embedded browser throttled/aborted the fetch in the background). The turn
+   * is likely still running server-side, so the caller should re-attach.
+   */
+  endedWithoutDone: boolean;
   flushToolQueue: () => void;
   finishThinking: () => void;
   ensureAssistant: (
@@ -801,8 +808,11 @@ export async function consumeComposerSseReader(
         }
       }
 
+  const endedWithoutDone = !sawDone && !streamHalted && !streamErrorMessage;
+
   return {
     streamErrorMessage,
+    endedWithoutDone,
     flushToolQueue,
     finishThinking,
     ensureAssistant,

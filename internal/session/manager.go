@@ -44,6 +44,27 @@ type Manager struct {
 
 	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
 	stubTurnMu sync.Map // sessionID -> *sync.Mutex
+
+	// activeTurns tracks sessions with a prompt turn in flight in THIS process, so
+	// turnActive can be reported correctly even where TurnLockHeld is a no-op (Windows).
+	activeTurns sync.Map // sessionID -> struct{}
+}
+
+// SessionTurnActiveInProcess reports whether a prompt turn for sessionID is
+// currently running in this process. Unlike TurnLockHeld (which is a no-op on
+// non-unix platforms), this reflects the owning process's live runtime state.
+func (m *Manager) SessionTurnActiveInProcess(sessionID string) bool {
+	_, ok := m.activeTurns.Load(strings.TrimSpace(sessionID))
+	return ok
+}
+
+func (m *Manager) markTurnActive(sessionID string) func() {
+	id := strings.TrimSpace(sessionID)
+	if id == "" {
+		return func() {}
+	}
+	m.activeTurns.Store(id, struct{}{})
+	return func() { m.activeTurns.Delete(id) }
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -507,6 +528,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
+
+	clearActive := m.markTurnActive(params.SessionID)
+	defer clearActive()
 
 	var unlock func()
 	var err error
