@@ -19,6 +19,14 @@
 > This fork keeps the upstream architecture and stays merge-compatible with it, while rebranding the
 > distribution (repository, binary name, releases) and focusing on easy IDE adaptation.
 
+**What FoxxyCode adds over coddy-agent** (see [full list](docs/vs-coddy.md)):
+
+- **Native desktop window (WebView2)** with desktop notifications, an audio chime, and a first-run guided tour
+- **Deep IDE integration** - open-files context (`<foxxycode_ide_context>`), terminal tracking (`@terminal`), file drag-drop mentions, project folder picker, and native IntelliJ inline diffs
+- **Interactive browser tool** - drives real Chrome via chromedp and returns screenshots to the model (`-tags=browser`) - see [browser tool](docs/browser-tool.md)
+- **Automatic context compaction** - auto-summarizes long conversations (on by default)
+- **Russian settings i18n** and a full `foxxyCode` rebrand of the distribution
+
 ![Initial picture](docs/assets/foxxycode1.png)
 
 
@@ -475,6 +483,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Documentation
 
+- [What FoxxyCode adds over coddy-agent](docs/vs-coddy.md) - fork-specific features vs upstream
 - [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxycode`**
 - [Updating FoxxyCode](docs/update.md) - **`foxxycode update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
