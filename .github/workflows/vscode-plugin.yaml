@@ -140,6 +140,8 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
+      - name: Build UI assets for go:embed
+        run: make ui-build
       - name: Build universal VSIX
         run: make vscode-package PLUGIN_VERSION="${{ needs.resolve-version.outputs.version }}"
       - name: Upload artifact
@@ -200,6 +202,8 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
+      - name: Build UI assets for go:embed
+        run: make ui-build
       - name: Build platform-specific VSIX
         run: |
           make vscode-package-target \
