@@ -1,135 +1,137 @@
 <p align="center">
+  <strong>Русский</strong> | <a href="README.en.md">English</a>
+</p>
+
+<p align="center">
   <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxycode-agent" alt="MIT License" /></a>
-  <a href="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
-  <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
-  <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="distroless-ready" />
-  <img src="https://img.shields.io/badge/single%20binary-252525" alt="single binary" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxycode-agent" alt="Лицензия MIT" /></a>
+  <a href="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Тесты для PR" /></a>
+  <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="Среда ACP" /></a>
+  <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="Готово для distroless" />
+  <img src="https://img.shields.io/badge/single%20binary-252525" alt="Один исполняемый файл" />
 </p>
 
 <h1 align="center">FoxxyCode Agent</h1>
 
 <p align="center">
-  <strong>Run a full general purpose agent from one static Go binary.</strong><br />
-  ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.<br />
-  An IDE-friendly fork that is easy to adapt to your editor of choice.
+  <strong>Полноценный универсальный агент в одном статическом исполняемом файле на Go.</strong><br />
+  ReAct, инструменты для файловой системы и командной строки, MCP, навыки, опциональный OpenAI-совместимый API со встроенным интерфейсом, планировщик и долговременная память.<br />
+  Удобный для IDE форк, который легко адаптировать к выбранному редактору.
 </p>
 
-> **Foxxy Agent is based on [coddy-agent](https://github.com/coddy-project/coddy-agent)** by the Coddy project (MIT).
-> This fork keeps the upstream architecture and stays merge-compatible with it, while rebranding the
-> distribution (repository, binary name, releases) and focusing on easy IDE adaptation.
+> **Foxxy Agent основан на [coddy-agent](https://github.com/coddy-project/coddy-agent)** проекта Coddy (MIT).
+> Этот форк сохраняет архитектуру исходного проекта и совместимость с его обновлениями, но меняет
+> оформление дистрибутива (репозиторий, имя исполняемого файла и релизы) и упрощает адаптацию к IDE.
 
-**What FoxxyCode adds over coddy-agent** (see [full list](docs/vs-coddy.md)):
+**Что FoxxyCode добавляет к coddy-agent** (см. [полный список](docs/vs-coddy.md)):
 
-- **Native desktop window (WebView2)** with desktop notifications, an audio chime, and a first-run guided tour
-- **Deep IDE integration** - open-files context (`<foxxycode_ide_context>`), terminal tracking (`@terminal`), file drag-drop mentions, project folder picker, and native IntelliJ inline diffs
-- **Interactive browser tool** - drives real Chrome via chromedp and returns screenshots to the model (`-tags=browser`) - see [browser tool](docs/browser-tool.md)
-- **Automatic context compaction** - auto-summarizes long conversations (on by default)
-- **Russian settings i18n** and a full `foxxyCode` rebrand of the distribution
+- **Нативное настольное окно (WebView2)** с системными уведомлениями, звуковым сигналом и пошаговым знакомством при первом запуске
+- **Глубокая интеграция с IDE** — контекст открытых файлов (`<foxxycode_ide_context>`), отслеживание терминала (`@terminal`), упоминание файлов перетаскиванием, выбор папки проекта и нативные встроенные diff в IntelliJ
+- **Интерактивный браузерный инструмент** — управляет настоящим Chrome через chromedp и возвращает модели снимки экрана (`-tags=browser`); подробнее в разделе [браузерного инструмента](docs/browser-tool.md)
+- **Автоматическое сжатие контекста** — по умолчанию автоматически суммирует длинные диалоги
+- **Русская локализация настроек** и полный ребрендинг дистрибутива в `foxxyCode`
 
-![Initial picture](docs/assets/foxxycode1.png)
+![Главное окно FoxxyCode](docs/assets/foxxycode1.png)
 
+FoxxyCode — совместимая с distroless **среда выполнения агента**: её можно помещать в минимальные образы (`scratch`, `distroless`, рабочие каталоги только для чтения), не устанавливая полноценную системную оболочку. Уровень среды (ACP RPC, сессии, промпты, провайдеры) не меняется, если ограничить набор инструментов или управлять агентом из автоматизации вместо IDE. Архитектура также рассчитана на **контейнерные кластеры** — множество экземпляров FoxxyCode в Docker с заданными оркестратором ограничениями, корневой ФС только для чтения и подключённым рабочим каталогом. При этом сохраняется **полный контроль над каждым контейнером**, как в системах класса agent OS или swarm-агентов, а не в едином общем пуле чатов.
 
+## Содержание
 
-FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many FoxxyCode instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
-
-## Contents
-
-- [Features](#features)
-- [Quick start](#quick-start)
-  - [Install](#install)
-  - [Other installation methods](#other-installation-methods)
-  - [Build tags](#build-tags)
+- [Возможности](#возможности)
+- [Быстрый старт](#быстрый-старт)
+  - [Установка](#установка)
+  - [Другие способы установки](#другие-способы-установки)
+  - [Теги сборки](#теги-сборки)
   - [Docker](#docker)
-  - [Paths (`FOXXYCODE_HOME`, `FOXXYCODE_CWD`)](#paths-foxxycode_home-foxxycode_cwd)
-  - [Configuration](#configuration)
-- [How to update](#how-to-update)
-- [Operating modes](#operating-modes)
-- [Editor and IDE integration](#editor-and-ide-integration)
-- [Rules](#rules)
-- [Skills](#skills)
-- [MCP server integration](#mcp-server-integration)
-- [Messenger gateway](#messenger-gateway)
-- [Configuration (reference)](#configuration-1)
-- [Architecture](#architecture)
-- [Documentation](#documentation)
-- [Examples (ACP over stdio)](#examples-acp-over-stdio)
-- [Persistent sessions](#persistent-sessions)
-- [Development](#development)
-- [License](#license)
+  - [Пути (`FOXXYCODE_HOME`, `FOXXYCODE_CWD`)](#пути-foxxycode_home-foxxycode_cwd)
+  - [Настройка](#настройка)
+- [Обновление](#обновление)
+- [Режимы работы](#режимы-работы)
+- [Интеграция с редакторами и IDE](#интеграция-с-редакторами-и-ide)
+- [Правила](#правила)
+- [Навыки](#навыки)
+- [Интеграция MCP-серверов](#интеграция-mcp-серверов)
+- [Шлюз мессенджеров](#шлюз-мессенджеров)
+- [Справочник по конфигурации](#справочник-по-конфигурации)
+- [Архитектура](#архитектура)
+- [Документация](#документация)
+- [Примеры (ACP через stdio)](#примеры-acp-через-stdio)
+- [Постоянные сессии](#постоянные-сессии)
+- [Разработка](#разработка)
+- [Лицензия](#лицензия)
 
-## Features
+## Возможности
 
-- **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
-- **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
-- **Three operating modes** - `agent` (full tool access), `plan` (planning without code execution), and `docs` (markdown documentation only)
-- **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
-- **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
-- **MCP server integration** - connect any MCP server for additional tools
-- **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
-- **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
-- **Reasoning level** - for reasoning models (gpt-5, o-series, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/config.md)
-- **ACP protocol** - FoxxyCode is an **ACP server** (`foxxycode acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
-- **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/config.md#ssh-remote-execution)
-- **Messenger gateway** - optional Telegram bot adapter (`-tags gateway.telegram`); per-user sessions, group isolation modes, admin ACL; extensible to Discord, Slack, etc. — see [Messenger Gateway](docs/gateway.md)
+- **Среда выполнения — прежде всего** — ACP-сервер, жизненный цикл сессий, промпты, LLM-бэкенды, объединение MCP и готовый для distroless исполняемый файл
+- **Цикл ReAct** — LLM чередует рассуждение, действие (вызов инструментов) и наблюдение за результатами; профиль кодинг-агента доступен из коробки
+- **Три режима работы** — `agent` (полный доступ к инструментам), `plan` (планирование без выполнения кода) и `docs` (только Markdown-документация)
+- **Правила** — автоматически находит **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`** и вложенные **`**/AGENTS.md`** (соглашение [agents.md](https://agents.md/)) в рабочем каталоге сессии; подробнее в разделе [Правила](docs/rules.md)
+- **Навыки** — slash-команды и пакеты **`SKILL.md`** из **`skills.dirs`** (по умолчанию: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; более поздний каталог имеет приоритет); подробнее в разделе [Навыки](docs/skills.md)
+- **Интеграция MCP-серверов** — подключение любого MCP-сервера для доступа к дополнительным инструментам
+- **Несколько LLM-провайдеров** — OpenAI, Anthropic, Ollama и любой OpenAI-совместимый API
+- **Мультимодальность и вложения** — изображения и файлы можно прикреплять через поле ввода (📎), если в настройках модели указано `multimodal: true`; файлы сохраняются в `~/.foxxycode/sessions/<id>/assets/`, передаются в контекст агента и отображаются в сообщении пользователя
+- **Уровень рассуждения** — для моделей с рассуждением (gpt-5, серия o, модели Claude с thinking) выпадающий список в поле ввода задаёт уровень (`minimal`/`low`/`medium`/`high`), который преобразуется в OpenAI `reasoning_effort` или Anthropic extended-thinking `budget_tokens`; поддержка определяется автоматически по идентификатору модели и настраивается для каждой модели — см. [Настройку](docs/config.md)
+- **Протокол ACP** — FoxxyCode работает как **ACP-сервер** (`foxxycode acp`); его можно подключить к редактору или скрипту с ACP-клиентом (см. [Интеграцию с редакторами и IDE](#интеграция-с-редакторами-и-ide))
+- **Удалённое выполнение по SSH** — встроенный инструмент `ssh_run_command` выполняет команды на удалённых узлах через реализацию SSH на чистом Go, без внешнего исполняемого файла; аутентификация использует SSH-агент (`SSH_AUTH_SOCK`) или ключи из `~/.ssh` — см. [Настройку](docs/config.md#ssh-remote-execution)
+- **Шлюз мессенджеров** — опциональный адаптер Telegram-бота (`-tags gateway.telegram`), отдельные сессии пользователей, режимы изоляции групп и ACL администраторов; архитектуру можно расширить для Discord, Slack и других сервисов — см. [Шлюз мессенджеров](docs/gateway.md)
 
-## Editor and IDE integration
+## Интеграция с редакторами и IDE
 
-FoxxyCode is an **ACP server** (`foxxycode acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`foxxycode http`** UI are clients that share the same **`FOXXYCODE_HOME`** sessions when configured with the same home directory.
+FoxxyCode работает как **ACP-сервер** (`foxxycode acp`). **Obsidian**, **VS Code**, **Zed**, скрипты и встроенный интерфейс **`foxxycode http`** выступают клиентами и используют одни и те же сессии в **`FOXXYCODE_HOME`**, если настроены на общий домашний каталог.
 
-Configure clients with the **absolute path** to the binary rather than relying on `PATH` — some harnesses spawn the agent via `cmd /c` or `sh -c` without the user `PATH` (on Windows: `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; see [`docs/install.md`](docs/install.md#windows)).
+Указывайте в клиентах **абсолютный путь** к исполняемому файлу, не полагаясь на `PATH`: некоторые среды запускают агента через `cmd /c` или `sh -c` без пользовательского `PATH` (в Windows: `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; см. [`docs/install.md`](docs/install.md#windows)).
 
-Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/`**.
+Описание протокола: **`docs/acp-protocol.md`**. Примеры среды: **`examples/acp/`**.
 
-## Quick Start
+## Быстрый старт
 
-### Install
+### Установка
 
-**Build from source** (recommended - see prerequisites under "Other installation methods"):
+**Сборка из исходников** (рекомендуется; требования перечислены в разделе «Другие способы установки»):
 
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
 make build TAGS="http ui scheduler memory"
-make install   # copies build/foxxycode to ~/.local/bin or /usr/local/bin
+make install   # копирует build/foxxycode в ~/.local/bin или /usr/local/bin
 ```
 
-On **Windows** (or without GNU Make), use the interactive wizard instead:
-**`python scripts/build.py`** — Russian console menus for CLI binary, IntelliJ plugin, VS Code VSIX,
-build tags, and cross-platform targets. See **[`docs/build.md`](docs/build.md#interactive-build-wizard)**.
+В **Windows** (или без GNU Make) используйте интерактивный мастер:
+**`python scripts/build.py`** — русскоязычное консольное меню для сборки CLI, плагина IntelliJ, VS Code VSIX, выбора тегов и целевых платформ. Подробнее в **[`docs/build.md`](docs/build.md#interactive-build-wizard)**.
 
-Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**.
+Можно также скачать архив для своей платформы из **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** и добавить исполняемый файл **`foxxycode`** в **`PATH`**.
 
-Bootstrap the config: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
+Создайте начальную конфигурацию: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
 
-> **Windows.** Put the binary at `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; config and sessions live under `%USERPROFILE%\.foxxycode\` (use `$env:USERPROFILE`, not `$HOME`). A terminal open during install does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
+> **Windows.** Поместите исполняемый файл в `%LOCALAPPDATA%\Programs\foxxycode\foxxycode.exe`; конфигурация и сессии хранятся в `%USERPROFILE%\.foxxycode\` (используйте `$env:USERPROFILE`, а не `$HOME`). Терминал, открытый во время установки, не увидит обновлённый `PATH` — откройте новый или обновите переменную в текущем. Подробнее: [`docs/install.md`](docs/install.md#windows).
 
-Then set a provider key in **`~/.foxxycode/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`foxxycode http`** for the UI, or **`foxxycode acp`** for an editor client.
+Затем укажите ключ провайдера в **`~/.foxxycode/config.yaml`** (или переменную среды **`OPENAI_API_KEY`**) и запустите **`foxxycode http`** для веб-интерфейса либо **`foxxycode acp`** для клиента редактора.
 
-**Docker** - same full binary in **`ghcr.io/hijera/foxxycode-agent`**: **`docker compose up -d`** (see [Docker](#docker)).
+**Docker** — тот же полный исполняемый файл доступен в образе **`ghcr.io/hijera/foxxycode-agent`**: выполните **`docker compose up -d`** (см. [Docker](#docker)).
 
-Upgrade later with **`foxxycode update -y`** ([How to update](#how-to-update)).
+В дальнейшем обновляйтесь командой **`foxxycode update -y`** (см. [Обновление](#обновление)).
 
+<a id="другие-способы-установки"></a>
 <details>
-<summary><strong>Other installation methods</strong> (build from source, Go install, manual)</summary>
+<summary><strong>Другие способы установки</strong> (сборка из исходников, Go install, ручная сборка)</summary>
 
-**Prerequisites for building**
+**Требования для сборки**
 
-- **Go** - same minor version as [`go.mod`](go.mod) (currently **1.25**).
-- **Git** - used by the Makefile for the embedded version string.
-- **Node.js / npm** - only if you build with **`http`** and **`ui`** (the Makefile runs **`ui-build`** for embedded assets).
+- **Go** — та же минорная версия, что указана в [`go.mod`](go.mod) (сейчас **1.25**).
+- **Git** — Makefile использует его для встраивания номера версии.
+- **Node.js / npm** — нужны только при сборке с тегами **`http`** и **`ui`** (Makefile запускает **`ui-build`** для встраиваемых ресурсов).
 
-**Install with Go (lean module default, no `http` / UI tags)**
+**Установка через Go (минимальный модуль без тегов `http` / `ui`)**
 
 ```bash
 go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```
 
-Note: `go install` names the binary after the package directory (**`foxxycode`**). For **`foxxycode http`**, the bundled SPA, scheduler, and memory, use a **release archive** or **build from source** (see [Install](#install)).
+Примечание: `go install` называет исполняемый файл по каталогу пакета (**`foxxycode`**). Чтобы получить **`foxxycode http`**, встроенный SPA, планировщик и память, используйте **архив релиза** или **соберите проект из исходников** (см. [Установку](#установка)).
 
-**Manual `go build`**
+**Ручной вызов `go build`**
 
-When **`TAGS`** includes **`http`** and **`ui`**, run **`make ui-build`** first.
+Если **`TAGS`** содержит **`http`** и **`ui`**, сначала выполните **`make ui-build`**.
 
 ```bash
 make ui-build
@@ -140,96 +142,97 @@ go build -tags=http,ui,scheduler,memory \
   ./cmd/foxxycode/
 ```
 
-Lean **ACP-only** binary: **`make build`** (no **`http`** / UI / scheduler / memory tags).
+Минимальный исполняемый файл **только с ACP**: **`make build`** (без тегов **`http`**, UI, планировщика и памяти).
 
-**Windows desktop app** (WebView2 GUI, double-click **`foxxycode-desktop.exe`**):
+**Настольное приложение Windows** (GUI на WebView2; запускается двойным щелчком по **`foxxycode-desktop.exe`**):
 
 ```bash
 make build-desktop
 ```
 
-The desktop app opens projects as folders: the project pill in the chat header opens the native Windows folder dialog, new chats run in the chosen folder, and recently opened projects are kept in `~/.foxxycode/projects.json` (**`GET/PUT /foxxycode/project`**, **`GET /foxxycode/projects/recent`**). Without an explicit **`-cwd`**, the last opened project is restored on start.
+Настольное приложение открывает проекты как папки: кнопка проекта в заголовке чата открывает нативный диалог выбора каталога Windows, новые чаты запускаются в выбранной папке, а недавние проекты сохраняются в `~/.foxxycode/projects.json` (**`GET/PUT /foxxycode/project`**, **`GET /foxxycode/projects/recent`**). Если **`-cwd`** не указан явно, при запуске восстанавливается последний открытый проект.
 
-Build reference: **[`docs/build.md`](docs/build.md)**.
+Справочник по сборке: **[`docs/build.md`](docs/build.md)**.
 
 </details>
 
-**`foxxycode -v`** prints the embedded version. **`foxxycode acp --help`** lists ACP flags (**`--home`**, **`--cwd`**, **`--config`**, etc.).
+**`foxxycode -v`** выводит встроенную версию. **`foxxycode acp --help`** показывает параметры ACP (**`--home`**, **`--cwd`**, **`--config`** и другие).
 
-### Build tags
+### Теги сборки
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
+В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory`**).
 
-| Tag | Enables | Docs |
-|-----|---------|------|
-| **`memory`** | Long-term memory copilot (**`memory.enabled`** in YAML); with **`http`**, session memory REST under **`/foxxycode/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
-| **`http`** | **`foxxycode http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
-| **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
-| **`scheduler`** | Scheduler daemon and **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
-| **`browser`** | Interactive browser tools (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate) driving a local Chrome/Chromium via chromedp; the model sees page screenshots (**`browser.enabled`** in YAML) | [`docs/browser-tool.md`](docs/browser-tool.md) |
-| **`gateway.telegram`** | Telegram bot adapter — **`foxxycode gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
-| **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
-| **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; needs **`http`**, **`ui`**, Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
+| Тег | Что включает | Документация |
+|-----|--------------|--------------|
+| **`memory`** | Компонент долговременной памяти (**`memory.enabled`** в YAML); вместе с **`http`** — REST для памяти сессии в **`/foxxycode/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
+| **`http`** | **`foxxycode http`**, REST-шлюз, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
+| **`ui`** | Встроенный SPA на **`/`** (требует **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
+| **`scheduler`** | Демон планировщика и инструменты **`foxxycode_scheduler_*`**; вместе с **`http`** — REST **`/foxxycode/scheduler`** | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
+| **`browser`** | Интерактивные браузерные инструменты (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate), управляющие локальным Chrome/Chromium через chromedp; модель видит снимки страницы (**`browser.enabled`** в YAML) | [`docs/browser-tool.md`](docs/browser-tool.md) |
+| **`gateway.telegram`** | Адаптер Telegram-бота — подкоманда **`foxxycode gateway`**, отдельные сессии пользователей и контроль доступа | [`docs/gateway.md`](docs/gateway.md) |
+| **`gateway`** | Все адаптеры мессенджеров (надмножество `gateway.telegram`; позволяет добавлять Discord и Slack без изменений ядра) | [`docs/gateway.md`](docs/gateway.md) |
+| **`desktop`** | Настольное приложение Windows на WebView2 (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; требует **`http`**, **`ui`** и Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
 
-Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
+Расширенное описание и соответствие Docker-сборке: **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, and **`memory`** - the same feature set as **`make build TAGS="http ui scheduler memory"`**.
+Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Стандартный образ включает **`http`**, **`ui`**, **`scheduler`** и **`memory`** — тот же набор функций, что и **`make build TAGS="http ui scheduler memory"`**.
 
-**1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
+**1. Конфигурация и рабочий каталог** (из корня репозитория или другого каталога, в котором хранится **`config.yaml`**):
 
 ```bash
 cp config.example.yaml config.yaml
 mkdir -p workspace foxxycode_home
-# Edit config.yaml: at least one provider api_key (or rely on OPENAI_API_KEY etc. in compose)
+# Отредактируйте config.yaml: нужен как минимум api_key одного провайдера
+# (либо передайте OPENAI_API_KEY и другие переменные через Compose)
 ```
 
-**2. Start with Compose** (pull published image, no local build):
+**2. Запуск через Compose** (загрузка опубликованного образа без локальной сборки):
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-To **build the image locally** instead, use **`docker-compose.dev.yml`**: **`docker compose -f docker-compose.dev.yml up -d --build`**.
+Чтобы **собрать образ локально**, используйте **`docker-compose.dev.yml`**: **`docker compose -f docker-compose.dev.yml up -d --build`**.
 
-**3. Open the bundled UI** in a browser on the host:
+**3. Откройте встроенный интерфейс** в браузере на хосте:
 
 ```text
 http://127.0.0.1:12345/
 ```
 
-The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, or **docs** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
+SPA доступен по **`GET /`** после запуска **`foxxycode http`**. Выберите **модель** в поле ввода (YAML-бэкенды из **`GET /v1/models`**), режим **agent**, **plan** или **docs**, затем отправьте сообщение. Интерфейс создаст сессию и начнёт потоковую передачу ответа через **`POST /v1/responses`**. Файловые и консольные инструменты агента работают в подключённом каталоге (**`./workspace`** → **`/workspace`** внутри контейнера). Редактор YAML в реальном времени: **`http://127.0.0.1:12345/#/settings`**.
 
-Sanity check without a browser: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
+Проверка без браузера: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
 
-There is **no login** on the HTTP surface - expose port **12345** only on trusted networks. Full compose options, volumes, and CI image tags: **[docs/docker.md](docs/docker.md)**. Smoke script: **`examples/httpserver/docker.sh`**.
+HTTP-интерфейс **не защищён авторизацией** — открывайте порт **12345** только в доверенных сетях. Все параметры Compose, тома и теги CI-образов описаны в **[docs/docker.md](docs/docker.md)**. Скрипт быстрой проверки: **`examples/httpserver/docker.sh`**.
 
-### Paths (`FOXXYCODE_HOME`, `FOXXYCODE_CWD`)
+### Пути (`FOXXYCODE_HOME`, `FOXXYCODE_CWD`)
 
-- **`FOXXYCODE_HOME`** (or **`foxxycode acp --home`**) is the agent state directory. Default **`~/.foxxycode`**. The process creates **`sessions/`** and **`skills/`** under it. Config defaults to **`$FOXXYCODE_HOME/config.yaml`**.
-- **`FOXXYCODE_CWD`** (or **`foxxycode acp --cwd`**) is the default session working directory when `session/new` sends an empty **`cwd`**. Default is the process current directory at startup. Editors that pass a path in **`session/new`** use that path instead.
+- **`FOXXYCODE_HOME`** (или **`foxxycode acp --home`**) — каталог состояния агента. По умолчанию **`~/.foxxycode`**. Процесс создаёт в нём **`sessions/`** и **`skills/`**. Стандартный путь к конфигурации — **`$FOXXYCODE_HOME/config.yaml`**.
+- **`FOXXYCODE_CWD`** (или **`foxxycode acp --cwd`**) — стандартный рабочий каталог сессии, когда `session/new` передаёт пустое значение **`cwd`**. По умолчанию это текущий каталог процесса при запуске. Если редактор передаёт путь в **`session/new`**, используется именно он.
 
-### Configuration
+### Настройка
 
-**`FOXXYCODE_HOME`** defaults to **`~/.foxxycode`**. Unless you set **`FOXXYCODE_CONFIG`** or pass **`--config`**, the primary config file is **`config.yaml`** at **`$FOXXYCODE_HOME/config.yaml`**.
+По умолчанию **`FOXXYCODE_HOME`** указывает на **`~/.foxxycode`**. Если не задана переменная **`FOXXYCODE_CONFIG`** и не передан параметр **`--config`**, основным файлом конфигурации будет **`config.yaml`** в **`$FOXXYCODE_HOME/config.yaml`**.
 
-Copy the example and edit it:
+Скопируйте пример и отредактируйте его:
 
 ```bash
 mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 ```
 
-If **`$FOXXYCODE_HOME/config.yaml`** is absent, the loader may use **`config.yaml`** in the process working directory (useful when running from a repository clone). See **`docs/config.md`**.
+Если **`$FOXXYCODE_HOME/config.yaml`** отсутствует, загрузчик может использовать **`config.yaml`** из текущего рабочего каталога процесса — это удобно при запуске из клона репозитория. Подробнее в **`docs/config.md`**.
 
-**Providers and models**
+**Провайдеры и модели**
 
-- **`providers`** - named backends (**`type`**: **`openai`** for OpenAI and OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for the NeuralDeep hub). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). Each row has **`api_key`** (literal, **`${ENV}`** expanded when the file loads, or empty to read **`NAME_API_KEY`** from the environment at LLM call time, with **`NAME`** derived from **`providers[].name`** in uppercase and hyphens mapped to underscores), and optionally **`api_base`** when the API is not the vendor default. **`neuraldeep`** ignores **`api_base`**: its endpoint is fixed at **`https://api.neuraldeep.ru/v1`**, so only an **`api_key`** is needed.
-- **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
-- **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn.
+- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для хаба NeuralDeep). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. В каждой записи есть **`api_key`** (строка, выражение **`${ENV}`**, раскрываемое при чтении файла, или пустое значение для чтения **`NAME_API_KEY`** из среды в момент вызова LLM; **`NAME`** строится из `providers[].name` в верхнем регистре с заменой дефисов на подчёркивания) и опциональное **`api_base`**, если используется нестандартный API. Для **`neuraldeep`** поле **`api_base`** игнорируется: адрес всегда равен **`https://api.neuraldeep.ru/v1`**, поэтому нужен только **`api_key`**.
+- **`models`** — доступные для выбора модели. Строка **`model`** имеет вид **`<provider_name>/<api_model_id>`**, где **`provider_name`** совпадает с `providers[].name`. Доступные параметры: **`max_tokens`**, **`temperature`** и опциональный **`max_context_tokens`**.
+- **`agent`** — поле **`model`** выбирает стандартную модель ReAct и должно совпадать с одной из записей **`models[].model`**. Параметры **`max_turns`** и **`max_tokens_per_turn`** ограничивают один пользовательский запрос.
 
-Example (**`openai`** provider and **`gpt-5.4-mini`**; store secrets in the environment, not in git):
+Пример с провайдером **`openai`** и моделью **`gpt-5.4-mini`**; храните секреты в переменных среды, а не в Git:
 
 ```yaml
 providers:
@@ -248,154 +251,156 @@ agent:
   max_tokens_per_turn: 128000
 ```
 
-Then export the key the YAML references:
+Экспортируйте переменную, на которую ссылается YAML:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 ```
 
-Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based defaults) are covered in **`config.example.yaml`** and **[docs/config.md](docs/config.md)**.
+Другие варианты (Anthropic, Ollama, нестандартное значение **`api_base`** и значения из переменных среды по умолчанию) описаны в **`config.example.yaml`** и **[docs/config.md](docs/config.md)**.
 
-## How to update
+## Обновление
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory"`**.
+Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory"`**.
 
-**`foxxycode update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/foxxycode`**) or when you run **`./build/foxxycode update`** to refresh a local build artifact.
+Команда **`foxxycode update`** загружает архив для текущей ОС и архитектуры и заменяет запущенный исполняемый файл с разрешением символических ссылок. Обычно так обновляют установку после **`make install`** (**`~/.local/bin/foxxycode`**) или локальный артефакт командой **`./build/foxxycode update`**.
 
-**1. See what you run today**
+**1. Посмотрите, какая версия запущена**
 
 ```bash
 which foxxycode
 foxxycode -v
 ```
 
-**2. Check for a newer release**
+**2. Проверьте наличие нового релиза**
 
 ```bash
 foxxycode update --check
 ```
 
-Exit code **0** means you are already on the latest published **`X.Y.Z`** (or newer). Exit code **1** means a newer release is available.
+Код завершения **0** означает, что установлена последняя опубликованная версия **`X.Y.Z`** или новее. Код **1** означает, что доступен новый релиз.
 
-**3. Install**
+**3. Установите обновление**
 
 ```bash
-foxxycode update          # asks [y/N]
-foxxycode update -y       # no prompt
+foxxycode update          # спрашивает [y/N]
+foxxycode update -y       # без подтверждения
 ```
 
-**4. Confirm**
+**4. Проверьте результат**
 
 ```bash
 foxxycode -v
-foxxycode http --help     # only when the binary includes -tags=http (release builds do)
+foxxycode http --help     # только если сборка содержит -tags=http (как официальные релизы)
 ```
 
-**Common flags**
+**Основные параметры**
 
-| Flag | Purpose |
-|------|---------|
-| **`--check`** | Only report whether an update exists (no download). |
-| **`-y`** / **`--yes`** | Install without confirmation. |
-| **`--version X.Y.Z`** | Install a specific release, not only "latest". |
-| **`--repo owner/name`** | Alternate GitHub repo (default **`hijera/foxxycode-agent`**). |
+| Параметр | Назначение |
+|----------|------------|
+| **`--check`** | Только проверить наличие обновления, ничего не загружая. |
+| **`-y`** / **`--yes`** | Установить без подтверждения. |
+| **`--version X.Y.Z`** | Установить конкретный релиз, а не только последний. |
+| **`--repo owner/name`** | Использовать другой GitHub-репозиторий (по умолчанию **`hijera/foxxycode-agent`**). |
 
-**Notes**
+**Примечания**
 
-- Update the same binary you intend to use. If **`which foxxycode`** points at **`~/.local/bin/foxxycode`**, run **`foxxycode update`** from that install, not a different copy on **`PATH`**.
-- **`$FOXXYCODE_HOME`** (config, sessions, skills) is untouched; only the executable changes.
-- To build from source or change tags, use **`make build`** instead. For containers, use **`docker compose pull`**. See **[docs/update.md](docs/update.md)** for platform tables, limitations, and other upgrade paths.
+- Обновляйте именно тот файл, который собираетесь использовать. Если `which foxxycode` указывает на `~/.local/bin/foxxycode`, запускайте `foxxycode update` из этой установки, а не другую копию из **`PATH`**.
+- **`$FOXXYCODE_HOME`** с конфигурацией, сессиями и навыками не изменяется; заменяется только исполняемый файл.
+- Для сборки из исходников или изменения тегов используйте **`make build`**. Для контейнеров — **`docker compose pull`**. Таблицы платформ, ограничения и другие способы обновления приведены в **[docs/update.md](docs/update.md)**.
 
-## Operating Modes
+## Режимы работы
 
-### Agent Mode (default)
+### Режим Agent (по умолчанию)
 
-Full task execution mode. The agent has access to all tools:
-- Read and write files
-- Execute shell commands (with permission prompt)
-- Search codebase
-- Call MCP server tools
+Режим полноценного выполнения задач. Агенту доступны все инструменты:
 
-Best for: code generation, refactoring, debugging, feature implementation.
+- чтение и запись файлов;
+- выполнение команд оболочки с запросом разрешения;
+- поиск по кодовой базе;
+- вызов инструментов MCP-сервера.
 
-### Plan Mode
+Лучше всего подходит для генерации кода, рефакторинга, отладки и реализации новых функций.
 
-Planning and documentation mode. Restricted tools:
-- Read and search the workspace
-- Use shell and configured MCP tools for inspection
-- Save and load design plans with the dedicated plan tools
+### Режим Plan
 
-When the plan is ready, switch to **agent** mode yourself for full tools and implementation.
+Режим планирования и документирования с ограниченным набором инструментов:
 
-Best for: architecture planning, writing specs, design documents, code review.
+- чтение и поиск в рабочем каталоге;
+- использование оболочки и настроенных MCP-инструментов для исследования;
+- сохранение и загрузка проектных планов специальными инструментами.
 
-### Docs Mode
+Когда план готов, самостоятельно переключитесь в режим **agent** для полноценной работы с инструментами и реализации.
 
-Documentation maintenance mode with a closed tool surface:
-- Review requests are non-mutating unless the user explicitly asks for an update
-- Read and search the workspace, then verify claims against implementation and observable tests
-- Write or edit `.md` files under the session CWD via guarded **`docs_write`** and **`docs_edit`** tools
-- No shell, MCP, general filesystem mutators, plan tools, or todo tools
+Лучше всего подходит для архитектурного планирования, спецификаций, проектной документации и ревью кода.
 
-The Markdown writers reject out-of-workspace and symlink escapes, protect **`internal/prompts/`**, require explicit opt-in before overwriting an existing file, and require a non-empty unique exact match for targeted edits unless replacing all matches deliberately. Switch to **agent** mode for source-code or configuration changes.
+### Режим Docs
 
-Best for: keeping README and `docs/` aligned with the code, updating operator guides, API prose.
+Режим сопровождения документации с закрытым набором инструментов:
 
-Use your editor session mode selector (or **`session/set_config_option`**).
+- запрос на ревью ничего не изменяет, если пользователь явно не попросил обновить файлы;
+- можно читать и искать в рабочем каталоге, а затем сверять утверждения с реализацией и наблюдаемыми результатами тестов;
+- файлы `.md` внутри рабочего каталога сессии можно создавать и редактировать защищёнными инструментами **`docs_write`** и **`docs_edit`**;
+- недоступны оболочка, MCP, общие операции изменения файлов, инструменты планов и списков задач.
 
-## Rules
+Markdown-инструменты запрещают выход за пределы рабочего каталога и переход по символическим ссылкам, защищают **`internal/prompts/`**, требуют явного согласия перед перезаписью существующего файла и принимают только непустое уникальное точное совпадение при точечном редактировании, кроме случаев намеренной замены всех совпадений. Для изменения исходного кода или конфигурации переключитесь в режим **agent**.
 
-Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/) convention; the root `AGENTS.md` is injected separately as a project docs preamble) when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
+Лучше всего подходит для синхронизации README и `docs/` с кодом, обновления руководств оператора и описания API.
 
-Rule files often use Cursor-style frontmatter, for example:
+Выберите режим в настройках сессии редактора или через **`session/set_config_option`**.
+
+## Правила
+
+Если **`rules.auto_discover`** включён, правила проекта, передаваемые через **`{{.Rules}}`**, автоматически находятся внутри рабочего каталога сессии в **`.foxxycode/rules`**, **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`** и вложенных **`**/AGENTS.md`** (соглашение [agents.md](https://agents.md/); корневой `AGENTS.md` передаётся отдельно как вводная документация проекта). Подробнее в **[`docs/rules.md`](docs/rules.md)**.
+
+Файлы правил часто используют frontmatter в стиле Cursor, например:
 
 ```markdown
 ---
-description: "Go coding standards"
+description: "Стандарты кода Go"
 globs: ["**/*.go"]
 alwaysApply: false
 ---
 
-Write all comments in English.
-Use fmt.Errorf("context: %w", err) for error wrapping.
+Пишите все комментарии на английском языке.
+Для оборачивания ошибок используйте fmt.Errorf("context: %w", err).
 ```
 
-## Skills
+## Навыки
 
-Slash commands and **`SKILL.md`** packs (injected as **`{{.Skills}}`**) extend the agent with domain knowledge and specialized workflows.
+Slash-команды и пакеты **`SKILL.md`**, передаваемые через **`{{.Skills}}`**, расширяют агента предметными знаниями и специализированными процессами.
 
-**Default directories (lowest → highest priority):**
+**Стандартные каталоги (от низшего к высшему приоритету):**
 
-| Priority | Path | Purpose |
-|----------|------|---------|
-| lowest | `~/.agents/skills/` | Global skills — installed by `npx skills` or `npx skillsbd`, shared with all agents |
-| ↑ | `~/.foxxycode/skills/` | FoxxyCode-specific skills; may contain symlinks into `~/.agents/skills/` |
-| highest | `${CWD}/.foxxycode/skills/` | Project-local skills — override anything from higher directories |
+| Приоритет | Путь | Назначение |
+|-----------|------|------------|
+| низший | `~/.agents/skills/` | Общие навыки, установленные через `npx skills` или `npx skillsbd` и доступные всем агентам |
+| ↑ | `~/.foxxycode/skills/` | Навыки FoxxyCode; могут содержать символические ссылки на `~/.agents/skills/` |
+| высший | `${CWD}/.foxxycode/skills/` | Навыки проекта, переопределяющие одноимённые навыки из предыдущих каталогов |
 
-Later directories override earlier ones when the same skill name appears in multiple locations.
+Если навык с одним именем встречается в нескольких местах, более поздний каталог имеет приоритет.
 
-**Finding and installing skills:**
+**Поиск и установка навыков:**
 
-- **[skills.sh](https://skills.sh)** — community registry, install with `npx skills add <owner/repo@skill>`
-- **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — skillsbd registry curated for FoxxyCode, install with `npx skillsbd install <name>`
-- **Settings → Skills** in the web UI (`foxxycode http`) — browse and install from the skillsbd registry without leaving the browser
+- **[skills.sh](https://skills.sh)** — реестр сообщества; установка: `npx skills add <owner/repo@skill>`
+- **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — реестр skillsbd, отобранный для FoxxyCode; установка: `npx skillsbd install <name>`
+- **Настройки → Навыки** в веб-интерфейсе (`foxxycode http`) — просмотр и установка из реестра skillsbd прямо в браузере
 
 **CLI:**
 
 ```bash
-foxxycode skills list              # list installed skills with enabled/disabled status
-foxxycode skills enable <name>     # enable a skill
-foxxycode skills disable <name>    # disable without uninstalling
+foxxycode skills list              # список установленных навыков и их состояние
+foxxycode skills enable <name>     # включить навык
+foxxycode skills disable <name>    # выключить навык без удаления
 ```
 
-See **[`docs/skills.md`](docs/skills.md)** for the full reference.
+Полное описание см. в **[`docs/skills.md`](docs/skills.md)**.
 
-## MCP Server Integration
+## Интеграция MCP-серверов
 
-Connect external tools via MCP servers. Configured globally in `config.yaml` or
-passed per-session by the ACP client.
+Подключайте внешние инструменты через MCP-серверы. Их можно настроить глобально в `config.yaml` или передать для конкретной сессии через ACP-клиент.
 
-Example adding a GitHub MCP server in config:
+Пример добавления GitHub MCP-сервера в конфигурацию:
 
 ```yaml
 mcp_servers:
@@ -407,18 +412,18 @@ mcp_servers:
         value: "${GITHUB_TOKEN}"
 ```
 
-See [MCP Integration Guide](docs/mcp-integration.md) for details.
+Подробнее в [руководстве по интеграции MCP](docs/mcp-integration.md).
 
-## Messenger gateway
+## Шлюз мессенджеров
 
-Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `foxxycode gateway`.
+Соберите проект с **`-tags gateway.telegram`** (только Telegram) или **`-tags gateway`** (все адаптеры), чтобы включить команду `foxxycode gateway`.
 
 ```bash
 make build TAGS="gateway.telegram"
 ./build/foxxycode gateway --config ~/.foxxycode/config.yaml
 ```
 
-Minimal config addition (`config.yaml`):
+Минимальное дополнение к `config.yaml`:
 
 ```yaml
 gateways:
@@ -428,20 +433,20 @@ gateways:
     admins: [YOUR_USER_ID]
     default_access: "admins"   # all | admins | group:<name>
     default_isolation: "admin" # individual | shared | admin
-    rich_messages: true        # Bot API 10.1 Rich Messages (native Markdown + tool blocks)
+    rich_messages: true        # Bot API 10.1 Rich Messages (нативный Markdown и блоки инструментов)
 ```
 
-Each user or chat gets its own isolated session. In group chats the bot responds only when @mentioned or replied to. `/clear` (no space) starts a fresh session.
+Каждый пользователь или чат получает отдельную изолированную сессию. В группах бот отвечает только на упоминания и ответы на свои сообщения. Команда `/clear` без пробела начинает новую сессию.
 
-With `rich_messages: true` the bot uses [Bot API 10.1 Rich Messages](https://core.telegram.org/bots/api#rich-messages): the agent's full Markdown (headings, tables, code, task lists) renders natively, tool activity streams as a "Thinking…" placeholder, and executed tools appear in a collapsible block. It falls back to legacy formatting if the Bot API server doesn't support it. See [docs/gateway.md](docs/gateway.md#rich-messages).
+При `rich_messages: true` бот использует [Rich Messages из Bot API 10.1](https://core.telegram.org/bots/api#rich-messages): весь Markdown агента (заголовки, таблицы, код, списки задач) отображается нативно, активность инструментов транслируется вместо заполнителя «Thinking…», а выполненные инструменты показываются в сворачиваемом блоке. Если сервер Bot API не поддерживает эту возможность, бот возвращается к прежнему форматированию. Подробнее в [docs/gateway.md](docs/gateway.md#rich-messages).
 
-Full guide — access levels, group isolation modes, per-chat overrides, and how to write adapters for new messengers: **[docs/gateway.md](docs/gateway.md)**.
+Полное руководство по уровням доступа, режимам изоляции групп, настройкам отдельных чатов и созданию новых адаптеров: **[docs/gateway.md](docs/gateway.md)**.
 
-## Configuration
+## Справочник по конфигурации
 
-Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json) enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header (see `config.example.yaml`).
+Полное описание доступно в [docs/config.md](docs/config.md), таблицы отдельных полей — в [docs/config-reference.md](docs/config-reference.md). [JSON Schema](docs/config.schema.json) включает автодополнение и проверку в редакторе через заголовок `# yaml-language-server: $schema=...` (см. `config.example.yaml`).
 
-Key settings:
+Основные настройки:
 
 ```yaml
 providers:
@@ -463,82 +468,84 @@ tools:
   require_permission_for_commands: true
 ```
 
-## Architecture
+## Архитектура
 
-```
-ACP client (editor / script / CI)        Messenger (Telegram, …)
+```text
+ACP-клиент (редактор / скрипт / CI)      Мессенджер (Telegram и другие)
         |                                        |
-    JSON-RPC 2.0 over stdio              gateway Hub (per adapter goroutine)
+    JSON-RPC 2.0 через stdio             Шлюз Hub (горутина адаптера)
         |                                        |
-    ACP Server Layer                     session.Manager (shared)
+    Уровень ACP-сервера                  session.Manager (общий)
         |                                        |
-    Session Manager ─────────────────────────────┘
+    Менеджер сессий ─────────────────────────────┘
         |
-    ReAct Agent Loop
+    Цикл ReAct-агента
  /      |       |      \
-LLM   Tools    Skills    MCP
+LLM  Инструменты Навыки  MCP
 ```
 
-See [Architecture docs](docs/architecture.md) for full details.
+Полное описание см. в [документации по архитектуре](docs/architecture.md).
 
-## Documentation
+## Документация
 
-- [What FoxxyCode adds over coddy-agent](docs/vs-coddy.md) - fork-specific features vs upstream
-- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxycode`**
-- [Updating FoxxyCode](docs/update.md) - **`foxxycode update`**, release assets, **`PATH`** vs **`make install`**
-- [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
-- [Architecture](docs/architecture.md) - system design and component overview
-- [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
-- [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
-- [Configuration](docs/config.md) - full config file reference; [field tables](docs/config-reference.md) and [JSON Schema](docs/config.schema.json) for editor validation
-- [HTTP API](docs/http-api.md) - REST gateway (**`-tags=http`**) and embedded UI (**`-tags=http,ui`**); includes **`/foxxycode/config`** for live YAML editing from the SPA (**#/settings**).
-- [Embedded UI](docs/ui.md) - functional spec, Vite dev workflow, build tags
-- [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
-- [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
-- [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.foxxycode/rules`, …)
-- [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
-- [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
-- [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
+- [Отличия FoxxyCode от coddy-agent](docs/vs-coddy.md) — функции форка в сравнении с исходным проектом
+- [Сборка из исходников](docs/build.md) — требования, **`make build`**, отличие **`TAGS`** от **`go build -tags`**, каталог **`build/foxxycode`**
+- [Обновление FoxxyCode](docs/update.md) — **`foxxycode update`**, артефакты релизов, **`PATH`** и **`make install`**
+- [Docker](docs/docker.md) — образ GHCR, **`docker compose`**, встроенный интерфейс по адресу **`http://127.0.0.1:12345/`**
+- [Архитектура](docs/architecture.md) — устройство системы и обзор компонентов
+- [Протокол ACP](docs/acp-protocol.md) — справочник по протоколу и форматы сообщений
+- [Агент ReAct](docs/react-agent.md) — устройство цикла ReAct и спецификации инструментов
+- [Конфигурация](docs/config.md) — полное описание файла конфигурации, [таблицы полей](docs/config-reference.md) и [JSON Schema](docs/config.schema.json) для проверки в редакторе
+- [HTTP API](docs/http-api.md) — REST-шлюз (**`-tags=http`**) и встроенный интерфейс (**`-tags=http,ui`**), включая **`/foxxycode/config`** для редактирования YAML в SPA (**#/settings**)
+- [Встроенный интерфейс](docs/ui.md) — функциональная спецификация, разработка через Vite и теги сборки
+- [DESIGN.md](DESIGN.md) — токены и компоновка интерфейса (на английском языке)
+- [AGENTS.md](AGENTS.md) — карта репозитория и памятка для автоматизированных участников
+- [Правила](docs/rules.md) — правила проекта (`.cursor/rules`, `.foxxycode/rules` и другие)
+- [Навыки](docs/skills.md) — slash-команды и **`skills.dirs`**
+- [Интеграция MCP](docs/mcp-integration.md) — руководство по MCP-серверам
+- [Шлюз мессенджеров](docs/gateway.md) — адаптер Telegram-бота, изоляция сессий, ACL и создание новых адаптеров
 
-## Examples (ACP over stdio)
+## Примеры (ACP через stdio)
 
-[**`examples/acp/acp_e2e_todo.py`**](examples/acp/acp_e2e_todo.py) is a newline-delimited JSON-RPC harness against **`foxxycode acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use it as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
+[**`examples/acp/acp_e2e_todo.py`**](examples/acp/acp_e2e_todo.py) — построчная JSON-RPC-среда для **`foxxycode acp`** ( **`stdbuf -oL`**, автоматический ответ на запрос разрешения, ответы с nil-result). Используйте её как основу для минимального клиента, а не объединяйте простые команды **`echo`** в конвейер.
 
-[**`examples/acp/acp_e2e_memory.py`**](examples/acp/acp_e2e_memory.py) drives **`build/foxxycode`**, an isolated **`FOXXYCODE_HOME`**, and **`RPA_API_KEY`** to verify recall, persist, and optional prune of markdown under **`$FOXXYCODE_HOME/memory`**. See the script docstring for flags. Overview of all harnesses - [**`examples/README.md`**](examples/README.md).
+[**`examples/acp/acp_e2e_memory.py`**](examples/acp/acp_e2e_memory.py) запускает **`build/foxxycode`** с изолированным **`FOXXYCODE_HOME`** и **`RPA_API_KEY`**, чтобы проверить чтение, сохранение и опциональную очистку Markdown-файлов в **`$FOXXYCODE_HOME/memory`**. Параметры описаны в docstring скрипта. Обзор всех примеров: [**`examples/README.md`**](examples/README.md).
 
-## Persistent sessions
+## Постоянные сессии
 
-By default, `foxxycode acp` and `foxxycode http` store each session bundle under **`$FOXXYCODE_HOME/sessions/<sessionId>/`** (default **`~/.foxxycode/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`foxxycode acp --sessions-dir`**, **`foxxycode http --sessions-dir`**, or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
+По умолчанию `foxxycode acp` и `foxxycode http` сохраняют каждую сессию в **`$FOXXYCODE_HOME/sessions/<sessionId>/`** (обычно **`~/.foxxycode/sessions/`**): там находятся `session.json`, `messages.json`, каталог `assets/`, файл `todos/active.md` и каталог `todos/archive/` для заменённых завершённых списков. Корневой каталог можно изменить через **`foxxycode acp --sessions-dir`**, **`foxxycode http --sessions-dir`** или **`sessions.dir`** в **`config.yaml`**. Если каталог сессий невозможно создать, запуск завершается ошибкой.
 
-- **`foxxycode sessions list`** prints stored sessions (`--sessions-dir` and `--cwd` filters supported).
-- **`foxxycode acp --session-id <id>`** makes the **next** `session/new` either reopen snapshots for that folder (if present) or create a fresh bundle whose directory name matches that id.
-- **`session/load`** restores history and notifies the client; **`session/list`** lists bundles for ACP-aware clients.
+- **`foxxycode sessions list`** выводит сохранённые сессии и поддерживает фильтры `--sessions-dir` и `--cwd`.
+- **`foxxycode acp --session-id <id>`** заставляет **следующий** вызов `session/new` открыть сохранённое состояние этой папки, если оно существует, либо создать новую сессию с таким именем каталога.
+- **`session/load`** восстанавливает историю и уведомляет клиента; **`session/list`** перечисляет сохранённые сессии для ACP-совместимых клиентов.
 
-The foxxycode_todo_* tools keep the active checklist mirrored to `todos/active.md`. A wholesale **`foxxycode_todo_plan_replace`** while items are incomplete is rejected until you finish rows or run **`foxxycode_todo_plan_archive`**; replacing when every row is **`completed`** moves the prior `active.md` into **`todos/archive/`** (`todo-<nanos>.md`). **`foxxycode_todo_plan_archive`** finishes open rows to **`completed`**, writes **`todos/archive/plan_<unix_seconds>.md`**, then clears the session plan when persistence is on.
+Инструменты foxxycode_todo_* синхронизируют активный список с `todos/active.md`. Полная замена через **`foxxycode_todo_plan_replace`** при наличии незавершённых пунктов отклоняется: сначала завершите их или выполните **`foxxycode_todo_plan_archive`**. Если все пункты имеют состояние **`completed`**, при замене прежний `active.md` перемещается в **`todos/archive/`** под именем `todo-<nanos>.md`. Команда **`foxxycode_todo_plan_archive`** переводит открытые пункты в состояние **`completed`**, записывает **`todos/archive/plan_<unix_seconds>.md`** и очищает план сессии, если включено постоянное хранение.
 
-When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template (embedded defaults, or files under **`prompts.dir`** using **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`**, which default to **`agent.md`**, **`plan.md`**, and **`docs.md`**) via `{{if .TodoList}}` … `{{end}}`. That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
+Если сохранённый план **не пуст**, агент добавляет в шаблон системного промпта заголовок **`### Current todo checklist`** и строки Markdown-списка. Используются встроенные шаблоны либо файлы из **`prompts.dir`**, заданные через **`prompts.agent_prompt`**, **`prompts.plan_prompt`** и **`prompts.docs_prompt`**; стандартные имена — **`agent.md`**, **`plan.md`** и **`docs.md`**. Вставка выполняется через `{{if .TodoList}}` … `{{end}}` и пропускается, когда список пуст. Перед **каждым** вызовом LLM в рамках одного запроса **`session/prompt`** FoxxyCode обновляет системное сообщение, поэтому созданный или изменённый ранее в том же эпизоде ReAct список сразу остаётся видимым.
 
-## Development
+## Разработка
 
 ```bash
-# Run tests
+# Запуск тестов
 go test ./...
 make test
 
-# Example harnesses (see examples/README.md): ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
+# Примеры среды (см. examples/README.md):
+# ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
-# Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
+# Полнофункциональная локальная сборка (HTTP + UI + планировщик), как в Docker
 make build TAGS="http ui scheduler memory"
 
-./build/foxxycode -v    # same as --version
+./build/foxxycode -v    # то же, что --version
 
-# Run with debug logging (ACP mode); optional --log-output, --log-file, --log-format
+# Запуск с отладочными логами в режиме ACP; доступны --log-output, --log-file, --log-format
 foxxycode acp --log-level debug
 
-# Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp/acp_e2e_todo.py)
+# Только простая однострочная проверка (ответы могут не содержать JSON-RPC "result" при nil;
+# для полноценной проверки используйте examples/acp/acp_e2e_todo.py)
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | foxxycode acp
 ```
 
-## License
+## Лицензия
 
-This project is licensed under the MIT License, see the [LICENSE](LICENSE) file in the repository root for details.
+Проект распространяется по лицензии MIT. Полный текст находится в файле [LICENSE](LICENSE) в корне репозитория.
