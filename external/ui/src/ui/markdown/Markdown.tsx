@@ -4,6 +4,7 @@ import rehypeHighlight from "rehype-highlight";
 import {
   createContext,
   isValidElement,
+  memo,
   useCallback,
   useContext,
   useMemo,
@@ -155,7 +156,7 @@ function MarkdownPre(props: PreProps) {
   );
 }
 
-export function Markdown(props: { text: string }) {
+function MarkdownBase(props: { text: string }) {
   const components = useMemo(
     () => ({
       code: MarkdownCode,
@@ -215,3 +216,7 @@ export function Markdown(props: { text: string }) {
     </div>
   );
 }
+
+// Memoized: markdown parsing + syntax highlighting is expensive, so skip re-parsing
+// when `text` is unchanged (e.g. every keystroke in the composer re-renders the app).
+export const Markdown = memo(MarkdownBase);

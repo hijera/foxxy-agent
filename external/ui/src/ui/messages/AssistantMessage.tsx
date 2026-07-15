@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
 import {
@@ -6,7 +7,7 @@ import {
 } from "./formatMessageTime";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 
-export function AssistantMessage(props: {
+function AssistantMessageBase(props: {
   content: string;
   streaming?: boolean;
   createdAtUtc?: string;
@@ -49,3 +50,7 @@ export function AssistantMessage(props: {
     </div>
   );
 }
+
+// Memoized so composer keystrokes (which re-render the whole app) do not re-parse
+// this message's markdown; props are primitives, so a shallow compare bails cleanly.
+export const AssistantMessage = memo(AssistantMessageBase);
