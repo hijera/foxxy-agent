@@ -85,17 +85,23 @@ jobs:
       - name: Get latest SemVer tag and bump patch
         id: version
         if: (github.event_name != 'workflow_dispatch' || github.event.inputs.release_tag == '') && steps.check.outputs.skip != 'true'
+        env:
+          # First release when origin has no SemVer tags yet. Subsequent
+          # releases bump the patch of the highest existing tag.
+          INITIAL_VERSION: "0.2.0"
         run: |
           set -euo pipefail
           LATEST="$({ git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
           if [ -z "$LATEST" ]; then
-            LATEST="0.1.0"
+            NEW_VERSION="$INITIAL_VERSION"
+            echo "No existing SemVer tags on origin; starting at ${NEW_VERSION}"
+          else
+            NEW_VERSION="$(echo "$LATEST" | awk -F. '{$3=$3+1; OFS="."; print $1,$2,$3}')"
+            echo "Bumping ${LATEST} -> ${NEW_VERSION}"
           fi
-          NEW_VERSION="$(echo "$LATEST" | awk -F. '{$3=$3+1; OFS="."; print $1,$2,$3}')"
-          echo "previous=${LATEST}" >> "$GITHUB_OUTPUT"
+          echo "previous=${LATEST:-none}" >> "$GITHUB_OUTPUT"
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Bumping ${LATEST} -> ${NEW_VERSION}"
 
       - name: Create and push tag
         if: (github.event_name != 'workflow_dispatch' || github.event.inputs.release_tag == '') && steps.check.outputs.skip != 'true'
