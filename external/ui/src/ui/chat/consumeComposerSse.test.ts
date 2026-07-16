@@ -63,3 +63,25 @@ describe("consumeComposerSseReader endedWithoutDone", () => {
     expect(res.streamErrorMessage).toBeTruthy();
   });
 });
+
+describe("consumeComposerSseReader event ordering", () => {
+  it("flushes a queued tool row before publishing its permission prompt", async () => {
+    const toolEvent =
+      'event: tool_call\ndata: {"toolCallId":"call_1","title":"read","status":"pending"}\n\n';
+    const permissionEvent =
+      'event: permission\ndata: {"sessionId":"sess_1","toolCall":{"toolCallId":"call_1"}}\n\n';
+    const p = baseParams(
+      readerFromChunks([toolEvent + permissionEvent + "data: [DONE]\n\n"]),
+    );
+    let orderAtPermission: string[] = [];
+
+    await consumeComposerSseReader({
+      ...p,
+      onPermission: () => {
+        orderAtPermission = p.getItems().map((item) => item.type);
+      },
+    });
+
+    expect(orderAtPermission).toEqual(["tool_call"]);
+  });
+});

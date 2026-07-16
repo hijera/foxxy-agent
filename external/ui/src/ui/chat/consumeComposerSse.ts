@@ -502,6 +502,11 @@ export async function consumeComposerSseReader(
 
           if (ev.event === "permission") {
             try {
+              // tool_call rows are batched to the next animation frame. A
+              // permission event for that tool can arrive in the same SSE
+              // chunk, so publish the queued tool first and give the prompt a
+              // real transcript anchor.
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onPermission?.(raw);
             } catch {
@@ -512,6 +517,7 @@ export async function consumeComposerSseReader(
 
           if (ev.event === "question") {
             try {
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onQuestion?.(raw);
             } catch {
@@ -714,6 +720,7 @@ export async function consumeComposerSseReader(
           }
           if (ev.event === "permission") {
             try {
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onPermission?.(raw);
             } catch {
@@ -723,6 +730,7 @@ export async function consumeComposerSseReader(
           }
           if (ev.event === "question") {
             try {
+              flushToolQueue();
               const raw = JSON.parse(ev.data) as Record<string, unknown>;
               onQuestion?.(raw);
             } catch {

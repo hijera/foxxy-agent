@@ -25,12 +25,16 @@ import {
 import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
 import {
   preserveTranscriptItemIds,
-  stableAssistantItemId,
   stablePermissionPromptItemId,
   stableThinkingItemId,
   stableToolCallItemId,
   stableUserItemId,
 } from "./chat/transcriptItemIds";
+import {
+  appendDeferredAssistant,
+  deferredAssistantItem,
+  emptyDeferredAssistant,
+} from "./chat/transcriptDeferredAssistant";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
@@ -38,6 +42,7 @@ import {
   preserveUserMessageFiles,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { shouldApplyTranscriptSnapshot } from "./chat/transcriptSnapshotGuard";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
@@ -768,6 +773,12 @@ export function App() {
   const userStoppedSidRef = useRef<Set<string>>(new Set());
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  /**
+   * Invalidates asynchronous transcript snapshots when a newer POST or relay
+   * owns the session. This keeps late GET /messages responses from replacing
+   * the live stream's ordering and assistant identity.
+   */
+  const transcriptEpochBySidRef = useRef<Map<string, number>>(new Map());
   /** Latest scheduleLiveStreamReconnect (assigned each render, declared later). */
   const scheduleLiveStreamReconnectRef = useRef<
     (sid: string, delayMs?: number) => void
@@ -793,6 +804,18 @@ export function App() {
     if (!k) return;
     if (!activeComposerSidRef.current.delete(k)) return;
     bumpComposerActivity();
+  }
+
+  function currentTranscriptEpoch(sid: string): number {
+    return transcriptEpochBySidRef.current.get(sid.trim()) ?? 0;
+  }
+
+  function bumpTranscriptEpoch(sid: string): number {
+    const key = sid.trim();
+    if (!key) return 0;
+    const next = currentTranscriptEpoch(key) + 1;
+    transcriptEpochBySidRef.current.set(key, next);
+    return next;
   }
 
   function applyStreamItemsForSession(
@@ -1302,19 +1325,19 @@ export function App() {
     try {
       if (pending.path) {
         await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
-          method: "POST",
-          headers: base,
-          body: JSON.stringify({ path: pending.path }),
+            method: "POST",
+            headers: base,
+            body: JSON.stringify({ path: pending.path }),
         });
       }
       if (pending.branch) {
         await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
-          method: "POST",
-          headers: base,
-          body: JSON.stringify({
-            branch: pending.branch,
-            worktree: Boolean(pending.worktree),
-          }),
+            method: "POST",
+            headers: base,
+            body: JSON.stringify({
+              branch: pending.branch,
+              worktree: Boolean(pending.worktree),
+            }),
         });
       }
     } catch {
@@ -1930,6 +1953,8 @@ export function App() {
       skipSetItems?: boolean;
       preserveOnError?: boolean;
       freshLoad?: boolean;
+      expectedEpoch?: number;
+      allowApplyWhileActive?: boolean;
     },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
@@ -1937,6 +1962,19 @@ export function App() {
       setItems([]);
       return null;
     }
+    const requestEpoch =
+      opts?.expectedEpoch !== undefined
+        ? opts.expectedEpoch
+        : currentTranscriptEpoch(sid);
+    const canApplySnapshot = () =>
+      shouldApplyTranscriptSnapshot({
+        requestEpoch,
+        currentEpoch: currentTranscriptEpoch(sid),
+        activeComposer: activeComposerSidRef.current.has(sid),
+        ...(opts?.allowApplyWhileActive !== undefined
+          ? { allowWhileActive: opts.allowApplyWhileActive }
+          : {}),
+      });
     const viewingTrim = viewedSessionIdRef.current.trim();
     const res = await fetchJSON<{
       messages: Array<any>;
@@ -1956,13 +1994,13 @@ export function App() {
     });
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
-        if (viewingTrim === sid) {
+        if (viewingTrim === sid && canApplySnapshot()) {
           setItems([]);
         }
       }
       return null;
     }
-    if (viewingTrim === sid) {
+    if (viewingTrim === sid && canApplySnapshot()) {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
@@ -2026,7 +2064,12 @@ export function App() {
     const toolIdx = new Map<string, number>();
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
-    let assistantInTurn = 0;
+    let pendingAssistant = emptyDeferredAssistant();
+    const flushAssistantForTurn = () => {
+      const row = deferredAssistantItem(pendingAssistant, userTurnIdx);
+      if (row) next.push(row);
+      pendingAssistant = emptyDeferredAssistant();
+    };
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
       if (role === "user") {
@@ -2034,11 +2077,11 @@ export function App() {
         // error notices land at the end of the turn they belong to, not at
         // the top of the next one.
         if (userTurnIdx > 0) {
+          flushAssistantForTurn();
           pushUiNoticesForTurn(userTurnIdx);
         }
         userTurnIdx++;
         thinkingInTurn = 0;
-        assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
         const parsedAssets = parseSessionAssetFiles(rawContent);
@@ -2112,12 +2155,11 @@ export function App() {
         const content = m.content || "";
         if (content) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
-          next.push({
-            id: stableAssistantItemId(userTurnIdx, assistantInTurn++),
-            type: "assistant_message",
+          pendingAssistant = appendDeferredAssistant(
+            pendingAssistant,
             content,
-            ...(acat ? { createdAtUtc: acat } : {}),
-          });
+            acat,
+          );
         }
         const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
         for (const tc of tcs) {
@@ -2164,7 +2206,8 @@ export function App() {
         };
       }
     }
-    // Flush notices for the last turn (no subsequent user message to trigger it).
+    // Flush the final assistant row and notices (no later user message triggers it).
+    flushAssistantForTurn();
     pushUiNoticesForTurn(userTurnIdx);
 
     // Enrich tool calls with persisted previews when available.
@@ -2248,17 +2291,21 @@ export function App() {
     const hasPendingPermission = applied.some(
       (x) => x.type === "permission_prompt" && !x.resolved,
     );
-    setPermissionPendingSids((prev) => {
-      const next = new Set(prev);
-      if (hasPendingPermission) {
-        next.add(sid);
-      } else {
-        next.delete(sid);
-      }
-      return next;
-    });
+    if (canApplySnapshot()) {
+      setPermissionPendingSids((prev) => {
+        const next = new Set(prev);
+        if (hasPendingPermission) {
+          next.add(sid);
+        } else {
+          next.delete(sid);
+        }
+        return next;
+      });
+    }
     if (opts?.skipSetItems) {
-      streamShadowBySidRef.current.set(sid, applied);
+      if (canApplySnapshot()) {
+        streamShadowBySidRef.current.set(sid, applied);
+      }
       return applied;
     }
 
@@ -2276,7 +2323,7 @@ export function App() {
             brRes.data.branchPoints,
           ),
         );
-        if (sid === viewedSessionIdRef.current.trim()) {
+        if (canApplySnapshot() && sid === viewedSessionIdRef.current.trim()) {
           setSessionHashInLocation(sid, { historySidebar: sessionsOpen });
         }
       }
@@ -2284,6 +2331,9 @@ export function App() {
       // ignore — branch nav is optional
     }
 
+    if (!canApplySnapshot()) {
+      return withBranches;
+    }
     streamShadowBySidRef.current.set(sid, withBranches);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
@@ -2809,6 +2859,7 @@ export function App() {
     const key = sid.trim();
     if (!key) return;
 
+    bumpTranscriptEpoch(key);
     relayAbortBySidRef.current.get(key)?.abort();
     const fetchCtl = new AbortController();
     relayAbortBySidRef.current.set(key, fetchCtl);
@@ -2837,6 +2888,7 @@ export function App() {
       }
     };
 
+    let reconcileOnExit = true;
     try {
       const res = await fetch(
         `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
@@ -2943,6 +2995,7 @@ export function App() {
         // another re-attach and leave the transcript as-is for now.
         flushToolQueue();
         finishThinking();
+        reconcileOnExit = false;
         scheduleLiveStreamReconnect(key);
         return;
       }
@@ -2962,9 +3015,13 @@ export function App() {
         ok = await syncAssistantFromServer();
       }
       const viewing = viewedSessionIdRef.current.trim();
+      const reconcileEpoch = bumpTranscriptEpoch(key);
       await loadMessages(key, {
         skipSetItems: viewing !== key,
+        expectedEpoch: reconcileEpoch,
+        allowApplyWhileActive: true,
       });
+      reconcileOnExit = false;
     } catch {
       // AbortError when relay superseded or fetch aborted
     } finally {
@@ -2974,8 +3031,10 @@ export function App() {
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
       void loadSessionsList(true);
-      const viewing = viewedSessionIdRef.current.trim();
-      void loadMessages(key, { skipSetItems: viewing !== key });
+      if (reconcileOnExit) {
+        const viewing = viewedSessionIdRef.current.trim();
+        void loadMessages(key, { skipSetItems: viewing !== key });
+      }
       void refreshSessionStats(key);
       markViewedSessionActivityRead(key);
     }
@@ -3018,6 +3077,10 @@ export function App() {
       // Fresh send supersedes any prior user-stop / reconnect budget for this session.
       userStoppedSidRef.current.delete(postSessionKey);
       liveReconnectAttemptsRef.current.delete(postSessionKey);
+      bumpTranscriptEpoch(postSessionKey);
+      // Own the transcript before any asynchronous attachment preparation so
+      // a concurrent GET /messages cannot erase the optimistic user row.
+      addActiveComposer(postSessionKey);
       postAbortBySidRef.current.set(postSessionKey, abortCtl);
       relayAbortBySidRef.current.get(postSessionKey)?.abort();
       relayAbortBySidRef.current.delete(postSessionKey);
@@ -3129,8 +3192,6 @@ export function App() {
         if (runSlug) meta.runPlanSlug = runSlug;
         reqBody.metadata = meta;
       }
-      // Mark this session busy before awaiting fetch so hung POST still blocks same-session resend.
-      addActiveComposer(postSessionKey);
       const res = await fetch("/v1/responses", {
         method: "POST",
         headers: { ...hdrs, "Content-Type": "application/json" },
@@ -3174,6 +3235,7 @@ export function App() {
         sidEffective = sidHdr;
         postSessionKey = sidHdr.trim();
         streamKey = postSessionKey;
+        bumpTranscriptEpoch(postSessionKey);
         postAbortBySidRef.current.delete(oldKey);
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
         relayAbortBySidRef.current.get(oldKey)?.abort();
@@ -3362,9 +3424,12 @@ export function App() {
         }
       }
       const viewingEnd = viewedSessionIdRef.current.trim();
+      const reconcileEpoch = bumpTranscriptEpoch(sidEffective);
       await loadMessages(sidEffective, {
         skipSetItems: viewingEnd !== postSessionKey,
         preserveOnError: true,
+        expectedEpoch: reconcileEpoch,
+        allowApplyWhileActive: true,
       });
       void refreshSessionStats(sidEffective);
       markViewedSessionActivityRead(sidEffective);
