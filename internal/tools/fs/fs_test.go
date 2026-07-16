@@ -9,7 +9,212 @@ import (
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/internal/tooling"
+	"golang.org/x/text/encoding/charmap"
 )
+
+func windows1251Bytes(t *testing.T, value string) []byte {
+	t.Helper()
+	encoded, err := charmap.Windows1251.NewEncoder().Bytes([]byte(value))
+	if err != nil {
+		t.Fatalf("encode Windows-1251 fixture: %v", err)
+	}
+	return encoded
+}
+
+func TestReadDecodesWindows1251(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "legacy.txt")
+	if err := os.WriteFile(path, windows1251Bytes(t, "Привет, мир!\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := executeRead(context.Background(), `{"path":"legacy.txt"}`, &tooling.Env{CWD: root})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if out != "Привет, мир!\n" {
+		t.Fatalf("read returned %q", out)
+	}
+}
+
+func TestReadOffsetBeyondEndReturnsError(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "short.txt")
+	if err := os.WriteFile(path, []byte("first\nsecond\nthird"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := executeRead(context.Background(), `{"path":"short.txt","offset":1200,"limit":200}`, &tooling.Env{CWD: root})
+	if err == nil {
+		t.Fatal("expected an out-of-range offset error")
+	}
+	if !strings.Contains(err.Error(), "offset 1200 is beyond end of file (3 lines)") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSliceLinesBoundaryCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		start   int
+		end     int
+		want    string
+		wantErr string
+	}{
+		{
+			name:    "offset zero is normalized to the first line",
+			content: "first\nsecond\nthird",
+			start:   0,
+			end:     1,
+			want:    "first",
+		},
+		{
+			name:    "offset at the final line is valid",
+			content: "first\nsecond\nthird",
+			start:   3,
+			end:     3,
+			want:    "third",
+		},
+		{
+			name:    "limit extending beyond EOF is clipped",
+			content: "first\nsecond\nthird",
+			start:   2,
+			end:     200,
+			want:    "second\nthird",
+		},
+		{
+			name:    "trailing newline is preserved without creating a phantom line",
+			content: "first\nsecond\nthird\n",
+			start:   3,
+			end:     200,
+			want:    "third\n",
+		},
+		{
+			name:    "offset after a trailing newline reports the real line count",
+			content: "first\nsecond\nthird\n",
+			start:   4,
+			end:     200,
+			wantErr: "offset 4 is beyond end of file (3 lines)",
+		},
+		{
+			name:    "offset into an empty file reports zero lines",
+			content: "",
+			start:   1,
+			end:     1,
+			wantErr: "offset 1 is beyond end of file (0 lines)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := sliceLines(tt.content, tt.start, tt.end)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("sliceLines: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("result = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEditPreservesWindows1251(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "legacy.txt")
+	if err := os.WriteFile(path, windows1251Bytes(t, "старый текст\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := executeEdit(context.Background(), `{"path":"legacy.txt","oldString":"старый","newString":"новый"}`, &tooling.Env{CWD: root})
+	if err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := windows1251Bytes(t, "новый текст\n")
+	if string(got) != string(want) {
+		t.Fatalf("bytes = %v, want Windows-1251 %v", got, want)
+	}
+}
+
+func TestWritePreservesExistingWindows1251(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "legacy.txt")
+	if err := os.WriteFile(path, windows1251Bytes(t, "исходный\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := executeWrite(context.Background(), `{"path":"legacy.txt","content":"перезаписан\n"}`, &tooling.Env{CWD: root})
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := windows1251Bytes(t, "перезаписан\n")
+	if string(got) != string(want) {
+		t.Fatalf("bytes = %v, want Windows-1251 %v", got, want)
+	}
+}
+
+func TestApplyPatchPreservesWindows1251(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "legacy.txt")
+	if err := os.WriteFile(path, windows1251Bytes(t, "первая\nвторая\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	args, err := json.Marshal(map[string]string{
+		"path":  "legacy.txt",
+		"patch": "@@ -2,1 +2,1 @@\n-вторая\n+новая\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executeApplyPatch(context.Background(), string(args), &tooling.Env{CWD: root})
+	if err != nil {
+		t.Fatalf("apply_patch: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := windows1251Bytes(t, "первая\nновая")
+	if string(got) != string(want) {
+		t.Fatalf("bytes = %v, want Windows-1251 %v", got, want)
+	}
+}
+
+func TestEditPreviewPreservesWindows1251(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "legacy.txt")
+	before := windows1251Bytes(t, "до")
+	if err := os.WriteFile(path, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, gotBefore, after, ok, err := EditPreview("edit", `{"path":"legacy.txt","oldString":"до","newString":"после"}`, root)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if !ok || string(gotBefore) != string(before) {
+		t.Fatalf("preview before mismatch: ok=%v bytes=%v", ok, gotBefore)
+	}
+	wantAfter := windows1251Bytes(t, "после")
+	if string(after) != string(wantAfter) {
+		t.Fatalf("after = %v, want Windows-1251 %v", after, wantAfter)
+	}
+}
 
 // --- patch.go: unified diff / v4a patch ------------------------------------
 

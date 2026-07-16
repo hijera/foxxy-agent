@@ -69,7 +69,10 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 		return "", fmt.Errorf("edit: read: %w", err)
 	}
 
-	content := string(data)
+	content, encoding, err := decodeText(data)
+	if err != nil {
+		return "", fmt.Errorf("edit: decode: %w", err)
+	}
 
 	out, err := applyEditToContent(content, args)
 	if err != nil {
@@ -79,13 +82,17 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("edit mkdir: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+	encoded, err := encodeText(out, encoding)
+	if err != nil {
+		return "", fmt.Errorf("edit: %w", err)
+	}
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
 		return "", fmt.Errorf("edit: write: %w", err)
 	}
 
-	notifyFileEdit(env, "edit", path, data, []byte(out))
+	notifyFileEdit(env, "edit", path, data, encoded)
 
-	return fmt.Sprintf("edited %s (%d bytes written)", path, len(out)), nil
+	return fmt.Sprintf("edited %s (%d bytes written)", path, len(encoded)), nil
 }
 
 // applyEditToContent computes the result of an edit against content without touching disk.

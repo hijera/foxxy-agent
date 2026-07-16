@@ -37,7 +37,15 @@ func EditPreview(toolName, argsJSON, cwd string) (absPath string, before, after 
 		}
 		absPath = ResolvePath(args.Path, cwd)
 		before, _ = os.ReadFile(absPath)
-		return absPath, before, []byte(args.Content), true, nil
+		encoding := textEncodingUTF8
+		if before != nil {
+			encoding, err = existingTextEncoding(before)
+			if err != nil {
+				return "", nil, nil, false, err
+			}
+		}
+		after, err = encodeText(args.Content, encoding)
+		return absPath, before, after, true, err
 
 	case "edit":
 		args, perr := tooling.ParseArgs[editArgs](argsJSON)
@@ -49,11 +57,16 @@ func EditPreview(toolName, argsJSON, cwd string) (absPath string, before, after 
 		if rerr != nil {
 			return "", nil, nil, false, rerr
 		}
-		out, terr := applyEditToContent(string(data), args)
+		content, encoding, derr := decodeText(data)
+		if derr != nil {
+			return "", nil, nil, false, derr
+		}
+		out, terr := applyEditToContent(content, args)
 		if terr != nil {
 			return "", nil, nil, false, terr
 		}
-		return absPath, data, []byte(out), true, nil
+		after, terr = encodeText(out, encoding)
+		return absPath, data, after, true, terr
 
 	case "apply_patch":
 		args, perr := tooling.ParseArgs[applyPatchArgs](argsJSON)
@@ -69,11 +82,16 @@ func EditPreview(toolName, argsJSON, cwd string) (absPath string, before, after 
 		if patchBody == "" {
 			patchBody = strings.TrimSpace(args.Diff)
 		}
-		out, aerr := applyPatch(string(data), patchBody)
+		content, encoding, derr := decodeText(data)
+		if derr != nil {
+			return "", nil, nil, false, derr
+		}
+		out, aerr := applyPatch(content, patchBody)
 		if aerr != nil {
 			return "", nil, nil, false, aerr
 		}
-		return absPath, data, []byte(out), true, nil
+		after, aerr = encodeText(out, encoding)
+		return absPath, data, after, true, aerr
 
 	default:
 		return "", nil, nil, false, nil

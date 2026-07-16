@@ -62,16 +62,24 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 		return "", fmt.Errorf("apply_patch read: %w", err)
 	}
 
-	patched, err := applyPatch(string(data), patchBody)
+	content, encoding, err := decodeText(data)
+	if err != nil {
+		return "", fmt.Errorf("apply_patch decode: %w", err)
+	}
+	patched, err := applyPatch(content, patchBody)
 	if err != nil {
 		return "", fmt.Errorf("apply_patch: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(patched), 0o644); err != nil {
+	encoded, err := encodeText(patched, encoding)
+	if err != nil {
+		return "", fmt.Errorf("apply_patch: %w", err)
+	}
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
 		return "", fmt.Errorf("apply_patch write: %w", err)
 	}
 
-	notifyFileEdit(env, "apply_patch", path, data, []byte(patched))
+	notifyFileEdit(env, "apply_patch", path, data, encoded)
 
 	return fmt.Sprintf("patch applied successfully to %s", path), nil
 }

@@ -49,21 +49,31 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 
 	path := ResolvePath(args.Path, env.CWD)
 
-	// Capture prior content for the edit hook (best-effort; nil when the file is new).
-	var before []byte
-	if env != nil && env.OnFileEdit != nil {
-		before, _ = os.ReadFile(path)
+	// Existing text files retain their encoding; newly created files use UTF-8.
+	encoding := textEncodingUTF8
+	before, readErr := os.ReadFile(path)
+	if readErr == nil {
+		encoding, err = existingTextEncoding(before)
+		if err != nil {
+			return "", fmt.Errorf("write: detect encoding: %w", err)
+		}
+	} else if !os.IsNotExist(readErr) {
+		return "", fmt.Errorf("write: read existing file: %w", readErr)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("write mkdir: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(args.Content), 0o644); err != nil {
+	encoded, err := encodeText(args.Content, encoding)
+	if err != nil {
+		return "", fmt.Errorf("write: %w", err)
+	}
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
 		return "", fmt.Errorf("write: %w", err)
 	}
 
-	notifyFileEdit(env, "write", path, before, []byte(args.Content))
+	notifyFileEdit(env, "write", path, before, encoded)
 
-	return fmt.Sprintf("wrote %d bytes to %s", len(args.Content), path), nil
+	return fmt.Sprintf("wrote %d bytes to %s", len(encoded), path), nil
 }
