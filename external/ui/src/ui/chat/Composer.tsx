@@ -247,6 +247,8 @@ export function Composer(props: {
   const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** True while an enhance-prompt request is in flight (spins the wand, disables re-entry). */
   const [enhancing, setEnhancing] = useState(false);
+  /** Last enhance failure, shown above the composer bar. Cleared on retry or manual edit. */
+  const [enhanceErr, setEnhanceErr] = useState<string | null>(null);
   /** Draft text captured right before an enhance so Ctrl+Z can restore it. Cleared on manual edits. */
   const preEnhanceRef = useRef<string | null>(null);
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
@@ -598,10 +600,13 @@ export function Composer(props: {
     }
     preEnhanceRef.current = props.value;
     setEnhancing(true);
+    setEnhanceErr(null);
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
+      // The session id decides which model rewrites the draft: the backend uses
+      // the model this session has selected, not just the configured default.
       const sid = (props.sessionId || "").trim();
       if (sid) {
         headers["X-FoxxyCode-Session-ID"] = sid;
@@ -612,7 +617,16 @@ export function Composer(props: {
         body: JSON.stringify({ text: draft }),
       });
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        // The draft is left untouched either way, but a silent no-op reads the
+        // same as "nothing configured" — say which one it is. 503 is the
+        // backend telling us it has no usable model.
+        setEnhanceErr(
+          res.status === 503
+            ? t("composer.enhanceNoModel")
+            : t("composer.enhanceFailed"),
+        );
+        preEnhanceRef.current = null;
+        return;
       }
       const body = (await res.json()) as { text?: string };
       const next = (body.text || "").trim();
@@ -622,8 +636,8 @@ export function Composer(props: {
         preEnhanceRef.current = null;
       }
     } catch {
-      // Enhance is best-effort: leave the draft untouched and drop the undo snapshot.
       preEnhanceRef.current = null;
+      setEnhanceErr(t("composer.enhanceFailed"));
     } finally {
       setEnhancing(false);
       requestAnimationFrame(() => taRef.current?.focus());
@@ -1594,6 +1608,7 @@ export function Composer(props: {
                   setCaretPos(caret);
                   // Any manual edit invalidates the enhance-undo snapshot.
                   preEnhanceRef.current = null;
+                  setEnhanceErr(null);
                   props.onChange(v);
                   updatePickerMenus(v, caret);
                 }}
@@ -1727,6 +1742,16 @@ export function Composer(props: {
             </div>
           </div>
 
+
+          {enhanceErr ? (
+            <div
+              className="composer-enhance-err"
+              role="status"
+              data-testid="composer-enhance-err"
+            >
+              {enhanceErr}
+            </div>
+          ) : null}
 
           <div className="composer-bar">
             <div className="composer-tabs" aria-label={t("composer.composerOptions")}>

@@ -25,6 +25,8 @@ export const messagesRu: Record<string, string> = {
   "composer.removeAttachment": "Удалить {fileName}",
   "composer.attachFile": "Прикрепить файл",
   "composer.enhance": "Улучшить промпт",
+  "composer.enhanceFailed": "Не удалось улучшить промпт. Черновик не изменён.",
+  "composer.enhanceNoModel": "Не удалось улучшить промпт: модель не настроена.",
   "composer.mode": "Режим",
   "composer.modeAgent": "Агент",
   "composer.modePlan": "План",

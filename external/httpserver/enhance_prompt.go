@@ -4,11 +4,13 @@ package httpserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // enhancePromptInstruction mirrors the legacy single-completion prompt-rewrite
@@ -37,6 +39,39 @@ func cleanEnhancedPrompt(text string) string {
 	return stripped
 }
 
+// enhanceProvider resolves the LLM for a prompt-enhance request: the model the
+// caller's session currently has selected (X-FoxxyCode-Session-ID), so a rewrite
+// goes to the same model as the chat, falling back to agent.model and then to the
+// first configured model, mirroring session.State.EffectiveModelID.
+//
+// It deliberately avoids providerFactory, which caps max_tokens at 96 for
+// describe-style titles and would truncate a rewrite mid-sentence.
+func (s *Server) enhanceProvider(r *http.Request) (llm.Provider, error) {
+	cfg := s.activeCfg()
+	if cfg == nil {
+		return nil, fmt.Errorf("config unavailable")
+	}
+	modelID := ""
+	// An unusable session id is not fatal here: fall back rather than reject.
+	if sid := strings.TrimSpace(r.Header.Get("X-FoxxyCode-Session-ID")); sid != "" && s.mgr != nil {
+		if err := session.ValidateFolderSessionID(sid); err == nil {
+			if st := s.mgr.SessionByID(sid); st != nil {
+				modelID = effectiveYAMLModel(cfg, st)
+			}
+		}
+	}
+	if modelID == "" {
+		modelID = strings.TrimSpace(cfg.Agent.Model)
+	}
+	if modelID == "" && len(cfg.Models) > 0 {
+		modelID = cfg.Models[0].Model
+	}
+	if modelID == "" {
+		return nil, fmt.Errorf("no model configured")
+	}
+	return s.makeLLMFromYAML(cfg, modelID)
+}
+
 func (s *Server) foxxycodeEnhancePromptPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.NotFound(w, r)
@@ -57,7 +92,7 @@ func (s *Server) foxxycodeEnhancePromptPost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	provider, err := s.providerFactory(s.activeCfg())
+	provider, err := s.enhanceProvider(r)
 	if err != nil {
 		s.log.Error("enhance provider", "error", err)
 		http.Error(w, `{"error":{"message":"LLM unavailable"}}`, http.StatusServiceUnavailable)

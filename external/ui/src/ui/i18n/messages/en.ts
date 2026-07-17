@@ -24,6 +24,8 @@ export const messagesEn: Record<string, string> = {
   "composer.removeAttachment": "Remove {fileName}",
   "composer.attachFile": "Attach file",
   "composer.enhance": "Enhance prompt",
+  "composer.enhanceFailed": "Couldn't enhance the prompt. Your draft is unchanged.",
+  "composer.enhanceNoModel": "Couldn't enhance the prompt: no model is configured.",
   "composer.mode": "Mode",
   "composer.modeAgent": "Agent",
   "composer.modePlan": "Plan",

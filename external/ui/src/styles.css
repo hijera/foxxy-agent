@@ -4208,6 +4208,15 @@ textarea#composer {
   animation: session-spin 0.8s linear infinite;
 }
 
+/* Enhance failure notice: full-width row above the composer bar, so it never
+   competes with the bar controls for space. Same red as .slash-err. */
+.composer-enhance-err {
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 12px 0;
+  color: rgba(251, 113, 133, 0.95);
+}
+
 .composer-attachments {
   display: flex;
   flex-wrap: wrap;

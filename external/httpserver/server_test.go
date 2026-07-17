@@ -379,9 +379,161 @@ func TestFoxxyCodeDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
 	}
 }
 
-func TestFoxxyCodeEnhancePromptRewrites(t *testing.T) {
-	_, srv, _ := testHTTPServerPersist(t)
+// enhanceAltModel is a second configured model used to tell a session override
+// apart from agent.model in enhance-prompt tests.
+const enhanceAltModel = "openai/gpt-4o-mini"
+
+// enhanceTestServer builds a persist-backed server with two configured models.
+// providerFactory is trapped: enhance must not use it, because that factory caps
+// max_tokens at 96 for describe-style titles and would truncate a rewrite.
+func enhanceTestServer(t *testing.T) (*session.Manager, *Server, *config.Config) {
+	t.Helper()
+	mgr, srv, _ := testHTTPServerPersist(t)
+	cfg := srv.activeCfg()
+	cfg.Models = append(cfg.Models, config.ModelEntry{Model: enhanceAltModel, MaxTokens: 4096, Temperature: 0.2})
 	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
+		t.Error("enhance must not use providerFactory (96-token describe cap)")
+		return nil, fmt.Errorf("providerFactory must not be used by enhance")
+	}
+	return mgr, srv, cfg
+}
+
+// enhancePost posts a draft, optionally carrying a session id header.
+func enhancePost(t *testing.T, url, sid, body string) (*http.Response, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, url+"/foxxycode/enhance-prompt", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if sid != "" {
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res, b
+}
+
+func TestFoxxyCodeEnhancePromptUsesSessionModel(t *testing.T) {
+	mgr, srv, cfg := enhanceTestServer(t)
+	var gotSel string
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+		gotSel = sel
+		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
+	}
+	sn, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(sn.SessionID)
+	if st == nil {
+		t.Fatal("session not found")
+	}
+	if err := applySessionYAMLModel(cfg, st, enhanceAltModel); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, b := enhancePost(t, ts.URL, sn.SessionID, `{"text":"fix memory thing"}`)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	if gotSel != enhanceAltModel {
+		t.Fatalf("enhance model: want session override %q got %q", enhanceAltModel, gotSel)
+	}
+}
+
+func TestFoxxyCodeEnhancePromptFallsBackToAgentModel(t *testing.T) {
+	_, srv, cfg := enhanceTestServer(t)
+	var gotSel string
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+		gotSel = sel
+		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, b := enhancePost(t, ts.URL, "", `{"text":"fix memory thing"}`)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	if gotSel != cfg.Agent.Model {
+		t.Fatalf("enhance model: want agent.model %q got %q", cfg.Agent.Model, gotSel)
+	}
+}
+
+// A session with no explicit pick must not error out when agent.model is empty:
+// the chat falls back to the first configured model, so enhance must too.
+func TestFoxxyCodeEnhancePromptFallsBackToFirstModelWhenAgentModelEmpty(t *testing.T) {
+	_, srv, cfg := enhanceTestServer(t)
+	cfg.Agent.Model = ""
+	var gotSel string
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+		gotSel = sel
+		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, b := enhancePost(t, ts.URL, "", `{"text":"fix memory thing"}`)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, string(b))
+	}
+	if gotSel != cfg.Models[0].Model {
+		t.Fatalf("enhance model: want first model %q got %q", cfg.Models[0].Model, gotSel)
+	}
+}
+
+func TestFoxxyCodeEnhancePromptNoModelConfigured(t *testing.T) {
+	_, srv, cfg := enhanceTestServer(t)
+	cfg.Agent.Model = ""
+	cfg.Models = nil
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+		t.Error("makeLLMFromYAML must not be called without a configured model")
+		return nil, fmt.Errorf("no model")
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, _ := enhancePost(t, ts.URL, "", `{"text":"fix memory thing"}`)
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 got %d", res.StatusCode)
+	}
+}
+
+// An unusable session id is not an error: enhance quietly falls back to agent.model.
+func TestFoxxyCodeEnhancePromptUnknownSessionFallsBack(t *testing.T) {
+	_, srv, cfg := enhanceTestServer(t)
+	var gotSel string
+	srv.makeLLMFromYAML = func(_ *config.Config, sel string) (llm.Provider, error) {
+		gotSel = sel
+		return fakeProvider{reply: "Refactor the memory endpoint and add tests."}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	for _, sid := range []string{"no-such-session", "../etc/passwd"} {
+		gotSel = ""
+		res, b := enhancePost(t, ts.URL, sid, `{"text":"fix memory thing"}`)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("sid %q: status %d body %s", sid, res.StatusCode, string(b))
+		}
+		if gotSel != cfg.Agent.Model {
+			t.Fatalf("sid %q: want agent.model %q got %q", sid, cfg.Agent.Model, gotSel)
+		}
+	}
+}
+
+func TestFoxxyCodeEnhancePromptRewrites(t *testing.T) {
+	_, srv, _ := enhanceTestServer(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
 		return fakeProvider{reply: "```\n\"Refactor the memory endpoint and add tests.\"\n```"}, nil
 	}
 	ts := httptest.NewServer(srv.Handler())
