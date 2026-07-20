@@ -196,7 +196,7 @@ func propertiesKeys(t *testing.T, path string) map[string]bool {
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	keys := make(map[string]bool)
 	sc := bufio.NewScanner(f)
@@ -249,14 +249,14 @@ func TestGradleBuildConfig(t *testing.T) {
 	}
 	gradle := string(data)
 
-	// The plugin advertises compatibility from build 223 (2022.3) with no
-	// upper bound; the toolchain is pinned to what 2022.3's JBR supports.
+	// The plugin advertises compatibility from build 222 (2022.2) with no
+	// upper bound; the toolchain is pinned to what 2022.2's JBR supports.
 	for _, want := range []string{
-		`sinceBuild.set("223")`,
+		`sinceBuild.set("222")`,
 		`untilBuild.set("")`,
 		`JavaVersion.VERSION_17`,
 		`jvmTarget = "17"`,
-		`version.set("2022.3")`,
+		`version.set("2022.2.1")`,
 	} {
 		if !strings.Contains(gradle, want) {
 			t.Errorf("build.gradle.kts no longer contains %q", want)
