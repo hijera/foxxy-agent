@@ -10,7 +10,6 @@ import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { contextUsagePercent } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
-import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { consumeComposerSseReader } from "./chat/consumeComposerSse";
@@ -773,6 +772,8 @@ export function App() {
   const userStoppedSidRef = useRef<Set<string>>(new Set());
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  /** Per-session interval ids for the persisted-transcript fallback poller. */
+  const diskFallbackTimerRef = useRef<Map<string, number>>(new Map());
   /**
    * Invalidates asynchronous transcript snapshots when a newer POST or relay
    * owns the session. This keeps late GET /messages responses from replacing
@@ -2674,12 +2675,14 @@ export function App() {
         ) {
           if (shElse && shElse.length > 0) {
             setItems([...shElse]);
-            setSessionLoading(false);
           }
         } else {
           setItems([]);
-          setSessionLoading(false);
         }
+        // Always clear the skeleton once this session is resolved. A live composer
+        // with an empty shadow (first send, before the first token) must not leave
+        // the loading state stuck — the stream fills the transcript as it arrives.
+        setSessionLoading(false);
       }
     })();
     return () => {
@@ -2823,6 +2826,61 @@ export function App() {
     }, delayMs);
   }
 
+  function stopDiskFallbackPoll(rawSid: string): void {
+    const key = rawSid.trim();
+    const h = diskFallbackTimerRef.current.get(key);
+    if (h === undefined) return;
+    window.clearInterval(h);
+    diskFallbackTimerRef.current.delete(key);
+  }
+
+  /**
+   * Last-resort fallback when the live stream cannot be (re)established — e.g. an
+   * embedded browser that keeps killing long-lived fetches. Polls the persisted
+   * transcript so the turn's progress still appears without a manual page reload,
+   * and stops as soon as a live stream attaches or the turn ends.
+   */
+  function startDiskFallbackPoll(rawSid: string): void {
+    const key = rawSid.trim();
+    if (!key || diskFallbackTimerRef.current.has(key)) return;
+    let ticks = 0;
+    const handle = window.setInterval(() => {
+      void (async () => {
+        ticks += 1;
+        // A live stream took over, the user stopped, or the safety cap (~5 min) hit.
+        if (
+          activeComposerSidRef.current.has(key) ||
+          userStoppedSidRef.current.has(key) ||
+          ticks > 150
+        ) {
+          stopDiskFallbackPoll(key);
+          return;
+        }
+        let active = false;
+        try {
+          const act = await fetchJSON<{ turnActive?: boolean }>(
+            `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
+            { headers: { [HDR]: key } },
+          );
+          if (!act.ok) return;
+          active = !!act.data?.turnActive;
+        } catch {
+          return;
+        }
+        if (activeComposerSidRef.current.has(key)) return;
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          preserveOnError: true,
+        });
+        if (!active) {
+          stopDiskFallbackPoll(key);
+          void loadSessionsList(true);
+        }
+      })();
+    }, 2000);
+    diskFallbackTimerRef.current.set(key, handle);
+  }
+
   // Stable handles to the latest closures so once-subscribed listeners and
   // stable useCallbacks always invoke the current render's versions.
   const reconnectLiveStreamRef = useRef<
@@ -2903,6 +2961,7 @@ export function App() {
       const {
         streamErrorMessage,
         endedWithoutDone,
+        finalAssistantId,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -2947,7 +3006,7 @@ export function App() {
           ensureAssistant();
           applyStreamItems((prev) =>
             prev.map((it) =>
-              it.type === "assistant_message" && it.id === assistantId
+              it.type === "assistant_message" && it.id === finalAssistantId
                 ? {
                     ...it,
                     content: last,
@@ -2971,7 +3030,7 @@ export function App() {
             (it) =>
               !(
                 it.type === "assistant_message" &&
-                it.id === assistantId &&
+                it.id === finalAssistantId &&
                 !it.content.trim()
               ),
           );
@@ -3077,6 +3136,7 @@ export function App() {
       // Fresh send supersedes any prior user-stop / reconnect budget for this session.
       userStoppedSidRef.current.delete(postSessionKey);
       liveReconnectAttemptsRef.current.delete(postSessionKey);
+      stopDiskFallbackPoll(postSessionKey);
       bumpTranscriptEpoch(postSessionKey);
       // Own the transcript before any asynchronous attachment preparation so
       // a concurrent GET /messages cannot erase the optimistic user row.
@@ -3286,6 +3346,7 @@ export function App() {
       const {
         streamErrorMessage,
         endedWithoutDone,
+        finalAssistantId,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -3330,7 +3391,7 @@ export function App() {
           ensureAssistant();
           applyStreamItems((prev) =>
             prev.map((it) =>
-              it.type === "assistant_message" && it.id === assistantId
+              it.type === "assistant_message" && it.id === finalAssistantId
                 ? {
                     ...it,
                     content: last,
@@ -3354,7 +3415,7 @@ export function App() {
             (it) =>
               !(
                 it.type === "assistant_message" &&
-                it.id === assistantId &&
+                it.id === finalAssistantId &&
                 !it.content.trim()
               ),
           );
@@ -3375,13 +3436,14 @@ export function App() {
       }
 
       if (endedWithoutDone) {
-        // POST stream was cut before [DONE] (e.g. background throttling). Mark the
-        // turn as handled so the finally-block does not stamp it incomplete, then
-        // schedule a re-attach that resumes rendering if the turn is still running.
+        // Stream cut before [DONE] (e.g. the embedded browser throttled a
+        // backgrounded webview). Deliberately leave completedNormally=false: the
+        // finally block then reconciles the transcript from disk AND schedules the
+        // re-attach. Showing the persisted progress must not depend on the
+        // re-attach succeeding, otherwise a webview that keeps dropping streams
+        // renders nothing at all until the user reloads.
         flushToolQueue();
         finishThinking();
-        completedNormally = true;
-        scheduleLiveStreamReconnect(postSessionKey.trim());
         return;
       }
       liveReconnectAttemptsRef.current.delete(postSessionKey.trim());
@@ -3406,14 +3468,14 @@ export function App() {
         } else {
           mergedForSyncProbe = sh ?? [];
         }
-        if (transcriptHasFilledAssistant(mergedForSyncProbe, assistantId)) {
+        if (transcriptHasFilledAssistant(mergedForSyncProbe, finalAssistantId)) {
           break;
         }
         await new Promise((r) => setTimeout(r, 16));
       }
       const localStreamingAssistantReady = transcriptHasFilledAssistant(
         mergedForSyncProbe,
-        assistantId,
+        finalAssistantId,
       );
       let ok = localStreamingAssistantReady;
       if (!ok) {
@@ -3438,29 +3500,34 @@ export function App() {
       // AbortError stops the stream client-side after optional POST cancel
     } finally {
       postAbortBySidRef.current.delete(postSessionKey);
-      if (!completedNormally && assistantStreamId) {
-        const aid = assistantStreamId;
-        const now = Date.now();
-        const patchIncomplete = (prev: TranscriptItem[]) =>
-          prev.map((it) => {
-            if (it.type === "thinking" && it.status === "in_progress") {
-              const dur = Math.max(0, now - (it.startedAtMs || now));
-              const nextIt = {
-                ...it,
-                status: "completed" as const,
-                durationMs: dur,
-              };
-              const dk = reasoningDurationCacheKey(nextIt.content);
-              if (dk.length > 0)
-                reasoningDurationMsByContentRef.current.set(dk, dur);
-              return nextIt;
-            }
-            if (it.type === "assistant_message" && it.id === aid) {
-              return { ...it, streaming: false };
-            }
-            return it;
-          });
-        if (postSessionKey.trim() !== "") {
+      if (!completedNormally) {
+        // Only patch the transcript when this turn actually produced a bubble; a
+        // stream cut before the first token leaves assistantStreamId empty, and the
+        // disk reconcile below must still run (that is the "always show progress"
+        // fallback when the live stream never delivers).
+        if (assistantStreamId && postSessionKey.trim() !== "") {
+          const now = Date.now();
+          const patchIncomplete = (prev: TranscriptItem[]) =>
+            prev.map((it) => {
+              if (it.type === "thinking" && it.status === "in_progress") {
+                const dur = Math.max(0, now - (it.startedAtMs || now));
+                const nextIt = {
+                  ...it,
+                  status: "completed" as const,
+                  durationMs: dur,
+                };
+                const dk = reasoningDurationCacheKey(nextIt.content);
+                if (dk.length > 0)
+                  reasoningDurationMsByContentRef.current.set(dk, dur);
+                return nextIt;
+              }
+              // A turn can span several bubbles; clear whichever is still live
+              // rather than only the id this turn started with.
+              if (it.type === "assistant_message" && it.streaming === true) {
+                return { ...it, streaming: false };
+              }
+              return it;
+            });
           applyStreamItemsForSession(postSessionKey, patchIncomplete);
         }
         const viewingFin = viewedSessionIdRef.current.trim();
@@ -3470,9 +3537,11 @@ export function App() {
         });
         void loadSessionsList(true);
         markViewedSessionActivityRead(postSessionKey.trim());
-        // The fetch threw before a clean end (e.g. background network abort). If the
-        // turn is still running server-side and this was not a user stop, re-attach.
+        // The turn may still be running server-side (stream cut, not a user stop):
+        // re-attach so the rest renders live, and poll the persisted transcript
+        // meanwhile so progress still appears if every re-attach attempt fails.
         scheduleLiveStreamReconnect(postSessionKey.trim());
+        startDiskFallbackPoll(postSessionKey.trim());
       }
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
@@ -3486,6 +3555,7 @@ export function App() {
     // Mark as user-stopped so a resulting stream drop is not auto-rejoined.
     userStoppedSidRef.current.add(sid);
     liveReconnectAttemptsRef.current.delete(sid);
+    stopDiskFallbackPoll(sid);
     // Always send the server-side cancel so Stop works even after page reload.
     void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
       method: "POST",
