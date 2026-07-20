@@ -1,5 +1,4 @@
 import type { MutableRefObject } from "react";
-import { insertNewThinkingBeforeStreamingAssistant } from "./transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
@@ -140,6 +139,12 @@ export type ConsumeComposerSseResult = {
    * is likely still running server-side, so the caller should re-attach.
    */
   endedWithoutDone: boolean;
+  /**
+   * Id of the assistant bubble that is live when the stream ends. A turn can span
+   * several bubbles (text, action, more text), so callers that reconcile the final
+   * answer must patch this one rather than the id they passed in.
+   */
+  finalAssistantId: string;
   flushToolQueue: () => void;
   finishThinking: () => void;
   ensureAssistant: (
@@ -166,6 +171,15 @@ export async function consumeComposerSseReader(
     onPermission,
     onCompaction,
   } = p;
+
+      // Chronological transcript model: tool_call / thinking rows are appended in
+      // arrival order, and the assistant bubble "rotates" — once a row lands after
+      // the bubble has text, the next delta starts a fresh bubble below that row.
+      // Without this, one bubble accumulates all text and every action renders
+      // above it (i.e. bunched right after the user message).
+      let currentAssistantId = assistantId;
+      let currentAssistantHasContent = false;
+      let pendingBubbleRotation = false;
 
       const toolQueue: Array<
         Partial<Extract<TranscriptItem, { type: "tool_call" }>> & {
@@ -206,16 +220,9 @@ export async function consumeComposerSseReader(
               if (upd.finishedAtMs !== undefined)
                 it.finishedAtMs = upd.finishedAtMs;
               if (upd.durationMs !== undefined) it.durationMs = upd.durationMs;
-              const aIdx = next.findIndex(
-                (x) => x.type === "assistant_message" && x.id === assistantId,
-              );
-              if (aIdx >= 0) {
-                const arr = next === prev ? [...next] : next;
-                arr.splice(aIdx, 0, it);
-                next = arr;
-              } else {
-                next = [...next, it];
-              }
+              // Append in arrival order; the assistant bubble rotates instead of
+              // staying pinned below every tool row.
+              next = [...next, it];
               continue;
             }
             const arr = next === prev ? [...next] : next;
@@ -267,12 +274,12 @@ export async function consumeComposerSseReader(
       ) => {
         applyStreamItems((prev) => {
           const idx = prev.findIndex(
-            (x) => x.type === "assistant_message" && x.id === assistantId,
+            (x) => x.type === "assistant_message" && x.id === currentAssistantId,
           );
           if (idx < 0) {
             const base: Extract<TranscriptItem, { type: "assistant_message" }> =
               {
-                id: assistantId,
+                id: currentAssistantId,
                 type: "assistant_message",
                 content: "",
                 streaming: true,
@@ -290,6 +297,48 @@ export async function consumeComposerSseReader(
         });
       };
 
+      /**
+       * Records that a tool_call / thinking row was appended after the current
+       * bubble. Rotation is lazy: the new bubble is only created once more text
+       * actually arrives, so a turn ending on a tool call leaves no empty bubble.
+       */
+      const markRowAppendedAfterAssistant = () => {
+        if (currentAssistantHasContent) pendingBubbleRotation = true;
+      };
+
+      /** Starts a fresh bubble below the last appended row when one is pending. */
+      const beginAssistantChunk = () => {
+        if (!pendingBubbleRotation) return;
+        const closing = currentAssistantId;
+        applyStreamItems((prev) =>
+          prev.map((it) =>
+            it.type === "assistant_message" && it.id === closing
+              ? { ...it, streaming: false }
+              : it,
+          ),
+        );
+        currentAssistantId = newId("a");
+        currentAssistantHasContent = false;
+        pendingBubbleRotation = false;
+      };
+
+      /** Appends assistant text in chronological position. */
+      const appendAssistantContent = (c: string) => {
+        // Land any queued tool rows first so they keep their arrival position.
+        if (toolQueue.length > 0) flushToolQueue();
+        beginAssistantChunk();
+        ensureAssistant();
+        const target = currentAssistantId;
+        applyStreamItems((prev) =>
+          prev.map((it) =>
+            it.type === "assistant_message" && it.id === target
+              ? { ...it, content: it.content + c }
+              : it,
+          ),
+        );
+        currentAssistantHasContent = true;
+      };
+
       let activeThinkingId: string | null = null;
       let activeThinkingStarted = 0;
       const appendThinking = (delta: string) => {
@@ -297,6 +346,9 @@ export async function consumeComposerSseReader(
         if (!activeThinkingId) {
           activeThinkingId = newId("r");
           activeThinkingStarted = freezeAt;
+          // Reasoning that resumes after assistant text belongs below it.
+          if (toolQueue.length > 0) flushToolQueue();
+          markRowAppendedAfterAssistant();
         }
         const id = activeThinkingId;
         applyStreamItems((prev) => {
@@ -310,13 +362,7 @@ export async function consumeComposerSseReader(
             content: "",
             startedAtMs: freezeAt,
           };
-          let next = known
-            ? prev
-            : insertNewThinkingBeforeStreamingAssistant(
-                prev,
-                assistantId,
-                newRow,
-              );
+          let next = known ? prev : [...prev, newRow];
           next = next.map((it) =>
             it.type === "thinking" && it.id === id
               ? { ...it, content: it.content + delta }
@@ -402,14 +448,7 @@ export async function consumeComposerSseReader(
                 if (/\S/.test(c)) {
                   finishThinking();
                 }
-                ensureAssistant();
-                applyStreamItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
+                appendAssistantContent(c);
               }
             } catch {
               // ignore
@@ -529,6 +568,8 @@ export async function consumeComposerSseReader(
           if (ev.event === "tool_call") {
             try {
               finishThinking();
+              // New action row: later assistant text starts a new bubble below it.
+              markRowAppendedAfterAssistant();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
               const now = Date.now();
               const patch: Partial<
@@ -651,14 +692,7 @@ export async function consumeComposerSseReader(
                 if (/\S/.test(c)) {
                   finishThinking();
                 }
-                ensureAssistant();
-                applyStreamItems((prev) =>
-                  prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
-                      ? { ...it, content: it.content + c }
-                      : it,
-                  ),
-                );
+                appendAssistantContent(c);
               }
             } catch {
               // ignore
@@ -741,6 +775,8 @@ export async function consumeComposerSseReader(
           if (ev.event === "tool_call") {
             try {
               finishThinking();
+              // New action row: later assistant text starts a new bubble below it.
+              markRowAppendedAfterAssistant();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
               const now = Date.now();
               const patch: Partial<
@@ -821,6 +857,7 @@ export async function consumeComposerSseReader(
   return {
     streamErrorMessage,
     endedWithoutDone,
+    finalAssistantId: currentAssistantId,
     flushToolQueue,
     finishThinking,
     ensureAssistant,
