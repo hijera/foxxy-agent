@@ -90,7 +90,7 @@ Maintains the state for each conversation session:
 The core reasoning engine (**`react.go`**):
 
 1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`** and **`plan`**, but not in the closed **`docs`** tool surface.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`docs.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render).
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`docs.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
@@ -121,7 +121,17 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   `PathEscapesCWD`, `ToolPathsEscapeCWD`) and tools (`read.go` **`read`**, **`glob.go`** **`glob`**,
   **`grep.go`** **`grep`**, **`write.go`** **`write`**, **`edit.go`** **`edit`**, **`patch.go`**
   **`apply_patch`**, **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
-- **`internal/tools/shell`** - **`run_command`**
+  **`grep`** uses a system **`rg`** when one is available (the pattern is passed to it untouched)
+  and otherwise falls back to the built-in Go walker/matcher in **`search.go`**. **`glob`** uses
+  the same built-in walker when **`rg`** is unavailable, so filesystem discovery also works in
+  Windows and distroless binaries without sidecar executables.
+  **Fork-specific:** a **non-ASCII pattern always uses the built-in engine**, which decodes each
+  file through **`decodeText`** (**`text_encoding.go`**) first, so Cyrillic searches match
+  **Windows-1251** sources as well as UTF-8 ones. System **`rg`** matches raw bytes and would
+  silently miss them. ASCII patterns still go to **`rg`** (faster, honors **`.gitignore`**);
+  files above **`maxDecodedSearchFileBytes`** (8 MiB) stream as UTF-8 without the decode step.
+- **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
+- **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
 - **`internal/tools/todo`** - todo/plan list (**`foxxycode_todo_plan_read`**, **`foxxycode_todo_plan_replace`**,
   **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**,
   **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**)

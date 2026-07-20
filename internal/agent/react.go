@@ -23,6 +23,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/mcp"
 	"github.com/hijera/foxxycode-agent/internal/permission"
 	"github.com/hijera/foxxycode-agent/internal/plans"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/tools"
@@ -67,6 +68,7 @@ type Agent struct {
 	server          acp.UpdateSender
 	log             *slog.Logger
 	registry        *tools.Registry
+	environment     platform.Environment
 	providerFactory func(llm.ProviderInput) (llm.Provider, error)
 
 	imgMu             sync.Mutex
@@ -99,12 +101,14 @@ const browserVisionNote = "The image(s) below are screenshot(s) captured by the 
 
 // NewAgent creates an Agent for a prompt turn.
 func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, log *slog.Logger) *Agent {
+	environment := platform.CurrentEnvironment()
 	return &Agent{
 		cfg:             cfg,
 		state:           state,
 		server:          server,
 		log:             log,
-		registry:        tools.NewRegistryFor(cfg),
+		registry:        tools.NewRegistryForEnvironment(cfg, environment),
+		environment:     environment,
 		providerFactory: llm.NewProvider,
 	}
 }

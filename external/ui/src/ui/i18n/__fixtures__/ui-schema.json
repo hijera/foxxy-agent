@@ -688,7 +688,7 @@
             "x-foxxycode-secret": true
           },
           "api_key_command": {
-            "description": "Optional credential-helper command. When api_key is empty it is run via the shell and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable.",
+            "description": "Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable.",
             "title": "API key command",
             "type": "string"
           },
