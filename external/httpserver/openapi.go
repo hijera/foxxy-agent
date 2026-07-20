@@ -247,9 +247,18 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/enhance-prompt": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Enhance a draft prompt",
-					"description": "Rewrites a user's draft prompt into a clearer, more specific, and more effective prompt. The draft is treated only as source text to improve, never as a request to answer.",
+					"summary": "Enhance a draft prompt",
+					"description": "Rewrites a user's draft prompt into a clearer, more specific, and more effective prompt. The draft is treated only as source text to improve, never as a request to answer. " +
+						"The rewrite runs on the model the session in **X-FoxxyCode-Session-ID** currently has selected, so it matches the model the chat uses; without a usable session it falls back to **`agent.model`**, then to the first configured **`models[]`** row. " +
+						"Returns **503** when no model is configured.",
 					"operationId": "foxxycodeEnhancePrompt",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Existing session id, used to pick the rewrite model. Unknown or invalid ids fall back to the configured default; no session is created.",
+						},
+					},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{

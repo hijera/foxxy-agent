@@ -225,6 +225,8 @@ func runACP(args []string) error {
 	return srv.Run(ctx, os.Stdin)
 }
 
+// ensureFoxxyCodeHomeLayout prepares the agent state directory. It is the shared
+// startup hook for the acp, http, desktop, and gateway entry points.
 func ensureFoxxyCodeHomeLayout(home string) error {
 	if strings.TrimSpace(home) == "" {
 		return nil
@@ -235,7 +237,7 @@ func ensureFoxxyCodeHomeLayout(home string) error {
 			return fmt.Errorf("mkdir %s: %w", p, err)
 		}
 	}
-	return nil
+	return bootstrapExampleConfig(home)
 }
 
 // bootstrapExampleConfig copies config.example.yaml into home when config.yaml is missing.

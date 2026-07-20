@@ -11,8 +11,12 @@ services:
       dockerfile: Dockerfile
       args:
         VERSION: ${FOXXYCODE_VERSION:-dev}
-        BUILD_TAGS: ${FOXXYCODE_BUILD_TAGS:-http,scheduler,ui,memory}
+        # Includes `gateway` so the built image can run `foxxycode gateway` (see command override below).
+        BUILD_TAGS: ${FOXXYCODE_BUILD_TAGS:-http,scheduler,ui,memory,gateway}
     image: foxxycode-agent:${FOXXYCODE_VERSION:-dev}
+    # Default runs `foxxycode http`. Override to run another mode, e.g. the messenger gateway:
+    #   FOXXYCODE_COMMAND="gateway --cwd /workspace" docker compose -f docker-compose.dev.yml up -d --build
+    command: ${FOXXYCODE_COMMAND:-http -H 0.0.0.0 -P 12345}
     ports:
       - "${FOXXYCODE_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
@@ -23,6 +27,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY-}
+      # Messenger gateway bot token (used only in gateway mode; empty if unset).
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN-}
     volumes:
       - ${FOXXYCODE_CONFIG-./config.yaml}:/home/user/.foxxycode.yaml:ro
       - ${FOXXYCODE_CWD-./workspace}:/workspace

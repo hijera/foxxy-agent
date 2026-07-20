@@ -948,6 +948,88 @@ test("enhance button posts draft and replaces text with the result", async () =>
   vi.unstubAllGlobals();
 });
 
+test("enhance sends the session id so the backend can use the session model", async () => {
+  stubMatchMediaMobile(false);
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ object: "foxxycode.enhance_prompt", text: "Better draft." }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      sessionId="sess_abc123"
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  const init = (fetchMock.mock.calls[0] ?? [])[1] as RequestInit;
+  expect((init.headers as Record<string, string>)["X-FoxxyCode-Session-ID"]).toBe(
+    "sess_abc123",
+  );
+  vi.unstubAllGlobals();
+});
+
+test("enhance reports a missing model instead of silently doing nothing", async () => {
+  stubMatchMediaMobile(false);
+  const onChange = vi.fn();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => {
+    expect(screen.getByTestId("composer-enhance-err").textContent).toContain(
+      "no model is configured",
+    );
+  });
+  expect(onChange).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
+
+test("enhance reports a failed request and clears the error on the next edit", async () => {
+  stubMatchMediaMobile(false);
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => {
+    expect(screen.getByTestId("composer-enhance-err").textContent).toContain(
+      "Your draft is unchanged",
+    );
+  });
+  fireEvent.change(screen.getByLabelText("Message"), {
+    target: { value: "fix memory thing!" },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("composer-enhance-err")).toBeNull();
+  });
+  vi.unstubAllGlobals();
+});
+
 test("enhance button is disabled when draft is empty", () => {
   stubMatchMediaMobile(false);
   render(

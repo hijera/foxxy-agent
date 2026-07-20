@@ -382,7 +382,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 if (b != null) b.cefBrowser.reload() else start()
             }
         })
-        group.add(object : AnAction("", "", null) {
+        group.add(object : AnAction("", "", AllIcons.General.Web) {
             override fun update(e: AnActionEvent) {
                 e.presentation.text = FoxxyCodeBundle.message("toolbar.action.openBrowser")
                 e.presentation.description = FoxxyCodeBundle.message("toolbar.action.openBrowser.desc")
@@ -391,7 +391,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 currentUrl?.let { BrowserUtil.browse(it) }
             }
         })
-        group.add(object : AnAction("", "", null) {
+        group.add(object : AnAction("", "", AllIcons.Debugger.Console) {
             override fun update(e: AnActionEvent) {
                 e.presentation.text = FoxxyCodeBundle.message("toolbar.action.devtools")
                 e.presentation.description = FoxxyCodeBundle.message("toolbar.action.devtools.desc")
