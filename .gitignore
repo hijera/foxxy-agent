@@ -5,6 +5,9 @@
 /config.*.yaml
 /examples/config.*.yaml
 
+# Secrets / scratch (never commit API keys)
+/e2e.txt
+
 # Binaries
 build/
 dist/
