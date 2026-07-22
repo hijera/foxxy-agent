@@ -49,7 +49,20 @@
     до рендера; `workspaceRecents.ts` неймспейсится по env; чип виден и без workspace-контекста.
     Проверено в браузере (чип «Local», меню открывается, 0 console-ошибок; 671 UI-тест зелёный).
   - **Осталось в Волне 2:** BDD remote-API parity (`46445df`/`328bc25`) — опционально.
-- **Волна 3 — Skills marketplace + plugin command — TODO.**
+- **Волна 3 — Skills marketplace + plugin command — БЭКЕНД ГОТОВ (коммит следующий), UI TODO.**
+  - Config: `skills.go` (+`sources`, +`auto_discovery` + флаг `-skills-auto-discovery`), jsondto/ui_schema/
+    docs/example + RU-оверлей + фикстура. Core: `internal/skills/{manifest,remote}.go` (git/marketplace
+    install-движок), `plugin.go` (`RunPluginCommand`, `MarketplaceStatus`), `Skill.Version`,
+    loader dotfile-skip, gitws `Clone`/`Pull`. Plugin: `internal/agent/plugin_command.go` +
+    `/plugin` в react.go; `BuiltinCommands` теперь и `plugin`. Auto-discovery: `internal/tools/load_skill.go`
+    + `export.go` (гейт auto_discovery) + `toolsets.go` allowlist + `tooling/env.go` `LoadSkillBody` +
+    `react.go`/`system_prompt.go` `loadSkillBody`. Плюс fix `f0911c9` (сброс empty-turn counter).
+    HTTP: `skills_mgmt.go` расширен до 13 роутов (`s.sessionDefaultCWD()`, `invalidateSlashCache`,
+    `reloadConfigFromDisk`), `docs/http-api.md`. CLI: `foxxycode skills add|sync|remove` + `plugin`.
+    **Не** портирован транзитный `internal/tools/skills.go` (upstream его удаляет); `print_tree` в форке нет.
+  - **Осталось в Волне 3:** UI in-app marketplace (`settings/SkillsSection.tsx` перепись + `Switch.tsx` +
+    `installableMatches.ts` + `skills/commandRows.ts` + `SchemaForm.tsx`, ре-i18n, styles). Опционально:
+    exhaustive openapi для skill-роутов, BDD (`skills_marketplace.feature`, `plugin_command.feature`).
 
 ---
 

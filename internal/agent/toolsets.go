@@ -21,6 +21,9 @@ var planToolNames = []string{
 	"plan_write",
 	"plan_list",
 	"plan_read",
+	// Read-only: lets the planner pull a catalogued skill's instructions when
+	// skills.auto_discovery is on (the tool is only registered when enabled).
+	"load_skill",
 }
 
 var docsToolNames = []string{

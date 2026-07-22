@@ -126,6 +126,8 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dirs` | string list | no | `["~/.agents/skills", "${FOXXYCODE_HOME}/skills", "${CWD}/.foxxycode/skills"]` | Directories scanned for skills. Later entries have **higher** priority on name conflicts. `${FOXXYCODE_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`). |
+| `sources` | string list | no | `[]` | Remote skill sources to install from: `owner/repo[@ref]`, a git URL, or an `http(s)` URL to an agents-standard `marketplace.json`. Fetched on demand via `foxxycode skills sync` / the `/plugin` command / Settings → Skills (never automatically) into the managed skills dir. |
+| `auto_discovery` | bool | no | `true` | Offer the model-driven `load_skill` tool so the agent can pull a catalogued skill's instructions into a turn on its own (instead of requiring an explicit `/name`). |
 
 ## `rules`
 

@@ -105,6 +105,13 @@ skills:
   # Searched in order. When empty, defaults are
   # ${FOXXYCODE_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
   dirs: []
+  # sources are remote skill sources installed on demand (foxxycode skills sync / /plugin /
+  # Settings → Skills, never automatically): owner/repo[@ref], a git URL, or an http(s)
+  # marketplace.json. Materialized into ${FOXXYCODE_HOME}/skills.
+  # sources: []
+  # auto_discovery offers the model-driven load_skill tool (agent pulls a catalogued skill's
+  # instructions on its own). Default true.
+  # auto_discovery: true
 
 mcp_servers: []
   # Example: filesystem MCP server

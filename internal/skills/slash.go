@@ -24,15 +24,20 @@ type SkillSummary struct {
 // without an LLM turn, unlike skills). Shared by the ACP available-commands
 // update and the HTTP commands endpoint so both surfaces stay in sync. compact
 // is included only when the coddy compaction engine is active (it owns the
-// manual /compact command); the opencode engine compacts automatically.
+// manual /compact command); the opencode engine compacts automatically. plugin
+// is always present (skill/marketplace management).
 func BuiltinCommands(compactEnabled bool) []SkillSummary {
-	cmds := make([]SkillSummary, 0, 1)
+	cmds := make([]SkillSummary, 0, 2)
 	if compactEnabled {
 		cmds = append(cmds, SkillSummary{
 			Name:        "compact",
 			Description: "Summarize older conversation history to free context; recent turns stay verbatim",
 		})
 	}
+	cmds = append(cmds, SkillSummary{
+		Name:        "plugin",
+		Description: "Manage skill plugins and marketplaces: marketplace list|add|remove|sync, install, remove, enable, disable",
+	})
 	return cmds
 }
 

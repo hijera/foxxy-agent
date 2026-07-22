@@ -196,6 +196,16 @@
           "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
           "default": ["~/.agents/skills", "${FOXXYCODE_HOME}/skills", "${CWD}/.foxxycode/skills"],
           "items": { "type": "string" }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+          "items": { "type": "string" }
+        },
+        "auto_discovery": {
+          "type": "boolean",
+          "description": "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.",
+          "default": true
         }
       }
     },

@@ -7,6 +7,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	perProviderEnabled := true
 	compactionEnabled := true
 	compactionKeepRecent := CompactionDefaultKeepRecentTurns
+	skillsAutoDiscovery := true
 	titleEnabled := true
 	browserHeadless := true
 	return &ConfigJSON{
@@ -43,6 +44,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 				"${FOXXYCODE_HOME}/skills",
 				"${CWD}/.foxxycode/skills",
 			},
+			Sources:       []string{},
+			AutoDiscovery: &skillsAutoDiscovery,
 		},
 		MCPServers: []MCPServerJSON{},
 		Tools: ToolsJSON{

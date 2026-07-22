@@ -71,6 +71,11 @@ type Env struct {
 	// "data:<mime>;base64,..." payload; filePath is the absolute path where the asset was saved
 	// (may be empty). Optional; wired by the runner. Tools must nil-check before use.
 	AddToolImage func(dataURL, filePath, name string)
+
+	// LoadSkillBody returns a loaded skill's full instruction body by its command
+	// name, plus the list of available command names, backing the model-driven
+	// load_skill tool. Optional; nil when skills auto-discovery is disabled.
+	LoadSkillBody func(name string) (body string, available []string, found bool)
 }
 
 // CommandAllowed returns true if the given shell command matches an entry

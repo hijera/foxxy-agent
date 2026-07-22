@@ -143,6 +143,12 @@ export const schemaTextRu: Record<string, string> = {
   "Skill directories": "Каталоги навыков",
   "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.":
     "Пути поиска навыков. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} и ${CWD} подставляются во время выполнения.",
+  "Remote skill sources": "Удалённые источники навыков",
+  "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.":
+    "Удалённые источники для установки навыков: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог навыков.",
+  "Auto-discovery": "Авто-обнаружение",
+  "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.":
+    "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего навыка в ход. По умолчанию включено.",
 
   // Memory
   "Long-term memory": "Долговременная память",

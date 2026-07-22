@@ -384,8 +384,15 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"sources": map[string]interface{}{
+					"type":        "array",
+					"title":       "Remote skill sources",
+					"description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"auto_discovery": boolProp("Auto-discovery", "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true."),
 			},
-			[]string{"dirs"},
+			[]string{"dirs", "sources", "auto_discovery"},
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{

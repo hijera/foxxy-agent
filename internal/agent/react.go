@@ -137,6 +137,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	if instructions, ok := parseCompactCommand(userText); ok {
 		return a.runCompactCommand(ctx, instructions, userText)
 	}
+	// The built-in /plugin command manages skill plugins and marketplaces
+	// deterministically, without an LLM turn; the command text is persisted too.
+	if args, ok := parsePluginCommand(userText); ok {
+		return a.runPluginCommand(ctx, args, userText)
+	}
 
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
@@ -235,6 +240,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			a.state.AppendPlanDocument(doc)
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
+		LoadSkillBody:     a.loadSkillBody,
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -598,6 +604,11 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 		}
+		// The model made progress (executed tool calls), so reset the empty-turn counter. The
+		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow
+		// multi-step task that keeps acting between reasoning-only thoughts — otherwise a model
+		// that alternates thinking and tool calls (gpt-oss / harmony) is abandoned mid-task.
+		emptyContinuations = 0
 
 		// Inject any screenshots produced by browser tools this round as a user-role
 		// vision block so the model can see the page. This reuses the existing image
