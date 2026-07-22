@@ -60,9 +60,13 @@
     HTTP: `skills_mgmt.go` расширен до 13 роутов (`s.sessionDefaultCWD()`, `invalidateSlashCache`,
     `reloadConfigFromDisk`), `docs/http-api.md`. CLI: `foxxycode skills add|sync|remove` + `plugin`.
     **Не** портирован транзитный `internal/tools/skills.go` (upstream его удаляет); `print_tree` в форке нет.
-  - **Осталось в Волне 3:** UI in-app marketplace (`settings/SkillsSection.tsx` перепись + `Switch.tsx` +
-    `installableMatches.ts` + `skills/commandRows.ts` + `SchemaForm.tsx`, ре-i18n, styles). Опционально:
-    exhaustive openapi для skill-роутов, BDD (`skills_marketplace.feature`, `plugin_command.feature`).
+  - UI in-app marketplace — **ГОТОВО**: `settings/SkillsSection.tsx` (перепись 140→608, browse/install/
+    sync/delete/update + версии), `Switch.tsx` (iOS-тумблер, подключён в `SchemaForm.tsx`),
+    `installableMatches.ts`, `skills/commandRows.ts`, styles (~270стр). Билд + 680 UI-тестов зелёные.
+    ⚠️ **i18n:** upstream-версия SkillsSection полностью на английском (ре-threading через `t()`/`en.ts`/
+    `ru.ts` — отложенный follow-up; старые `settings.skills.*` ключи не используются).
+  - **Осталось в Волне 3 (опционально):** exhaustive openapi для skill-роутов, BDD
+    (`skills_marketplace.feature`, `plugin_command.feature`), ре-i18n SkillsSection.
 
 ---
 
