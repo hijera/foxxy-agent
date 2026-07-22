@@ -233,6 +233,13 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 |---|---|---|---|---|
 | `host` | string | no | `""` → `0.0.0.0` | Default bind address when `foxxycode http` does not pass `-H/--host`. |
 | `port` | int | no | `0` → `12345` | Default listen port when `foxxycode http` does not pass `-P/--port`. Range 0–65535. |
+| `auth_token` | string | no | `""` | Optional bearer credential for the HTTP API. Empty = no auth. `${ENV}` expanded at load; prefer `--auth-token` / `FOXXYCODE_HTTP_TOKEN`. Redacted from `GET /foxxycode/config`. See [remote-control.md](remote-control.md). |
+| `public_docs` | bool | no | `false` | Keep `/docs` and `/openapi.*` reachable without a token when auth is enabled. |
+| `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
+| `cors.enabled` | bool | no | `false` | Turn on CORS handling (preflight + `Access-Control-*` headers). |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins permitted to call the API. A single `"*"` allows any origin (bearer auth still applies). |
+| `remotes[].name` | string | no | — | Display name of a remote server in the UI environment selector. |
+| `remotes[].url` | string | no | — | Base URL of the remote `foxxycode http` server. Tokens are not stored here; the UI keeps them client-side. |
 
 ## `scheduler`
 
@@ -270,6 +277,7 @@ Embedded SPA preferences (`config.UIConfig`, `internal/config/ui.go`). Used by t
 
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
+| `enabled` | bool | no | `true` | — | Serve the embedded web UI at `GET /`. Set `false` to run `foxxycode http` as an API-only server; `/v1/*` and `/foxxycode/*` stay available. |
 | `locale` | string | no | `""` (auto) | — | UI language: empty (auto-detect system/browser locale), `en`, or `ru`. |
 | `send_mode` | string | no | `enter` | — | How the main chat composer submits: `enter` (Enter sends, Shift/Ctrl+Enter insert a newline), `ctrl_enter` (Ctrl/Cmd+Enter sends, Enter inserts a newline), or `off` (keyboard send disabled, Send button only). |
 

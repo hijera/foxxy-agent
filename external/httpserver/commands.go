@@ -41,6 +41,9 @@ type StartParams struct {
 	Port             string
 	LoggerOverrides  config.LoggerCLIOverrides
 	SchedulerEnabled bool
+	// AuthToken is the optional bearer token from --auth-token; empty falls back to
+	// FOXXYCODE_HTTP_TOKEN and then httpserver.auth_token.
+	AuthToken string
 	// FolderPicker opens a native folder dialog (desktop mode); nil keeps
 	// POST /foxxycode/project/pick-folder at 501.
 	FolderPicker FolderPickerFunc
@@ -136,6 +139,26 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 
 	s := New(cfg, mgr, log, paths.CWD)
+
+	// Out-of-band bearer tokens (--auth-token, then FOXXYCODE_HTTP_TOKEN) enable auth without
+	// storing the secret in config.yaml; they union with httpserver.auth_token.
+	var extraTokens []string
+	if t := strings.TrimSpace(params.AuthToken); t != "" {
+		extraTokens = append(extraTokens, t)
+	}
+	if t := strings.TrimSpace(os.Getenv("FOXXYCODE_HTTP_TOKEN")); t != "" {
+		extraTokens = append(extraTokens, t)
+	}
+	s.SetExtraAuthTokens(extraTokens)
+	authOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(extraTokens) > 0
+	if effHost, _, err := net.SplitHostPort(listenAddr); err == nil {
+		if !authOn && !cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
+			log.Warn("HTTP API is reachable without authentication",
+				"host", effHost,
+				"hint", "set httpserver.auth_token / --auth-token / FOXXYCODE_HTTP_TOKEN, or httpserver.allow_insecure: true to silence")
+		}
+	}
+
 	if ps, err := project.Open(paths.Home); err != nil {
 		log.Warn("project store unavailable", "error", err)
 	} else {
@@ -238,6 +261,7 @@ func Run(args []string, deps CommandDeps) error {
 	fs.StringVar(host, "host", "0.0.0.0", "bind address for HTTP (alias of -H)")
 	fs.StringVar(port, "port", "12345", "listen port (alias of -P)")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -267,10 +291,23 @@ func Run(args []string, deps CommandDeps) error {
 			Format: strings.TrimSpace(*logFormat),
 		},
 		SchedulerEnabled: *schedulerEnabled,
+		AuthToken:        strings.TrimSpace(*authToken),
 	})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Shutdown(context.Background()) }()
 	return st.ListenAndServe()
+}
+
+// isLoopbackHost reports whether a bind host only accepts local connections.
+func isLoopbackHost(host string) bool {
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "", "localhost", "127.0.0.1", "::1", "[::1]":
+		return true
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

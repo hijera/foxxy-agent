@@ -336,6 +336,9 @@ export const schemaTextRu: Record<string, string> = {
   UI: "Интерфейс",
   "Embedded SPA preferences for desktop and HTTP UI.":
     "Настройки встроенного SPA для десктопа и HTTP-интерфейса.",
+  "Serve the SPA": "Отдавать веб-интерфейс",
+  "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available.":
+    "Отдавать встроенный веб-интерфейс на GET /. Выключите, чтобы запустить foxxycode http только как API-сервер; /v1/* и /foxxycode/* остаются доступны.",
   "UI language": "Язык интерфейса",
   "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.":
     "Локаль интерфейса встроенного SPA. Пусто — автоопределение из системы или локали браузера.",

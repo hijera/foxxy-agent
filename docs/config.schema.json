@@ -489,6 +489,50 @@
           "default": 0,
           "minimum": 0,
           "maximum": 65535
+        },
+        "auth_token": {
+          "type": "string",
+          "description": "Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See docs/remote-control.md.",
+          "default": ""
+        },
+        "public_docs": {
+          "type": "boolean",
+          "description": "Keep /docs and /openapi.* reachable without a token even when auth is enabled.",
+          "default": false
+        },
+        "allow_insecure": {
+          "type": "boolean",
+          "description": "Silence the startup warning about a non-loopback bind without authentication.",
+          "default": false
+        },
+        "cors": {
+          "type": "object",
+          "description": "Cross-origin policy so a browser UI on another origin can call this API.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turn on CORS handling (preflight + Access-Control-* headers).",
+              "default": false
+            },
+            "allowed_origins": {
+              "type": "array",
+              "description": "Exact origins permitted to call the API. A single \"*\" allows any origin (bearer auth still applies).",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "remotes": {
+          "type": "array",
+          "description": "Remote foxxycode http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "description": "Display name in the environment selector." },
+              "url": { "type": "string", "description": "Base URL of the remote foxxycode http server." }
+            }
+          }
         }
       }
     },
@@ -620,6 +664,11 @@
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "additionalProperties": false,
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available. Unset defaults to true.",
+          "default": true
+        },
         "locale": {
           "type": "string",
           "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",

@@ -141,6 +141,12 @@ Malformed ids (**HTTP 400**). Dedicated **`/foxxycode/*`** helpers return **503*
 - **`PATCH /foxxycode/sessions/{id}`** accepts **`selectedModelId`** to set the YAML **`models[].model`** selector for that session (unknown ids **400**) and **`selectedReasoning`** to set the reasoning level (must be one of the model's **`reasoning_levels`**; empty clears it; unsupported value **400**).
 - The SPA restores **Model** from **`model`** when opening a chat. Changing **Model** writes cookie **`foxxycode_llm_model`** (default for the next **New chat**) and **`PATCH`**es the active session.
 
+## Authentication & CORS
+
+Off by default (unchanged "no login" behavior). When **`httpserver.auth_token`** (or **`--auth-token`** / **`FOXXYCODE_HTTP_TOKEN`**) is set, every **`/v1/*`** and **`/foxxycode/*`** route requires **`Authorization: Bearer <token>`** and returns **`401`** with **`WWW-Authenticate: Bearer`** otherwise. The SPA shell and static assets stay public; **`/docs`** and **`/openapi.*`** are protected unless **`httpserver.public_docs: true`**; the local IDE-integration routes (**`/foxxycode/ide/*`**) stay public so the editor plugin keeps working. The token is redacted from **`GET /foxxycode/config`** (reported only as **`auth_configured`**) and preserved on **`PUT`** when the payload omits it. The composer-stream re-attach GET (**`GET /foxxycode/sessions/{id}/composer-stream`**) also accepts **`?access_token=`** because EventSource cannot set an Authorization header cross-origin.
+
+Cross-origin access for a browser UI on another origin is controlled by **`httpserver.cors`** (**`enabled`** + **`allowed_origins`**, a single **`"*"`** allows any origin; bearer auth still applies). Preflight **`OPTIONS`** returns **`204`** before auth. The bundled UI can point at a remote **`foxxycode http`** via the environment selector (**`httpserver.remotes`**). See [remote-control.md](remote-control.md).
+
 ## Memory roots
 
 Matches `external/memory/README.md`: **`global`** uses configured **`memory.dir`** (fallback **`$FOXXYCODE_HOME/memory`**). **`workspace`** resolves to **`$CWD/memory`** for that session bundle. **`agentMemory`** placeholders remain agent-only (`session.json`), not REST-editable here.

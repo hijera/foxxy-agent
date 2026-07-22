@@ -518,6 +518,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"ui": objectSchema("UI", "Embedded SPA preferences for desktop and HTTP UI.",
 			map[string]interface{}{
+				"enabled": boolProp("Serve the SPA", "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available."),
 				"locale": map[string]interface{}{
 					"type":        "string",
 					"title":       "UI language",
@@ -531,7 +532,7 @@ func UISchemaMap() map[string]interface{} {
 					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
 				},
 			},
-			[]string{"locale", "send_mode"},
+			[]string{"enabled", "locale", "send_mode"},
 			nil),
 	}
 

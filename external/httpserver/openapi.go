@@ -33,6 +33,12 @@ func openAPISpec() map[string]interface{} {
 				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
+		// Auth is optional: the empty requirement means "no auth" (default when no token is set);
+		// bearerAuth applies when httpserver.auth_token / --auth-token / FOXXYCODE_HTTP_TOKEN is set.
+		"security": []interface{}{
+			map[string]interface{}{},
+			map[string]interface{}{"bearerAuth": []interface{}{}},
+		},
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
@@ -1268,6 +1274,13 @@ func openAPISpec() map[string]interface{} {
 			},
 		},
 		"components": map[string]interface{}{
+			"securitySchemes": map[string]interface{}{
+				"bearerAuth": map[string]interface{}{
+					"type":        "http",
+					"scheme":      "bearer",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The local /foxxycode/ide/* routes stay public.",
+				},
+			},
 			"schemas": map[string]interface{}{
 				"CompactResult": map[string]interface{}{
 					"type":        "object",

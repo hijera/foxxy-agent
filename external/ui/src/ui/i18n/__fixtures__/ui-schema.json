@@ -893,6 +893,11 @@
       "additionalProperties": false,
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "properties": {
+        "enabled": {
+          "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available.",
+          "title": "Serve the SPA",
+          "type": "boolean"
+        },
         "locale": {
           "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
           "enum": [
@@ -918,6 +923,7 @@
       "title": "UI",
       "type": "object",
       "x-foxxycode-property-order": [
+        "enabled",
         "locale",
         "send_mode"
       ]

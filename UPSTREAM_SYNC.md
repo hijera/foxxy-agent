@@ -33,7 +33,18 @@
   - Мелочь: staticcheck-гарды (`99259a7`), `.gitignore *.bak` (`87d1040`). `69ce66c`
     (light-theme кнопка) уже был в форке.
   - Гейты зелёные: default / `http` / `http,memory` / `memory` / `scheduler`, `build:go`.
-- **Волна 2 — Remote control / env-selector / http-auth — TODO.**
+- **Волна 2 — Remote control / http-auth — БЭКЕНД ГОТОВ (коммит следующий), UI env-selector TODO.**
+  - Config: `internal/config/http.go` (+`auth_token`/`public_docs`/`allow_insecure`/`cors`/`remotes`
+    + helpers `CORSAllowOrigin`/`EffectiveAuthTokens`), `ui.enabled` влит в форковый `UIConfig`;
+    jsondto (редакция токена + `ParseConfigJSONPreservingSecrets`); docs schema/reference/example
+    + RU-оверлей + фикстура.
+  - HTTP: `external/httpserver/auth.go` (bearer-gate, realm `foxxycode`, SSE `?access_token=`,
+    **IDE-роуты `/foxxycode/ide/*` освобождены** от auth), `cors.go` (`X-FoxxyCode-Session-ID`),
+    `Handler()` = `corsMiddleware(authGate(mux))`, `--auth-token`/`FOXXYCODE_HTTP_TOKEN` +
+    non-loopback-warning в `StartHTTP`, `ui.enabled`-гейт SPA-root, openapi `bearerAuth`.
+    Тесты: 13 auth/CORS + IDE-exemption unit. Docs: `docs/remote-control.md`, `docs/http-api.md`.
+  - **Осталось:** UI env-selector (`env/remoteEnv.ts` + `chat/EnvironmentChip.tsx` + fetch-shim
+    в `main.tsx` + интеграция в composer), BDD remote-API parity.
 - **Волна 3 — Skills marketplace + plugin command — TODO.**
 
 ---

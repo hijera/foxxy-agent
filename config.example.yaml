@@ -146,9 +146,19 @@ tools:
   # ssh_connect_timeout: 30
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
+# Optional bearer auth + CORS + remote environment selector: see docs/remote-control.md.
 # httpserver:
 #   host: "127.0.0.1"
 #   port: 8080
+#   auth_token: "${FOXXYCODE_HTTP_TOKEN}"  # empty = no auth; ${ENV} expanded at load; or use --auth-token
+#   public_docs: false      # keep /docs + /openapi.* open when auth is on
+#   allow_insecure: false   # silence the non-loopback-without-auth startup warning
+#   cors:
+#     enabled: false
+#     allowed_origins: ["http://localhost:5173"]  # or ["*"] to allow any (bearer still applies)
+#   remotes:                # remote foxxycode http servers offered in the UI env selector
+#     - name: "staging"
+#       url: "https://foxxy.example.com"
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${FOXXYCODE_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
@@ -237,6 +247,7 @@ logger:
 
 # Embedded SPA preferences (desktop launcher and HTTP UI, built with -tags http,ui).
 # ui:
+#   enabled: true         # false = API-only server (no SPA at GET /); /v1/* and /foxxycode/* stay up
 #   locale: ""            # "" = auto-detect system/browser locale; or "en" / "ru"
 #   send_mode: "enter"    # how the main composer submits:
 #                         #   "enter"      Enter sends (Shift/Ctrl+Enter = newline)
