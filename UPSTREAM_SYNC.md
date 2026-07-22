@@ -33,7 +33,7 @@
   - Мелочь: staticcheck-гарды (`99259a7`), `.gitignore *.bak` (`87d1040`). `69ce66c`
     (light-theme кнопка) уже был в форке.
   - Гейты зелёные: default / `http` / `http,memory` / `memory` / `scheduler`, `build:go`.
-- **Волна 2 — Remote control / http-auth — БЭКЕНД ГОТОВ (коммит следующий), UI env-selector TODO.**
+- **Волна 2 — Remote control / http-auth / env-selector — ГОТОВО (backend `60af986` + UI).**
   - Config: `internal/config/http.go` (+`auth_token`/`public_docs`/`allow_insecure`/`cors`/`remotes`
     + helpers `CORSAllowOrigin`/`EffectiveAuthTokens`), `ui.enabled` влит в форковый `UIConfig`;
     jsondto (редакция токена + `ParseConfigJSONPreservingSecrets`); docs schema/reference/example
@@ -43,8 +43,12 @@
     `Handler()` = `corsMiddleware(authGate(mux))`, `--auth-token`/`FOXXYCODE_HTTP_TOKEN` +
     non-loopback-warning в `StartHTTP`, `ui.enabled`-гейт SPA-root, openapi `bearerAuth`.
     Тесты: 13 auth/CORS + IDE-exemption unit. Docs: `docs/remote-control.md`, `docs/http-api.md`.
-  - **Осталось:** UI env-selector (`env/remoteEnv.ts` + `chat/EnvironmentChip.tsx` + fetch-shim
-    в `main.tsx` + интеграция в composer), BDD remote-API parity.
+  - UI env-selector: `env/remoteEnv.ts` (fetch-shim, per-env storage), `env/activeHealth.ts`,
+    `env/remoteErrors.ts`, `env/EnvHealthBanner.tsx`, `chat/EnvironmentChip.tsx` (чип в
+    composer-workspace-строке, меню Local/remotes/Add, health-точки). Shim ставится в `main.tsx`
+    до рендера; `workspaceRecents.ts` неймспейсится по env; чип виден и без workspace-контекста.
+    Проверено в браузере (чип «Local», меню открывается, 0 console-ошибок; 671 UI-тест зелёный).
+  - **Осталось в Волне 2:** BDD remote-API parity (`46445df`/`328bc25`) — опционально.
 - **Волна 3 — Skills marketplace + plugin command — TODO.**
 
 ---

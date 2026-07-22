@@ -55,9 +55,14 @@ afterEach(() => {
 });
 
 describe("WorkspaceChips", () => {
-  it("renders nothing without a context", () => {
+  it("shows only the environment chip without a context", () => {
     const { container } = renderChips({ context: null });
-    expect(container.querySelector(".composer-context-chips")).toBeNull();
+    // The workspace/branch/worktree chips need a context, but the environment selector stays
+    // available (so the environment can be switched from the home screen before a workspace loads).
+    expect(container.querySelector(".composer-context-chips")).not.toBeNull();
+    expect(container.querySelector(".workspace-chip--env")).not.toBeNull();
+    expect(screen.queryByTestId("composer-workspace-chip")).toBeNull();
+    expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
   });
 
   it("shows only the folder chip for a non-git workspace", () => {

@@ -23,6 +23,7 @@ import {
 } from "./chat/questionTypes";
 import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
 import { stripCompactionPreamble } from "./chat/compactionSummary";
+import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import {
   preserveTranscriptItemIds,
   stablePermissionPromptItemId,
@@ -3801,6 +3802,7 @@ export function App() {
         .filter(Boolean)
         .join(" ")}
     >
+      <EnvHealthBanner />
       <NavRail
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}

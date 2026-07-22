@@ -14,6 +14,7 @@ import {
   readWorkspaceRecents,
   type WorkspaceRecent,
 } from "./workspaceRecents";
+import { EnvironmentChip } from "./EnvironmentChip";
 import { WorkspaceFolderModal } from "./WorkspaceFolderModal";
 import {
   serverSnapshotShellStack,
@@ -56,7 +57,13 @@ export function WorkspaceChips(props: Props) {
 
   const ctx = props.context;
   if (!ctx) {
-    return null;
+    // The environment selector stays available even before a workspace context loads (or in an
+    // API-only/remote state), so users can switch environments from the home screen.
+    return (
+      <div className="composer-context-chips">
+        <EnvironmentChip />
+      </div>
+    );
   }
   const locked = Boolean(props.locked);
 
@@ -114,6 +121,7 @@ export function WorkspaceChips(props: Props) {
 
   return (
     <div className="composer-context-chips">
+      <EnvironmentChip />
       {!hideFolderChip ? (
         <button
           type="button"
