@@ -10,6 +10,7 @@ import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
 import { AssistantMessage } from "./AssistantMessage";
 import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
+import { CompactionMessage } from "./CompactionMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
@@ -190,6 +191,9 @@ export function MessageList(props: {
               createdAtUtc={it.createdAtUtc}
             />
           );
+        }
+        if (it.type === "compaction") {
+          return <CompactionMessage key={it.id} summary={it.summary} />;
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();

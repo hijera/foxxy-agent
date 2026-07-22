@@ -143,6 +143,11 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 		http.Error(w, `{"error":{"message":"failed to load skills"}}`, http.StatusInternalServerError)
 		return
 	}
+	// Built-in slash commands (e.g. /compact) lead the catalog so the composer
+	// menu surfaces them above skills.
+	cfg := s.activeCfg()
+	builtins := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled() && cfg.Compaction.EngineIsCoddy())
+	sums = append(append([]skills.SkillSummary(nil), builtins...), sums...)
 	prefix := strings.TrimSpace(q.Get("prefix"))
 	filtered := skills.FilterSummariesByPrefix(sums, prefix)
 	pageItems, total, hasMore := skills.PaginateSkillSummaries(filtered, page, pageSize)

@@ -179,12 +179,16 @@ tools:
 # (models[].max_context_tokens), older turns are summarized into one message so the session can
 # continue. Enabled by default; it only fires near the window. compaction.model is used ONLY for
 # the summary pass — leave empty to reuse agent.model.
+# Two engines: "coddy" (default) keeps a summary row and replays only the window after it, and
+# enables the manual /compact command; "opencode" flags older turns and filters them from the
+# payload.
 # compaction:
+#   engine: coddy           # coddy (default) | opencode
 #   enabled: true
 #   model: ""
-#   threshold_percent: 85   # trigger at this % of usable context (max_context_tokens - max_tokens); clamp 50..99
-#   keep_last_turns: 2      # most recent user turns kept verbatim
-#   max_tokens: 4096        # completion cap for the summary
+#   threshold_percent: 80   # trigger at this % of the model context window (opencode clamps 50..99)
+#   keep_recent_turns: 2    # most recent user turns kept verbatim
+#   max_tokens: 4096        # completion cap for the summary (opencode engine only)
 
 # Automatic session title: after the first exchange in a fresh, non-pinned session, a hidden
 # internal "title" agent generates a short thread title. Runs backend-side for all clients

@@ -204,15 +204,16 @@ Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; im
 
 ## `compaction`
 
-Automatic context compaction (`config.CompactionConfig`, `internal/config/compaction.go`; always compiled). When the running prompt approaches the model's context window (`models[].max_context_tokens`), older turns are summarized into one message so the session can continue. The summarized messages stay in the transcript (marked compacted) but are excluded from what is sent to the model.
+Automatic context compaction (`config.CompactionConfig`, `internal/config/compaction.go`; always compiled). When the running prompt approaches the model's context window (`models[].max_context_tokens`), older turns are summarized into one message so the session can continue. Two engines share this section, selected by `engine`: the default **coddy** engine inserts a summary row and replays only the window from the last summary onward (and enables the manual `/compact` command plus the HTTP compact endpoint); the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
+| `engine` | string | no | `coddy` | Compaction implementation: `coddy` or `opencode`. |
 | `enabled` | bool | no | `true` | Turn on auto-compaction. Unset defaults to `true`; set `false` to disable. |
 | `model` | string | no | `""` (agent model) | Exact `models[].model` id used for the summarization pass. |
-| `threshold_percent` | int | no | `85` | Trigger when prompt tokens exceed this percent of the usable context (`max_context_tokens - max_tokens`). Clamped to 50..99. |
-| `keep_last_turns` | int | no | `2` | Most recent user turns preserved verbatim (never summarized). |
-| `max_tokens` | int | no | `4096` | Completion token cap for the summary generation. |
+| `threshold_percent` | int | no | `80` (coddy) / `85` (opencode) | Trigger when context usage exceeds this percent of the model context window. The opencode engine clamps to 50..99. |
+| `keep_recent_turns` | int | no | `2` | Most recent user turns preserved verbatim (never summarized). |
+| `max_tokens` | int | no | `4096` | Completion token cap for the summary generation (opencode engine only). |
 
 ## `title`
 

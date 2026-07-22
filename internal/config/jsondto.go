@@ -193,12 +193,14 @@ type MemoryJSON struct {
 }
 
 // CompactionJSON mirrors CompactionConfig. Enabled is a pointer so an unset value round-trips as
-// "use default" (true) rather than an explicit false.
+// "use default" (true) rather than an explicit false; KeepRecentTurns is a pointer so an explicit
+// 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
+	Engine           string `json:"engine,omitempty"`
 	Enabled          *bool  `json:"enabled,omitempty"`
 	Model            string `json:"model,omitempty"`
 	ThresholdPercent int    `json:"threshold_percent,omitempty"`
-	KeepLastTurns    int    `json:"keep_last_turns,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
 	MaxTokens        int    `json:"max_tokens,omitempty"`
 }
 
@@ -279,8 +281,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
 	out.Compaction = CompactionJSON{
-		Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
-		ThresholdPercent: c.Compaction.ThresholdPercent, KeepLastTurns: c.Compaction.KeepLastTurns,
+		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
+		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
 		MaxTokens: c.Compaction.MaxTokens,
 	}
 	out.Title = TitleJSON{
@@ -375,8 +377,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
 	cfg.Compaction = CompactionConfig{
-		Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
-		ThresholdPercent: j.Compaction.ThresholdPercent, KeepLastTurns: j.Compaction.KeepLastTurns,
+		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
+		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
 		MaxTokens: j.Compaction.MaxTokens,
 	}
 	cfg.Title = TitleConfig{

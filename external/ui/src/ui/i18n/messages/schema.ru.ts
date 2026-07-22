@@ -173,20 +173,23 @@ export const schemaTextRu: Record<string, string> = {
   "Automatic context compaction": "Автоматическое сжатие контекста",
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
+  "Compaction engine": "Движок сжатия",
+  'Which compaction implementation to use. "coddy" (default) keeps a summary row and replays only the window after it, and supports the /compact command. "opencode" flags older turns and filters them from the payload.':
+    'Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё, поддерживает команду /compact. «opencode» помечает старые шаги и исключает их из отправляемого контекста.',
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",
   "Model override for the summary pass; empty uses agent model.":
     "Замена модели для прохода сводки; пусто — используется модель агента.",
   "Threshold percent": "Порог, %",
-  "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99.":
-    "Срабатывает при этом проценте полезного контекста (max_context_tokens - max_tokens); 50..99.",
-  "Keep last turns": "Сохранять последних шагов",
-  "Most recent user turns preserved verbatim.":
-    "Сколько последних шагов пользователя сохраняется без изменений.",
+  "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Keep recent turns": "Сохранять последних шагов",
+  "Most recent user turns preserved verbatim (default 2).":
+    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2).",
   "Summary max tokens": "Макс. токенов сводки",
-  "Completion token cap for the summary generation.":
-    "Лимит токенов ответа для генерации сводки.",
+  "Completion token cap for the summary generation (opencode engine only).":
+    "Лимит токенов ответа для генерации сводки (только движок opencode).",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",
@@ -396,4 +399,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   enter: "Enter",
   ctrl_enter: "Ctrl+Enter",
   off: "Отключено",
+  // compaction.engine
+  coddy: "coddy",
+  opencode: "opencode",
 };

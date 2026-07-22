@@ -88,6 +88,12 @@ export type TranscriptItem =
     }
   | {
       id: string;
+      /** Context-compaction summary row (server messages with compaction_summary=true). */
+      type: "compaction";
+      summary: string;
+    }
+  | {
+      id: string;
       type: "branch_nav";
       /** 0-based index of the user message that this nav is attached to. */
       userMessageIndex: number;

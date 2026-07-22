@@ -99,20 +99,33 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 // Shared by executeEdit and the preview path so the preview matches the eventual write.
 func applyEditToContent(content string, args editArgs) (string, error) {
 	old := args.OldString
+	replacement := args.NewString
+	// Treat LF, CRLF, and CR as equivalent by converting oldString/newString to the file's
+	// line-ending style before matching, so an edit authored with different endings still applies
+	// and preserves the file's endings. Detection runs on the decoded text; the cp1251 encode pass
+	// re-applies the original byte encoding afterwards.
+	if old != "" {
+		ending := detectLineEnding(content)
+		old = convertToLineEnding(old, ending)
+		replacement = convertToLineEnding(replacement, ending)
+		if old == replacement {
+			return "", fmt.Errorf("edit: oldString and newString must differ")
+		}
+	}
 	replaceAll := args.ReplaceAll != nil && *args.ReplaceAll
 
 	if old == "" {
-		return args.NewString, nil
+		return replacement, nil
 	}
 	if replaceAll {
 		if !strings.Contains(content, old) {
 			return "", fmt.Errorf("edit: oldString not found in file")
 		}
-		return strings.ReplaceAll(content, old, args.NewString), nil
+		return strings.ReplaceAll(content, old, replacement), nil
 	}
 	idx := strings.Index(content, old)
 	if idx < 0 {
 		return "", fmt.Errorf("edit: oldString not found in file")
 	}
-	return content[:idx] + args.NewString + content[idx+len(old):], nil
+	return content[:idx] + replacement + content[idx+len(old):], nil
 }

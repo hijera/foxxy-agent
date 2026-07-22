@@ -6,6 +6,7 @@ package config
 func SchemaExampleConfigJSON() *ConfigJSON {
 	perProviderEnabled := true
 	compactionEnabled := true
+	compactionKeepRecent := CompactionDefaultKeepRecentTurns
 	titleEnabled := true
 	browserHeadless := true
 	return &ConfigJSON{
@@ -66,10 +67,11 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			MaxSearchHits:    8,
 		},
 		Compaction: CompactionJSON{
+			Engine:           CompactionEngineCoddy,
 			Enabled:          &compactionEnabled,
 			Model:            "",
-			ThresholdPercent: CompactionDefaultThresholdPercent,
-			KeepLastTurns:    CompactionDefaultKeepLastTurns,
+			ThresholdPercent: CompactionDefaultThresholdCoddy,
+			KeepRecentTurns:  &compactionKeepRecent,
 			MaxTokens:        CompactionDefaultMaxTokens,
 		},
 		Title: TitleJSON{

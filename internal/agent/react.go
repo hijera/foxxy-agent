@@ -41,6 +41,7 @@ type SessionState interface {
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
 	ReplaceMessagesAndPersist(msgs []llm.Message)
+	InsertCompactionSummary(idx int, msg llm.Message)
 	GetMCPClients() []*mcp.Client
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
@@ -128,6 +129,15 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
+
+	// The built-in /compact command compacts history instead of running the ReAct
+	// loop. runCompactCommand persists the command text itself (so it shows in the
+	// transcript like any other message), and under the opencode engine returns a
+	// short notice instead of compacting.
+	if instructions, ok := parseCompactCommand(userText); ok {
+		return a.runCompactCommand(ctx, instructions, userText)
+	}
+
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
 	if note := filePathsNote(imageParts); note != "" {
@@ -181,6 +191,13 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 	// Build the full message list starting with system prompt (refreshed each ReAct turn).
 	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+
+	// Coddy engine: buildSystemPrompt refreshed the context breakdown, so compact
+	// before the first LLM call when the estimate crossed the auto-compaction
+	// threshold, then rebuild the payload from the windowed history.
+	if a.cfg.Compaction.EngineIsCoddy() && a.maybeAutoCompact(ctx) {
+		messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	}
 
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
@@ -291,8 +308,14 @@ func (a *Agent) runReActLoop(
 		}
 
 		// Auto-compaction: when the conversation approaches the context window, summarize older
-		// turns and rebuild the payload from the rewritten history. Non-fatal on error.
-		if did, err := a.maybeCompact(ctx, provider, lastInputTokens); err != nil {
+		// turns and rebuild the payload from the rewritten history. Non-fatal on error. The coddy
+		// engine re-checks between turns (the first check ran before the loop); the opencode engine
+		// checks every turn against the provider's real input-token count.
+		if a.cfg.Compaction.EngineIsCoddy() {
+			if turn > 0 && a.maybeAutoCompact(ctx) {
+				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			}
+		} else if did, err := a.maybeCompact(ctx, provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
 			}
@@ -769,6 +792,12 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 // The stored history content is never modified — only the slice sent to the LLM differs.
 func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	history := a.state.GetMessages()
+	// The coddy compaction engine replays only the window from the last summary onward; earlier
+	// history stays in the transcript for the UI. The opencode engine keeps the full slice and
+	// relies on isLLMHistoryMessage to drop messages flagged Compacted.
+	if a.cfg.Compaction.EngineIsCoddy() {
+		history = session.MessagesForLLM(history)
+	}
 	allSkills := a.state.GetSkills()
 	msgs := make([]llm.Message, 0, len(history)+1)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})

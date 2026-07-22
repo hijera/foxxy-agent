@@ -10,7 +10,35 @@
 
 ---
 
-## Последняя синхронизация
+## В процессе: `bc1afb9 → 6666606` (тег `0.9.43`)
+
+Крупная волна (42 не-merge коммита, 158 файлов). Портируется тремя бандлами отдельными
+коммитами. Прогресс:
+
+- **Волна 1 — Compaction (coddy по умолчанию + тумблер на OpenCode) + чистые фиксы — ГОТОВО.**
+  - Слиты два движка компакции в один `compaction:`-блок с полем `engine: coddy | opencode`
+    (default `coddy`). coddy — новый движок (`internal/agent/compact.go`,
+    `internal/session/compaction.go`, ручная `/compact`, авто-компакция, HTTP
+    `POST /foxxycode/sessions/{id}/compact`, UI `CompactionMessage.tsx`); opencode — прежний
+    движок форка (`internal/agent/compaction.go`, флаг `Compacted`). Диспетчеризация по движку
+    в `internal/agent/react.go` (построение окна истории + триггер + перехват `/compact`).
+    Конфиг: `internal/config/compaction.go` (поля `engine`, `keep_recent_turns` вместо
+    `keep_last_turns`), jsondto/ui_schema/docs/example + RU-оверлей + фикстура ui-schema.
+  - Windows session-fix (upstream `4f57540`): `pathMutex` на `FileStore`, `renameWithRetry`,
+    `rename_windows.go`/`rename_other.go`. Чинит флейк `TestConcurrentPatchSessionMetaActivitySync`.
+  - fs line-endings (upstream `f6cf51c` + `9111fa8`): новый `internal/tools/fs/line_endings.go`,
+    правки `edit.go`/`patch.go`/`patch_v4a.go` **вручную поверх cp1251-слоя** `decodeText`/`encodeText`;
+    BDD `features/edit_line_endings.feature`. `/compact` объявляется в слэш-меню
+    (`skills.BuiltinCommands`, ACP + HTTP `/foxxycode/slash-commands`).
+  - Мелочь: staticcheck-гарды (`99259a7`), `.gitignore *.bak` (`87d1040`). `69ce66c`
+    (light-theme кнопка) уже был в форке.
+  - Гейты зелёные: default / `http` / `http,memory` / `memory` / `scheduler`, `build:go`.
+- **Волна 2 — Remote control / env-selector / http-auth — TODO.**
+- **Волна 3 — Skills marketplace + plugin command — TODO.**
+
+---
+
+## Последняя синхронизация (полностью портированная)
 
 | Поле | Значение |
 | --- | --- |

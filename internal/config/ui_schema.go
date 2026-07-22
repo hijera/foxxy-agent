@@ -401,13 +401,19 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"compaction": objectSchema("Automatic context compaction", "Summarize older turns when the conversation approaches the model context window.",
 			map[string]interface{}{
+				"engine": map[string]interface{}{
+					"type":        "string",
+					"title":       "Compaction engine",
+					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
+					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
+				},
 				"enabled":           boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
 				"model":             strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
-				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99."),
-				"keep_last_turns":   intProp("Keep last turns", "Most recent user turns preserved verbatim."),
-				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation."),
+				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode)."),
+				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2)."),
+				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation (opencode engine only)."),
 			},
-			[]string{"enabled", "model", "threshold_percent", "keep_last_turns", "max_tokens"},
+			[]string{"engine", "enabled", "model", "threshold_percent", "keep_recent_turns", "max_tokens"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{

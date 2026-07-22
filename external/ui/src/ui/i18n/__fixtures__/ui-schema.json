@@ -100,15 +100,25 @@
           "title": "Enabled",
           "type": "boolean"
         },
-        "keep_last_turns": {
+        "engine": {
+          "default": "coddy",
+          "description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
+          "enum": [
+            "coddy",
+            "opencode"
+          ],
+          "title": "Compaction engine",
+          "type": "string"
+        },
+        "keep_recent_turns": {
           "default": 2,
-          "description": "Most recent user turns preserved verbatim.",
-          "title": "Keep last turns",
+          "description": "Most recent user turns preserved verbatim (default 2).",
+          "title": "Keep recent turns",
           "type": "integer"
         },
         "max_tokens": {
           "default": 4096,
-          "description": "Completion token cap for the summary generation.",
+          "description": "Completion token cap for the summary generation (opencode engine only).",
           "title": "Summary max tokens",
           "type": "integer"
         },
@@ -118,8 +128,8 @@
           "type": "string"
         },
         "threshold_percent": {
-          "default": 85,
-          "description": "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99.",
+          "default": 80,
+          "description": "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).",
           "title": "Threshold percent",
           "type": "integer"
         }
@@ -127,10 +137,11 @@
       "title": "Automatic context compaction",
       "type": "object",
       "x-foxxycode-property-order": [
+        "engine",
         "enabled",
         "model",
         "threshold_percent",
-        "keep_last_turns",
+        "keep_recent_turns",
         "max_tokens"
       ]
     },

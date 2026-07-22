@@ -416,6 +416,12 @@
       "description": "Summarize older turns when the conversation approaches the model's context window.",
       "additionalProperties": false,
       "properties": {
+        "engine": {
+          "type": "string",
+          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it (supports /compact); \"opencode\" flags older turns and filters them from the payload.",
+          "enum": ["coddy", "opencode"],
+          "default": "coddy"
+        },
         "enabled": {
           "type": "boolean",
           "description": "Turn on auto-compaction. Unset defaults to true; set false to disable.",
@@ -428,17 +434,17 @@
         },
         "threshold_percent": {
           "type": "integer",
-          "description": "Trigger when prompt tokens exceed this percent of the usable context (max_context_tokens - max_tokens). Clamped to 50..99.",
-          "default": 85
+          "description": "Trigger when context usage exceeds this percent of the model context window. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99.",
+          "default": 80
         },
-        "keep_last_turns": {
+        "keep_recent_turns": {
           "type": "integer",
-          "description": "Number of most recent user turns preserved verbatim (never summarized).",
+          "description": "Number of most recent user turns preserved verbatim (never summarized). Default 2.",
           "default": 2
         },
         "max_tokens": {
           "type": "integer",
-          "description": "Completion token cap for the summary generation.",
+          "description": "Completion token cap for the summary generation (opencode engine only).",
           "default": 4096
         }
       }
