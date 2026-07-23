@@ -6,6 +6,8 @@ package config
 func SchemaExampleConfigJSON() *ConfigJSON {
 	perProviderEnabled := true
 	compactionEnabled := true
+	compactionKeepRecent := CompactionDefaultKeepRecentTurns
+	skillsAutoDiscovery := true
 	titleEnabled := true
 	browserHeadless := true
 	return &ConfigJSON{
@@ -42,6 +44,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 				"${FOXXYCODE_HOME}/skills",
 				"${CWD}/.foxxycode/skills",
 			},
+			Sources:       []string{},
+			AutoDiscovery: &skillsAutoDiscovery,
 		},
 		MCPServers: []MCPServerJSON{},
 		Tools: ToolsJSON{
@@ -66,10 +70,11 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			MaxSearchHits:    8,
 		},
 		Compaction: CompactionJSON{
+			Engine:           CompactionEngineCoddy,
 			Enabled:          &compactionEnabled,
 			Model:            "",
-			ThresholdPercent: CompactionDefaultThresholdPercent,
-			KeepLastTurns:    CompactionDefaultKeepLastTurns,
+			ThresholdPercent: CompactionDefaultThresholdCoddy,
+			KeepRecentTurns:  &compactionKeepRecent,
 			MaxTokens:        CompactionDefaultMaxTokens,
 		},
 		Title: TitleJSON{

@@ -131,12 +131,12 @@ func (a *Agent) maybeCompact(ctx context.Context, provider llm.Provider, lastInp
 			session.EstimateTokens(compactionSummaryText(history))
 	}
 
-	threshold := usable * a.cfg.Compaction.ThresholdPercent / 100
+	threshold := usable * a.cfg.Compaction.EffectiveThresholdPercent() / 100
 	if threshold <= 0 || current < threshold {
 		return false, nil
 	}
 
-	boundary := compactionBoundary(history, a.cfg.Compaction.KeepLastTurns)
+	boundary := compactionBoundary(history, a.cfg.Compaction.EffectiveKeepRecentTurns())
 	if boundary <= 0 {
 		return false, nil
 	}

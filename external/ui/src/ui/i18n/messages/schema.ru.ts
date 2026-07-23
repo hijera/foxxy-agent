@@ -143,6 +143,12 @@ export const schemaTextRu: Record<string, string> = {
   "Skill directories": "Каталоги навыков",
   "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.":
     "Пути поиска навыков. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} и ${CWD} подставляются во время выполнения.",
+  "Remote skill sources": "Удалённые источники навыков",
+  "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.":
+    "Удалённые источники для установки навыков: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог навыков.",
+  "Auto-discovery": "Авто-обнаружение",
+  "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.":
+    "Предлагать инструмент load_skill: агент сам подтягивает инструкции подходящего навыка в ход. По умолчанию включено.",
 
   // Memory
   "Long-term memory": "Долговременная память",
@@ -173,20 +179,23 @@ export const schemaTextRu: Record<string, string> = {
   "Automatic context compaction": "Автоматическое сжатие контекста",
   "Summarize older turns when the conversation approaches the model context window.":
     "Сжимает старые шаги диалога в сводку, когда контекст приближается к пределу окна модели.",
+  "Compaction engine": "Движок сжатия",
+  'Which compaction implementation to use. "coddy" (default) keeps a summary row and replays only the window after it, and supports the /compact command. "opencode" flags older turns and filters them from the payload.':
+    'Какую реализацию сжатия использовать. «coddy» (по умолчанию) оставляет строку-сводку и воспроизводит только окно после неё, поддерживает команду /compact. «opencode» помечает старые шаги и исключает их из отправляемого контекста.',
   "Turns on auto-compaction; only fires near the context window.":
     "Включает авто-сжатие; срабатывает только у предела окна контекста.",
   "Compaction model": "Модель сжатия",
   "Model override for the summary pass; empty uses agent model.":
     "Замена модели для прохода сводки; пусто — используется модель агента.",
   "Threshold percent": "Порог, %",
-  "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99.":
-    "Срабатывает при этом проценте полезного контекста (max_context_tokens - max_tokens); 50..99.",
-  "Keep last turns": "Сохранять последних шагов",
-  "Most recent user turns preserved verbatim.":
-    "Сколько последних шагов пользователя сохраняется без изменений.",
+  "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).":
+    "Срабатывает при этом проценте окна контекста модели. По умолчанию 80 (coddy) / 85 (opencode).",
+  "Keep recent turns": "Сохранять последних шагов",
+  "Most recent user turns preserved verbatim (default 2).":
+    "Сколько последних шагов пользователя сохраняется без изменений (по умолчанию 2).",
   "Summary max tokens": "Макс. токенов сводки",
-  "Completion token cap for the summary generation.":
-    "Лимит токенов ответа для генерации сводки.",
+  "Completion token cap for the summary generation (opencode engine only).":
+    "Лимит токенов ответа для генерации сводки (только движок opencode).",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",
@@ -333,6 +342,9 @@ export const schemaTextRu: Record<string, string> = {
   UI: "Интерфейс",
   "Embedded SPA preferences for desktop and HTTP UI.":
     "Настройки встроенного SPA для десктопа и HTTP-интерфейса.",
+  "Serve the SPA": "Отдавать веб-интерфейс",
+  "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available.":
+    "Отдавать встроенный веб-интерфейс на GET /. Выключите, чтобы запустить foxxycode http только как API-сервер; /v1/* и /foxxycode/* остаются доступны.",
   "UI language": "Язык интерфейса",
   "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.":
     "Локаль интерфейса встроенного SPA. Пусто — автоопределение из системы или локали браузера.",
@@ -396,4 +408,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   enter: "Enter",
   ctrl_enter: "Ctrl+Enter",
   off: "Отключено",
+  // compaction.engine
+  coddy: "coddy",
+  opencode: "opencode",
 };

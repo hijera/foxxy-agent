@@ -126,6 +126,8 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dirs` | string list | no | `["~/.agents/skills", "${FOXXYCODE_HOME}/skills", "${CWD}/.foxxycode/skills"]` | Directories scanned for skills. Later entries have **higher** priority on name conflicts. `${FOXXYCODE_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`). |
+| `sources` | string list | no | `[]` | Remote skill sources to install from: `owner/repo[@ref]`, a git URL, or an `http(s)` URL to an agents-standard `marketplace.json`. Fetched on demand via `foxxycode skills sync` / the `/plugin` command / Settings → Skills (never automatically) into the managed skills dir. |
+| `auto_discovery` | bool | no | `true` | Offer the model-driven `load_skill` tool so the agent can pull a catalogued skill's instructions into a turn on its own (instead of requiring an explicit `/name`). |
 
 ## `rules`
 
@@ -204,15 +206,16 @@ Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; im
 
 ## `compaction`
 
-Automatic context compaction (`config.CompactionConfig`, `internal/config/compaction.go`; always compiled). When the running prompt approaches the model's context window (`models[].max_context_tokens`), older turns are summarized into one message so the session can continue. The summarized messages stay in the transcript (marked compacted) but are excluded from what is sent to the model.
+Automatic context compaction (`config.CompactionConfig`, `internal/config/compaction.go`; always compiled). When the running prompt approaches the model's context window (`models[].max_context_tokens`), older turns are summarized into one message so the session can continue. Two engines share this section, selected by `engine`: the default **coddy** engine inserts a summary row and replays only the window from the last summary onward (and enables the manual `/compact` command plus the HTTP compact endpoint); the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
+| `engine` | string | no | `coddy` | Compaction implementation: `coddy` or `opencode`. |
 | `enabled` | bool | no | `true` | Turn on auto-compaction. Unset defaults to `true`; set `false` to disable. |
 | `model` | string | no | `""` (agent model) | Exact `models[].model` id used for the summarization pass. |
-| `threshold_percent` | int | no | `85` | Trigger when prompt tokens exceed this percent of the usable context (`max_context_tokens - max_tokens`). Clamped to 50..99. |
-| `keep_last_turns` | int | no | `2` | Most recent user turns preserved verbatim (never summarized). |
-| `max_tokens` | int | no | `4096` | Completion token cap for the summary generation. |
+| `threshold_percent` | int | no | `80` (coddy) / `85` (opencode) | Trigger when context usage exceeds this percent of the model context window. The opencode engine clamps to 50..99. |
+| `keep_recent_turns` | int | no | `2` | Most recent user turns preserved verbatim (never summarized). |
+| `max_tokens` | int | no | `4096` | Completion token cap for the summary generation (opencode engine only). |
 
 ## `title`
 
@@ -232,6 +235,13 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 |---|---|---|---|---|
 | `host` | string | no | `""` → `0.0.0.0` | Default bind address when `foxxycode http` does not pass `-H/--host`. |
 | `port` | int | no | `0` → `12345` | Default listen port when `foxxycode http` does not pass `-P/--port`. Range 0–65535. |
+| `auth_token` | string | no | `""` | Optional bearer credential for the HTTP API. Empty = no auth. `${ENV}` expanded at load; prefer `--auth-token` / `FOXXYCODE_HTTP_TOKEN`. Redacted from `GET /foxxycode/config`. See [remote-control.md](remote-control.md). |
+| `public_docs` | bool | no | `false` | Keep `/docs` and `/openapi.*` reachable without a token when auth is enabled. |
+| `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
+| `cors.enabled` | bool | no | `false` | Turn on CORS handling (preflight + `Access-Control-*` headers). |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins permitted to call the API. A single `"*"` allows any origin (bearer auth still applies). |
+| `remotes[].name` | string | no | — | Display name of a remote server in the UI environment selector. |
+| `remotes[].url` | string | no | — | Base URL of the remote `foxxycode http` server. Tokens are not stored here; the UI keeps them client-side. |
 
 ## `scheduler`
 
@@ -269,6 +279,7 @@ Embedded SPA preferences (`config.UIConfig`, `internal/config/ui.go`). Used by t
 
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
+| `enabled` | bool | no | `true` | — | Serve the embedded web UI at `GET /`. Set `false` to run `foxxycode http` as an API-only server; `/v1/*` and `/foxxycode/*` stay available. |
 | `locale` | string | no | `""` (auto) | — | UI language: empty (auto-detect system/browser locale), `en`, or `ru`. |
 | `send_mode` | string | no | `enter` | — | How the main chat composer submits: `enter` (Enter sends, Shift/Ctrl+Enter insert a newline), `ctrl_enter` (Ctrl/Cmd+Enter sends, Enter inserts a newline), or `off` (keyboard send disabled, Send button only). |
 

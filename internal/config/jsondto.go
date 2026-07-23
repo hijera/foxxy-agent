@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -40,6 +41,7 @@ type BrowserJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
+	Enabled  *bool  `json:"enabled,omitempty"`
 	Locale   string `json:"locale,omitempty"`
 	SendMode string `json:"send_mode,omitempty"`
 }
@@ -129,7 +131,9 @@ type PerProviderPromptsJSON struct {
 
 // SkillsJSON mirrors Skills for JSON APIs.
 type SkillsJSON struct {
-	Dirs []string `json:"dirs,omitempty"`
+	Dirs          []string `json:"dirs,omitempty"`
+	Sources       []string `json:"sources,omitempty"`
+	AutoDiscovery *bool    `json:"auto_discovery,omitempty"`
 }
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
@@ -193,12 +197,14 @@ type MemoryJSON struct {
 }
 
 // CompactionJSON mirrors CompactionConfig. Enabled is a pointer so an unset value round-trips as
-// "use default" (true) rather than an explicit false.
+// "use default" (true) rather than an explicit false; KeepRecentTurns is a pointer so an explicit
+// 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
+	Engine           string `json:"engine,omitempty"`
 	Enabled          *bool  `json:"enabled,omitempty"`
 	Model            string `json:"model,omitempty"`
 	ThresholdPercent int    `json:"threshold_percent,omitempty"`
-	KeepLastTurns    int    `json:"keep_last_turns,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
 	MaxTokens        int    `json:"max_tokens,omitempty"`
 }
 
@@ -210,10 +216,29 @@ type TitleJSON struct {
 	MaxTokens int    `json:"max_tokens,omitempty"`
 }
 
-// HTTPServerJSON mirrors HTTPServerConfig.
+// HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
+// populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
-	Host string `json:"host,omitempty"`
-	Port int    `json:"port,omitempty"`
+	Host           string           `json:"host,omitempty"`
+	Port           int              `json:"port,omitempty"`
+	AuthToken      string           `json:"auth_token,omitempty"`
+	AuthConfigured bool             `json:"auth_configured,omitempty"`
+	PublicDocs     bool             `json:"public_docs,omitempty"`
+	AllowInsecure  bool             `json:"allow_insecure,omitempty"`
+	CORS           HTTPCORSJSON     `json:"cors,omitempty"`
+	Remotes        []HTTPRemoteJSON `json:"remotes,omitempty"`
+}
+
+// HTTPCORSJSON mirrors HTTPCORSConfig.
+type HTTPCORSJSON struct {
+	Enabled        bool     `json:"enabled,omitempty"`
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
+}
+
+// HTTPRemoteJSON mirrors HTTPRemote.
+type HTTPRemoteJSON struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // SchedulerJSON mirrors SchedulerConfig.
@@ -252,7 +277,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Prompts.PerProvider = &PerProviderPromptsJSON{Enabled: c.Prompts.PerProvider.Enabled}
 	}
 	out.Instructions = InstructionsJSON{Files: append([]string(nil), c.Instructions.Files...)}
-	out.Skills = SkillsJSON{Dirs: append([]string(nil), c.Skills.Dirs...)}
+	out.Skills = SkillsJSON{
+		Dirs:          append([]string(nil), c.Skills.Dirs...),
+		Sources:       append([]string(nil), c.Skills.Sources...),
+		AutoDiscovery: c.Skills.AutoDiscovery,
+	}
 	for _, s := range c.MCPServers {
 		mj := MCPServerJSON{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
 		for _, e := range s.Env {
@@ -279,14 +308,28 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
 	out.Compaction = CompactionJSON{
-		Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
-		ThresholdPercent: c.Compaction.ThresholdPercent, KeepLastTurns: c.Compaction.KeepLastTurns,
+		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
+		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
 		MaxTokens: c.Compaction.MaxTokens,
 	}
 	out.Title = TitleJSON{
 		Enabled: c.Title.Enabled, Model: c.Title.Model, MaxTokens: c.Title.MaxTokens,
 	}
-	out.HTTPServer = HTTPServerJSON{Host: c.HTTPServer.Host, Port: c.HTTPServer.Port}
+	out.HTTPServer = HTTPServerJSON{
+		Host:          c.HTTPServer.Host,
+		Port:          c.HTTPServer.Port,
+		PublicDocs:    c.HTTPServer.PublicDocs,
+		AllowInsecure: c.HTTPServer.AllowInsecure,
+		// AuthToken is intentionally redacted; report only whether one is configured.
+		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
+		CORS: HTTPCORSJSON{
+			Enabled:        c.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range c.HTTPServer.Remotes {
+		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
+	}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
@@ -309,7 +352,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		})
 	}
 	out.Gateways = GatewaysJSON{Telegram: tgJSON}
-	out.UI = UIJSON{Locale: c.UI.Locale, SendMode: c.UI.SendMode}
+	out.UI = UIJSON{Enabled: c.UI.Enabled, Locale: c.UI.Locale, SendMode: c.UI.SendMode}
 	out.Browser = BrowserJSON{
 		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
 		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
@@ -345,7 +388,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Instructions = Instructions{Files: append([]string(nil), j.Instructions.Files...)}
 	cfg.Skills = Skills{
-		Dirs: append([]string(nil), j.Skills.Dirs...),
+		Dirs:          append([]string(nil), j.Skills.Dirs...),
+		Sources:       append([]string(nil), j.Skills.Sources...),
+		AutoDiscovery: j.Skills.AutoDiscovery,
 	}
 	for _, s := range j.MCPServers {
 		mc := MCPServerConfig{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
@@ -375,14 +420,27 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
 	cfg.Compaction = CompactionConfig{
-		Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
-		ThresholdPercent: j.Compaction.ThresholdPercent, KeepLastTurns: j.Compaction.KeepLastTurns,
+		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
+		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
 		MaxTokens: j.Compaction.MaxTokens,
 	}
 	cfg.Title = TitleConfig{
 		Enabled: j.Title.Enabled, Model: j.Title.Model, MaxTokens: j.Title.MaxTokens,
 	}
-	cfg.HTTPServer = HTTPServerConfig{Host: j.HTTPServer.Host, Port: j.HTTPServer.Port}
+	cfg.HTTPServer = HTTPServerConfig{
+		Host:          j.HTTPServer.Host,
+		Port:          j.HTTPServer.Port,
+		AuthToken:     j.HTTPServer.AuthToken,
+		PublicDocs:    j.HTTPServer.PublicDocs,
+		AllowInsecure: j.HTTPServer.AllowInsecure,
+		CORS: HTTPCORSConfig{
+			Enabled:        j.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range j.HTTPServer.Remotes {
+		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
+	}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
@@ -405,7 +463,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		})
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg}
-	cfg.UI = UIConfig{Locale: j.UI.Locale, SendMode: j.UI.SendMode}
+	cfg.UI = UIConfig{Enabled: j.UI.Enabled, Locale: j.UI.Locale, SendMode: j.UI.SendMode}
 	cfg.Browser = BrowserConfig{
 		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,
 		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,
@@ -415,16 +473,36 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 
 // ParseAndValidateConfigJSON unmarshals JSON into ConfigJSON, maps to Config, applies defaults and validates.
 func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
+	return ParseConfigJSONPreservingSecrets(data, paths, nil)
+}
+
+// ParseConfigJSONPreservingSecrets is like ParseAndValidateConfigJSON but, when current is
+// non-nil, carries write-only secrets that GET /foxxycode/config redacts (currently the
+// httpserver auth token) from current into the incoming config when the payload omitted them.
+// This lets the UI save an edited, redacted config without wiping tokens it never received.
+func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config) (*Config, error) {
 	var j ConfigJSON
 	if err := json.Unmarshal(data, &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	cfg := JSONDTOToConfig(&j, paths)
+	preserveRedactedSecrets(cfg, current)
 	applyDefaults(cfg)
 	if err := validateSubconfigs(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// preserveRedactedSecrets copies redacted, write-only secrets from current into next when next
+// left them empty. GET /foxxycode/config never returns these, so a plain round-trip would drop them.
+func preserveRedactedSecrets(next, current *Config) {
+	if next == nil || current == nil {
+		return
+	}
+	if strings.TrimSpace(next.HTTPServer.AuthToken) == "" && strings.TrimSpace(current.HTTPServer.AuthToken) != "" {
+		next.HTTPServer.AuthToken = current.HTTPServer.AuthToken
+	}
 }
 
 // MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on field).

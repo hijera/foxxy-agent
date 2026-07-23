@@ -178,3 +178,18 @@ func formatMergedMemory(sessionNotes, recall string) string {
 	}
 	return strings.Join(parts, "\n\n")
 }
+
+// loadSkillBody returns a loaded skill's full instruction body by its command name (with or
+// without the leading slash), plus the list of available command names. It backs the model-driven
+// load_skill tool (skills.auto_discovery).
+func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
+	idx := skills.SkillBySlashName(a.state.GetSkills())
+	available := make([]string, 0, len(idx))
+	for n := range idx {
+		available = append(available, n)
+	}
+	if sk, ok := idx[strings.TrimSpace(name)]; ok {
+		return strings.TrimSpace(sk.Content), available, true
+	}
+	return "", available, false
+}

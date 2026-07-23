@@ -39,3 +39,11 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **`docs/config.schema.json`** and **`docs/config-reference.md`** updated when `internal/config` yaml fields changed.
 - **`make lint`** clean.
 - **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`.
+
+## BDD specs (Gherkin)
+
+The **happy path** of a feature (and a bug's reproduction) belongs in a Gherkin `.feature`
+file in the **repo-root `features/`** directory. The godog step definitions stay in the
+package under test (e.g. `external/httpserver/bdd_*_test.go`, `internal/agent/bdd_*_test.go`)
+and point `Options.Paths` at `../../features/<name>.feature`. **Edge and error cases go in
+ordinary unit tests**, not in `features/`.

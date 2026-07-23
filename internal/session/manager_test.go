@@ -126,6 +126,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 	if len(res.ConfigOptions) < 2 {
 		t.Fatalf("expected at least mode + model config options, got %d", len(res.ConfigOptions))
@@ -141,6 +142,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 	if modeOpt == nil {
 		t.Fatal("expected config option id mode")
+		return
 	}
 	if modeOpt.Category != "mode" || modeOpt.Type != "select" {
 		t.Fatalf("mode option: %+v", modeOpt)
@@ -150,6 +152,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 	if modelOpt == nil {
 		t.Fatal("expected config option id model")
+		return
 	}
 	if modelOpt.Category != "model" || modelOpt.Type != "select" {
 		t.Fatalf("model option: %+v", modelOpt)
@@ -529,16 +532,19 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	}
 	if slash == nil {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
+		return
 	}
-	if len(slash.AvailableCommands) != 2 {
+	// Skills (demo + bundled generate-rules) plus the built-in compact command
+	// (coddy compaction engine) and the always-present plugin command.
+	if len(slash.AvailableCommands) != 4 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] {
-		t.Fatalf("expected demo and generate-rules, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] || !names["compact"] || !names["plugin"] {
+		t.Fatalf("expected demo, generate-rules, compact and plugin, got %+v", slash.AvailableCommands)
 	}
 }
 

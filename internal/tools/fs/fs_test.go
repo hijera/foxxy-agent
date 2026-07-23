@@ -190,7 +190,8 @@ func TestApplyPatchPreservesWindows1251(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := windows1251Bytes(t, "первая\nновая")
+	// The source file ended with a newline; the line-ending-preserving patch keeps it.
+	want := windows1251Bytes(t, "первая\nновая\n")
 	if string(got) != string(want) {
 		t.Fatalf("bytes = %v, want Windows-1251 %v", got, want)
 	}
@@ -249,7 +250,7 @@ func TestApplyUnifiedDiff_replaceMiddleLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyUnifiedDiff: %v", err)
 	}
-	want := "line1\nnewline2\nline3"
+	want := "line1\nnewline2\nline3\n"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -300,7 +301,7 @@ func TestApplyV4APatch_bareHunkHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyPatch: %v", err)
 	}
-	want := "alpha\nBETA\ngamma"
+	want := "alpha\nBETA\ngamma\n"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -697,5 +698,210 @@ func TestGrepSkipsPhantomTrailingLine(t *testing.T) {
 	}
 	if !strings.Contains(out, "crlf.txt:2:beta") || strings.Contains(out, "\r") {
 		t.Fatalf("CRLF handling wrong: %q", out)
+	}
+}
+
+func TestEditNormalizesLineEndingsAndPreservesFileStyle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		content    string
+		oldString  string
+		newString  string
+		replaceAll bool
+		want       string
+	}{
+		{
+			name:      "LF arguments edit CRLF file",
+			content:   "before\r\n  function changePrBill(){\r\n\t\ttoggleBillColumns();\r\n\t}\r\nafter\r\n",
+			oldString: "  function changePrBill(){\n\t\ttoggleBillColumns();\n\t}",
+			newString: "  function changePrBill(){\n\t\ttoggleBillColumns();\n\t\trefreshBill();\n\t}",
+			want:      "before\r\n  function changePrBill(){\r\n\t\ttoggleBillColumns();\r\n\t\trefreshBill();\r\n\t}\r\nafter\r\n",
+		},
+		{
+			name:      "CRLF arguments edit LF file",
+			content:   "alpha\nbeta\ngamma\n",
+			oldString: "alpha\r\nbeta",
+			newString: "alpha\r\nBETA",
+			want:      "alpha\nBETA\ngamma\n",
+		},
+		{
+			name:       "replace all preserves CRLF",
+			content:    "alpha\r\nbeta\r\nalpha\r\nbeta\r\n",
+			oldString:  "alpha\nbeta",
+			newString:  "alpha\nBETA",
+			replaceAll: true,
+			want:       "alpha\r\nBETA\r\nalpha\r\nBETA\r\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "file.txt")
+			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			args, err := json.Marshal(editArgs{
+				Path:       path,
+				OldString:  tt.oldString,
+				NewString:  tt.newString,
+				ReplaceAll: &tt.replaceAll,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := executeEdit(context.Background(), string(args), &tooling.Env{}); err != nil {
+				t.Fatalf("executeEdit: %v", err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyPatchPreservesCRLFAndFinalNewline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		patch string
+	}{
+		{
+			name:  "unified diff",
+			patch: "@@ -2,1 +2,1 @@\n-beta\n+BETA\n",
+		},
+		{
+			name: "V4A patch",
+			patch: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: file.txt",
+				"@@",
+				"-beta",
+				"+BETA",
+				"*** End Patch",
+			}, "\n"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := applyPatch("alpha\r\nbeta\r\ngamma\r\n", tt.patch)
+			if err != nil {
+				t.Fatalf("applyPatch: %v", err)
+			}
+			want := "alpha\r\nBETA\r\ngamma\r\n"
+			if got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestApplyPatchPreservesTrailingBlankLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		patch string
+	}{
+		{name: "unified diff", patch: "@@ -2,1 +2,1 @@\n-beta\n+BETA\n"},
+		{name: "V4A patch", patch: "@@\n-beta\n+BETA\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := applyPatch("alpha\r\nbeta\r\n\r\n", tt.patch)
+			if err != nil {
+				t.Fatalf("applyPatch: %v", err)
+			}
+			want := "alpha\r\nBETA\r\n\r\n"
+			if got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestApplyUnifiedDiffRejectsMismatchedDeletedLine(t *testing.T) {
+	t.Parallel()
+
+	_, err := applyUnifiedDiff("alpha\nbeta\ngamma\n", "@@ -2,1 +2,1 @@\n-wrong\n+BETA\n")
+	if err == nil {
+		t.Fatal("expected mismatched deleted line to fail")
+	}
+	if !strings.Contains(err.Error(), "wrong") || !strings.Contains(err.Error(), "beta") {
+		t.Fatalf("error should show expected and actual lines, got: %v", err)
+	}
+}
+
+func TestApplyUnifiedDiffMultipleHunksValidateContext(t *testing.T) {
+	t.Parallel()
+
+	original := "one\ntwo\nthree\nfour\nfive\n"
+	diff := strings.Join([]string{
+		"--- a/file.txt",
+		"+++ b/file.txt",
+		"@@ -1,2 +1,2 @@",
+		" one",
+		"-two",
+		"+TWO",
+		"@@ -4,2 +4,2 @@",
+		" four",
+		"-five",
+		"+FIVE",
+	}, "\n")
+
+	got, err := applyUnifiedDiff(original, diff)
+	if err != nil {
+		t.Fatalf("applyUnifiedDiff: %v", err)
+	}
+	want := "one\nTWO\nthree\nfour\nFIVE\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestPrintTreeRendersDepthLimitedTree(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{filepath.Join(root, "sub", "deep"), filepath.Join(root, ".git")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{
+		filepath.Join(root, "a.txt"),
+		filepath.Join(root, "sub", "b.go"),
+		filepath.Join(root, "sub", "deep", "c.md"),
+	} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out, err := executePrintTree(context.Background(), `{"depth":2}`, &tooling.Env{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a.txt", "sub/", "b.go", "deep/"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tree missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "c.md") {
+		t.Errorf("depth=2 must not descend to c.md (depth 3):\n%s", out)
+	}
+	if strings.Contains(out, ".git") {
+		t.Errorf(".git must be skipped:\n%s", out)
+	}
+	if !strings.Contains(out, "── ") {
+		t.Errorf("expected tree branch glyphs:\n%s", out)
 	}
 }

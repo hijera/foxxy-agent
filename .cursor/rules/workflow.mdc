@@ -38,6 +38,14 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **`make lint`** clean.
 - **Rules sync** — if any `.cursor/rules/*.mdc` file was added or changed, propagate to `.claude/rules/`: copy the content body, replace `globs:`/`alwaysApply:` with Claude-compatible `paths:` (list form), rename to `.md`. Files with `alwaysApply: true` keep `paths:` matching the globs.
 
+## BDD specs (Gherkin)
+
+The **happy path** of a feature (and a bug's reproduction) belongs in a Gherkin `.feature`
+file in the **repo-root `features/`** directory. The godog step definitions stay in the
+package under test (e.g. `external/httpserver/bdd_*_test.go`, `internal/agent/bdd_*_test.go`)
+and point `Options.Paths` at `../../features/<name>.feature`. **Edge and error cases go in
+ordinary unit tests**, not in `features/`.
+
 ## References
 
 @testing.mdc

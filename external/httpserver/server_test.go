@@ -1809,7 +1809,9 @@ func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	if r1.StatusCode != http.StatusOK || page1.Total != 3 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
+	// 3 skills (apples, zebra, bundled generate-rules) plus the built-in compact and
+	// plugin commands, which lead the catalog (compact first while the coddy engine is on).
+	if r1.StatusCode != http.StatusOK || page1.Total != 5 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "compact" {
 		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
 	}
 
@@ -2462,5 +2464,307 @@ func TestFoxxyCodeWorkspaceContextPathParam(t *testing.T) {
 	defer res2.Body.Close()
 	if res2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing path status = %d", res2.StatusCode)
+	}
+}
+
+func TestHTTPAuthProtectsAPIAndAllowsSPA(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "wrong"); got != http.StatusUnauthorized {
+		t.Fatalf("wrong token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "s3cret"); got != http.StatusOK {
+		t.Fatalf("valid token: status %d want 200", got)
+	}
+	// The SPA shell stays public even with auth enabled (no-ui build returns a 404 notice, not 401).
+	if got := authGET(t, ts.URL+"/", ""); got == http.StatusUnauthorized {
+		t.Fatal("SPA root must be public, got 401")
+	}
+}
+
+func TestHTTPAuthChallengeHeader(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status %d want 401", res.StatusCode)
+	}
+	if !strings.HasPrefix(res.Header.Get("WWW-Authenticate"), "Bearer") {
+		t.Fatalf("missing WWW-Authenticate challenge: %q", res.Header.Get("WWW-Authenticate"))
+	}
+}
+
+func TestHTTPAuthDisabledByDefault(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("auth disabled: status %d want 200", got)
+	}
+}
+
+func TestHTTPAuthHotReloadEnableRotateDisable(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("start disabled: %d", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokA"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("after enable, no token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusOK {
+		t.Fatalf("after enable, tokA: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokB"))
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusUnauthorized {
+		t.Fatalf("after rotate, old token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokB"); got != http.StatusOK {
+		t.Fatalf("after rotate, new token: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("after disable: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthExtraTokensEnableAuth(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	srv.SetExtraAuthTokens([]string{"cli-token"})
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("an extra (CLI/env) token must enable auth: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "cli-token"); got != http.StatusOK {
+		t.Fatalf("cli token: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthPublicDocs(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusUnauthorized {
+		t.Fatalf("openapi should be protected by default: %d want 401", got)
+	}
+	pd := cfgWithAuth("s3cret")
+	pd.HTTPServer.PublicDocs = true
+	srv.ReplaceConfig(pd)
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusOK {
+		t.Fatalf("public_docs should expose openapi: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthConfigGetRedactsTokens(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("topsecret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/foxxycode/config", nil)
+	req.Header.Set("Authorization", "Bearer topsecret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("config get status %d: %s", res.StatusCode, b)
+	}
+	if strings.Contains(string(b), "topsecret") {
+		t.Fatalf("GET /foxxycode/config leaked the auth token: %s", b)
+	}
+}
+
+func TestHTTPAuthConfigPutPreservesToken(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := "providers:\n  - name: openai\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: openai/gpt-4o\n    max_tokens: 4096\n    temperature: 0.1\n" +
+		"agent:\n  model: openai/gpt-4o\n" +
+		"httpserver:\n  auth_token: \"livetoken\"\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// A redacted UI save (auth_configured, no token value) that also changes max_turns.
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],` +
+		`"agent":{"model":"openai/gpt-4o","max_turns":15},` +
+		`"httpserver":{"auth_configured":true}}`
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/foxxycode/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer livetoken")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("put status %d: %s", res.StatusCode, pb)
+	}
+	if srv.activeCfg().Agent.MaxTurns != 15 {
+		t.Fatalf("hot reload max_turns %d", srv.activeCfg().Agent.MaxTurns)
+	}
+	// The token must still authenticate after the redacted save.
+	if got := authGET(t, ts.URL+"/v1/models", "livetoken"); got != http.StatusOK {
+		t.Fatalf("token lost after redacted save: %d", got)
+	}
+}
+
+func TestHTTPCORSPreflightAllowedOrigin(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("http://ui.local"))
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://ui.local")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight status %d want 204", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "http://ui.local" {
+		t.Fatalf("ACAO = %q want http://ui.local", got)
+	}
+	if !strings.Contains(res.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("ACA-Headers missing Authorization: %q", res.Header.Get("Access-Control-Allow-Headers"))
+	}
+}
+
+func TestHTTPCORSDisallowedOrigin(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("http://ui.local"))
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://evil.example")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed origin got ACAO %q, want none", got)
+	}
+}
+
+func TestHTTPCORSWildcardActualRequest(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("*"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://anything.example")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d want 200", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("wildcard ACAO = %q want *", got)
+	}
+}
+
+func TestHTTPCORSDisabledNoHeaders(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("")) // CORS disabled by default
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://ui.local")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("CORS disabled but ACAO set: %q", got)
+	}
+}
+
+func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("stream-secret"))
+	sid := "sess_deadbeefdeadbeef"
+	// Accepted via ?access_token= on the SSE route (unknown session resolves before the wait, not 401).
+	base := ts.URL + "/foxxycode/sessions/" + sid + "/composer-stream"
+	if got := authGET(t, base+"?access_token=stream-secret", ""); got == http.StatusUnauthorized {
+		t.Fatalf("composer-stream with valid access_token should not be 401")
+	}
+	// Rejected without any credential.
+	if got := authGET(t, base, ""); got != http.StatusUnauthorized {
+		t.Fatalf("composer-stream without token: %d want 401", got)
+	}
+	// The query token is NOT accepted on a non-SSE route.
+	if got := authGET(t, ts.URL+"/foxxycode/sessions/"+sid+"/messages?access_token=stream-secret", ""); got != http.StatusUnauthorized {
+		t.Fatalf("non-SSE route accepted query token: %d want 401", got)
+	}
+}
+
+func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
+	t.Helper()
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts
+}
+
+func authGET(t *testing.T, rawURL, token string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	return res.StatusCode
+}
+
+func cfgWithAuth(token string) *config.Config {
+	return &config.Config{
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		HTTPServer: config.HTTPServerConfig{AuthToken: token},
+	}
+}
+func cfgWithCORS(origins ...string) *config.Config {
+	c := cfgWithAuth("")
+	c.HTTPServer.CORS = config.HTTPCORSConfig{Enabled: true, AllowedOrigins: origins}
+	return c
+}
+
+func TestIsProtectedPatternExemptsIDERoutes(t *testing.T) {
+	// The local IDE integration routes stay public even when auth is enabled, so the editor
+	// plugin keeps working without a bearer token.
+	cases := []struct {
+		pattern    string
+		publicDocs bool
+		want       bool
+	}{
+		{"POST /foxxycode/ide/editor-state", false, false},
+		{"POST /foxxycode/ide/terminal-state", false, false},
+		{"GET /foxxycode/ide/events", false, false},
+		{"POST /v1/responses", false, true},
+		{"GET /foxxycode/sessions/{id}/messages", false, true},
+		{"", false, false},
+		{"/", false, false},
+		{"GET /docs", true, false},
+		{"GET /docs", false, true},
+	}
+	for _, tc := range cases {
+		if got := isProtectedPattern(tc.pattern, tc.publicDocs); got != tc.want {
+			t.Errorf("isProtectedPattern(%q, %v) = %v, want %v", tc.pattern, tc.publicDocs, got, tc.want)
+		}
 	}
 }

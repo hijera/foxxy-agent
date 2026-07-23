@@ -38,6 +38,8 @@ type Server struct {
 	mux                  *http.ServeMux
 	providerFactory      func(*config.Config) (llm.Provider, error)
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
+	// extraAuthTokens are bearer tokens supplied out-of-band via --auth-token / FOXXYCODE_HTTP_TOKEN.
+	extraAuthTokens []string
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
 
@@ -94,7 +96,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	} else {
 		s.mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.FS(swaggerSub))))
 	}
-	mountEmbeddedSPARoot(s.mux)
+	mountEmbeddedSPARoot(s)
 	return s
 }
 
@@ -170,7 +172,7 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 
 // Handler returns the root HTTP handler.
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return s.corsMiddleware(s.authGate(s.mux))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {

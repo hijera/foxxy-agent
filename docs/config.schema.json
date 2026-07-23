@@ -196,6 +196,16 @@
           "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
           "default": ["~/.agents/skills", "${FOXXYCODE_HOME}/skills", "${CWD}/.foxxycode/skills"],
           "items": { "type": "string" }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+          "items": { "type": "string" }
+        },
+        "auto_discovery": {
+          "type": "boolean",
+          "description": "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.",
+          "default": true
         }
       }
     },
@@ -416,6 +426,12 @@
       "description": "Summarize older turns when the conversation approaches the model's context window.",
       "additionalProperties": false,
       "properties": {
+        "engine": {
+          "type": "string",
+          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it (supports /compact); \"opencode\" flags older turns and filters them from the payload.",
+          "enum": ["coddy", "opencode"],
+          "default": "coddy"
+        },
         "enabled": {
           "type": "boolean",
           "description": "Turn on auto-compaction. Unset defaults to true; set false to disable.",
@@ -428,17 +444,17 @@
         },
         "threshold_percent": {
           "type": "integer",
-          "description": "Trigger when prompt tokens exceed this percent of the usable context (max_context_tokens - max_tokens). Clamped to 50..99.",
-          "default": 85
+          "description": "Trigger when context usage exceeds this percent of the model context window. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99.",
+          "default": 80
         },
-        "keep_last_turns": {
+        "keep_recent_turns": {
           "type": "integer",
-          "description": "Number of most recent user turns preserved verbatim (never summarized).",
+          "description": "Number of most recent user turns preserved verbatim (never summarized). Default 2.",
           "default": 2
         },
         "max_tokens": {
           "type": "integer",
-          "description": "Completion token cap for the summary generation.",
+          "description": "Completion token cap for the summary generation (opencode engine only).",
           "default": 4096
         }
       }
@@ -483,6 +499,50 @@
           "default": 0,
           "minimum": 0,
           "maximum": 65535
+        },
+        "auth_token": {
+          "type": "string",
+          "description": "Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See docs/remote-control.md.",
+          "default": ""
+        },
+        "public_docs": {
+          "type": "boolean",
+          "description": "Keep /docs and /openapi.* reachable without a token even when auth is enabled.",
+          "default": false
+        },
+        "allow_insecure": {
+          "type": "boolean",
+          "description": "Silence the startup warning about a non-loopback bind without authentication.",
+          "default": false
+        },
+        "cors": {
+          "type": "object",
+          "description": "Cross-origin policy so a browser UI on another origin can call this API.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turn on CORS handling (preflight + Access-Control-* headers).",
+              "default": false
+            },
+            "allowed_origins": {
+              "type": "array",
+              "description": "Exact origins permitted to call the API. A single \"*\" allows any origin (bearer auth still applies).",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "remotes": {
+          "type": "array",
+          "description": "Remote foxxycode http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "description": "Display name in the environment selector." },
+              "url": { "type": "string", "description": "Base URL of the remote foxxycode http server." }
+            }
+          }
         }
       }
     },
@@ -614,6 +674,11 @@
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "additionalProperties": false,
       "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available. Unset defaults to true.",
+          "default": true
+        },
         "locale": {
           "type": "string",
           "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",

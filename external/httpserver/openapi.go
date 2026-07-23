@@ -33,6 +33,12 @@ func openAPISpec() map[string]interface{} {
 				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
+		// Auth is optional: the empty requirement means "no auth" (default when no token is set);
+		// bearerAuth applies when httpserver.auth_token / --auth-token / FOXXYCODE_HTTP_TOKEN is set.
+		"security": []interface{}{
+			map[string]interface{}{},
+			map[string]interface{}{"bearerAuth": []interface{}{}},
+		},
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
@@ -1137,6 +1143,211 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/skills/{name}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable a skill",
+					"description": "Adds **{name}** to the disabled list so the skill is skipped during loading. The skill files are not removed.",
+					"operationId": "disableSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Skill disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/sync": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Sync remote skill sources",
+					"description": "Fetches every source in **`skills.sources`** (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**) and materializes their skills into the managed skills directory. Manual only — never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"operationId": "syncSkills",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "source", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Sync only this marketplace source; omit to sync all configured sources.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Sync result.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/sources": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List remote skill sources",
+					"description": "Returns the configured **`skills.sources`** entries (GitHub repos, git URLs, or marketplace.json URLs).",
+					"operationId": "listSkillSources",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Configured sources.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string", "example": "foxxycode.skills_sources"},
+											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Add a remote skill source",
+					"description": "Appends a source to **`skills.sources`** in **config.yaml** and reloads config. Set **`sync:true`** to also fetch it immediately. The source is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard **`marketplace.json`**.",
+					"operationId": "addSkillSource",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"source": map[string]string{"type": "string", "description": "owner/repo[@ref], a git URL, or a marketplace.json URL."},
+										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding."},
+									},
+									"required": []interface{}{"source"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Source added (with optional sync result)."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Remove a remote skill source",
+					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400.",
+					"operationId": "removeSkillSource",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "source", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The exact configured source string to remove.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Source removed (or absent, with removed:false)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/available": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List installable marketplace plugins",
+					"description": "Fetches every configured marketplace manifest (network / git) and returns the plugins they advertise, each flagged with `installed`. Backs the browse/filter install control.",
+					"operationId": "listAvailablePlugins",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/install": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Install one plugin from a marketplace",
+					"description": "Installs a single named plugin from a marketplace source (rather than syncing every plugin the source advertises).",
+					"operationId": "installPlugin",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"source": map[string]string{"type": "string", "description": "Configured marketplace source the plugin comes from."},
+										"plugin": map[string]string{"type": "string", "description": "Plugin name to install."},
+									},
+									"required": []interface{}{"source", "plugin"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Install result (added/updated/failed)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/updates": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Check installed remote skills for updates",
+					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists.",
+					"operationId": "checkSkillUpdates",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Per-skill update status.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillUpdateList"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/{name}/update": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Update a skill to its latest version",
+					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. Fails with 400 when the skill was not installed from a remote source.",
+					"operationId": "updateSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Update result.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/skills/{name}": map[string]interface{}{
+				"delete": map[string]interface{}{
+					"summary":     "Remove a remote skill",
+					"description": "Deletes any on-disk skill by name (its directory, and its remote provenance entry when synced). Bundled (read-only) skills cannot be deleted and return 400; so do skills outside the configured skill directories.",
+					"operationId": "removeRemoteSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Remote skill removed."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
@@ -1184,24 +1395,6 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
-			"/foxxycode/skills/{name}/disable": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary":     "Disable a skill",
-					"description": "Adds **{name}** to the disabled list so the skill is skipped during loading. The skill files are not removed.",
-					"operationId": "disableSkill",
-					"parameters": []interface{}{
-						map[string]interface{}{
-							"name": "name", "in": "path", "required": true,
-							"schema":      map[string]string{"type": "string"},
-							"description": "Canonical skill name (single segment, no slashes).",
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Skill disabled."},
-						"400": errorResponseRef(),
-					},
-				},
-			},
 			"/foxxycode/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",
@@ -1222,9 +1415,72 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/compact": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Compact (summarize) older session history",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript (coddy compaction engine). As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"instructions": map[string]string{
+											"type":        "string",
+											"description": "Optional extra guidance for the summarizer (what to emphasize).",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Compaction outcome.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CompactResult"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{
+			"securitySchemes": map[string]interface{}{
+				"bearerAuth": map[string]interface{}{
+					"type":        "http",
+					"scheme":      "bearer",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The local /foxxycode/ide/* routes stay public.",
+				},
+			},
 			"schemas": map[string]interface{}{
+				"CompactResult": map[string]interface{}{
+					"type":        "object",
+					"description": "Result of POST /foxxycode/sessions/{id}/compact.",
+					"properties": map[string]interface{}{
+						"compacted":          map[string]string{"type": "boolean", "description": "Whether history was compacted."},
+						"reason":             map[string]string{"type": "string", "description": "Present when compacted is false (e.g. nothing_to_compact)."},
+						"summary":            map[string]string{"type": "string", "description": "Generated summary text (without the transcript preamble)."},
+						"compacted_messages": map[string]string{"type": "integer", "description": "How many history messages were folded into the summary."},
+						"kept_messages":      map[string]string{"type": "integer", "description": "How many messages after the summary stayed verbatim."},
+						"model":              map[string]string{"type": "string", "description": "models[].model that produced the summary."},
+					},
+				},
 				"ErrorEnvelope": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -1243,6 +1499,46 @@ func openAPISpec() map[string]interface{} {
 						"description": map[string]string{"type": "string"},
 						"file_path":   map[string]string{"type": "string"},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
+						"version":     map[string]string{"type": "string", "description": "Installed version: the marketplace-declared version for synced skills, else the SKILL.md frontmatter version. Absent when unknown."},
+						"source":      map[string]string{"type": "string", "description": "Configured source string when the skill was installed via `skills.sources`; absent for local/bundled skills."},
+						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for bundled skills, which cannot be deleted."},
+					},
+				},
+				"SkillSyncResult": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":      map[string]interface{}{"type": "boolean"},
+						"added":   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"updated": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"failed": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"source": map[string]string{"type": "string"},
+									"error":  map[string]string{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+				"SkillUpdateList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "foxxycode.skills_updates"},
+						"items": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"name":             map[string]string{"type": "string", "description": "Installed remote skill name."},
+									"source":           map[string]string{"type": "string", "description": "Configured source it was installed from."},
+									"version":          map[string]string{"type": "string", "description": "Installed version."},
+									"latest":           map[string]string{"type": "string", "description": "Latest version declared by the source."},
+									"update_available": map[string]interface{}{"type": "boolean", "description": "True when latest is newer than the installed version."},
+								},
+							},
+						},
 					},
 				},
 				"SkillList": map[string]interface{}{

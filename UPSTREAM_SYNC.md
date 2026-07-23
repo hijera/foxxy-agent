@@ -10,14 +10,95 @@
 
 ---
 
+## Волна `bc1afb9 → 6666606` (тег `0.9.43`) — ГОТОВО
+
+Крупная волна (42 не-merge коммита, 158 файлов), портирована тремя бандлами отдельными коммитами
+на ветке `sync/upstream-6666606`: `f0a2506` (Волна 1), `60af986`+`305fc5a` (Волна 2),
+`3b3e812`+`0e75aa7` (Волна 3). Все гейты зелёные (go: default/http/http,memory/memory/scheduler/
+http,scheduler; UI: 680 vitest + build:go). Итоги:
+
+- **Волна 1 — Compaction (coddy по умолчанию + тумблер на OpenCode) + чистые фиксы — ГОТОВО.**
+  - Слиты два движка компакции в один `compaction:`-блок с полем `engine: coddy | opencode`
+    (default `coddy`). coddy — новый движок (`internal/agent/compact.go`,
+    `internal/session/compaction.go`, ручная `/compact`, авто-компакция, HTTP
+    `POST /foxxycode/sessions/{id}/compact`, UI `CompactionMessage.tsx`); opencode — прежний
+    движок форка (`internal/agent/compaction.go`, флаг `Compacted`). Диспетчеризация по движку
+    в `internal/agent/react.go` (построение окна истории + триггер + перехват `/compact`).
+    Конфиг: `internal/config/compaction.go` (поля `engine`, `keep_recent_turns` вместо
+    `keep_last_turns`), jsondto/ui_schema/docs/example + RU-оверлей + фикстура ui-schema.
+  - Windows session-fix (upstream `4f57540`): `pathMutex` на `FileStore`, `renameWithRetry`,
+    `rename_windows.go`/`rename_other.go`. Чинит флейк `TestConcurrentPatchSessionMetaActivitySync`.
+  - fs line-endings (upstream `f6cf51c` + `9111fa8`): новый `internal/tools/fs/line_endings.go`,
+    правки `edit.go`/`patch.go`/`patch_v4a.go` **вручную поверх cp1251-слоя** `decodeText`/`encodeText`;
+    BDD `features/edit_line_endings.feature`. `/compact` объявляется в слэш-меню
+    (`skills.BuiltinCommands`, ACP + HTTP `/foxxycode/slash-commands`).
+  - Мелочь: staticcheck-гарды (`99259a7`), `.gitignore *.bak` (`87d1040`). `69ce66c`
+    (light-theme кнопка) уже был в форке.
+  - Гейты зелёные: default / `http` / `http,memory` / `memory` / `scheduler`, `build:go`.
+- **Волна 2 — Remote control / http-auth / env-selector — ГОТОВО (backend `60af986` + UI).**
+  - Config: `internal/config/http.go` (+`auth_token`/`public_docs`/`allow_insecure`/`cors`/`remotes`
+    + helpers `CORSAllowOrigin`/`EffectiveAuthTokens`), `ui.enabled` влит в форковый `UIConfig`;
+    jsondto (редакция токена + `ParseConfigJSONPreservingSecrets`); docs schema/reference/example
+    + RU-оверлей + фикстура.
+  - HTTP: `external/httpserver/auth.go` (bearer-gate, realm `foxxycode`, SSE `?access_token=`,
+    **IDE-роуты `/foxxycode/ide/*` освобождены** от auth), `cors.go` (`X-FoxxyCode-Session-ID`),
+    `Handler()` = `corsMiddleware(authGate(mux))`, `--auth-token`/`FOXXYCODE_HTTP_TOKEN` +
+    non-loopback-warning в `StartHTTP`, `ui.enabled`-гейт SPA-root, openapi `bearerAuth`.
+    Тесты: 13 auth/CORS + IDE-exemption unit. Docs: `docs/remote-control.md`, `docs/http-api.md`.
+  - UI env-selector: `env/remoteEnv.ts` (fetch-shim, per-env storage), `env/activeHealth.ts`,
+    `env/remoteErrors.ts`, `env/EnvHealthBanner.tsx`, `chat/EnvironmentChip.tsx` (чип в
+    composer-workspace-строке, меню Local/remotes/Add, health-точки). Shim ставится в `main.tsx`
+    до рендера; `workspaceRecents.ts` неймспейсится по env; чип виден и без workspace-контекста.
+    Проверено в браузере (чип «Local», меню открывается, 0 console-ошибок; 671 UI-тест зелёный).
+  - **Осталось в Волне 2:** BDD remote-API parity (`46445df`/`328bc25`) — опционально.
+- **Волна 3 — Skills marketplace + plugin command — БЭКЕНД ГОТОВ (коммит следующий), UI TODO.**
+  - Config: `skills.go` (+`sources`, +`auto_discovery` + флаг `-skills-auto-discovery`), jsondto/ui_schema/
+    docs/example + RU-оверлей + фикстура. Core: `internal/skills/{manifest,remote}.go` (git/marketplace
+    install-движок), `plugin.go` (`RunPluginCommand`, `MarketplaceStatus`), `Skill.Version`,
+    loader dotfile-skip, gitws `Clone`/`Pull`. Plugin: `internal/agent/plugin_command.go` +
+    `/plugin` в react.go; `BuiltinCommands` теперь и `plugin`. Auto-discovery: `internal/tools/load_skill.go`
+    + `export.go` (гейт auto_discovery) + `toolsets.go` allowlist + `tooling/env.go` `LoadSkillBody` +
+    `react.go`/`system_prompt.go` `loadSkillBody`. Плюс fix `f0911c9` (сброс empty-turn counter).
+    HTTP: `skills_mgmt.go` расширен до 13 роутов (`s.sessionDefaultCWD()`, `invalidateSlashCache`,
+    `reloadConfigFromDisk`), `docs/http-api.md`. CLI: `foxxycode skills add|sync|remove` + `plugin`.
+    **Не** портирован транзитный `internal/tools/skills.go` (upstream его удаляет); `print_tree` в форке нет.
+  - UI in-app marketplace — **ГОТОВО**: `settings/SkillsSection.tsx` (перепись 140→608, browse/install/
+    sync/delete/update + версии), `Switch.tsx` (iOS-тумблер, подключён в `SchemaForm.tsx`),
+    `installableMatches.ts`, `skills/commandRows.ts`, styles (~270стр). Билд + 680 UI-тестов зелёные.
+    ⚠️ **i18n:** upstream-версия SkillsSection полностью на английском (ре-threading через `t()`/`en.ts`/
+    `ru.ts` — отложенный follow-up; старые `settings.skills.*` ключи не используются).
+- **Пост-волновые доработки (коммиты `f2f4682` + фикс визуального прогона) — ГОТОВО:**
+  - `print_tree` — порт `internal/tools/fs/print_tree.go`, регистрация в fs-билтинах и
+    plan-allowlist, тест, `docs/architecture.md`.
+  - **Settings → Навыки переведён**: 36 новых `settings.skills.*` ключей в `en.ts`/`ru.ts`
+    (46 используемых, полный паритет en/ru). Описание auto-discovery идёт через `tSchemaText`
+    (schema-оверлей), иначе оставалось английским — поймано визуальным прогоном,
+    регресс-тест `i18n/schemaSkillsLookup.test.ts`.
+  - **Exhaustive OpenAPI**: все 12 зарегистрированных `/foxxycode/skills*` роутов описаны
+    (10 путей) + схемы `SkillRow` (version/source/readonly), `SkillSyncResult`, `SkillUpdateList`.
+  - **BDD**: `features/{plugin_command,remote_api,skills_marketplace}.feature` + харнессы
+    (16 сценариев / 101 шаг), `workspace_switching.feature` перенесён в корневой `features/`
+    (доделан `328bc25`); правило «happy path → features/, edge cases → unit-тесты» в `AGENTS.md`
+    + `.claude/rules` с зеркалом в `.cursor/rules`.
+  - **Визуальный прогон** на реальном бэкенде (`-tags http,ui`, изолированный home/config):
+    13 вкладок настроек по-русски; Навыки полностью локализованы; «Движок сжатия» = `coddy`;
+    slash-каталог отдаёт `compact` + `plugin`; compact-эндпоинт (404/валидация); env-чип
+    (Local + Add remote + reachability); OpenAPI отдаёт 10 skill-путей и 5 схем; CLI
+    `plugin marketplace list` / `skills list`.
+  - **Известный остаток:** меню env-чипа в композере (`EnvironmentChip.tsx`) пока на английском
+    («Local (this origin)», «+ Add remote…») — вне запрошенного объёма (Settings → Skills).
+
+---
+
 ## Последняя синхронизация
 
 | Поле | Значение |
 | --- | --- |
-| **Дата** | 2026-07-20 |
-| **Синхронизировано до `upstream/main`** | `bc1afb9` — *Merge pull request #56 from hijera/codex/fix-read-offset-eof* (2026-07-20) |
-| **Ближайший upstream-тег** | `0.9.38` |
-| **Наш коммит-порт** | (текущая волна) |
+| **Дата** | 2026-07-22 |
+| **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) |
+| **Ближайший upstream-тег** | `0.9.43` |
+| **Наш коммит-порт** | `f0a2506`, `60af986`, `305fc5a`, `3b3e812`, `0e75aa7` (ветка `sync/upstream-6666606`) |
+| **Отложенные follow-up** | exhaustive OpenAPI для skill-роутов; BDD `skills_marketplace`/`plugin_command`/remote-parity; ре-i18n `SkillsSection.tsx` (сейчас английский) |
 
 ### Что портировано в этой волне
 - **Platform-aware shell** (upstream `2e979b7`) — новый пакет `internal/platform` (детект

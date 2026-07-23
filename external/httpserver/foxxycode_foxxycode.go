@@ -133,6 +133,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("PATCH /foxxycode/sessions/{id}", s.foxxycodeSessionPatch)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/workspace", s.foxxycodeSessionWorkspacePost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/cancel", s.foxxycodeSessionCancelGeneration)
+	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/compact", s.foxxycodeSessionCompactPost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/question", s.foxxycodeSessionQuestionPost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/permission", s.foxxycodeSessionPermissionPost)
 	s.mux.HandleFunc("GET /foxxycode/ide/events", s.foxxycodeIdeEvents)
@@ -846,6 +847,16 @@ func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
 		}
 		if cat := strings.TrimSpace(m.CreatedAt); cat != "" {
 			item["created_at"] = cat
+		}
+		// Compaction markers so the SPA renders the summary row as its own
+		// CompactionMessage foldout and hides messages folded away by the
+		// opencode engine. The coddy engine sets compaction_summary; the
+		// opencode engine additionally sets compacted on the folded head.
+		if m.CompactionSummary {
+			item["compaction_summary"] = true
+		}
+		if m.Compacted {
+			item["compacted"] = true
 		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{

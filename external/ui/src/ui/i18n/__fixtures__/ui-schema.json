@@ -100,15 +100,25 @@
           "title": "Enabled",
           "type": "boolean"
         },
-        "keep_last_turns": {
+        "engine": {
+          "default": "coddy",
+          "description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
+          "enum": [
+            "coddy",
+            "opencode"
+          ],
+          "title": "Compaction engine",
+          "type": "string"
+        },
+        "keep_recent_turns": {
           "default": 2,
-          "description": "Most recent user turns preserved verbatim.",
-          "title": "Keep last turns",
+          "description": "Most recent user turns preserved verbatim (default 2).",
+          "title": "Keep recent turns",
           "type": "integer"
         },
         "max_tokens": {
           "default": 4096,
-          "description": "Completion token cap for the summary generation.",
+          "description": "Completion token cap for the summary generation (opencode engine only).",
           "title": "Summary max tokens",
           "type": "integer"
         },
@@ -118,8 +128,8 @@
           "type": "string"
         },
         "threshold_percent": {
-          "default": 85,
-          "description": "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99.",
+          "default": 80,
+          "description": "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).",
           "title": "Threshold percent",
           "type": "integer"
         }
@@ -127,10 +137,11 @@
       "title": "Automatic context compaction",
       "type": "object",
       "x-foxxycode-property-order": [
+        "engine",
         "enabled",
         "model",
         "threshold_percent",
-        "keep_last_turns",
+        "keep_recent_turns",
         "max_tokens"
       ]
     },
@@ -796,6 +807,12 @@
       "additionalProperties": false,
       "description": "Slash commands and skill packs discovered from these directories.",
       "properties": {
+        "auto_discovery": {
+          "default": true,
+          "description": "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.",
+          "title": "Auto-discovery",
+          "type": "boolean"
+        },
         "dirs": {
           "default": [
             "~/.agents/skills",
@@ -808,12 +825,23 @@
           },
           "title": "Skill directories",
           "type": "array"
+        },
+        "sources": {
+          "default": [],
+          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Remote skill sources",
+          "type": "array"
         }
       },
       "title": "Skills",
       "type": "object",
       "x-foxxycode-property-order": [
-        "dirs"
+        "dirs",
+        "sources",
+        "auto_discovery"
       ]
     },
     "title": {
@@ -882,6 +910,11 @@
       "additionalProperties": false,
       "description": "Embedded SPA preferences for desktop and HTTP UI.",
       "properties": {
+        "enabled": {
+          "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available.",
+          "title": "Serve the SPA",
+          "type": "boolean"
+        },
         "locale": {
           "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
           "enum": [
@@ -907,6 +940,7 @@
       "title": "UI",
       "type": "object",
       "x-foxxycode-property-order": [
+        "enabled",
         "locale",
         "send_mode"
       ]

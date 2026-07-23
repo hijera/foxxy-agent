@@ -22,6 +22,8 @@ import {
   type QuestionResolvedState,
 } from "./chat/questionTypes";
 import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import { stripCompactionPreamble } from "./chat/compactionSummary";
+import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import {
   preserveTranscriptItemIds,
   stablePermissionPromptItemId,
@@ -2073,6 +2075,16 @@ export function App() {
     };
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
+      // Compaction summary rows travel as user-role messages flagged
+      // compaction_summary; render them as their own foldout, not a user turn.
+      if ((m as Record<string, unknown>).compaction_summary === true) {
+        next.push({
+          id: newId("compaction"),
+          type: "compaction",
+          summary: stripCompactionPreamble(m.content || ""),
+        });
+        continue;
+      }
       if (role === "user") {
         // Flush notices for the previous turn before starting a new one so
         // error notices land at the end of the turn they belong to, not at
@@ -3790,6 +3802,7 @@ export function App() {
         .filter(Boolean)
         .join(" ")}
     >
+      <EnvHealthBanner />
       <NavRail
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}

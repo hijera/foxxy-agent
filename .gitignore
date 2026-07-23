@@ -5,6 +5,9 @@
 /config.*.yaml
 /examples/config.*.yaml
 
+# Secrets / scratch (never commit API keys)
+/e2e.txt
+
 # Binaries
 build/
 dist/
@@ -58,6 +61,9 @@ Thumbs.db
 /external/ui/app.js
 /external/ui/app.js.map
 .playwright-mcp/
+
+# Config backups written by foxxycode at startup (internal/config WriteBackup)
+*.bak
 
 kilocode-main/
 kilocode/

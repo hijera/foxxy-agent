@@ -384,8 +384,15 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"sources": map[string]interface{}{
+					"type":        "array",
+					"title":       "Remote skill sources",
+					"description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"auto_discovery": boolProp("Auto-discovery", "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true."),
 			},
-			[]string{"dirs"},
+			[]string{"dirs", "sources", "auto_discovery"},
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{
@@ -401,13 +408,19 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"compaction": objectSchema("Automatic context compaction", "Summarize older turns when the conversation approaches the model context window.",
 			map[string]interface{}{
+				"engine": map[string]interface{}{
+					"type":        "string",
+					"title":       "Compaction engine",
+					"description": "Which compaction implementation to use. \"coddy\" (default) keeps a summary row and replays only the window after it, and supports the /compact command. \"opencode\" flags older turns and filters them from the payload.",
+					"enum":        []string{CompactionEngineCoddy, CompactionEngineOpenCode},
+				},
 				"enabled":           boolProp("Enabled", "Turns on auto-compaction; only fires near the context window."),
 				"model":             strProp("Compaction model", "Model override for the summary pass; empty uses agent model."),
-				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of usable context (max_context_tokens - max_tokens); 50..99."),
-				"keep_last_turns":   intProp("Keep last turns", "Most recent user turns preserved verbatim."),
-				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation."),
+				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode)."),
+				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2)."),
+				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation (opencode engine only)."),
 			},
-			[]string{"enabled", "model", "threshold_percent", "keep_last_turns", "max_tokens"},
+			[]string{"engine", "enabled", "model", "threshold_percent", "keep_recent_turns", "max_tokens"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{
@@ -512,6 +525,7 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"ui": objectSchema("UI", "Embedded SPA preferences for desktop and HTTP UI.",
 			map[string]interface{}{
+				"enabled": boolProp("Serve the SPA", "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available."),
 				"locale": map[string]interface{}{
 					"type":        "string",
 					"title":       "UI language",
@@ -525,7 +539,7 @@ func UISchemaMap() map[string]interface{} {
 					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
 				},
 			},
-			[]string{"locale", "send_mode"},
+			[]string{"enabled", "locale", "send_mode"},
 			nil),
 	}
 
