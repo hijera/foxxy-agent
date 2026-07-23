@@ -67,8 +67,26 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
     `installableMatches.ts`, `skills/commandRows.ts`, styles (~270стр). Билд + 680 UI-тестов зелёные.
     ⚠️ **i18n:** upstream-версия SkillsSection полностью на английском (ре-threading через `t()`/`en.ts`/
     `ru.ts` — отложенный follow-up; старые `settings.skills.*` ключи не используются).
-  - **Осталось в Волне 3 (опционально):** exhaustive openapi для skill-роутов, BDD
-    (`skills_marketplace.feature`, `plugin_command.feature`), ре-i18n SkillsSection.
+- **Пост-волновые доработки (коммиты `f2f4682` + фикс визуального прогона) — ГОТОВО:**
+  - `print_tree` — порт `internal/tools/fs/print_tree.go`, регистрация в fs-билтинах и
+    plan-allowlist, тест, `docs/architecture.md`.
+  - **Settings → Навыки переведён**: 36 новых `settings.skills.*` ключей в `en.ts`/`ru.ts`
+    (46 используемых, полный паритет en/ru). Описание auto-discovery идёт через `tSchemaText`
+    (schema-оверлей), иначе оставалось английским — поймано визуальным прогоном,
+    регресс-тест `i18n/schemaSkillsLookup.test.ts`.
+  - **Exhaustive OpenAPI**: все 12 зарегистрированных `/foxxycode/skills*` роутов описаны
+    (10 путей) + схемы `SkillRow` (version/source/readonly), `SkillSyncResult`, `SkillUpdateList`.
+  - **BDD**: `features/{plugin_command,remote_api,skills_marketplace}.feature` + харнессы
+    (16 сценариев / 101 шаг), `workspace_switching.feature` перенесён в корневой `features/`
+    (доделан `328bc25`); правило «happy path → features/, edge cases → unit-тесты» в `AGENTS.md`
+    + `.claude/rules` с зеркалом в `.cursor/rules`.
+  - **Визуальный прогон** на реальном бэкенде (`-tags http,ui`, изолированный home/config):
+    13 вкладок настроек по-русски; Навыки полностью локализованы; «Движок сжатия» = `coddy`;
+    slash-каталог отдаёт `compact` + `plugin`; compact-эндпоинт (404/валидация); env-чип
+    (Local + Add remote + reachability); OpenAPI отдаёт 10 skill-путей и 5 схем; CLI
+    `plugin marketplace list` / `skills list`.
+  - **Известный остаток:** меню env-чипа в композере (`EnvironmentChip.tsx`) пока на английском
+    («Local (this origin)», «+ Add remote…») — вне запрошенного объёма (Settings → Skills).
 
 ---
 

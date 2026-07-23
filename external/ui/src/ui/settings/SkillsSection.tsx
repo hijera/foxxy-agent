@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SchemaForm, IconTrash, type JsonSchema, type FieldOverride } from "./SchemaForm";
 import { Switch } from "./Switch";
 import { t } from "../i18n/i18n";
+import { tSchemaText } from "../i18n/schemaStrings";
 import { filterInstallableMatches } from "./installableMatches";
 
 // Cap the install dropdown so a broad query never floods the menu; anything
@@ -440,10 +441,13 @@ export function SkillsSection(props: {
   };
 
   const autoDiscoveryOn = value.auto_discovery !== false;
+  // Run the backend schema description through the schema RU overlay (same path SchemaForm
+  // uses) so this row is localized like every other schema-driven field.
   const autoDiscoveryDesc =
-    (schema.properties?.["auto_discovery"] as { description?: string } | undefined)
-      ?.description ??
-    t("settings.skills.autoDiscoveryDesc");
+    tSchemaText(
+      (schema.properties?.["auto_discovery"] as { description?: string } | undefined)
+        ?.description,
+    ) || t("settings.skills.autoDiscoveryDesc");
 
   return (
     <div className="settings-skills-section">
