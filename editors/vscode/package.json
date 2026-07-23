@@ -432,6 +432,11 @@
           "type": "boolean",
           "default": true,
           "description": "%cfg.trackTerminals.description%"
+        },
+        "foxxycode.planNoSelfRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cfg.planNoSelfRun.description%"
         }
       }
     }

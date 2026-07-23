@@ -345,12 +345,15 @@ Transcript type **`plan_document`** renders **`PlanDocumentSection`** in the mai
 Data and API:
 
 - Persisted in **`messages.json`**; hydrated fields include **`slug`**, **`name`**, **`overview`**, **`content`**, optional **`body`**, **`path`**, **`discarded`**.
+- Live during a turn: SSE **`event: plan`** whose **`_meta`** holds **`foxxycode.dev/planKind: design`** and **`foxxycode.dev/planSlug`**; the SPA then loads the document from **`GET /foxxycode/sessions/{id}/plans/{slug}`** and upserts the card by slug.
 - Body edit: **`PUT /foxxycode/sessions/{id}/plans/{slug}`** with **`{ "body": "<markdown>" }`** (debounced autosave).
 - Discard: **`DELETE /foxxycode/sessions/{id}/plans/{slug}`** sets **`discarded: true`**; card remains visible, controls disabled.
 - Run plan: client triggers implementation run (metadata / prompt; see **`docs/acp-protocol.md`**).
 
 UI requirements:
 
+- **Always the last row of its turn**, below the assistant text that introduces it (**`pinPlanDocumentsToTurnEnd`**), during streaming and after the transcript rebuild. The server emits the row mid-turn, so message order alone would put the card above the answer.
+- Rebuilds keep the card's identity by **slug**: the expanded state survives, and an unsaved markdown draft is not overwritten while a save is pending.
 - Collapsed: title, one-line description, **Discard** and **Run plan** in footer; title **`title`** tooltip = absolute plan file path when known.
 - Expanded: **Preview** default (rendered markdown via **`Markdown`**); eye toggle switches to **`MarkdownLineEditor`**.
 - Content pane grows with document length for **both** preview and markdown (**no** inner max-height scroll on the pane).
@@ -360,6 +363,8 @@ UI requirements:
 Automated checks:
 
 - `external/ui/src/ui/chat/PlanDocumentSection.test.tsx`
+- `external/ui/src/ui/chat/planDocumentPlacement.test.ts`
+- `features/plan_card_placement.feature` (godog steps in `external/httpserver/bdd_plan_card_test.go`)
 
 ## Plan and todo list (legacy rail)
 

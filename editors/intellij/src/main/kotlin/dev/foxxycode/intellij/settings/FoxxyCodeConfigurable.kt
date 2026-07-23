@@ -32,6 +32,7 @@ class FoxxyCodeConfigurable : Configurable {
     private val autoApproveCheckBox = JBCheckBox()
     private val trackOpenFilesCheckBox = JBCheckBox()
     private val trackTerminalsCheckBox = JBCheckBox()
+    private val planNoSelfRunCheckBox = JBCheckBox()
     private val statusLabel = JBLabel(" ")
 
     private val settings get() = FoxxyCodeSettings.getInstance().state
@@ -79,6 +80,8 @@ class FoxxyCodeConfigurable : Configurable {
             .addSeparator()
             .addComponent(trackOpenFilesCheckBox)
             .addComponent(trackTerminalsCheckBox)
+            .addSeparator()
+            .addComponent(planNoSelfRunCheckBox)
             .addComponentFillVertically(JPanel(), 0)
             .panel
         reset()
@@ -113,7 +116,8 @@ class FoxxyCodeConfigurable : Configurable {
             nativeDiffsCheckBox.isSelected != s.nativeDiffs ||
             autoApproveCheckBox.isSelected != s.autoApproveEdits ||
             trackOpenFilesCheckBox.isSelected != s.trackOpenFiles ||
-            trackTerminalsCheckBox.isSelected != s.trackTerminals
+            trackTerminalsCheckBox.isSelected != s.trackTerminals ||
+            planNoSelfRunCheckBox.isSelected != s.planNoSelfRun
     }
 
     override fun apply() {
@@ -128,6 +132,7 @@ class FoxxyCodeConfigurable : Configurable {
         s.autoApproveEdits = autoApproveCheckBox.isSelected
         s.trackOpenFiles = trackOpenFilesCheckBox.isSelected
         s.trackTerminals = trackTerminalsCheckBox.isSelected
+        s.planNoSelfRun = planNoSelfRunCheckBox.isSelected
         s.firstRunCompleted = true
         reset()
     }
@@ -144,11 +149,13 @@ class FoxxyCodeConfigurable : Configurable {
         autoApproveCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.autoApprove")
         trackOpenFilesCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackOpenFiles")
         trackTerminalsCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.trackTerminals")
+        planNoSelfRunCheckBox.text = FoxxyCodeBundle.message("settings.checkbox.planNoSelfRun")
         followThemeCheckBox.isSelected = s.followIdeTheme
         nativeDiffsCheckBox.isSelected = s.nativeDiffs
         autoApproveCheckBox.isSelected = s.autoApproveEdits
         trackOpenFilesCheckBox.isSelected = s.trackOpenFiles
         trackTerminalsCheckBox.isSelected = s.trackTerminals
+        planNoSelfRunCheckBox.isSelected = s.planNoSelfRun
         statusLabel.text = " "
     }
 }

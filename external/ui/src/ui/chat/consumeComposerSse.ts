@@ -128,7 +128,32 @@ export type ConsumeComposerSseParams = {
   onPermission?: (payload: Record<string, unknown>) => void;
   /** FoxxyCode extension. Fired when auto-compaction summarizes older turns (CompactionUpdate payload). */
   onCompaction?: (payload: Record<string, unknown>) => void;
+  /** FoxxyCode extension. Fired with the plan slug when plan_write publishes a design plan. */
+  onDesignPlan?: (slug: string) => void;
 };
+
+const PLAN_META_SLUG = "foxxycode.dev/planSlug";
+const PLAN_META_KIND = "foxxycode.dev/planKind";
+
+/**
+ * Slug of a design-plan `event: plan` payload, or "" for todo-list plan updates.
+ * Both kinds share the ACP PlanUpdate shape; only design plans carry the _meta pair.
+ */
+function designPlanSlugFromEvent(data: string): string {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(data);
+  } catch {
+    return "";
+  }
+  if (!payload || typeof payload !== "object") return "";
+  const meta = (payload as { _meta?: unknown })._meta;
+  if (!meta || typeof meta !== "object") return "";
+  const m = meta as Record<string, unknown>;
+  if (m[PLAN_META_KIND] !== "design") return "";
+  const slug = m[PLAN_META_SLUG];
+  return typeof slug === "string" ? slug.trim() : "";
+}
 
 export type ConsumeComposerSseResult = {
   streamErrorMessage: string | null;
@@ -170,6 +195,7 @@ export async function consumeComposerSseReader(
     onQuestion,
     onPermission,
     onCompaction,
+    onDesignPlan,
   } = p;
 
       // Chronological transcript model: tool_call / thinking rows are appended in
@@ -484,6 +510,14 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "plan") {
+            const slug = designPlanSlugFromEvent(ev.data);
+            if (slug) {
+              onDesignPlan?.(slug);
+            }
+            continue;
+          }
+
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
@@ -749,6 +783,13 @@ export async function consumeComposerSseReader(
               );
             } catch {
               // ignore
+            }
+            continue;
+          }
+          if (ev.event === "plan") {
+            const slug = designPlanSlugFromEvent(ev.data);
+            if (slug) {
+              onDesignPlan?.(slug);
             }
             continue;
           }

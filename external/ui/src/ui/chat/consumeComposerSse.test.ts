@@ -85,3 +85,41 @@ describe("consumeComposerSseReader event ordering", () => {
     expect(orderAtPermission).toEqual(["tool_call"]);
   });
 });
+
+describe("design plan SSE event", () => {
+  const designPlan =
+    'event: plan\ndata: {"sessionUpdate":"plan","entries":[{"content":"Step","status":"pending"}],' +
+    '"_meta":{"foxxycode.dev/planSlug":"my-plan","foxxycode.dev/planKind":"design"}}\n\n';
+
+  it("reports the slug of a design plan update", async () => {
+    const slugs: string[] = [];
+    const p = baseParams(readerFromChunks([designPlan, "data: [DONE]\n\n"]));
+    await consumeComposerSseReader({
+      ...p,
+      onDesignPlan: (slug: string) => slugs.push(slug),
+    });
+    expect(slugs).toEqual(["my-plan"]);
+  });
+
+  it("ignores todo-list plan updates that carry no design meta", async () => {
+    const todoPlan =
+      'event: plan\ndata: {"sessionUpdate":"plan","entries":[{"content":"Step","status":"pending"}]}\n\n';
+    const slugs: string[] = [];
+    const p = baseParams(readerFromChunks([todoPlan, "data: [DONE]\n\n"]));
+    await consumeComposerSseReader({
+      ...p,
+      onDesignPlan: (slug: string) => slugs.push(slug),
+    });
+    expect(slugs).toEqual([]);
+  });
+
+  it("reports design plans that arrive in the unterminated tail", async () => {
+    const slugs: string[] = [];
+    const p = baseParams(readerFromChunks([designPlan.replace(/\n\n$/, "\n")]));
+    await consumeComposerSseReader({
+      ...p,
+      onDesignPlan: (slug: string) => slugs.push(slug),
+    });
+    expect(slugs).toEqual(["my-plan"]);
+  });
+});

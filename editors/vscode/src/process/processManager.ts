@@ -77,6 +77,8 @@ export class ProcessManager {
       const args = ["http", "-H", host, "-P", String(port)];
       if (workspaceRoot) args.push("--cwd", workspaceRoot);
       if (settings.home && settings.home.trim() !== "") args.push("--home", settings.home.trim());
+      // Panels default to guarded planning: the model may not leave plan mode itself.
+      args.push(`--plan-no-self-run=${settings.planNoSelfRun ? "true" : "false"}`);
       if (settings.extraArgs && settings.extraArgs.trim() !== "") {
         args.push(...splitArgs(settings.extraArgs));
       }

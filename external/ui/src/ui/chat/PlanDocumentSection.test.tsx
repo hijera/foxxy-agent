@@ -91,3 +91,82 @@ test("markdown edit autosaves body with transcript content for bootstrap", async
     vi.useRealTimers();
   }
 });
+
+test("a transcript merge does not clobber an unsaved markdown draft", async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    const { rerender } = renderPlan();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle preview" }));
+    const editor = screen.getByRole("textbox", { name: /plan body/i });
+    fireEvent.change(editor, { target: { value: "# Hello\n\nTyping in flight" } });
+
+    // A loadMessages merge re-renders the card with a body written from another
+    // window while the debounce is still pending; the local draft must win.
+    rerender(
+      <PlanDocumentSection
+        sessionId="sess_test"
+        slug="demo-plan"
+        name="Demo plan"
+        overview="Short overview for the card"
+        content="---\nname: Demo\n---\n# Hello\n\nFrom the other window"
+        body={"# Hello\n\nFrom the other window"}
+        path="/tmp/sess_test/plans/demo-plan.plan.md"
+        expanded
+        onExpandedChange={() => {}}
+        onDiscard={() => {}}
+        onRunPlan={() => {}}
+      />,
+    );
+    expect(
+      screen.getByRole("textbox", { name: /plan body/i }),
+    ).toHaveValue("# Hello\n\nTyping in flight");
+
+    // Once the save lands, the server echoing our own text back is accepted.
+    await vi.advanceTimersByTimeAsync(650);
+    rerender(
+      <PlanDocumentSection
+        sessionId="sess_test"
+        slug="demo-plan"
+        name="Demo plan"
+        overview="Short overview for the card"
+        content="---\nname: Demo\n---\n# Hello\n\nTyping in flight"
+        body={"# Hello\n\nTyping in flight"}
+        path="/tmp/sess_test/plans/demo-plan.plan.md"
+        expanded
+        onExpandedChange={() => {}}
+        onDiscard={() => {}}
+        onRunPlan={() => {}}
+      />,
+    );
+    expect(
+      screen.getByRole("textbox", { name: /plan body/i }),
+    ).toHaveValue("# Hello\n\nTyping in flight");
+  } finally {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
+});
+
+test("a plan rewritten by the model replaces an untouched body", () => {
+  const { rerender } = renderPlan();
+  rerender(
+    <PlanDocumentSection
+      sessionId="sess_test"
+      slug="demo-plan"
+      name="Demo plan"
+      overview="Short overview for the card"
+      content="---\nname: Demo\n---\n# Hello\n\nRewritten by plan_write"
+      body={"# Hello\n\nRewritten by plan_write"}
+      path="/tmp/sess_test/plans/demo-plan.plan.md"
+      expanded
+      onExpandedChange={() => {}}
+      onDiscard={() => {}}
+      onRunPlan={() => {}}
+    />,
+  );
+  expect(
+    document.querySelector(".plan-document-preview-pane")?.textContent,
+  ).toContain("Rewritten by plan_write");
+});

@@ -163,6 +163,7 @@ type HTTPHeaderJSON struct {
 type ToolsJSON struct {
 	PermissionMode   string   `json:"permission_mode,omitempty"`
 	CommandAllowlist []string `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun    *bool    `json:"plan_no_self_run,omitempty"`
 }
 
 // LoggerJSON mirrors Logger for JSON APIs.
@@ -295,6 +296,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Tools = ToolsJSON{
 		PermissionMode:   c.Tools.ResolvedPermMode(),
 		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
+		PlanNoSelfRun:    c.Tools.PlanNoSelfRun,
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -405,6 +407,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Tools = Tools{
 		PermissionMode:   j.Tools.PermissionMode,
 		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),
+		PlanNoSelfRun:    j.Tools.PlanNoSelfRun,
 	}
 	cfg.Logger = Logger{
 		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),

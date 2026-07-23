@@ -45,5 +45,6 @@
   "cfg.nativeDiffs.description": "Show native inline diffs in the editor when the agent edits files.",
   "cfg.autoApproveEdits.description": "Auto-apply edits without asking (still shows the diff, with Revert).",
   "cfg.trackOpenFiles.description": "Tell the agent which files you have open (open tabs + active file) so it has that context each turn.",
-  "cfg.trackTerminals.description": "Tell the agent about your open terminals and their recent output so it has that context each turn and can resolve @terminal mentions."
+  "cfg.trackTerminals.description": "Tell the agent about your open terminals and their recent output so it has that context each turn and can resolve @terminal mentions.",
+  "cfg.planNoSelfRun.description": "Forbid the model from running the plan itself: in plan mode plan_exit is hidden and tools outside the plan allowlist are refused, so only Run plan starts the implementation."
 }

@@ -62,7 +62,9 @@ func Write(sessionDir, slug, content string) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	// doc.Content is the normalized text: frontmatter written without --- fences is
+	// repaired, so what lands on disk matches what the card and plan_read see.
+	if err := os.WriteFile(path, []byte(doc.Content), 0o644); err != nil {
 		return nil, err
 	}
 	if fi, statErr := os.Stat(path); statErr == nil {

@@ -897,13 +897,20 @@
           ],
           "title": "Permission mode",
           "type": "string"
+        },
+        "plan_no_self_run": {
+          "default": false,
+          "description": "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.",
+          "title": "Forbid the model from running the plan itself",
+          "type": "boolean"
         }
       },
       "title": "Tools and permissions",
       "type": "object",
       "x-foxxycode-property-order": [
         "permission_mode",
-        "command_allowlist"
+        "command_allowlist",
+        "plan_no_self_run"
       ]
     },
     "ui": {

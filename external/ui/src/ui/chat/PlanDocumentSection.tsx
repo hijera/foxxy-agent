@@ -124,10 +124,17 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Local edits not yet accepted by the server: a debounce is pending or a PUT is
+  // in flight. While that holds, an incoming snapshot must not overwrite the draft.
+  const dirtyRef = useRef(false);
   const discarded = props.discarded === true;
   const previewOn = bodyView === "preview";
 
   useEffect(() => {
+    // Transcript rebuilds re-render this card with the persisted body (which can
+    // also come from another window editing the same plan). Reseeding then would
+    // throw away keystrokes that have not been saved yet.
+    if (dirtyRef.current) return;
     setDraft(planEditorBody(props.content, props.body));
   }, [props.content, props.body]);
 
@@ -155,6 +162,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         if (!res.ok) {
           throw new Error(t("prompts.planSaveFailed", { status: res.status }));
         }
+        dirtyRef.current = false;
       } catch (e) {
         setSaveError(
           e instanceof Error
@@ -171,6 +179,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
   const scheduleSave = useCallback(
     (text: string) => {
       if (discarded) return;
+      dirtyRef.current = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         void persist(text);

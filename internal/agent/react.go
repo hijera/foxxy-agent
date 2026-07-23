@@ -171,7 +171,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	toolSet := ToolSetForMode(mode)
+	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled())
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if ModeAllowsMCPTools(mode) {
 		for _, mcpClient := range a.state.GetMCPClients() {
@@ -634,6 +634,17 @@ func (a *Agent) runReActLoop(
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	defer func() { env.ToolCallID = "" }()
+
+	// The mode allowlist filters the definitions sent to the model; enforce it here too
+	// so a call the model was never offered cannot run (tools.plan_no_self_run only).
+	if toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled()) {
+		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+			SessionUpdate: acp.UpdateTypeToolCallUpdate,
+			ToolCallID:    tc.ID,
+			Status:        "cancelled",
+		})
+		return modeToolRefusalMessage(mode, tc.Name), nil
+	}
 
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {

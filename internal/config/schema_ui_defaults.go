@@ -8,6 +8,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	compactionEnabled := true
 	compactionKeepRecent := CompactionDefaultKeepRecentTurns
 	skillsAutoDiscovery := true
+	planNoSelfRun := false
 	titleEnabled := true
 	browserHeadless := true
 	return &ConfigJSON{
@@ -51,6 +52,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		Tools: ToolsJSON{
 			PermissionMode:   PermModeAsk,
 			CommandAllowlist: nil,
+			PlanNoSelfRun:    &planNoSelfRun,
 		},
 		Logger: LoggerJSON{
 			Level:    LogLevelInfo,
