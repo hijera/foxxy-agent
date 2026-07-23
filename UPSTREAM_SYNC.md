@@ -50,7 +50,8 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
     composer-workspace-строке, меню Local/remotes/Add, health-точки). Shim ставится в `main.tsx`
     до рендера; `workspaceRecents.ts` неймспейсится по env; чип виден и без workspace-контекста.
     Проверено в браузере (чип «Local», меню открывается, 0 console-ошибок; 671 UI-тест зелёный).
-  - **Осталось в Волне 2:** BDD remote-API parity (`46445df`/`328bc25`) — опционально.
+  - ~~Осталось в Волне 2: BDD remote-API parity (`46445df`/`328bc25`)~~ — сделано в `f2f4682`
+    (`features/remote_api.feature` + харнесс).
 - **Волна 3 — Skills marketplace + plugin command — БЭКЕНД ГОТОВ (коммит следующий), UI TODO.**
   - Config: `skills.go` (+`sources`, +`auto_discovery` + флаг `-skills-auto-discovery`), jsondto/ui_schema/
     docs/example + RU-оверлей + фикстура. Core: `internal/skills/{manifest,remote}.go` (git/marketplace
@@ -85,7 +86,7 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
     slash-каталог отдаёт `compact` + `plugin`; compact-эндпоинт (404/валидация); env-чип
     (Local + Add remote + reachability); OpenAPI отдаёт 10 skill-путей и 5 схем; CLI
     `plugin marketplace list` / `skills list`.
-  - **Остаток закрыт** (отдельный PR, ветка `i18n/spa-remaining-english`): полный проход
+  - **Остаток закрыт** (PR #7, коммит `ea7095d`, ветка `i18n/spa-remaining-english`): полный проход
     локализации SPA. 46 новых ключей (`composer.env.*`, `composer.workspace.*`,
     `composer.folderModal.*`, `env.banner.*`, `env.error.*`, `messages.compaction*`,
     `files.type.*`, `settings.providerApiKeyHint*`) в `en.ts`/`ru.ts`; переведены
@@ -108,7 +109,7 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
 | **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) |
 | **Ближайший upstream-тег** | `0.9.43` |
 | **Наш коммит-порт** | `f0a2506`, `60af986`, `305fc5a`, `3b3e812`, `0e75aa7` (ветка `sync/upstream-6666606`) |
-| **Отложенные follow-up** | exhaustive OpenAPI для skill-роутов; BDD `skills_marketplace`/`plugin_command`/remote-parity; ре-i18n `SkillsSection.tsx` (сейчас английский) |
+| **Отложенные follow-up** | нет — все три закрыты: exhaustive OpenAPI для skill-роутов и BDD `skills_marketplace`/`plugin_command`/`remote_api` в `f2f4682`, i18n `SkillsSection.tsx` в `f2f4682`+`3d2fa15`, остальной английский в SPA — `ea7095d` (PR #7) |
 
 ### Что портировано в этой волне
 - **Platform-aware shell** (upstream `2e979b7`) — новый пакет `internal/platform` (детект
