@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { SchemaForm, IconTrash, type JsonSchema, type FieldOverride } from "./SchemaForm";
 import { Switch } from "./Switch";
+import { t } from "../i18n/i18n";
 import { filterInstallableMatches } from "./installableMatches";
 
 // Cap the install dropdown so a broad query never floods the menu; anything
@@ -142,12 +143,13 @@ function SourcesEditor(props: {
   const sources = Array.isArray(value) ? value : [];
   return (
     <fieldset className="settings-fieldset">
-      <legend>Remote skill sources</legend>
+      <legend>{t("settings.skills.sourcesLegend")}</legend>
       <p className="settings-field-desc">
-        GitHub repos (<code>owner/repo[@ref]</code>), git URLs, or an{" "}
-        <a href="https://agents.md" target="_blank" rel="noreferrer">agents-standard</a>{" "}
-        <code>marketplace.json</code> URL. Saved to <code>skills.sources</code>; fetched only when
-        you sync.
+        {t("settings.skills.sourcesDescBefore")}{" "}
+        <a href="https://agents.md" target="_blank" rel="noreferrer">
+          {t("settings.skills.sourcesDescStandard")}
+        </a>{" "}
+        {t("settings.skills.sourcesDescAfter")}
       </p>
       <ul className="settings-array">
         {sources.map((src, i) => (
@@ -157,7 +159,7 @@ function SourcesEditor(props: {
                 className="settings-input"
                 type="text"
                 value={src}
-                placeholder="owner/repo  ·  https://…/marketplace.json"
+                placeholder={t("settings.skills.sourcePlaceholder")}
                 onChange={(e) => {
                   const next = [...sources];
                   next[i] = e.target.value;
@@ -170,8 +172,14 @@ function SourcesEditor(props: {
               className={`settings-btn settings-btn-icon${flash === src ? " is-synced" : ""}`}
               disabled={syncing || !src.trim()}
               onClick={() => onSyncOne(src)}
-              title={flash === src ? "Synced" : `Sync ${src.trim() || "this marketplace"}`}
-              aria-label="Sync this marketplace"
+              title={
+                flash === src
+                  ? t("settings.skills.synced")
+                  : t("settings.skills.syncSource", {
+                      source: src.trim() || t("settings.skills.thisMarketplace"),
+                    })
+              }
+              aria-label={t("settings.skills.syncThisMarketplace")}
               data-testid={`skills-sync-source-${i}`}
             >
               {flash === src ? <IconCheck /> : <IconSync />}
@@ -180,8 +188,8 @@ function SourcesEditor(props: {
               type="button"
               className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
               onClick={() => onChange(sources.filter((_, j) => j !== i))}
-              title="Remove"
-              aria-label="Remove marketplace"
+              title={t("settings.skills.remove")}
+              aria-label={t("settings.skills.removeMarketplace")}
             >
               <IconTrash />
             </button>
@@ -194,25 +202,25 @@ function SourcesEditor(props: {
           className="settings-btn"
           onClick={() => onChange([...sources, ""])}
         >
-          Add
+          {t("settings.skills.add")}
         </button>
         <button
           type="button"
           className={`settings-btn skills-sync-all-btn${flash === SYNC_ALL_KEY ? " is-synced" : ""}`}
           disabled={syncing || sources.length === 0}
           onClick={onSyncAll}
-          title="Fetch every configured marketplace"
+          title={t("settings.skills.syncAllTitle")}
           data-testid="skills-sync-all"
         >
           {flash === SYNC_ALL_KEY ? (
             <>
               <IconCheck />
-              <span>Completed</span>
+              <span>{t("settings.skills.completed")}</span>
             </>
           ) : (
             <>
               <IconSync />
-              <span>Sync all</span>
+              <span>{t("settings.skills.syncAll")}</span>
             </>
           )}
         </button>
@@ -308,7 +316,7 @@ export function SkillsSection(props: {
     void (async () => {
       const res = await apiSend(`/foxxycode/skills/${encodeURIComponent(skill.name)}`, "DELETE");
       if (!res.ok) {
-        setError(res.error || "Failed to delete");
+        setError(res.error || t("settings.skills.deleteFailed"));
       } else {
         await loadInstalled();
       }
@@ -323,7 +331,7 @@ export function SkillsSection(props: {
     void (async () => {
       const res = await apiSend(`/foxxycode/skills/${encodeURIComponent(skill.name)}/update`, "POST");
       if (!res.ok) {
-        setError(res.error || "Update failed");
+        setError(res.error || t("settings.skills.updateFailed"));
       } else {
         setStatus(`Updated ${skill.name}.`);
         await loadInstalled();
@@ -340,7 +348,7 @@ export function SkillsSection(props: {
     setError(null);
     void (async () => {
       const res = await apiSend("/foxxycode/skills/sync", "POST");
-      if (!res.ok) setError(res.error || "Sync failed");
+      if (!res.ok) setError(res.error || t("settings.skills.syncFailed"));
       else {
         await loadInstalled();
         await refreshUpdates();
@@ -359,7 +367,7 @@ export function SkillsSection(props: {
     setError(null);
     void (async () => {
       const res = await apiSend(`/foxxycode/skills/sync?source=${encodeURIComponent(src)}`, "POST");
-      if (!res.ok) setError(res.error || "Sync failed");
+      if (!res.ok) setError(res.error || t("settings.skills.syncFailed"));
       else {
         await loadInstalled();
         await refreshUpdates();
@@ -435,22 +443,26 @@ export function SkillsSection(props: {
   const autoDiscoveryDesc =
     (schema.properties?.["auto_discovery"] as { description?: string } | undefined)
       ?.description ??
-    "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name.";
+    t("settings.skills.autoDiscoveryDesc");
 
   return (
     <div className="settings-skills-section">
       <fieldset className="settings-fieldset">
-        <legend>Skill auto-discovery</legend>
+        <legend>{t("settings.skills.autoDiscoveryLegend")}</legend>
         <div className="settings-row settings-row-inline">
           <Switch
             checked={autoDiscoveryOn}
             onChange={(next) =>
               onChange({ ...value, auto_discovery: next })
             }
-            ariaLabel="Skill auto-discovery"
+            ariaLabel={t("settings.skills.autoDiscoveryLegend")}
             dataTestId="skills-auto-discovery-toggle"
           />
-          <span>{autoDiscoveryOn ? "Enabled" : "Disabled"}</span>
+          <span>
+            {autoDiscoveryOn
+              ? t("settings.skills.stateEnabled")
+              : t("settings.skills.stateDisabled")}
+          </span>
         </div>
         <p className="settings-field-desc">{autoDiscoveryDesc}</p>
       </fieldset>
@@ -458,13 +470,13 @@ export function SkillsSection(props: {
       <SchemaForm schema={schema} value={value} onChange={onChange} fieldOverride={fieldOverride} />
 
       <fieldset className="settings-fieldset skills-installed-box">
-        <legend>Installed skills</legend>
+        <legend>{t("settings.skills.installedLabel")}</legend>
 
         <div className="skills-install">
           <input
             className="settings-input skills-install-input"
             type="text"
-            placeholder="Search marketplace skills to install…"
+            placeholder={t("settings.skills.searchPlaceholder")}
             value={installQuery}
             onChange={(e) => setInstallQuery(e.target.value)}
             onFocus={() => void loadAvailable()}
@@ -473,10 +485,12 @@ export function SkillsSection(props: {
           {installQ ? (
             <ul className="skills-install-results" data-testid="skills-install-results">
               {availableLoading && available === null ? (
-                <li className="skills-install-empty settings-muted">Loading marketplaces…</li>
+                <li className="skills-install-empty settings-muted">
+                  {t("settings.skills.loadingMarketplaces")}
+                </li>
               ) : installMatches.length === 0 ? (
                 <li className="skills-install-empty settings-muted">
-                  No matching marketplace skills.
+                  {t("settings.skills.noMatches")}
                 </li>
               ) : (
                 <>
@@ -496,8 +510,8 @@ export function SkillsSection(props: {
                         className="settings-btn settings-btn-icon settings-btn-primary"
                         disabled={!!installBusy[p.name]}
                         onClick={() => onInstallPlugin(p)}
-                        title={`Install ${p.name}`}
-                        aria-label={`Install ${p.name}`}
+                        title={t("settings.skills.install", { name: p.name })}
+                        aria-label={t("settings.skills.install", { name: p.name })}
                         data-testid={`skills-install-${p.name}`}
                       >
                         <IconDownload />
@@ -509,7 +523,7 @@ export function SkillsSection(props: {
                       className="skills-install-empty settings-muted"
                       data-testid="skills-install-more"
                     >
-                      +{installMore} more — refine your search
+                      {t("settings.skills.moreResults", { count: installMore })}
                     </li>
                   ) : null}
                 </>
@@ -519,18 +533,22 @@ export function SkillsSection(props: {
         </div>
 
         <p className="settings-field-desc">
-          You can also install skills via <code>npx skills</code> or <code>npx skillsbd</code> — they
-          land in <code>~/.agents/skills/</code> and are picked up automatically.
+          {t("settings.skills.installHintBefore")} <code>npx skills</code>{" "}
+          {t("settings.skills.installHintOr")} <code>npx skillsbd</code>{" "}
+          {t("settings.skills.installHintLand")} <code>~/.agents/skills/</code>{" "}
+          {t("settings.skills.installHintAfter")}
         </p>
         {error ? <p className="settings-error">{error}</p> : null}
         {status ? <p className="settings-muted">{status}</p> : null}
 
         {installed.length === 0 ? (
         loading ? (
-          <p className="settings-muted">Loading…</p>
+          <p className="settings-muted">{t("settings.loading")}</p>
         ) : (
           <p className="settings-muted">
-            No skills found. Use <code>npx skills</code> or <code>npx skillsbd</code> to install.
+            {t("settings.skills.emptyBefore")} <code>npx skills</code>{" "}
+            {t("settings.skills.installHintOr")} <code>npx skillsbd</code>{" "}
+            {t("settings.skills.emptyAfter")}
           </p>
         )
       ) : (
@@ -551,8 +569,11 @@ export function SkillsSection(props: {
                       <span className="skills-list-item-version">v{sk.version}</span>
                     ) : null}
                     {sk.source ? (
-                      <span className="skills-list-item-badge" title={`Synced from ${sk.source}`}>
-                        remote
+                      <span
+                        className="skills-list-item-badge"
+                        title={t("settings.skills.syncedFrom", { source: sk.source })}
+                      >
+                        {t("settings.skills.remoteBadge")}
                       </span>
                     ) : null}
                   </div>
@@ -566,8 +587,15 @@ export function SkillsSection(props: {
                     className="settings-btn settings-btn-icon settings-btn-primary skills-update-btn"
                     disabled={!!busy[sk.name]}
                     onClick={() => onUpdateSkill(sk)}
-                    title={`Download update: ${sk.name} v${upd?.version || sk.version || "?"} → v${upd?.latest}`}
-                    aria-label={`Download update for ${sk.name} to version ${upd?.latest}`}
+                    title={t("settings.skills.updateTitle", {
+                      name: sk.name,
+                      from: upd?.version || sk.version || "?",
+                      to: upd?.latest ?? "",
+                    })}
+                    aria-label={t("settings.skills.updateAria", {
+                      name: sk.name,
+                      to: upd?.latest ?? "",
+                    })}
                     data-testid={`skills-update-${sk.name}`}
                   >
                     <IconDownload />
@@ -580,8 +608,12 @@ export function SkillsSection(props: {
                   className="skill-switch"
                   disabled={!!busy[sk.name]}
                   onClick={() => onToggle(sk)}
-                  title={sk.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
-                  aria-label={`${sk.enabled ? "Disable" : "Enable"} ${sk.name}`}
+                  title={
+                    sk.enabled
+                      ? t("settings.skills.clickToDisable")
+                      : t("settings.skills.clickToEnable")
+                  }
+                  aria-label={`${sk.enabled ? t("settings.skills.disable") : t("settings.skills.enable")} ${sk.name}`}
                   data-testid={`skills-toggle-${sk.name}`}
                 >
                   <span className="skill-switch-thumb" />
@@ -591,8 +623,12 @@ export function SkillsSection(props: {
                   className="settings-btn settings-btn-icon settings-btn-danger"
                   disabled={!!busy[sk.name] || !!sk.readonly}
                   onClick={() => onRemove(sk)}
-                  title={sk.readonly ? "Bundled skill — cannot be deleted" : "Delete"}
-                  aria-label={`Delete ${sk.name}`}
+                  title={
+                    sk.readonly
+                      ? t("settings.skills.bundledCannotDelete")
+                      : t("settings.skills.delete")
+                  }
+                  aria-label={t("settings.skills.deleteName", { name: sk.name })}
                   data-testid={`skills-delete-${sk.name}`}
                 >
                   <IconTrash />

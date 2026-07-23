@@ -20,6 +20,14 @@ paths:
 - Keep tests deterministic; avoid real network unless the test is explicitly integration-style and documented.
 - New HTTP behavior belongs in **`external/httpserver/server_test.go`** (and related files) with **`http` build tag parity.
 
+## BDD specs (Gherkin)
+
+The **happy path** of a feature (and a bug's reproduction) belongs in a Gherkin `.feature`
+file in the **repo-root `features/`** directory. The godog step definitions stay in the
+package under test (e.g. `external/httpserver/bdd_*_test.go`, `internal/agent/bdd_*_test.go`)
+and point `Options.Paths` at `../../features/<name>.feature`. **Edge and error cases go in
+ordinary unit tests**, not in `features/`.
+
 ## References
 
 @Makefile

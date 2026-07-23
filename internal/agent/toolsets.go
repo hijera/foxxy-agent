@@ -14,6 +14,7 @@ var planToolNames = []string{
 	"read",
 	"glob",
 	"grep",
+	"print_tree",
 	"websearch",
 	"webfetch",
 	"run_command",
