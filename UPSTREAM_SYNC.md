@@ -85,8 +85,18 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
     slash-каталог отдаёт `compact` + `plugin`; compact-эндпоинт (404/валидация); env-чип
     (Local + Add remote + reachability); OpenAPI отдаёт 10 skill-путей и 5 схем; CLI
     `plugin marketplace list` / `skills list`.
-  - **Известный остаток:** меню env-чипа в композере (`EnvironmentChip.tsx`) пока на английском
-    («Local (this origin)», «+ Add remote…») — вне запрошенного объёма (Settings → Skills).
+  - **Остаток закрыт** (отдельный PR, ветка `i18n/spa-remaining-english`): полный проход
+    локализации SPA. 46 новых ключей (`composer.env.*`, `composer.workspace.*`,
+    `composer.folderModal.*`, `env.banner.*`, `env.error.*`, `messages.compaction*`,
+    `files.type.*`, `settings.providerApiKeyHint*`) в `en.ts`/`ru.ts`; переведены
+    `EnvironmentChip`, `WorkspaceChips`, `WorkspaceFolderModal`, `EnvHealthBanner`,
+    `remoteErrors`, `CompactionMessage`, `DiffView`, `UserMessage`, `fileTypeIcon`,
+    заголовок «New chat» в `App.tsx` и fallback-ошибки настроек. Не переводятся намеренно:
+    `AppErrorBoundary` (должен рендериться, даже если сломалась локализация),
+    `compactionSummary.ts` (префиксы матчатся с текстом бэкенда) и технические
+    placeholder-ы формата (`provider/model-id`, примеры URL). Защита от повторения хвоста —
+    `i18n/messagesParity.test.ts` (паритет ключей и `{param}`-слотов en/ru) и
+    `i18n/noHardcodedStrings.test.ts` (скан JSX-текста и label-атрибутов с аллоулистом).
 
 ---
 

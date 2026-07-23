@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { FetchedModel } from "../settings/useProviderModels";
+import { t } from "../i18n/i18n";
 
 export type ProbeModelsInput = {
   type: "openai" | "anthropic" | "neuraldeep";
@@ -53,7 +54,7 @@ export function useProbeModels() {
         return;
       }
       setModels([]);
-      setError(e instanceof Error ? e.message : "request failed");
+      setError(e instanceof Error ? e.message : t("settings.requestFailed"));
     } finally {
       if (mySeq === seq.current) {
         setLoading(false);

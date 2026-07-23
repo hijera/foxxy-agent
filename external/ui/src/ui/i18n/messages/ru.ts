@@ -67,6 +67,58 @@ export const messagesRu: Record<string, string> = {
   "composer.bytesMB": "{n} МБ",
   "composer.attachmentTooltip": "{fileName}\n{label} · {size}",
 
+  "composer.env.ariaLabel": "Окружение",
+  "composer.env.title": "Окружение (локальный или удалённый foxxycode http)",
+  "composer.env.local": "Локальное",
+  "composer.env.groupEnvironment": "Окружение",
+  "composer.env.groupRemote": "Удалённые",
+  "composer.env.localThisOrigin": "Локальное (этот origin)",
+  "composer.env.addFormTitle": "Добавить удалённое",
+  "composer.env.namePlaceholder": "название",
+  "composer.env.tokenPlaceholder": "bearer-токен (пусто, если не нужен)",
+  "composer.env.connect": "Подключить",
+  "composer.env.cancel": "Отмена",
+  "composer.env.addRemote": "+ Добавить удалённое…",
+
+  "composer.workspace.recent": "Недавние",
+  "composer.workspace.openFolder": "Открыть папку…",
+  "composer.workspace.noBranches": "Веток нет",
+  "composer.workspace.worktree": "worktree",
+  "composer.workspace.detached": "detached",
+  "composer.workspace.worktreeSessionTitle":
+    "Эта сессия работает в отдельном worktree",
+  "composer.workspace.worktreeToggleTitle":
+    "Переключать ветки в отдельном worktree",
+
+  "composer.folderModal.title": "Открыть папку",
+  "composer.folderModal.close": "Закрыть обзор папок",
+  "composer.folderModal.noSubfolders": "Вложенных папок нет",
+  "composer.folderModal.cancel": "Отмена",
+  "composer.folderModal.open": "Открыть",
+  "composer.folderModal.cannotList": "Не удалось прочитать {path}",
+
+  "env.banner.unreachable":
+    "Удалённое окружение {name} недоступно или не авторизовано — проверьте, что оно запущено, что {cors} разрешает этот origin и что токен верный.",
+  "env.banner.switchLocal": "Переключиться на локальное",
+  "env.error.cannotReach":
+    "Не удалось связаться с удалённым {host} — возможно, оно выключено или указан неверный URL, либо ответ заблокирован CORS (включите httpserver.cors на удалённой стороне).",
+  "env.error.networkLocal":
+    "Сетевая ошибка при отправке сообщения — проверьте, что сервер запущен.",
+  "env.error.unauthorizedRemote":
+    "Нет авторизации на удалённом {host} — проверьте bearer-токен этого окружения.",
+  "env.error.unauthorizedLocal": "Нет авторизации ({status}).",
+  "env.error.requestFailedRemote":
+    "Запрос к удалённому {host} завершился ошибкой ({status}).",
+  "env.error.requestFailedLocal": "Запрос завершился ошибкой ({status}).",
+
+  "files.type.image": "Изображение",
+  "files.type.video": "Видео",
+  "files.type.audio": "Аудио",
+  "files.type.pdf": "PDF",
+  "files.type.text": "Текст",
+  "files.type.archive": "Архив",
+  "files.type.file": "Файл",
+
   "chat.heroTitle": "Что вы хотите {verb}?",
   "chat.heroVerb.know": "узнать",
   "chat.heroVerb.build": "создать",
@@ -128,6 +180,11 @@ export const messagesRu: Record<string, string> = {
   "settings.validationFailed": "ошибка валидации",
   "settings.saveFailed": "ошибка сохранения ({status})",
   "settings.requestFailed": "ошибка запроса",
+  "settings.parseError": "разбор",
+  "settings.providerApiKeyHint":
+    "Если пусто — во время запуска читается {env}, либо укажите ключ явно (YAML может подставлять {varToken} при загрузке)",
+  "settings.providerApiKeyHintInvalid":
+    "Идентификатор провайдера должен начинаться с буквы. Когда идентификатор корректен, оставьте поле пустым, чтобы читалась переменная NAME_API_KEY (NAME в верхнем регистре, дефисы заменяются подчёркиваниями).",
   "settings.saveSection": "Сохранить раздел",
   "settings.saveSectionTitle": "Сохранить раздел {section}",
   "settings.loading": "Загрузка…",
@@ -409,6 +466,9 @@ export const messagesRu: Record<string, string> = {
   "messages.editMessage": "Редактировать сообщение",
   "messages.diffView": "Просмотр diff",
   "messages.patchedFile": "Изменённый файл",
+  "messages.compactionLabel": "контекст сжат",
+  "messages.compactionSummaryAriaLabel": "Сводка сжатого контекста",
+  "messages.compactionBodyAriaLabel": "Содержимое сжатого контекста",
 
   "chat.branchPrev": "Предыдущая ветка",
   "chat.branchNext": "Следующая ветка",

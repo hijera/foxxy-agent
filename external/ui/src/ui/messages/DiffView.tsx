@@ -4,6 +4,7 @@ import {
   parseDiffPatch,
   type ParsedDiffLine,
 } from "./parseDiff";
+import { useT } from "../i18n/I18nProvider";
 
 /** Number of diff lines visible before "Load more results" appears. */
 export const DIFF_INITIAL_LINES = 15;
@@ -32,6 +33,7 @@ export function DiffView(props: {
   patch: string;
   filePath: string;
 }) {
+  const { t } = useT();
   const parsed = useMemo(
     () => parseDiffPatch(props.patch, props.filePath),
     [props.patch, props.filePath],
@@ -91,10 +93,13 @@ export function DiffView(props: {
 
   return (
     <>
-      <div className={blockClass} aria-label="Diff view">
+      <div className={blockClass} aria-label={t("messages.diffView")}>
         {displayPath ? (
           <div className="diff-file-header">
-            <span className="diff-file-path" aria-label="Patched file">
+            <span
+              className="diff-file-path"
+              aria-label={t("messages.patchedFile")}
+            >
               {displayPath}
             </span>
           </div>
@@ -120,7 +125,7 @@ export function DiffView(props: {
               data-testid="diff-hide-link"
               onClick={onHide}
             >
-              Hide
+              {t("messages.toolHide")}
             </button>
           ) : (
             <button
@@ -129,7 +134,7 @@ export function DiffView(props: {
               data-testid="diff-load-more"
               onClick={onLoadMore}
             >
-              Load more results
+              {t("messages.toolLoadMore")}
             </button>
           )}
         </div>

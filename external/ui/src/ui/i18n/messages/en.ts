@@ -66,6 +66,57 @@ export const messagesEn: Record<string, string> = {
   "composer.bytesMB": "{n} MB",
   "composer.attachmentTooltip": "{fileName}\n{label} · {size}",
 
+  "composer.env.ariaLabel": "Environment",
+  "composer.env.title": "Environment (local or remote foxxycode http)",
+  "composer.env.local": "Local",
+  "composer.env.groupEnvironment": "Environment",
+  "composer.env.groupRemote": "Remote",
+  "composer.env.localThisOrigin": "Local (this origin)",
+  "composer.env.addFormTitle": "Add a remote",
+  "composer.env.namePlaceholder": "name",
+  "composer.env.tokenPlaceholder": "bearer token (empty if none)",
+  "composer.env.connect": "Connect",
+  "composer.env.cancel": "Cancel",
+  "composer.env.addRemote": "+ Add remote…",
+
+  "composer.workspace.recent": "Recent",
+  "composer.workspace.openFolder": "Open folder…",
+  "composer.workspace.noBranches": "No branches",
+  "composer.workspace.worktree": "worktree",
+  "composer.workspace.detached": "detached",
+  "composer.workspace.worktreeSessionTitle":
+    "This session works in a dedicated worktree",
+  "composer.workspace.worktreeToggleTitle":
+    "Open branch switches in a dedicated worktree",
+
+  "composer.folderModal.title": "Open folder",
+  "composer.folderModal.close": "Close folder browser",
+  "composer.folderModal.noSubfolders": "No subfolders",
+  "composer.folderModal.cancel": "Cancel",
+  "composer.folderModal.open": "Open",
+  "composer.folderModal.cannotList": "Cannot list {path}",
+
+  "env.banner.unreachable":
+    "Remote {name} is unreachable or unauthorized — check that it is running, that {cors} allows this origin, and that the token is correct.",
+  "env.banner.switchLocal": "Switch to Local",
+  "env.error.cannotReach":
+    "Cannot reach remote {host} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).",
+  "env.error.networkLocal":
+    "Network error sending the message — check that the server is running.",
+  "env.error.unauthorizedRemote":
+    "Unauthorized on remote {host} — check the bearer token for this environment.",
+  "env.error.unauthorizedLocal": "Unauthorized ({status}).",
+  "env.error.requestFailedRemote": "Request to remote {host} failed ({status}).",
+  "env.error.requestFailedLocal": "Request failed ({status}).",
+
+  "files.type.image": "Image",
+  "files.type.video": "Video",
+  "files.type.audio": "Audio",
+  "files.type.pdf": "PDF",
+  "files.type.text": "Text",
+  "files.type.archive": "Archive",
+  "files.type.file": "File",
+
   "chat.heroTitle": "What do you want to {verb}?",
   "chat.heroVerb.know": "know",
   "chat.heroVerb.build": "build",
@@ -124,6 +175,11 @@ export const messagesEn: Record<string, string> = {
   "settings.validationFailed": "validation failed",
   "settings.saveFailed": "save failed ({status})",
   "settings.requestFailed": "request failed",
+  "settings.parseError": "parse",
+  "settings.providerApiKeyHint":
+    "If empty, reads from {env} at run time, or set a literal key (YAML may use {varToken} at load)",
+  "settings.providerApiKeyHintInvalid":
+    "Provider id must start with a letter. When the id is valid, leave empty to read the NAME_API_KEY variable (NAME is uppercase, hyphens become underscores).",
   "settings.saveSection": "Save section",
   "settings.saveSectionTitle": "Save the {section} section",
   "settings.loading": "Loading…",
@@ -402,6 +458,9 @@ export const messagesEn: Record<string, string> = {
   "messages.editMessage": "Edit message",
   "messages.diffView": "Diff view",
   "messages.patchedFile": "Patched file",
+  "messages.compactionLabel": "context compacted",
+  "messages.compactionSummaryAriaLabel": "Context compacted summary",
+  "messages.compactionBodyAriaLabel": "Compacted context summary",
 
   "chat.branchPrev": "Previous branch",
   "chat.branchNext": "Next branch",

@@ -5,6 +5,7 @@ import { WorkspaceChips } from "./WorkspaceChips";
 import type { WorkspaceContext } from "./workspaceContext";
 import { WORKSPACE_RECENTS_KEY, pushWorkspaceRecent } from "./workspaceRecents";
 import { isEditorEmbed } from "../embedShell";
+import { initLocale, setLocale } from "../i18n/i18n";
 
 // Keep the real embedShell exports; override only the embed predicate so tests
 // can flip between browser (false, the jsdom default) and plugin (true).
@@ -46,12 +47,14 @@ function renderChips(overrides: Partial<React.ComponentProps<typeof WorkspaceChi
 
 beforeEach(() => {
   localStorage.removeItem(WORKSPACE_RECENTS_KEY);
+  initLocale("en");
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.mocked(isEditorEmbed).mockReturnValue(false);
+  setLocale("en");
 });
 
 describe("WorkspaceChips", () => {
@@ -196,6 +199,35 @@ describe("WorkspaceChips", () => {
     fireEvent.click(screen.getByTestId("workspace-modal-open"));
     expect(props.onPickFolder).toHaveBeenCalledWith("/repos/other");
     expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
+  });
+
+  it("renders chips, the folder menu and the browser modal in Russian", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ path: "/repos", parent: "/", folders: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setLocale("ru");
+
+    renderChips();
+    expect(screen.getByTestId("composer-worktree-chip").textContent).toContain(
+      "worktree",
+    );
+
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    const menu = screen.getByTestId("workspace-folder-menu");
+    expect(menu.textContent).toContain("Недавние");
+    expect(menu.textContent).toContain("Открыть папку…");
+    expect(menu.textContent).not.toContain("Recent");
+
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-folder-modal"));
+    const modal = screen.getByTestId("workspace-folder-modal");
+    expect(modal.textContent).toContain("Открыть папку");
+    expect(modal.textContent).toContain("Вложенных папок нет");
+    expect(screen.getByTestId("workspace-modal-cancel").textContent).toBe(
+      "Отмена",
+    );
   });
 
   it("cancels the folder browser modal without picking", async () => {
