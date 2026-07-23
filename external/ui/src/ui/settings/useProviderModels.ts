@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { t } from "../i18n/i18n";
 
 export type FetchedModel = { id: string; name?: string };
 
@@ -38,7 +39,7 @@ export function useProviderModels() {
       }
     } catch (e) {
       setModels([]);
-      setError(e instanceof Error ? e.message : "request failed");
+      setError(e instanceof Error ? e.message : t("settings.requestFailed"));
     } finally {
       setLoading(false);
       setFetched(true);

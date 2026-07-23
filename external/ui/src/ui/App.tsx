@@ -161,6 +161,7 @@ import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { t } from "./i18n/i18n";
+import { useT } from "./i18n/I18nProvider";
 
 const HDR = "X-FoxxyCode-Session-ID";
 
@@ -631,6 +632,9 @@ function reasoningDurationCacheKey(text: string): string {
 }
 
 export function App() {
+  // Only the active locale id is needed here: memoized labels below must recompute when the user
+  // switches language. Translations themselves go through the module-level t().
+  const { locale } = useT();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1199,7 +1203,7 @@ export function App() {
 
   const currentTitle = useMemo(() => {
     if (!sessionId) {
-      return "New chat";
+      return t("chat.newChat");
     }
     if (describePreview?.sessionId === sessionId) {
       const hint = describePreview.title.trim();
@@ -1208,9 +1212,9 @@ export function App() {
       }
     }
     const row = sessions.find((s) => s.id === sessionId);
-    const t = (row?.title || "").trim();
-    return t || "New chat";
-  }, [sessionId, sessions, describePreview]);
+    const title = (row?.title || "").trim();
+    return title || t("chat.newChat");
+  }, [sessionId, sessions, describePreview, locale]);
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();

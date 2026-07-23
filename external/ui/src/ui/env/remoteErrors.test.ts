@@ -1,10 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FoxxyCodeEnv } from "./remoteEnv";
 import {
   isAbortError,
   remoteHttpErrorMessage,
   remoteSendErrorMessage,
 } from "./remoteErrors";
+import { initLocale, setLocale } from "../i18n/i18n";
+
+beforeEach(() => {
+  initLocale("en");
+});
+
+afterEach(() => {
+  setLocale("en");
+});
 
 const local: FoxxyCodeEnv = { mode: "local" };
 const remote: FoxxyCodeEnv = {
@@ -78,5 +87,22 @@ describe("remoteHttpErrorMessage (readable non-ok Response)", () => {
   });
   it("keeps the legacy terse message for a generic status on local", () => {
     expect(remoteHttpErrorMessage(500, local)).toBe("Request failed (500).");
+  });
+});
+
+describe("transport messages follow the UI locale", () => {
+  it("translates the remote and local variants to Russian", () => {
+    setLocale("ru");
+    const send = remoteSendErrorMessage(new TypeError("Failed to fetch"), remote);
+    expect(send).toContain("box.example:12345");
+    expect(send).toContain("удалённым");
+
+    expect(remoteSendErrorMessage(new TypeError("Failed to fetch"), local)).toContain(
+      "Сетевая ошибка",
+    );
+    expect(remoteHttpErrorMessage(401, remote)).toContain("bearer-токен");
+    expect(remoteHttpErrorMessage(500, local)).toBe(
+      "Запрос завершился ошибкой (500).",
+    );
   });
 });

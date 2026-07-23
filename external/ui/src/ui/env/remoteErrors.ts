@@ -3,6 +3,7 @@
 // where remote failures were dropped into an empty catch and shown as nothing).
 
 import type { FoxxyCodeEnv } from "./remoteEnv";
+import { t } from "../i18n/i18n";
 
 function hostOf(env: FoxxyCodeEnv): string {
   return env.mode === "remote" ? env.baseUrl.replace(/^https?:\/\//, "") : "";
@@ -19,9 +20,9 @@ export function isAbortError(err: unknown): boolean {
  * was blocked by CORS. */
 export function remoteSendErrorMessage(_err: unknown, env: FoxxyCodeEnv): string {
   if (env.mode === "remote") {
-    return `Cannot reach remote ${hostOf(env)} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).`;
+    return t("env.error.cannotReach", { host: hostOf(env) });
   }
-  return "Network error sending the message — check that the server is running.";
+  return t("env.error.networkLocal");
 }
 
 /** remoteHttpErrorMessage builds a message for a readable non-ok HTTP response. 401/403 get a
@@ -29,10 +30,10 @@ export function remoteSendErrorMessage(_err: unknown, env: FoxxyCodeEnv): string
 export function remoteHttpErrorMessage(status: number, env: FoxxyCodeEnv): string {
   if (status === 401 || status === 403) {
     return env.mode === "remote"
-      ? `Unauthorized on remote ${hostOf(env)} — check the bearer token for this environment.`
-      : `Unauthorized (${status}).`;
+      ? t("env.error.unauthorizedRemote", { host: hostOf(env) })
+      : t("env.error.unauthorizedLocal", { status });
   }
   return env.mode === "remote"
-    ? `Request to remote ${hostOf(env)} failed (${status}).`
-    : `Request failed (${status}).`;
+    ? t("env.error.requestFailedRemote", { host: hostOf(env), status })
+    : t("env.error.requestFailedLocal", { status });
 }

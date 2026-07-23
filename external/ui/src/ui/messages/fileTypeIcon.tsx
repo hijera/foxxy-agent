@@ -1,32 +1,37 @@
 import type { ReactNode } from "react";
+import { t } from "../i18n/i18n";
 
-/** Returns a short SVG icon and label for a given MIME type or file name. */
+/**
+ * Returns a short SVG icon and a localized label for a given MIME type or file name. The label is
+ * resolved on every call, so it follows the active locale as long as the caller re-renders (the
+ * I18nProvider re-renders the tree on locale change).
+ */
 export function fileTypeIcon(mimeType: string, fileName: string): { svg: ReactNode; label: string } {
   const mt = (mimeType || "").toLowerCase();
   const ext = (fileName.split(".").pop() || "").toLowerCase();
 
   if (mt.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) {
-    return { label: "Image", svg: <ImageIcon /> };
+    return { label: t("files.type.image"), svg: <ImageIcon /> };
   }
   if (mt.startsWith("video/") || ["mp4", "mov", "avi", "mkv", "webm", "flv"].includes(ext)) {
-    return { label: "Video", svg: <VideoIcon /> };
+    return { label: t("files.type.video"), svg: <VideoIcon /> };
   }
   if (mt.startsWith("audio/") || ["mp3", "wav", "ogg", "flac", "aac", "m4a"].includes(ext)) {
-    return { label: "Audio", svg: <AudioIcon /> };
+    return { label: t("files.type.audio"), svg: <AudioIcon /> };
   }
   if (mt === "application/pdf" || ext === "pdf") {
-    return { label: "PDF", svg: <PdfIcon /> };
+    return { label: t("files.type.pdf"), svg: <PdfIcon /> };
   }
   if (
     mt.startsWith("text/") ||
     ["txt", "md", "csv", "log", "yaml", "yml", "json", "xml", "html", "css", "js", "ts", "tsx", "jsx", "py", "go", "rs", "java", "c", "cpp", "h"].includes(ext)
   ) {
-    return { label: "Text", svg: <TextIcon /> };
+    return { label: t("files.type.text"), svg: <TextIcon /> };
   }
   if (["zip", "tar", "gz", "rar", "7z", "bz2"].includes(ext) || mt.includes("zip") || mt.includes("archive")) {
-    return { label: "Archive", svg: <ArchiveIcon /> };
+    return { label: t("files.type.archive"), svg: <ArchiveIcon /> };
   }
-  return { label: "File", svg: <FileIcon /> };
+  return { label: t("files.type.file"), svg: <FileIcon /> };
 }
 
 function ImageIcon() {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { WorkspaceFolderListing } from "./workspaceContext";
+import { useT } from "../i18n/I18nProvider";
 
 type Props = {
   open: boolean;
@@ -14,22 +15,25 @@ type Props = {
 // the server-side filesystem via GET /foxxycode/workspace/folders and picks the
 // currently browsed folder with the Open button.
 export function WorkspaceFolderModal(props: Props) {
+  const { t } = useT();
   const [listing, setListing] = useState<WorkspaceFolderListing | null>(null);
   const [error, setError] = useState("");
 
   const browse = async (path: string) => {
+    const listFailed = () =>
+      setError(t("composer.folderModal.cannotList", { path }));
     try {
       const res = await fetch(
         "/foxxycode/workspace/folders?path=" + encodeURIComponent(path),
       );
       if (!res.ok) {
-        setError("Cannot list " + path);
+        listFailed();
         return;
       }
       setListing((await res.json()) as WorkspaceFolderListing);
       setError("");
     } catch {
-      setError("Cannot list " + path);
+      listFailed();
     }
   };
 
@@ -59,15 +63,15 @@ export function WorkspaceFolderModal(props: Props) {
         className="workspace-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Open folder"
+        aria-label={t("composer.folderModal.title")}
         data-testid="workspace-folder-modal"
       >
         <div className="workspace-modal-head">
-          <span>Open folder</span>
+          <span>{t("composer.folderModal.title")}</span>
           <button
             type="button"
             className="sessions-close"
-            aria-label="Close folder browser"
+            aria-label={t("composer.folderModal.close")}
             onClick={props.onClose}
           >
             ×
@@ -106,7 +110,9 @@ export function WorkspaceFolderModal(props: Props) {
             </button>
           ))}
           {listing && listing.folders.length === 0 && !error ? (
-            <div className="mode-menu-empty">No subfolders</div>
+            <div className="mode-menu-empty">
+              {t("composer.folderModal.noSubfolders")}
+            </div>
           ) : null}
         </div>
         <div className="workspace-modal-actions">
@@ -116,7 +122,7 @@ export function WorkspaceFolderModal(props: Props) {
             data-testid="workspace-modal-cancel"
             onClick={props.onClose}
           >
-            Cancel
+            {t("composer.folderModal.cancel")}
           </button>
           <button
             type="button"
@@ -129,7 +135,7 @@ export function WorkspaceFolderModal(props: Props) {
               }
             }}
           >
-            Open
+            {t("composer.folderModal.open")}
           </button>
         </div>
       </div>

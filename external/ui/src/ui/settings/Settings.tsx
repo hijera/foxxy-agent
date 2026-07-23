@@ -6,6 +6,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useT } from "../i18n/I18nProvider";
+// Module-level helpers below run outside React, so they translate through the store directly;
+// the component keeps using the hook's t(). Aliased to avoid shadowing that local binding.
+import { translate } from "../i18n/i18n";
 import { type JsonSchema } from "./SchemaForm";
 import { deriveSettingsSections, type SectionDescriptor } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
@@ -29,7 +32,10 @@ async function readJSON<T>(path: string): Promise<{ ok: boolean; data?: T; error
     const data = (await res.json()) as T;
     return { ok: true, data };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "parse" };
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : translate("settings.parseError"),
+    };
   }
 }
 
