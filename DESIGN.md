@@ -138,6 +138,12 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 
 **Component**: **`PlanDocumentSection`** (**`external/ui/src/ui/chat/PlanDocumentSection.tsx`**). Rendered from **`plan_document`** transcript items (**`MessageList`**).
 
+**Placement**
+
+- A plan card is always the **last row of the turn it belongs to** — below the assistant text that introduces it, so **Run plan** sits at the end of the answer. Enforced by **`pinPlanDocumentsToTurnEnd`** (**`chat/planDocumentPlacement.ts`**), applied both in **`applyStreamItemsForSession`** (every live stream mutation) and in the **`loadMessages`** rebuild. Do **not** rely on message order: the server appends the `plan_document` message mid-turn (right after `plan_write`), while assistant text is deferred to the turn boundary.
+- The card appears **live**, as soon as `plan_write` publishes: **`consumeComposerSse`** handles **`event: plan`** carrying **`_meta`** **`foxxycode.dev/planKind: design`**, and **`App.tsx`** loads the document from **`GET /foxxycode/sessions/{id}/plans/{slug}`**. A second `plan_write` for the same slug **updates the card in place** (never stacks duplicates).
+- Card identity is the **plan slug** (**`transcriptItemsLooselyEqual`**), so a transcript rebuild keeps the React key, the expanded state, and an in-progress markdown draft.
+
 **Collapsed**
 
 - **Title**: frontmatter **`name`** or **`slug`**. **`title` attribute** (native tooltip) shows absolute file **`path`** when known (for example **`…/plans/<slug>.plan.md`**).
@@ -155,6 +161,7 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 **Editing**
 
 - The editor shows **markdown body only** (YAML frontmatter stripped via **`planEditorBody`** in **`planContent.ts`**). Autosave **`PUT /foxxycode/sessions/{id}/plans/{slug}`** with JSON **`{ "body": "…" }`**, about **600ms** debounce.
+- While a debounced save is pending or in flight the card is **dirty** and incoming snapshots do **not** reseed the editor, so a rebuild (or another window saving the same plan) cannot discard unsaved keystrokes.
 
 **Discard**
 
@@ -166,7 +173,7 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 
 **Tests**
 
-- **`external/ui/src/ui/chat/PlanDocumentSection.test.tsx`**
+- **`external/ui/src/ui/chat/PlanDocumentSection.test.tsx`**, **`planDocumentPlacement.test.ts`**
 
 ### Responsive breakpoints
 

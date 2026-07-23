@@ -1,6 +1,29 @@
 package config
 
-import "strings"
+import (
+	"flag"
+	"strings"
+)
+
+// PlanNoSelfRunFlagName is the CLI flag (on `foxxycode acp` / `foxxycode http`) that
+// overrides tools.plan_no_self_run. Editor plugins pass it so their panels default to
+// the guarded behaviour while standalone runs keep the config value.
+const PlanNoSelfRunFlagName = "plan-no-self-run"
+
+// ApplyPlanNoSelfRunFlag overrides tools.plan_no_self_run only when the
+// -plan-no-self-run flag was explicitly provided on fs; otherwise the config value
+// (which defaults to false) is left untouched. Mirrors ApplySkillsAutoDiscoveryFlag.
+func ApplyPlanNoSelfRunFlag(fs *flag.FlagSet, cfg *Config, val *bool) {
+	if fs == nil || cfg == nil || val == nil {
+		return
+	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == PlanNoSelfRunFlagName {
+			v := *val
+			cfg.Tools.PlanNoSelfRun = &v
+		}
+	})
+}
 
 // Permission mode constants for tools.permission_mode.
 const (
@@ -21,6 +44,17 @@ type Tools struct {
 
 	// SSHConnectTimeout is the TCP dial timeout for SSH connections in seconds (default: 30).
 	SSHConnectTimeout int `yaml:"ssh_connect_timeout"`
+
+	// PlanNoSelfRun forbids the model from starting to execute a plan on its own. When
+	// true, plan mode no longer offers plan_exit and the mode tool allowlist is enforced
+	// at execution time, so a tool call outside it is refused instead of run. Defaults to
+	// false; editor plugins turn it on via PlanNoSelfRunFlagName.
+	PlanNoSelfRun *bool `yaml:"plan_no_self_run"`
+}
+
+// PlanNoSelfRunEnabled reports whether the model is barred from leaving plan mode itself.
+func (c *Tools) PlanNoSelfRunEnabled() bool {
+	return c.PlanNoSelfRun != nil && *c.PlanNoSelfRun
 }
 
 // ResolvedPermMode returns PermissionMode with a safe default of PermModeAsk.

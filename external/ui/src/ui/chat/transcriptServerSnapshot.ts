@@ -37,6 +37,13 @@ export function transcriptItemsLooselyEqual(
         (b as Extract<TranscriptItem, { type: "tool_call" }>).toolCallId ===
         a.toolCallId
       );
+    case "plan_document": {
+      // Same plan file = same card, so the React key (and with it the expanded
+      // state and the unsaved markdown draft) survives a transcript rebuild.
+      // A discard flips the card into its muted state, so it must not match.
+      const bl = b as Extract<TranscriptItem, { type: "plan_document" }>;
+      return bl.slug === a.slug && bl.discarded === a.discarded;
+    }
     case "system_notice":
       return (
         (b as Extract<TranscriptItem, { type: "system_notice" }>).message ===

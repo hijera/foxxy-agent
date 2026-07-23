@@ -309,6 +309,11 @@
           "type": "integer",
           "description": "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds.",
           "default": 30
+        },
+        "plan_no_self_run": {
+          "type": "boolean",
+          "description": "Forbid the model from starting to execute a plan on its own: in plan mode plan_exit is not offered and any tool outside the plan allowlist is refused instead of run. Only the user can start the implementation (Run plan). Editor plugins pass --plan-no-self-run to turn it on by default.",
+          "default": false
         }
       }
     },

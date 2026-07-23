@@ -42,6 +42,7 @@ import {
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
 } from "./chat/transcriptServerSnapshot";
+import { pinPlanDocumentsToTurnEnd } from "./chat/planDocumentPlacement";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
 import { shouldApplyTranscriptSnapshot } from "./chat/transcriptSnapshotGuard";
 import {
@@ -840,7 +841,9 @@ export function App() {
       itemsWhenViewingMatches: itemsRef.current,
     });
     const prevShadowLen = streamShadowBySidRef.current.get(key)?.length ?? 0;
-    const next = fn(base);
+    // Single funnel for every live stream mutation: keep plan cards at the end of
+    // their turn so streamed text lands above the Run plan button, not below it.
+    const next = pinPlanDocumentsToTurnEnd(fn(base));
     if (next.length === 0 && prevShadowLen > 0 && base.length === 0) {
       return;
     }
@@ -1115,6 +1118,65 @@ export function App() {
         ]);
         playNotificationSound();
       }
+    },
+    [],
+  );
+
+  /**
+   * `event: plan` with design meta means plan_write just published a plan. Pull the
+   * document and put the card in the live transcript right away, instead of waiting
+   * for the post-turn rebuild. pinPlanDocumentsToTurnEnd keeps it below the text that
+   * keeps streaming in after it.
+   */
+  const handleComposerSseDesignPlan = useCallback(
+    (sid: string, slug: string) => {
+      const key = sid.trim();
+      const s = slug.trim();
+      if (!key || !s) return;
+      void (async () => {
+        const res = await fetchJSON<{
+          slug?: string;
+          name?: string;
+          overview?: string;
+          content?: string;
+          body?: string;
+          updatedAt?: string;
+        }>(
+          `/foxxycode/sessions/${encodeURIComponent(key)}/plans/${encodeURIComponent(s)}`,
+          { headers: { [HDR]: key } },
+        );
+        if (!res.ok || !res.data) return;
+        const doc = res.data;
+        applyStreamItemsForSession(key, (prev) => {
+          const at = prev.findIndex(
+            (x) => x.type === "plan_document" && x.slug === s,
+          );
+          const existing = at >= 0 ? prev[at] : undefined;
+          const row: TranscriptItem = {
+            id:
+              existing?.type === "plan_document" ? existing.id : newId("pd"),
+            type: "plan_document",
+            slug: s,
+            name: String(doc.name ?? ""),
+            overview: String(doc.overview ?? ""),
+            content: String(doc.content ?? ""),
+            body: String(doc.body ?? ""),
+            // A rewrite of the same slug updates the card in place; never stack duplicates.
+            expanded:
+              existing?.type === "plan_document" ? existing.expanded : false,
+            ...(existing?.type === "plan_document" && existing.path
+              ? { path: existing.path }
+              : {}),
+            ...(doc.updatedAt ? { updatedAtUtc: String(doc.updatedAt) } : {}),
+          };
+          if (at >= 0) {
+            const next = [...prev];
+            next[at] = row;
+            return next;
+          }
+          return [...prev, row];
+        });
+      })();
     },
     [],
   );
@@ -2292,6 +2354,8 @@ export function App() {
     );
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
+    // Final row order before preserveTranscriptItemIds does its positional match.
+    merged = pinPlanDocumentsToTurnEnd(merged);
     const appliedRaw =
       keepLocalTranscriptIfServerEmpty({
         serverNext: merged,
@@ -2997,6 +3061,8 @@ export function App() {
         onPermission: handleComposerSsePermission,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
+        onDesignPlan: (slug: string) =>
+          handleComposerSseDesignPlan(key, slug),
       });
 
       const syncAssistantFromServer = async () => {
@@ -3382,6 +3448,8 @@ export function App() {
         onPermission: handleComposerSsePermission,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
+        onDesignPlan: (slug: string) =>
+          handleComposerSseDesignPlan(streamKey, slug),
       });
 
       const syncAssistantFromServer = async () => {

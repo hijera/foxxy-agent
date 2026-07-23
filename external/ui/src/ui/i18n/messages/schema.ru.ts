@@ -135,6 +135,10 @@ export const schemaTextRu: Record<string, string> = {
   "Command allowlist": "Белый список команд",
   "If non-empty, only these shell command prefixes may run without extra policy.":
     "Если список не пуст, без дополнительной политики могут выполняться только эти префиксы команд шелла.",
+  "Forbid the model from running the plan itself":
+    "Запретить модели самой начать выполнять план",
+  "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.":
+    "В режиме плана скрывает plan_exit и отклоняет любой инструмент вне списка плана, поэтому реализацию запускаете только вы — кнопкой на карточке плана. По умолчанию выключено; плагины редакторов включают его сами.",
 
   // Skills
   Skills: "Навыки",

@@ -81,6 +81,8 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
             .withParameters("http", "-H", host, "-P", port.toString())
         project.basePath?.let { cmd.addParameters("--cwd", it) }
         if (settings.foxxycodeHome.isNotBlank()) cmd.addParameters("--home", settings.foxxycodeHome)
+        // Panels default to guarded planning: the model may not leave plan mode itself.
+        cmd.addParameters("--plan-no-self-run=" + settings.planNoSelfRun)
         if (settings.extraArgs.isNotBlank()) cmd.addParameters(ParametersListUtil.parse(settings.extraArgs))
         val proxy = ProxyEnvironment.resolveProxyEnvironment()
         log.info("[foxxycode] " + ProxyEnvironment.describe(proxy))

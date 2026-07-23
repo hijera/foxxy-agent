@@ -556,7 +556,7 @@ func TestBuildSkillsPromptMarkdown_noGlobNonCatalogBodyInSystemPrompt(t *testing
 
 func TestDocsToolSetFiltersToReadAndDocsWrite(t *testing.T) {
 	r := tools.NewRegistry()
-	set := ToolSetForMode("docs")
+	set := ToolSetForMode("docs", false)
 	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
 	got := make(map[string]bool)
 	for _, d := range filtered {
@@ -593,7 +593,7 @@ func TestModeAllowsMCPTools(t *testing.T) {
 
 func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 	r := tools.NewRegistry()
-	set := ToolSetForMode("plan")
+	set := ToolSetForMode("plan", false)
 	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
 	got := make(map[string]bool)
 	for _, d := range filtered {
@@ -609,10 +609,31 @@ func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 			t.Errorf("plan toolset should not include %q", forbid)
 		}
 	}
+	// Default: the model may finish planning and start the implementation itself.
+	if !got["plan_exit"] {
+		t.Error("plan toolset should include plan_exit by default")
+	}
+}
+
+func TestPlanToolSetDropsPlanExitWhenSelfRunForbidden(t *testing.T) {
+	r := tools.NewRegistry()
+	set := ToolSetForMode("plan", true)
+	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
+	for _, d := range filtered {
+		if d.Name == "plan_exit" {
+			t.Fatal("plan_exit must not be offered when plan_no_self_run is on")
+		}
+	}
+	if !set.Allows("plan_write") {
+		t.Error("the guard must not touch the rest of the plan toolset")
+	}
+	if set.Allows("plan_exit") {
+		t.Error("Allows must refuse plan_exit under the guard")
+	}
 }
 
 func TestToolSetForAgentIsUnrestricted(t *testing.T) {
-	set := ToolSetForMode("agent")
+	set := ToolSetForMode("agent", false)
 	if !set.Unrestricted() {
 		t.Fatal("agent mode should use unrestricted tool set")
 	}

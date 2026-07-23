@@ -365,8 +365,10 @@ func UISchemaMap() map[string]interface{} {
 					"description": "If non-empty, only these shell command prefixes may run without extra policy.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"plan_no_self_run": boolProp("Forbid the model from running the plan itself",
+					"In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on."),
 			},
-			[]string{"permission_mode", "command_allowlist"},
+			[]string{"permission_mode", "command_allowlist", "plan_no_self_run"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",

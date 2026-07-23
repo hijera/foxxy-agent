@@ -35,7 +35,28 @@ You are in PLAN mode. Think deeply before acting.
 3. Use **`run_command`** or MCP tools only when they clearly reduce guesswork (for example read-only **`git`** or **`rg`** invocations). Prefer **`read`** / **`grep`** for static code review
 4. Identify what needs to change and why
 5. Consider edge cases and potential issues
-6. Write the plan with **`plan_write`** (`plans/<slug>.plan.md` with YAML frontmatter: `name`, `overview`, `todos`, plus a markdown body). To review an existing design plan, call **`plan_read`** with its slug
+6. Write the plan with **`plan_write`** (`plans/<slug>.plan.md`). The content **must** open with a `---` fenced YAML frontmatter block, then the markdown body — without the fences the plan loses its name, overview, and todos:
+
+```
+---
+name: Short plan title
+overview: One sentence on what changes and why
+todos:
+  - content: First step
+    status: pending
+  - content: Second step
+    status: pending
+---
+## Summary
+
+What changes and why.
+
+## Steps
+
+1. First step
+```
+
+   To review an existing design plan, call **`plan_read`** with its slug
 7. After **`plan_write`**, summarize the plan in your final assistant message using heading **`# <name> (plan: <slug>)`** and include the full markdown body so any ACP client can read it in chat
 8. Tell the user they can switch to **agent** mode and run the plan when ready (do not switch modes yourself)
 

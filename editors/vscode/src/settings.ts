@@ -17,6 +17,7 @@ export interface FoxxyCodeSettings {
   autoApproveEdits: boolean;
   trackOpenFiles: boolean;
   trackTerminals: boolean;
+  planNoSelfRun: boolean;
 }
 
 function readRaw(): vscode.WorkspaceConfiguration {
@@ -37,6 +38,7 @@ export function readSettings(): FoxxyCodeSettings {
     autoApproveEdits: c.get<boolean>("autoApproveEdits", false),
     trackOpenFiles: c.get<boolean>("trackOpenFiles", true),
     trackTerminals: c.get<boolean>("trackTerminals", true),
+    planNoSelfRun: c.get<boolean>("planNoSelfRun", true),
   };
 }
 

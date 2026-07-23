@@ -38,6 +38,10 @@ class FoxxyCodeSettings : PersistentStateComponent<FoxxyCodeSettings.State> {
 
         // Report open terminals + their recent output to the agent each turn (and for @terminal).
         var trackTerminals: Boolean = true
+
+        // Forbid the model from leaving plan mode itself: passes -plan-no-self-run to the
+        // backend, which hides plan_exit and refuses tools outside the plan allowlist.
+        var planNoSelfRun: Boolean = true
     }
 
     private var myState = State()

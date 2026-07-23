@@ -41,12 +41,32 @@ type StartParams struct {
 	Port             string
 	LoggerOverrides  config.LoggerCLIOverrides
 	SchedulerEnabled bool
+	// PlanNoSelfRun overrides tools.plan_no_self_run when non-nil (the
+	// -plan-no-self-run flag was passed). Editor plugins set it so their panels
+	// forbid the model from leaving plan mode by itself.
+	PlanNoSelfRun *bool
 	// AuthToken is the optional bearer token from --auth-token; empty falls back to
 	// FOXXYCODE_HTTP_TOKEN and then httpserver.auth_token.
 	AuthToken string
 	// FolderPicker opens a native folder dialog (desktop mode); nil keeps
 	// POST /foxxycode/project/pick-folder at 501.
 	FolderPicker FolderPickerFunc
+}
+
+// boolFlagIfPassed returns val only when name was explicitly given on fs, so an
+// unset flag leaves the config value alone (same contract as ApplySkillsAutoDiscoveryFlag).
+func boolFlagIfPassed(fs *flag.FlagSet, name string, val *bool) *bool {
+	if fs == nil || val == nil {
+		return nil
+	}
+	var out *bool
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			v := *val
+			out = &v
+		}
+	})
+	return out
 }
 
 // StartedHTTP holds a running HTTP stack built by StartHTTP.
@@ -81,6 +101,10 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 	if params.SchedulerEnabled {
 		cfg.Scheduler.Enabled = true
+	}
+	if params.PlanNoSelfRun != nil {
+		v := *params.PlanNoSelfRun
+		cfg.Tools.PlanNoSelfRun = &v
 	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return nil, fmt.Errorf("scheduler: %w", err)
@@ -262,6 +286,7 @@ func Run(args []string, deps CommandDeps) error {
 	fs.StringVar(port, "port", "12345", "listen port (alias of -P)")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
+	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -292,6 +317,7 @@ func Run(args []string, deps CommandDeps) error {
 		},
 		SchedulerEnabled: *schedulerEnabled,
 		AuthToken:        strings.TrimSpace(*authToken),
+		PlanNoSelfRun:    boolFlagIfPassed(fs, config.PlanNoSelfRunFlagName, planNoSelfRun),
 	})
 	if err != nil {
 		return err

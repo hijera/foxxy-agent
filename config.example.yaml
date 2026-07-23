@@ -152,6 +152,12 @@ tools:
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
 
+  # Forbid the model from starting to execute a plan on its own (default: false).
+  # When true, plan mode does not offer plan_exit and refuses any tool outside the
+  # plan allowlist, so only Run plan starts the implementation. The IntelliJ and
+  # VS Code plugins pass -plan-no-self-run, so their panels are guarded by default.
+  # plan_no_self_run: false
+
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # Optional bearer auth + CORS + remote environment selector: see docs/remote-control.md.
 # httpserver:

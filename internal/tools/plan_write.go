@@ -17,7 +17,9 @@ func PlanWriteTool() *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: "plan_write",
 			Description: "Write or replace a design plan file at plans/<slug>.plan.md in the session bundle. " +
-				"Use YAML frontmatter (name, overview, todos) plus a markdown body. " +
+				"Content MUST open with a YAML frontmatter block fenced by --- lines, followed by the markdown body, exactly like:\n" +
+				"---\nname: Short plan title\noverview: One sentence on what changes and why\ntodos:\n  - content: First step\n    status: pending\n  - content: Second step\n    status: pending\n---\n" +
+				"## Summary\n\nWhat changes and why.\n\n## Steps\n\n1. First step\n" +
 				"Each todo is either a plain string or an object with content (aliases title, description, label also work). " +
 				"Publishes a design plan preview to the client.",
 			InputSchema: map[string]interface{}{
