@@ -7349,6 +7349,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .plan-document-head {
+  position: relative;
   grid-area: head;
   display: flex;
   flex-direction: column;
@@ -7357,6 +7358,23 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-width: 0;
   padding: 14px 14px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+/* Collapsed card: the open-in-IDE icon floats in the header's top-right, since the
+   pane rail it normally shares with the eye only exists in the expanded body. */
+.plan-document-head-tools {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+}
+
+/* Marker class from React (no :has() on the Chromium 104 baseline) reserving room so
+   the title/description never runs under the floating icon. */
+.plan-document-head--with-ide .plan-document-head-btn {
+  padding-right: 38px;
 }
 
 .plan-document-card:not(.plan-document-card--expanded) .plan-document-head {

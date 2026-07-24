@@ -268,6 +268,11 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
   const description = descriptionLine(props.overview, editorSeed);
   const filePath = planFilePath(props.slug, props.path);
 
+  // The pane rail only exists in the expanded body, so a collapsed card renders the
+  // same icon in its header rather than losing the action entirely.
+  const ideButtonVisible = isEditorEmbed();
+  const collapsedIdeButton = ideButtonVisible && !props.expanded;
+
   const cardClass = [
     "plan-document-card",
     props.expanded ? "plan-document-card--expanded" : "",
@@ -284,7 +289,13 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
       }
     >
       <div className={cardClass}>
-        <header className="plan-document-head">
+        <header
+          className={
+            collapsedIdeButton
+              ? "plan-document-head plan-document-head--with-ide"
+              : "plan-document-head"
+          }
+        >
           <button
             type="button"
             className="plan-document-head-btn"
@@ -298,6 +309,17 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
               <span className="plan-document-desc">{description}</span>
             ) : null}
           </button>
+          {/* Collapsed cards have no body, so the icon rides in the header instead
+              of the pane rail — the action stays reachable without expanding. */}
+          {collapsedIdeButton ? (
+            <div className="plan-document-head-tools">
+              <PlanOpenInIdeButton
+                discarded={discarded}
+                onOpenInIde={openInIde}
+                t={t}
+              />
+            </div>
+          ) : null}
           {/* A failure stays visible after the card is collapsed, so an autosave or
               open-in-IDE error is not silently lost when the body is hidden. */}
           {(props.expanded && saving) || saveError ? (
@@ -317,7 +339,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
             <div className="plan-document-pane">
               <div className="plan-document-pane-tools">
                 {/* Only inside an editor plugin: in the browser there is no IDE to open. */}
-                {isEditorEmbed() ? (
+                {ideButtonVisible ? (
                   <PlanOpenInIdeButton
                     discarded={discarded}
                     onOpenInIde={openInIde}

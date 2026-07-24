@@ -224,11 +224,36 @@ test("View in IDE is disabled for a discarded plan", () => {
   expect(screen.getByTestId("plan_document_open_in_ide")).toBeDisabled();
 });
 
-// The tool rail lives in the expanded body, so a collapsed card has no icons.
-test("View in IDE is not rendered while the card is collapsed", () => {
+// The pane rail only exists in the expanded body, so a collapsed card keeps the
+// action reachable by rendering the same icon in its header instead.
+test("View in IDE stays available on a collapsed card, in the header", () => {
   vi.mocked(isEditorEmbed).mockReturnValue(true);
   renderPlan({ expanded: false });
+
+  const openBtn = screen.getByTestId("plan_document_open_in_ide");
+  expect(openBtn).toHaveAttribute("aria-label", "View in IDE");
+  expect(document.querySelector(".plan-document-head")!.contains(openBtn)).toBe(
+    true,
+  );
+  // No body while collapsed, so there is no pane rail to hold it.
+  expect(document.querySelector(".plan-document-pane-tools")).toBeNull();
+  // The header reserves room for the icon so the title cannot run under it.
+  expect(
+    document.querySelector(".plan-document-head--with-ide"),
+  ).not.toBeNull();
+});
+
+test("collapsed card in the browser shell has no header icon", () => {
+  renderPlan({ expanded: false });
   expect(screen.queryByTestId("plan_document_open_in_ide")).toBeNull();
+  expect(document.querySelector(".plan-document-head--with-ide")).toBeNull();
+});
+
+test("expanded card keeps the icon in the rail only, not duplicated in the header", () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  renderPlan();
+  expect(screen.getAllByTestId("plan_document_open_in_ide")).toHaveLength(1);
+  expect(document.querySelector(".plan-document-head-tools")).toBeNull();
 });
 
 test("a plan rewritten by the model replaces an untouched body", () => {

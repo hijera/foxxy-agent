@@ -169,8 +169,10 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 
 **View in IDE**
 
-- **Icon-only** (document glyph, **`.plan-document-ide`**), sharing the eye's 30x30 chrome and sitting **left of the preview eye** in the floating **`.plan-document-pane-tools`** rail over the top-right of the body. A worded button did not fit the footer inside a narrow plugin panel; the label rides on **`title`** / **`aria-label`** (**`prompts.planOpenInIde`**) instead.
-- Because the rail lives in the expanded body, the button is **not** rendered while the card is collapsed. Rendered **only** inside an editor plugin (**`isEditorEmbed()`**) and disabled for a discarded plan.
+- **Icon-only** (document glyph, **`.plan-document-ide`**), sharing the eye's 30x30 chrome. A worded button did not fit the footer inside a narrow plugin panel; the label rides on **`title`** / **`aria-label`** (**`prompts.planOpenInIde`**) instead.
+- **Expanded**: sits **left of the preview eye** in the floating **`.plan-document-pane-tools`** rail over the top-right of the body.
+- **Collapsed**: the pane rail does not exist, so the same icon renders in the header's top-right (**`.plan-document-head-tools`**) — the action stays reachable without expanding. React sets the marker class **`.plan-document-head--with-ide`** (no **`:has()`** on the Chromium 104 baseline) so the title/description reserve a 38px gutter and never run under the icon. Exactly **one** instance renders in either state.
+- Rendered **only** inside an editor plugin (**`isEditorEmbed()`**) and disabled for a discarded plan.
 - The card posts **`POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide`** itself (same pattern as its autosave **`PUT`**), and the server resolves the absolute path and broadcasts **`event: open_file`** on **`/foxxycode/ide/events`**. A failure surfaces in the card's existing **`plan-document-save-error`** slot, which stays visible after a collapse so the error is not silently lost.
 
 **Run plan**
