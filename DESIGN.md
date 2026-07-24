@@ -156,7 +156,7 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 - **Header**: title toggles expand; optional **Saving…** or save error after debounced PUT.
 - **Body pane** (**.plan-document-pane**): one region for content. **Eye control** top-right (**`Toggle preview`**, **`aria-pressed`** when preview is on). **Default: Preview** ( **`Markdown`** on body text). Toggle switches to **Markdown** (**`MarkdownLineEditor`**, **`className="md-line-editor--plan"`**, **`minRows={4}`**, spellcheck enabled).
 - **No fixed-height clip** on the pane: **preview** and **markdown** both **grow with content**; **no inner scrollbar** on **`.plan-document-pane-inner`**. The chat column scrolls when the card is tall.
-- **Footer**: **Discard** (text link) and **Run plan** (orange, ▶ icon). **`min-width: 640px`**: CSS grid places **head** and **actions** on one row, **body** full width below; actions stack in a column on the right.
+- **Footer**: **Discard** (text link), **Show in IDE** (outlined, editor embeds only), and **Run plan** (orange, ▶ icon), in that order. **`min-width: 640px`**: CSS grid places **head** and **actions** on one row, **body** full width below; actions stack in a column on the right.
 
 **Editing**
 
@@ -166,6 +166,11 @@ Single implementation: **`MarkdownLineEditor`** in **`external/ui/src/ui/markdow
 **Discard**
 
 - **`DELETE`** marks the plan **`discarded`** in session state; the card **stays** in the transcript, muted (**`.plan-document-card--discarded`**), controls disabled. Server excludes discarded slugs from the plan-mode system prompt.
+
+**Show in IDE**
+
+- Rendered **only** inside an editor plugin (**`isEditorEmbed()`**); the browser shell has no IDE to open. Sits **before** **Run plan** and is disabled for a discarded plan.
+- The card posts **`POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide`** itself (same pattern as its autosave **`PUT`**), and the server resolves the absolute path and broadcasts **`event: open_file`** on **`/foxxycode/ide/events`**. A failure surfaces in the card's existing **`plan-document-save-error`** slot, which therefore renders in the collapsed state too.
 
 **Run plan**
 

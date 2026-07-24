@@ -115,6 +115,25 @@ func TestPluginDescriptor(t *testing.T) {
 	}
 }
 
+// The panel resolves its own version through PluginManagerCore.getPlugin(PluginId
+// .getId(PLUGIN_ID)) to render it next to the toolbar buttons. A constant that
+// drifts from <id> silently yields no version at all, which no compiler catches.
+func TestPluginIDConstantMatchesDescriptor(t *testing.T) {
+	refs := parsePluginXML(t)
+	path := filepath.Join(kotlinRoot, "dev", "foxxycode", "intellij", "ui", "FoxxyCodeBrowserPanel.kt")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*const val PLUGIN_ID\s*=\s*"([^"]+)"`).FindSubmatch(data)
+	if m == nil {
+		t.Fatalf("FoxxyCodeBrowserPanel.kt must declare `const val PLUGIN_ID = \"...\"`")
+	}
+	if got := string(m[1]); got != refs.id {
+		t.Errorf("PLUGIN_ID = %q, but plugin.xml <id> = %q", got, refs.id)
+	}
+}
+
 // Every class the descriptor references must exist as a Kotlin source file
 // with a matching package and class declaration, or the plugin fails at
 // runtime with PluginException: class not found.

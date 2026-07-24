@@ -17,3 +17,15 @@ export function isRedundantSessionPick(
   const cid = currentSessionId.trim();
   return !!pid && pid === cid;
 }
+
+/**
+ * Whether picking a session from History should also close the drawer.
+ *
+ * Inside an editor plugin (`isEditorEmbed()`) the tool window is narrow and the
+ * drawer covers the whole chat, so leaving it open reads as "nothing happened".
+ * The browser and desktop shells keep the drawer open, which is what makes
+ * browsing several conversations in a row comfortable there.
+ */
+export function shouldCloseHistoryOnSessionPick(isEmbed: boolean): boolean {
+  return isEmbed;
+}

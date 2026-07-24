@@ -68,12 +68,35 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
     }
 
     private fun onEvent(ev: FoxxyCodeEditEvent) {
+        // User-initiated open ("Show in IDE"): the plan file lives in the session bundle
+        // outside the project, and it is not a diff — so it runs before the nativeDiffs
+        // and in-project guards below.
+        if (ev.isOpenFile) {
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed) return@invokeLater
+                openFile(ev.path)
+            }
+            return
+        }
         if (!FoxxyCodeSettings.getInstance().state.nativeDiffs) return
         if (!isInProject(ev.path)) return
         ApplicationManager.getApplication().invokeLater {
             if (project.isDisposed) return@invokeLater
             handle(ev)
         }
+    }
+
+    /** Opens a file in the editor area and focuses it (no highlights, no diff). */
+    private fun openFile(path: String) {
+        val target = path.trim()
+        if (target.isEmpty()) return
+        val vf = try {
+            LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(target))
+        } catch (e: Exception) {
+            log.debug("open_file rejected path $target: ${e.message}")
+            null
+        } ?: return
+        FileEditorManager.getInstance(project).openTextEditor(OpenFileDescriptor(project, vf), true)
     }
 
     private fun handle(ev: FoxxyCodeEditEvent) {

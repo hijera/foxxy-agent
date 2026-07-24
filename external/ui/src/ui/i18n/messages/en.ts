@@ -164,6 +164,10 @@ export const messagesEn: Record<string, string> = {
   "sessions.delete": "Delete",
   "sessions.newChatFallback": "New chat",
   "sessions.backendUnavailable": "Backend is unavailable ({status})",
+  "sessions.loadingSession": "Loading conversation…",
+  "sessions.projectOnly": "This project only",
+  "sessions.projectOnlyHint":
+    "Show only conversations started in {project}. Turn off to list every project.",
 
   "settings.title": "Settings",
   "settings.close": "Close settings",
@@ -483,6 +487,8 @@ export const messagesEn: Record<string, string> = {
   "prompts.reject": "Reject",
   "prompts.planTogglePreview": "Toggle preview",
   "prompts.planDiscard": "Discard",
+  "prompts.planOpenInIde": "Show in IDE",
+  "prompts.planOpenInIdeFailed": "Could not open the plan in the IDE",
   "prompts.planRun": "Run plan",
   "prompts.planSaving": "Saving…",
   "prompts.planSaveFailed": "save failed ({status})",

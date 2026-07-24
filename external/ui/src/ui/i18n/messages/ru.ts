@@ -167,6 +167,10 @@ export const messagesRu: Record<string, string> = {
   "sessions.delete": "Удалить",
   "sessions.newChatFallback": "Новый чат",
   "sessions.backendUnavailable": "Бэкенд недоступен ({status})",
+  "sessions.loadingSession": "Загружаем диалог…",
+  "sessions.projectOnly": "Только этот проект",
+  "sessions.projectOnlyHint":
+    "Показывать только диалоги из {project}. Выключите, чтобы видеть все проекты.",
 
   "settings.title": "Настройки",
   "settings.close": "Закрыть настройки",
@@ -491,6 +495,8 @@ export const messagesRu: Record<string, string> = {
   "prompts.reject": "Отклонить",
   "prompts.planTogglePreview": "Переключить предпросмотр",
   "prompts.planDiscard": "Отменить",
+  "prompts.planOpenInIde": "Показать в IDE",
+  "prompts.planOpenInIdeFailed": "Не удалось открыть план в IDE",
   "prompts.planRun": "Запустить план",
   "prompts.planSaving": "Сохранение…",
   "prompts.planSaveFailed": "ошибка сохранения ({status})",

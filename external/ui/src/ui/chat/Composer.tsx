@@ -1133,14 +1133,24 @@ export function Composer(props: {
     [props.sessionId],
   );
 
-  /** True when a drag carries files / file URIs (so we claim it, not text drags). */
+  /**
+   * True when a drag carries files / file URIs (so we claim it, not text drags).
+   * VS Code editor-tab drags announce their own `ResourceURLs` / `CodeEditors`
+   * types, which Chromium reports lower-cased — compare case-insensitively.
+   */
   const dragHasFiles = (dt: DataTransfer | null): boolean => {
     if (!dt) {
       return false;
     }
-    return Array.from(dt.types || []).some(
-      (ty) => ty === "Files" || ty === "text/uri-list",
-    );
+    return Array.from(dt.types || []).some((ty) => {
+      const t = String(ty).toLowerCase();
+      return (
+        t === "files" ||
+        t === "text/uri-list" ||
+        t === "resourceurls" ||
+        t === "codeeditors"
+      );
+    });
   };
 
   const handleComposerDragOver = (ev: React.DragEvent<HTMLDivElement>) => {
@@ -1164,6 +1174,7 @@ export function Composer(props: {
     setDropActive(false);
     const paths = parseDroppedPaths({
       uriList: dt.getData("text/uri-list"),
+      resourceUrls: dt.getData("ResourceURLs"),
       plain: dt.getData("text/plain"),
     });
     if (paths.length === 0) {

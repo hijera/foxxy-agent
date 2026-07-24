@@ -20,12 +20,27 @@
 // produces one VSIX per platform. See editors/vscode/README.md.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..", ".."); // editors/vscode/scripts -> repo root
+
+// Version stamped into the bundled binary's internal/version.Version, mirroring the
+// IntelliJ gradle build (`-X …version.Version=${project.version}`). The Makefile passes
+// FOXXYCODE_PLUGIN_VERSION (from PLUGIN_VERSION); otherwise fall back to the extension
+// manifest version so a bare `npm run prepare-binary` still stamps something meaningful.
+function pluginVersion() {
+  const fromEnv = (process.env.FOXXYCODE_PLUGIN_VERSION || "").trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
+    return String(pkg.version || "dev");
+  } catch {
+    return "dev";
+  }
+}
 
 // All desktop targets shipped by the IntelliJ plugin and release-binaries.yaml.
 export const TARGETS = [
@@ -95,7 +110,7 @@ function buildOne(goos, goarch) {
       "http ui scheduler memory",
       "-trimpath",
       "-ldflags",
-      "-s -w",
+      `-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${pluginVersion()}`,
       "-o",
       outFile,
       "./cmd/foxxycode/",

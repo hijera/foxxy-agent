@@ -203,6 +203,13 @@ func openAPISpec() map[string]interface{} {
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, each session row includes **turnActive**, **activitySeq**, **readActivitySeq**, and **unreadComplete** for composer UI.",
+					}, map[string]interface{}{
+						"name":   "cwd",
+						"in":     "query",
+						"schema": map[string]string{"type": "string"},
+						"description": "Absolute directory. Keeps only sessions whose **cwd** is that directory or sits beneath it " +
+							"(case-insensitive on Windows), applied before **q** and paging. Used by the IntelliJ / VS Code plugins " +
+							"to scope History to the open project.",
 					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},
@@ -912,7 +919,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/ide/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Stream structured file-edit events for native editor clients",
-					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /foxxycode/sessions/{id}/permission`**.",
+					"description": "Server-Sent Events stream for native editors (e.g. the IntelliJ plugin) to render inline diffs. Emits **`event: edit_proposed`** when a **`write`**/**`edit`**/**`apply_patch`** tool is awaiting permission (gated mode) and **`event: edit_applied`** after a successful write. Each **`data`** payload is a JSON object **`{type, toolCallId, sessionId, path, before, after}`** where **`path`** is absolute and **`before`**/**`after`** hold full file content. Resolve a gated edit via **`POST /foxxycode/sessions/{id}/permission`**. Also emits **`event: open_file`** (only **`path`** and **`sessionId`** set) when the user picks **Show in IDE** on a plan card via **`POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide`**; that one is user-initiated and points outside the project, so clients must open it without their in-project / native-diff filters.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "SSE stream (text/event-stream) of edit events",
@@ -1459,6 +1466,143 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/plans": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List design plans stored in the session bundle",
+					"description": "Design plans live as **plans/<slug>.plan.md** inside the session bundle, written by the **plan_write** tool in plan mode and rendered by the bundled UI as the plan card.",
+					"parameters":  []interface{}{designPlanIDParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Plan documents for the session.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string"},
+											"plans": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/DesignPlan"},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Create a design plan",
+					"description": "Creates **plans/<slug>.plan.md** and appends a **plan_document** row to the transcript. **409** when the slug already exists.",
+					"parameters":  []interface{}{designPlanIDParam()},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"slug":    map[string]string{"type": "string", "description": "Lowercase alphanumeric and hyphens, up to 64 chars."},
+										"content": map[string]string{"type": "string", "description": "Full file content including the YAML frontmatter fence."},
+									},
+									"required": []string{"slug"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": designPlanResponseRef(),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/plans/{slug}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":    "Read one design plan",
+					"parameters": []interface{}{designPlanIDParam(), designPlanSlugParam()},
+					"responses": map[string]interface{}{
+						"200": designPlanResponseRef(),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+				"put": map[string]interface{}{
+					"summary":     "Replace a design plan body or content",
+					"description": "Send **body** to rewrite only the markdown below the frontmatter (the bundled UI autosaves this while editing the card), or **content** to replace the whole file. Sending neither is **400**.",
+					"parameters":  []interface{}{designPlanIDParam(), designPlanSlugParam()},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"body":    map[string]string{"type": "string", "description": "Markdown below the frontmatter; frontmatter is preserved."},
+										"content": map[string]string{"type": "string", "description": "Full file content. With body, it seeds frontmatter for a plan missing on disk."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": designPlanResponseRef(),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+				"patch": map[string]interface{}{
+					"summary":     "Update design plan frontmatter fields",
+					"description": "Partial update of **name**, **overview**, and **todos** without touching the markdown body.",
+					"parameters":  []interface{}{designPlanIDParam(), designPlanSlugParam()},
+					"responses": map[string]interface{}{
+						"200": designPlanResponseRef(),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Discard a design plan",
+					"description": "Removes the plan file and marks the **plan_document** transcript row **discarded** so the card renders as dismissed.",
+					"parameters":  []interface{}{designPlanIDParam(), designPlanSlugParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Plan discarded."},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/plans/{slug}/open-in-ide": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Open the plan file in the connected editor (Show in IDE)",
+					"description": "Broadcasts **`event: open_file`** on **GET /foxxycode/ide/events** so the IntelliJ / VS Code plugin opens the plan file in its own editor. " +
+						"The absolute path is resolved server-side from the session bundle — the caller cannot name a file — and a plan missing on disk is **404** with nothing broadcast. " +
+						"**delivered** reports whether an editor client was subscribed at that moment; the SPA renders the button only inside an editor embed.",
+					"parameters": []interface{}{designPlanIDParam(), designPlanSlugParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Open request broadcast to IDE clients.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"path":      map[string]string{"type": "string", "description": "Absolute path of the plan file."},
+											"delivered": map[string]string{"type": "boolean", "description": "True when at least one IDE client was listening."},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{
 			"securitySchemes": map[string]interface{}{
@@ -1469,6 +1613,30 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"schemas": map[string]interface{}{
+				"DesignPlan": map[string]interface{}{
+					"type":        "object",
+					"description": "A design plan file (plans/<slug>.plan.md) inside the session bundle.",
+					"properties": map[string]interface{}{
+						"slug":     map[string]string{"type": "string"},
+						"name":     map[string]string{"type": "string", "description": "Frontmatter name, falling back to the slug."},
+						"overview": map[string]string{"type": "string", "description": "Frontmatter overview; omitted when empty."},
+						"content":  map[string]string{"type": "string", "description": "Full file content including the frontmatter fence."},
+						"body":     map[string]string{"type": "string", "description": "Markdown below the frontmatter."},
+						"todos": map[string]interface{}{
+							"type":        "array",
+							"description": "Frontmatter todo steps; omitted when empty.",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"content":  map[string]string{"type": "string"},
+									"status":   map[string]string{"type": "string"},
+									"priority": map[string]string{"type": "string"},
+								},
+							},
+						},
+						"updatedAt": map[string]string{"type": "string", "format": "date-time"},
+					},
+				},
 				"CompactResult": map[string]interface{}{
 					"type":        "object",
 					"description": "Result of POST /foxxycode/sessions/{id}/compact.",
@@ -1945,6 +2113,33 @@ func foxxycodePagingParams() []interface{} {
 			"in":          "query",
 			"schema":      map[string]string{"type": "string"},
 			"description": `Optional substring filter over session title OR the first persisted user message content only (case-insensitive). Other messages are not searched.`,
+		},
+	}
+}
+
+func designPlanIDParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "id", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Session id.",
+	}
+}
+
+func designPlanSlugParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "slug", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Plan slug (lowercase alphanumeric and hyphens).",
+	}
+}
+
+func designPlanResponseRef() map[string]interface{} {
+	return map[string]interface{}{
+		"description": "Design plan document.",
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"$ref": "#/components/schemas/DesignPlan"},
+			},
 		},
 	}
 }

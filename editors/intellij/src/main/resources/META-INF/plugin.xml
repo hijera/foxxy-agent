@@ -47,5 +47,13 @@
                 description="Re-open the FoxxyCode onboarding tour">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+        <action id="FoxxyCodeAddFile"
+                class="dev.foxxycode.intellij.ui.FoxxyCodeAddFileAction"
+                text="Add to FoxxyCode"
+                description="Insert the file into the FoxxyCode composer as an @-mention">
+            <add-to-group group-id="EditorTabPopupMenu" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

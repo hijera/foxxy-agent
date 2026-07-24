@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isEditorEmbed } from "../embedShell";
 import { useT } from "../i18n/I18nProvider";
 import { Markdown } from "../markdown/Markdown";
 import { MarkdownLineEditor } from "../markdown/MarkdownLineEditor";
@@ -87,6 +88,7 @@ function PlanDocumentActions(p: {
   discarded: boolean;
   onRunPlan: () => void;
   onDiscard: () => void;
+  onOpenInIde: () => void;
   t: (key: string) => string;
 }) {
   return (
@@ -100,6 +102,19 @@ function PlanDocumentActions(p: {
       >
         {p.t("prompts.planDiscard")}
       </button>
+      {/* Only inside an editor plugin: in the browser there is no IDE to open. */}
+      {isEditorEmbed() ? (
+        <button
+          type="button"
+          className="plan-document-open-ide"
+          data-test="plan_document_open_in_ide"
+          data-testid="plan_document_open_in_ide"
+          disabled={p.discarded}
+          onClick={() => p.onOpenInIde()}
+        >
+          {p.t("prompts.planOpenInIde")}
+        </button>
+      ) : null}
       <button
         type="button"
         className="plan-document-run"
@@ -176,6 +191,27 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
     [props.sessionId, props.slug, props.content, discarded, t],
   );
 
+  // "Show in IDE": the server resolves the plan path from the session bundle and
+  // pushes an open_file event to the plugin over /foxxycode/ide/events.
+  const openInIde = useCallback(() => {
+    const sid = props.sessionId.trim();
+    if (!sid || discarded) return;
+    void (async () => {
+      setSaveError("");
+      try {
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(props.slug)}/open-in-ide`,
+          { method: "POST", headers: { [HDR]: sid } },
+        );
+        if (!res.ok) {
+          throw new Error(String(res.status));
+        }
+      } catch {
+        setSaveError(t("prompts.planOpenInIdeFailed"));
+      }
+    })();
+  }, [props.sessionId, props.slug, discarded, t]);
+
   const scheduleSave = useCallback(
     (text: string) => {
       if (discarded) return;
@@ -222,7 +258,9 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
               <span className="plan-document-desc">{description}</span>
             ) : null}
           </button>
-          {props.expanded && (saving || saveError) ? (
+          {/* A failure must stay visible on a collapsed card too — the actions
+              row (Show in IDE / Run plan) is rendered in both states. */}
+          {(props.expanded && saving) || saveError ? (
             <div className="plan-document-head-status">
               {saving ? (
                 <span className="plan-document-save-hint">{t("prompts.planSaving")}</span>
@@ -291,6 +329,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
             discarded={discarded}
             onRunPlan={props.onRunPlan}
             onDiscard={props.onDiscard}
+            onOpenInIde={openInIde}
             t={t}
           />
         </footer>

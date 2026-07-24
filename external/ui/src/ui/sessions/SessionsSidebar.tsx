@@ -4,6 +4,7 @@ import { appNavHrefDraft, appNavHrefSession } from "../scheduler/hashRoute";
 import { isClientDraftSessionId } from "./draftSessions";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
 import { projectBasename } from "../project/projectApi";
+import { projectRootLabel } from "./sessionsProjectFilter";
 import {
   sessionRowShowsPermissionPending,
   sessionRowShowsQuestionPending,
@@ -43,6 +44,14 @@ export function SessionsSidebar(props: {
   searchDraft: string;
   onSearchDraftChange: (v: string) => void;
   onSearchClear: () => void;
+  /**
+   * Root folder of the host project (the `--cwd` an editor plugin launched the
+   * server with). Absent in the plain browser shell, where the scope toggle has
+   * nothing to scope to and is not rendered.
+   */
+  projectRoot?: string | null;
+  projectOnly?: boolean;
+  onProjectOnlyChange?: (next: boolean) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
@@ -54,6 +63,10 @@ export function SessionsSidebar(props: {
   const permissionPending =
     props.permissionPendingSessionIds ?? new Set<string>();
   const questionPending = props.questionPendingSessionIds ?? new Set<string>();
+  const projectLabel = projectRootLabel(props.projectRoot || "");
+  const projectHint = projectLabel
+    ? t("sessions.projectOnlyHint", { project: projectLabel })
+    : "";
 
   useEffect(() => {
     const root = listRef.current;
@@ -128,6 +141,21 @@ export function SessionsSidebar(props: {
           </button>
         ) : null}
       </div>
+
+      {projectLabel ? (
+        <label className="sessions-project-scope" title={projectHint}>
+          <input
+            type="checkbox"
+            className="sessions-project-scope-input"
+            data-testid="sessions-project-only"
+            checked={!!props.projectOnly}
+            onChange={(ev) => props.onProjectOnlyChange?.(ev.target.checked)}
+          />
+          <span className="sessions-project-scope-label">
+            {t("sessions.projectOnly")}
+          </span>
+        </label>
+      ) : null}
 
       <div className="session-list" id="session-list" ref={listRef}>
         {props.error ? (

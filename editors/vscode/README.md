@@ -104,7 +104,16 @@ empty to use the bundled foxxycode), host, port (0 = auto), FoxxyCode home, extr
 args, **"Match FoxxyCode UI theme to the VS Code color theme"**, native inline diffs, and auto-apply
 edits. The UI language is **not** an extension setting — it is set once in the FoxxyCode UI
 (**Settings → General**) and shared across the whole app. Toolbar buttons on the webview title bar:
-Restart, Reload, Open in Browser, Open DevTools, Settings.
+Restart, Reload, Open in Browser, Open DevTools, Settings. The extension version is shown next to
+the view name in the sidebar header (and in the editor tab title when opened via **Open Panel**).
+
+### Attaching files by drag and drop
+
+Drag a file from the **Explorer**, or an open **editor tab**, onto the composer to insert it as a
+short `@`-mention; the full workspace-relative path is sent with the prompt. **Hold `Shift` while
+dragging** — VS Code disables pointer events over webviews during a workbench drag unless `Shift`
+is held, so without it the drop lands on the editor group behind the panel. This is a VS Code
+platform behaviour, not a FoxxyCode setting.
 
 ### Language
 

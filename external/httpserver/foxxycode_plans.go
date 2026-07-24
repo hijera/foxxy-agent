@@ -33,6 +33,48 @@ func (s *Server) registerDesignPlanRoutes() {
 	s.mux.HandleFunc("PUT /foxxycode/sessions/{id}/plans/{slug}", s.foxxycodeDesignPlanPut)
 	s.mux.HandleFunc("PATCH /foxxycode/sessions/{id}/plans/{slug}", s.foxxycodeDesignPlanPatch)
 	s.mux.HandleFunc("DELETE /foxxycode/sessions/{id}/plans/{slug}", s.foxxycodeDesignPlanDelete)
+	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/plans/{slug}/open-in-ide", s.foxxycodeDesignPlanOpenInIDE)
+}
+
+// foxxycodeDesignPlanOpenInIDE asks a connected editor plugin to open the plan file
+// in its own editor ("Show in IDE" on the plan card). The path is resolved here from
+// the session bundle rather than accepted from the caller, so this route cannot be
+// used to open arbitrary files in the user's IDE.
+func (s *Server) foxxycodeDesignPlanOpenInIDE(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	slug := strings.TrimSpace(r.PathValue("slug"))
+	st := s.foxxycodeEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	sd := strings.TrimSpace(st.GetPersistedSessionDir())
+	if sd == "" {
+		http.Error(w, `{"error":{"message":"session not persisted"}}`, http.StatusBadRequest)
+		return
+	}
+	// Read validates the slug and reports ErrNotFound for a plan that is not on disk,
+	// so a stale card cannot make the IDE open a path that no longer exists.
+	if _, err := plans.Read(sd, slug); err != nil {
+		s.foxxycodePlanHTTPError(w, err)
+		return
+	}
+	path, err := plans.FilePath(sd, slug)
+	if err != nil {
+		s.foxxycodePlanHTTPError(w, err)
+		return
+	}
+	delivered := ideEvents.hasSubscribers()
+	ideEvents.broadcast(ideEvent{Type: "open_file", SessionID: id, Path: path})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "foxxycode.ide_open_file",
+		"path":      path,
+		"delivered": delivered,
+	})
 }
 
 func (s *Server) foxxycodeDesignPlansList(w http.ResponseWriter, r *http.Request) {

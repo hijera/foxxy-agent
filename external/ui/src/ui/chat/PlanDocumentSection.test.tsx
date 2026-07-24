@@ -2,8 +2,19 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { PlanDocumentSection } from "./PlanDocumentSection";
+import { isEditorEmbed } from "../embedShell";
 
-afterEach(() => cleanup());
+// Keep the real embedShell exports; override only the embed predicate so tests
+// can flip between browser (false, the jsdom default) and plugin (true).
+vi.mock("../embedShell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../embedShell")>()),
+  isEditorEmbed: vi.fn(() => false),
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.mocked(isEditorEmbed).mockReturnValue(false);
+});
 
 function renderPlan(
   overrides?: Partial<Parameters<typeof PlanDocumentSection>[0]>,
@@ -147,6 +158,57 @@ test("a transcript merge does not clobber an unsaved markdown draft", async () =
     vi.unstubAllGlobals();
     vi.useRealTimers();
   }
+});
+
+test("Show in IDE is hidden in the browser shell", () => {
+  renderPlan();
+  expect(screen.queryByTestId("plan_document_open_in_ide")).toBeNull();
+});
+
+test("Show in IDE sits before Run plan inside an editor plugin", async () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    renderPlan();
+
+    const openBtn = screen.getByTestId("plan_document_open_in_ide");
+    const runBtn = document.querySelector('[data-test="plan_document_run"]');
+    expect(runBtn).toBeTruthy();
+    // Node.compareDocumentPosition: FOLLOWING (4) means runBtn comes after openBtn.
+    expect(openBtn.compareDocumentPosition(runBtn!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    fireEvent.click(openBtn);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      "/foxxycode/sessions/sess_test/plans/demo-plan/open-in-ide",
+    );
+    expect(init?.method).toBe("POST");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("a failed Show in IDE surfaces an error on the card", async () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    renderPlan({ expanded: false });
+    fireEvent.click(screen.getByTestId("plan_document_open_in_ide"));
+    await screen.findByText("Could not open the plan in the IDE");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("Show in IDE is disabled for a discarded plan", () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  renderPlan({ discarded: true });
+  expect(screen.getByTestId("plan_document_open_in_ide")).toBeDisabled();
 });
 
 test("a plan rewritten by the model replaces an untouched body", () => {

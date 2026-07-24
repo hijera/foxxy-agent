@@ -151,3 +151,49 @@ test("question pending hides spinner and shows animated question icon", () => {
   expect(screen.queryByTestId("session-spinner-q")).toBeNull();
   expect(screen.getByTestId("session-question-q")).toBeInTheDocument();
 });
+
+test("project scope toggle is hidden without a host project root", () => {
+  render(
+    <SessionsSidebar
+      sessionId="current"
+      sessions={[row("current", "A")]}
+      open
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("sessions-project-only")).toBeNull();
+});
+
+test("project scope toggle reports the flipped value", () => {
+  const onProjectOnlyChange = vi.fn();
+  render(
+    <SessionsSidebar
+      sessionId="current"
+      sessions={[row("current", "A")]}
+      open
+      projectRoot="/work/proj"
+      projectOnly
+      onProjectOnlyChange={onProjectOnlyChange}
+      onPick={() => {}}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  const toggle = screen.getByTestId("sessions-project-only");
+  expect(toggle).toBeChecked();
+  fireEvent.click(toggle);
+  expect(onProjectOnlyChange).toHaveBeenCalledTimes(1);
+  expect(onProjectOnlyChange).toHaveBeenCalledWith(false);
+});

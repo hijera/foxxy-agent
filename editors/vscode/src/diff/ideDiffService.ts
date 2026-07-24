@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { IdeEventClient } from "./ideEventClient";
-import { EditEvent, isApplied, isProposed } from "./editEvent";
+import { EditEvent, isApplied, isOpenFile, isProposed } from "./editEvent";
 import { httpPost } from "../util/http";
 import { readSettings } from "../settings";
 import { t } from "../i18n/bundle";
@@ -45,6 +45,13 @@ export class IdeDiffService {
   }
 
   private onEvent(ev: EditEvent): void {
+    // User-initiated open ("Show in IDE"): the plan file lives in the session
+    // bundle outside the workspace, and it is not a diff — so it runs before the
+    // nativeDiffs / in-project guards below.
+    if (isOpenFile(ev)) {
+      void this.openFile(ev.path);
+      return;
+    }
     const s = readSettings();
     if (!s.nativeDiffs) return;
     if (!this.isInProject(ev.path)) return;
@@ -56,6 +63,18 @@ export class IdeDiffService {
       void this.handleProposed(ev);
     } else if (isApplied(ev)) {
       void this.handleApplied(ev);
+    }
+  }
+
+  /** Opens a file in the editor area and focuses it (no decorations, no diff). */
+  private async openFile(path: string): Promise<void> {
+    const target = (path || "").trim();
+    if (target === "") return;
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (e) {
+      this.log?.(`[foxxycode] open_file failed for ${target}: ${String(e)}`);
     }
   }
 

@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -105,6 +106,10 @@ type planCardFeatureState struct {
 	sessionID string
 	sse       string
 	cfg       *config.Config
+	// A stand-in for the IntelliJ / VS Code plugin: a live /foxxycode/ide/events
+	// subscriber whose payloads land in ideEvents.
+	ideCancel context.CancelFunc
+	ideEvents chan string
 }
 
 func (s *planCardFeatureState) reset() error {
@@ -121,6 +126,11 @@ func (s *planCardFeatureState) reset() error {
 }
 
 func (s *planCardFeatureState) close() {
+	if s.ideCancel != nil {
+		s.ideCancel()
+		s.ideCancel = nil
+	}
+	s.ideEvents = nil
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
@@ -364,6 +374,120 @@ func (s *planCardFeatureState) sessionModeIs(want string) error {
 	return nil
 }
 
+// ideePluginListening opens the same SSE stream the editor plugins consume and
+// buffers every `data:` payload, so the scenario asserts on what a real plugin
+// would have received rather than on the in-process hub.
+func (s *planCardFeatureState) idePluginListening() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.ts.URL+"/foxxycode/ide/events", nil)
+	if err != nil {
+		cancel()
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if res.StatusCode != http.StatusOK {
+		res.Body.Close()
+		cancel()
+		return fmt.Errorf("GET /foxxycode/ide/events status %d", res.StatusCode)
+	}
+	// The handler primes the stream with a comment, so by the time this returns
+	// the subscription is registered and no broadcast can be missed.
+	sc := bufio.NewScanner(res.Body)
+	if !sc.Scan() {
+		res.Body.Close()
+		cancel()
+		return fmt.Errorf("ide event stream closed before the priming comment")
+	}
+	lines := make(chan string, 32)
+	s.ideEvents = lines
+	s.ideCancel = func() {
+		cancel()
+		res.Body.Close()
+	}
+	go func() {
+		defer close(lines)
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			select {
+			case lines <- strings.TrimSpace(strings.TrimPrefix(line, "data:")):
+			default:
+			}
+		}
+	}()
+	return nil
+}
+
+func (s *planCardFeatureState) showThePlanInTheIDE() error {
+	url := s.ts.URL + "/foxxycode/sessions/" + s.sessionID + "/plans/improve-qwen-prompt/open-in-ide"
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-FoxxyCode-Session-ID", s.sessionID)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("POST open-in-ide status %d", res.StatusCode)
+	}
+	var parsed struct {
+		Delivered bool `json:"delivered"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
+		return err
+	}
+	if !parsed.Delivered {
+		return fmt.Errorf("server reported no IDE client to deliver to")
+	}
+	return nil
+}
+
+func (s *planCardFeatureState) pluginAskedToOpenPlanFile() error {
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	want := filepath.Join(st.GetPersistedSessionDir(), "plans", "improve-qwen-prompt.plan.md")
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case payload, ok := <-s.ideEvents:
+			if !ok {
+				return fmt.Errorf("ide event stream ended without an open_file event")
+			}
+			var ev struct {
+				Type string `json:"type"`
+				Path string `json:"path"`
+			}
+			if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+				continue
+			}
+			if ev.Type != "open_file" {
+				continue
+			}
+			if ev.Path != want {
+				return fmt.Errorf("open_file path = %q, want %q", ev.Path, want)
+			}
+			if _, err := os.Stat(ev.Path); err != nil {
+				return fmt.Errorf("the plugin was pointed at a file it cannot open: %w", err)
+			}
+			return nil
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for an open_file event")
+		}
+	}
+}
+
 func (s *planCardFeatureState) refusalReportedToModel() error {
 	msgs, err := s.messages()
 	if err != nil {
@@ -395,8 +519,11 @@ func initializePlanCardScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a running foxxycode HTTP server with a planning agent that leaves plan mode$`, s.startLeavingServer)
 	sc.Step(`^the model is forbidden from running the plan itself$`, s.forbidSelfRun)
 	sc.Step(`^an HTTP session in plan mode$`, s.sessionInPlanMode)
+	sc.Step(`^an editor plugin listening on the IDE event stream$`, s.idePluginListening)
 
 	sc.Step(`^the user asks for a plan$`, s.askForAPlan)
+	sc.Step(`^the user shows the plan in the IDE$`, s.showThePlanInTheIDE)
+	sc.Step(`^the editor plugin is asked to open the plan file$`, s.pluginAskedToOpenPlanFile)
 
 	sc.Step(`^the turn streams a design plan event carrying the plan slug$`, s.sseCarriesDesignPlan)
 	sc.Step(`^the session transcript contains a plan document row for that slug$`, s.transcriptHasPlanRow)

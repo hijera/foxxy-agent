@@ -127,7 +127,16 @@ import {
   upsertClientDraftSession,
   type ClientDraftSession,
 } from "./sessions/draftSessions";
-import { isRedundantSessionPick } from "./sessions/pickSessionGuard";
+import {
+  isRedundantSessionPick,
+  shouldCloseHistoryOnSessionPick,
+} from "./sessions/pickSessionGuard";
+import {
+  readProjectOnlyPref,
+  sessionsProjectCwdParam,
+  writeProjectOnlyPref,
+} from "./sessions/sessionsProjectFilter";
+import { isEditorEmbed } from "./embedShell";
 import { scheduleSessionTitleRefresh } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
@@ -953,6 +962,13 @@ export function App() {
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  /**
+   * Root folder the server itself was launched with (`--cwd`). Unlike
+   * `workspaceCtx`, which follows the *viewed session*, this stays put — so the
+   * History scope does not flip when the user opens a session from elsewhere.
+   */
+  const [hostProjectRoot, setHostProjectRoot] = useState("");
+  const [sessionsProjectOnly, setSessionsProjectOnly] = useState(false);
   /** null until first probe of /foxxycode/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
     boolean | null
@@ -1325,6 +1341,32 @@ export function App() {
     pendingWorkspaceRef.current = null;
     void refreshWorkspaceContext(sessionId);
   }, [sessionId, refreshWorkspaceContext]);
+
+  // Host project root, once. Without a session header the endpoint reports the
+  // server's own cwd, which is the project an editor plugin launched it for.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/foxxycode/workspace/context");
+        if (!res.ok) return;
+        const ctx = (await res.json()) as { path?: string };
+        const root = (ctx.path || "").trim();
+        if (!root) return;
+        setHostProjectRoot(root);
+        setSessionsProjectOnly(readProjectOnlyPref(root, isEditorEmbed()));
+      } catch {
+        // No scope available: History stays unfiltered.
+      }
+    })();
+  }, []);
+
+  const changeSessionsProjectOnly = useCallback(
+    (next: boolean) => {
+      setSessionsProjectOnly(next);
+      writeProjectOnlyPref(hostProjectRoot, next);
+    },
+    [hostProjectRoot],
+  );
 
   async function switchWorkspace(payload: {
     path?: string;
@@ -1890,6 +1932,13 @@ export function App() {
       if (sessionFilterQ) {
         ps.set("q", sessionFilterQ);
       }
+      const scopeCwd = sessionsProjectCwdParam({
+        projectOnly: sessionsProjectOnly,
+        projectRoot: hostProjectRoot,
+      });
+      if (scopeCwd) {
+        ps.set("cwd", scopeCwd);
+      }
       ps.set("include_activity", "true");
       const res = await fetchJSON<{
         sessions: SessionRow[];
@@ -1925,7 +1974,7 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers],
+    [sessionFilterQ, headers, sessionsProjectOnly, hostProjectRoot],
   );
 
   useEffect(() => {
@@ -2459,6 +2508,13 @@ export function App() {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
     }
+    // In an IDE tool window the drawer covers the chat, so hand the panel back to
+    // the conversation right away and let the skeleton report the load.
+    const keepHistoryOpen =
+      sessionsOpen && !shouldCloseHistoryOnSessionPick(isEditorEmbed());
+    if (sessionsOpen && !keepHistoryOpen) {
+      setSessionsOpen(false);
+    }
     if (isClientDraftSessionId(id)) {
       setSessionFadingOut(false);
       setItems([]);
@@ -2467,12 +2523,12 @@ export function App() {
       viewedSessionIdRef.current = "";
       const row = readClientDraftSessions().find((r) => r.localId === id);
       setDraft(row?.draftText || "");
-      setDraftHashInLocation(id, { historySidebar: sessionsOpen });
+      setDraftHashInLocation(id, { historySidebar: keepHistoryOpen });
       return;
     }
     setSessionLoading(true);
     setActiveDraftId("");
-    openSessionFromRoute(id, { historySidebar: sessionsOpen });
+    openSessionFromRoute(id, { historySidebar: keepHistoryOpen });
     if (itemsRef.current.length > 0) {
       setSessionFadingOut(true);
       fadeOutTimerRef.current = setTimeout(() => {
@@ -3852,6 +3908,9 @@ export function App() {
     searchDraft: sessionFilterDraft,
     onSearchDraftChange: setSessionFilterDraft,
     onSearchClear: () => setSessionFilterDraft(""),
+    projectRoot: hostProjectRoot,
+    projectOnly: sessionsProjectOnly,
+    onProjectOnlyChange: changeSessionsProjectOnly,
     hasMore: sessionsHasMore,
     loadingMore: sessionsLoadingMore,
     onLoadMore: () => void loadSessionsList(false),
