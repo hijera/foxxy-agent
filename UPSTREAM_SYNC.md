@@ -105,8 +105,8 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
 
 | Поле | Значение |
 | --- | --- |
-| **Дата** | 2026-07-22 |
-| **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) |
+| **Дата** | 2026-07-23 (перепроверка; новых коммитов нет) |
+| **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) — на 2026-07-23 это по-прежнему HEAD ветки `upstream/main`, `git fetch upstream --prune` ничего не приносит |
 | **Ближайший upstream-тег** | `0.9.43` |
 | **Наш коммит-порт** | `f0a2506`, `60af986`, `305fc5a`, `3b3e812`, `0e75aa7` (ветка `sync/upstream-6666606`) |
 | **Отложенные follow-up** | нет — все три закрыты: exhaustive OpenAPI для skill-роутов и BDD `skills_marketplace`/`plugin_command`/`remote_api` в `f2f4682`, i18n `SkillsSection.tsx` в `f2f4682`+`3d2fa15`, остальной английский в SPA — `ea7095d` (PR #7) |

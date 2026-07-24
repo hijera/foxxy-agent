@@ -1436,6 +1436,32 @@ a.rail-brand {
   border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
 }
 
+.sessions-project-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+.sessions-project-scope-input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.sessions-project-scope-label {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 65%, var(--foxxycode-blend-base));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sessions-search-input {
   flex: 1;
   min-width: 0;
@@ -1745,6 +1771,30 @@ a.rail-brand {
   margin: 0 auto;
   box-sizing: border-box;
   overflow: hidden;
+}
+
+.chat-skeleton-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+}
+
+.chat-skeleton-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--text) 15%, var(--foxxycode-blend-base));
+  border-top-color: rgba(147, 51, 234, 0.85);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: session-spin 0.7s linear infinite;
+}
+
+.chat-skeleton-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
 }
 
 .chat-skeleton-header {
@@ -7299,6 +7349,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .plan-document-head {
+  position: relative;
   grid-area: head;
   display: flex;
   flex-direction: column;
@@ -7307,6 +7358,23 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-width: 0;
   padding: 14px 14px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+/* Collapsed card: the open-in-IDE icon floats in the header's top-right, since the
+   pane rail it normally shares with the eye only exists in the expanded body. */
+.plan-document-head-tools {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+}
+
+/* Marker class from React (no :has() on the Chromium 104 baseline) reserving room so
+   the title/description never runs under the floating icon. */
+.plan-document-head--with-ide .plan-document-head-btn {
+  padding-right: 38px;
 }
 
 .plan-document-card:not(.plan-document-card--expanded) .plan-document-head {
@@ -7385,11 +7453,19 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   box-sizing: border-box;
 }
 
-.plan-document-eye {
+/* Icon rail floating over the top-right of the plan body: open-in-IDE + preview eye. */
+.plan-document-pane-tools {
   position: absolute;
   top: 8px;
   right: 12px;
   z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-document-eye,
+.plan-document-ide {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7412,9 +7488,15 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     box-shadow 120ms ease;
 }
 
-.plan-document-eye:hover {
+.plan-document-eye:hover,
+.plan-document-ide:hover:not(:disabled) {
   color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
   border-color: color-mix(in srgb, var(--text) 20%, var(--foxxycode-blend-base));
+}
+
+.plan-document-ide:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .plan-document-eye.is-on {
@@ -7423,7 +7505,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: rgba(249, 115, 22, 0.16);
 }
 
-.plan-document-eye-svg {
+.plan-document-eye-svg,
+.plan-document-ide-svg {
   width: 18px;
   height: 18px;
   display: block;

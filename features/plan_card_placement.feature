@@ -20,6 +20,14 @@ Feature: Design plan card in a plan-mode turn
     And the plan card body holds markdown rather than raw frontmatter
     And the plan file on disk starts with a frontmatter fence
 
+  Scenario: Show in IDE hands the plan file to the connected editor plugin
+    Given a running foxxycode HTTP server with a planning agent
+    And an HTTP session in plan mode
+    And an editor plugin listening on the IDE event stream
+    When the user asks for a plan
+    And the user shows the plan in the IDE
+    Then the editor plugin is asked to open the plan file
+
   Scenario: The model may finish planning and start the implementation itself
     Given a running foxxycode HTTP server with a planning agent that leaves plan mode
     And an HTTP session in plan mode

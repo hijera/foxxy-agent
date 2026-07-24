@@ -1,8 +1,9 @@
-/** One `edit_proposed` / `edit_applied` event from the foxxycode `GET /foxxycode/ide/events`
- *  SSE stream. Mirrors the Go `ideEvent` struct in `external/httpserver/ideevents.go` and
+/** One `edit_proposed` / `edit_applied` / `open_file` event from the foxxycode
+ *  `GET /foxxycode/ide/events` SSE stream. Mirrors the Go `ideEvent` struct in
+ *  `external/httpserver/ideevents.go` and
  *  `editors/intellij/.../diff/FoxxyCodeEditEvent.kt`. */
 export interface EditEvent {
-  type: "edit_proposed" | "edit_applied" | string;
+  type: "edit_proposed" | "edit_applied" | "open_file" | string;
   toolCallId: string;
   sessionId: string;
   /** Absolute file path. */
@@ -17,6 +18,14 @@ export function isProposed(ev: EditEvent): boolean {
 
 export function isApplied(ev: EditEvent): boolean {
   return ev.type === "edit_applied";
+}
+
+/** User asked to open a file in the editor ("Show in IDE" on a plan card).
+ *  Unlike the edit events this is user-initiated and points at the session
+ *  bundle, i.e. outside the workspace — callers must not apply the
+ *  in-project / native-diff filters to it. */
+export function isOpenFile(ev: EditEvent): boolean {
+  return ev.type === "open_file";
 }
 
 /** Parse one SSE `data:` payload into an EditEvent, or `null` if the payload

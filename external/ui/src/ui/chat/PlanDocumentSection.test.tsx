@@ -2,8 +2,19 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { PlanDocumentSection } from "./PlanDocumentSection";
+import { isEditorEmbed } from "../embedShell";
 
-afterEach(() => cleanup());
+// Keep the real embedShell exports; override only the embed predicate so tests
+// can flip between browser (false, the jsdom default) and plugin (true).
+vi.mock("../embedShell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../embedShell")>()),
+  isEditorEmbed: vi.fn(() => false),
+}));
+
+afterEach(() => {
+  cleanup();
+  vi.mocked(isEditorEmbed).mockReturnValue(false);
+});
 
 function renderPlan(
   overrides?: Partial<Parameters<typeof PlanDocumentSection>[0]>,
@@ -147,6 +158,102 @@ test("a transcript merge does not clobber an unsaved markdown draft", async () =
     vi.unstubAllGlobals();
     vi.useRealTimers();
   }
+});
+
+test("View in IDE is hidden in the browser shell", () => {
+  renderPlan();
+  expect(screen.queryByTestId("plan_document_open_in_ide")).toBeNull();
+});
+
+test("View in IDE is an icon button in the pane tool rail, before the eye", async () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    renderPlan();
+
+    const openBtn = screen.getByTestId("plan_document_open_in_ide");
+    const eyeBtn = screen.getByRole("button", { name: "Toggle preview" });
+    // Both live in the floating rail over the body, not in the footer.
+    const rail = document.querySelector(".plan-document-pane-tools");
+    expect(rail).toBeTruthy();
+    expect(rail!.contains(openBtn)).toBe(true);
+    expect(rail!.contains(eyeBtn)).toBe(true);
+    expect(document.querySelector(".plan-document-foot")!.contains(openBtn)).toBe(
+      false,
+    );
+    // Node.compareDocumentPosition: FOLLOWING (4) means the eye comes after it.
+    expect(openBtn.compareDocumentPosition(eyeBtn)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    // Icon-only: the label rides on title/aria-label so the button stays compact.
+    expect(openBtn).toHaveAttribute("aria-label", "View in IDE");
+    expect(openBtn).toHaveAttribute("title", "View in IDE");
+    expect(openBtn.textContent?.trim()).toBe("");
+    expect(openBtn.querySelector("svg.plan-document-ide-svg")).toBeTruthy();
+
+    fireEvent.click(openBtn);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      "/foxxycode/sessions/sess_test/plans/demo-plan/open-in-ide",
+    );
+    expect(init?.method).toBe("POST");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("a failed View in IDE surfaces an error on the card", async () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    renderPlan();
+    fireEvent.click(screen.getByTestId("plan_document_open_in_ide"));
+    await screen.findByText("Could not open the plan in the IDE");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("View in IDE is disabled for a discarded plan", () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  renderPlan({ discarded: true });
+  expect(screen.getByTestId("plan_document_open_in_ide")).toBeDisabled();
+});
+
+// The pane rail only exists in the expanded body, so a collapsed card keeps the
+// action reachable by rendering the same icon in its header instead.
+test("View in IDE stays available on a collapsed card, in the header", () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  renderPlan({ expanded: false });
+
+  const openBtn = screen.getByTestId("plan_document_open_in_ide");
+  expect(openBtn).toHaveAttribute("aria-label", "View in IDE");
+  expect(document.querySelector(".plan-document-head")!.contains(openBtn)).toBe(
+    true,
+  );
+  // No body while collapsed, so there is no pane rail to hold it.
+  expect(document.querySelector(".plan-document-pane-tools")).toBeNull();
+  // The header reserves room for the icon so the title cannot run under it.
+  expect(
+    document.querySelector(".plan-document-head--with-ide"),
+  ).not.toBeNull();
+});
+
+test("collapsed card in the browser shell has no header icon", () => {
+  renderPlan({ expanded: false });
+  expect(screen.queryByTestId("plan_document_open_in_ide")).toBeNull();
+  expect(document.querySelector(".plan-document-head--with-ide")).toBeNull();
+});
+
+test("expanded card keeps the icon in the rail only, not duplicated in the header", () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  renderPlan();
+  expect(screen.getAllByTestId("plan_document_open_in_ide")).toHaveLength(1);
+  expect(document.querySelector(".plan-document-head-tools")).toBeNull();
 });
 
 test("a plan rewritten by the model replaces an untouched body", () => {

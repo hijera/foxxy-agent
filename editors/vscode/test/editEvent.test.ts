@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseEditEvent, isProposed, isApplied } from "../src/diff/editEvent";
+import {
+  parseEditEvent,
+  isProposed,
+  isApplied,
+  isOpenFile,
+} from "../src/diff/editEvent";
 
 describe("parseEditEvent", () => {
   it("parses a well-formed edit_proposed payload", () => {
@@ -42,5 +47,25 @@ describe("parseEditEvent", () => {
     expect(ev!.toolCallId).toBe("");
     expect(ev!.before).toBe("");
     expect(ev!.after).toBe("");
+  });
+
+  // "Show in IDE" on a plan card: only path and sessionId are set, and the file
+  // lives in the session bundle outside the workspace.
+  it("parses open_file and keeps it distinct from the edit events", () => {
+    const ev = parseEditEvent(
+      `{"type":"open_file","sessionId":"s-1","path":"/home/me/.foxxycode/sessions/s-1/plans/demo.plan.md"}`,
+    );
+    expect(ev).not.toBeNull();
+    expect(isOpenFile(ev!)).toBe(true);
+    expect(isProposed(ev!)).toBe(false);
+    expect(isApplied(ev!)).toBe(false);
+    expect(ev!.path).toBe(
+      "/home/me/.foxxycode/sessions/s-1/plans/demo.plan.md",
+    );
+  });
+
+  it("does not treat edit events as open_file", () => {
+    const ev = parseEditEvent(`{"type":"edit_applied","path":"p"}`);
+    expect(isOpenFile(ev!)).toBe(false);
   });
 });

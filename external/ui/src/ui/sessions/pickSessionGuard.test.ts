@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { isRedundantSessionPick } from "./pickSessionGuard";
+import {
+  isRedundantSessionPick,
+  shouldCloseHistoryOnSessionPick,
+} from "./pickSessionGuard";
 
 test("same real session id is a redundant pick", () => {
   expect(isRedundantSessionPick("sess-abc", "sess-abc")).toBe(true);
@@ -19,4 +22,12 @@ test("picking a session when none is active is not redundant", () => {
 
 test("draft session is never a redundant pick even when ids match", () => {
   expect(isRedundantSessionPick("draft_abc123", "draft_abc123")).toBe(false);
+});
+
+test("inside an editor plugin, picking a session closes the History drawer", () => {
+  expect(shouldCloseHistoryOnSessionPick(true)).toBe(true);
+});
+
+test("in the browser shell the History drawer stays open on pick", () => {
+  expect(shouldCloseHistoryOnSessionPick(false)).toBe(false);
 });

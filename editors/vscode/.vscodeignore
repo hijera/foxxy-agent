@@ -8,4 +8,6 @@ vitest.config.ts
 **/*.map
 **/*.ts
 .gitignore
+package.json.vsce.bak
+package-lock.json.vsce.bak
 # Keep: out/** (compiled extension), foxxycode-bin/** (bundled binary), media/** (icons) ship in the VSIX.

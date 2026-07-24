@@ -15,6 +15,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -1254,6 +1256,77 @@ func TestFoxxyCodeSessionsListFilterByQUserMessage(t *testing.T) {
 	}
 	if len(parsed.Sessions) != 1 || parsed.Sessions[0].ID != "sess_q_keep" {
 		t.Fatalf("want one sess_q_keep, got %+v (%s)", parsed.Sessions, string(b))
+	}
+}
+
+// The IDE plugins run one server per project and pass ?cwd=<project root> so
+// History shows only that project's conversations (plus anything under it, such
+// as a worktree inside the repo).
+func TestFoxxyCodeSessionsListFilterByCWD(t *testing.T) {
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	fs := &session.FileStore{Root: sessRoot}
+	projectRoot := filepath.Join(t.TempDir(), "proj")
+	makeSess := func(id, cwd string) {
+		dir, err := fs.EnsureLayout(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := &session.State{ID: id, CWD: cwd, Mode: session.ModeAgent, SessionDir: dir}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+		if err := fs.Save(st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	makeSess("sess_cwd_root", projectRoot)
+	makeSess("sess_cwd_child", filepath.Join(projectRoot, ".foxxycode", "worktrees", "feat"))
+	makeSess("sess_cwd_sibling", projectRoot+"-other")
+	makeSess("sess_cwd_elsewhere", filepath.Join(t.TempDir(), "unrelated"))
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	listIDs := func(query string) []string {
+		t.Helper()
+		resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("%d %s", resHTTP.StatusCode, b)
+		}
+		var parsed struct {
+			Sessions []struct {
+				ID string `json:"id"`
+			} `json:"sessions"`
+			HasMore bool `json:"hasMore"`
+		}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		if parsed.HasMore {
+			t.Fatalf("unexpected hasMore for %q: %s", query, string(b))
+		}
+		ids := make([]string, 0, len(parsed.Sessions))
+		for _, row := range parsed.Sessions {
+			ids = append(ids, row.ID)
+		}
+		sort.Strings(ids)
+		return ids
+	}
+
+	scoped := listIDs("?cwd=" + url.QueryEscape(projectRoot))
+	want := []string{"sess_cwd_child", "sess_cwd_root"}
+	if !reflect.DeepEqual(scoped, want) {
+		t.Fatalf("scoped list = %v, want %v", scoped, want)
+	}
+
+	all := listIDs("")
+	if len(all) != 4 {
+		t.Fatalf("unscoped list = %v, want all four sessions", all)
 	}
 }
 

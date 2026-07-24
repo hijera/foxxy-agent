@@ -2,3 +2,6 @@ node_modules/
 out/
 foxxycode-bin/
 *.vsix
+# Transient package.json / lockfile snapshots from `make vscode-package` (restored after vsce runs).
+package.json.vsce.bak
+package-lock.json.vsce.bak

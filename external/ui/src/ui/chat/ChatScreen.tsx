@@ -167,25 +167,38 @@ export function ChatScreen(props: {
   return (
     <main className={mainClassName}>
       {showSkeleton ? (
-        <div className="chat-skeleton" aria-hidden="true">
-          <div className="chat-skeleton-header">
-            <div className="chat-skeleton-bar" style={{ width: "180px", height: "18px", borderRadius: "6px" }} />
+        <div className="chat-skeleton">
+          {/* Named state, not just shimmering bars: in a narrow IDE tool window the
+              History drawer closes on pick, so this line is the only feedback that
+              the conversation is on its way. */}
+          <div
+            className="chat-skeleton-label"
+            role="status"
+            data-testid="session-loading-label"
+          >
+            <span className="chat-skeleton-spinner" aria-hidden="true" />
+            {t("sessions.loadingSession")}
           </div>
-          <div className="chat-skeleton-messages">
-            <div className="chat-skeleton-row chat-skeleton-row--user">
-              <div className="chat-skeleton-bar" style={{ width: "220px", height: "38px", borderRadius: "12px" }} />
+          <div className="chat-skeleton-bars" aria-hidden="true">
+            <div className="chat-skeleton-header">
+              <div className="chat-skeleton-bar" style={{ width: "180px", height: "18px", borderRadius: "6px" }} />
             </div>
-            <div className="chat-skeleton-row">
-              <div className="chat-skeleton-bar" style={{ width: "78%", height: "14px", borderRadius: "6px" }} />
-              <div className="chat-skeleton-bar" style={{ width: "62%", height: "14px", borderRadius: "6px" }} />
-              <div className="chat-skeleton-bar" style={{ width: "70%", height: "14px", borderRadius: "6px" }} />
-            </div>
-            <div className="chat-skeleton-row chat-skeleton-row--user">
-              <div className="chat-skeleton-bar" style={{ width: "160px", height: "38px", borderRadius: "12px" }} />
-            </div>
-            <div className="chat-skeleton-row">
-              <div className="chat-skeleton-bar" style={{ width: "72%", height: "14px", borderRadius: "6px" }} />
-              <div className="chat-skeleton-bar" style={{ width: "50%", height: "14px", borderRadius: "6px" }} />
+            <div className="chat-skeleton-messages">
+              <div className="chat-skeleton-row chat-skeleton-row--user">
+                <div className="chat-skeleton-bar" style={{ width: "220px", height: "38px", borderRadius: "12px" }} />
+              </div>
+              <div className="chat-skeleton-row">
+                <div className="chat-skeleton-bar" style={{ width: "78%", height: "14px", borderRadius: "6px" }} />
+                <div className="chat-skeleton-bar" style={{ width: "62%", height: "14px", borderRadius: "6px" }} />
+                <div className="chat-skeleton-bar" style={{ width: "70%", height: "14px", borderRadius: "6px" }} />
+              </div>
+              <div className="chat-skeleton-row chat-skeleton-row--user">
+                <div className="chat-skeleton-bar" style={{ width: "160px", height: "38px", borderRadius: "12px" }} />
+              </div>
+              <div className="chat-skeleton-row">
+                <div className="chat-skeleton-bar" style={{ width: "72%", height: "14px", borderRadius: "6px" }} />
+                <div className="chat-skeleton-bar" style={{ width: "50%", height: "14px", borderRadius: "6px" }} />
+              </div>
             </div>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { TerminalStateService } from "./ide/terminalStateService";
 import {
   FoxxyCodePanelController,
 } from "./webview/panel";
+import { formatPanelTitle, formatViewDescription } from "./webview/panelTitle";
 import { showFirstRunIfNeeded, openWelcomeWalkthrough } from "./webview/firstRun";
 import {
   onSettingsChanged,
@@ -58,6 +59,8 @@ let currentUrl: string | null = null;
 let lastProxyEnvSig = "";
 /** globalState key caching the last backend UI locale (for pre-boot strings). */
 const CACHED_LOCALE_KEY = "foxxycode.cachedLocale";
+/** Plugin version from the manifest, shown next to the panel/view title. */
+let extensionVersion = "";
 
 /** Apply a locale switch originating from the embedded SPA: adopt it and refresh
  *  extension chrome (command titles via the `foxxycode.locale` context key). The
@@ -70,7 +73,13 @@ function onSpaLocale(locale: Locale): void {
 export function activate(context: vscode.ExtensionContext): void {
   activationOutput = vscode.window.createOutputChannel("FoxxyCode");
   context.subscriptions.push(activationOutput);
-  activationOutput.appendLine(`[foxxycode] activate (ext=${context.extensionPath})`);
+  extensionVersion = String(
+    (context.extension?.packageJSON as { version?: unknown } | undefined)
+      ?.version ?? "",
+  );
+  activationOutput.appendLine(
+    `[foxxycode] activate (ext=${context.extensionPath}, version=${extensionVersion || "unknown"})`,
+  );
   // Seed the UI language from the last known backend value so pre-boot strings
   // already match; the authoritative ui.locale is fetched once the server is up.
   initLocaleState(context.globalState.get(CACHED_LOCALE_KEY), (locale) => {
@@ -264,7 +273,7 @@ function openEditorPanel(context: vscode.ExtensionContext): void {
   }
   const panel = vscode.window.createWebviewPanel(
     "foxxycode.panel",
-    "FoxxyCode",
+    formatPanelTitle(extensionVersion),
     vscode.ViewColumn.Active,
     {
       enableScripts: true,
@@ -315,6 +324,9 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView): void {
+    // VS Code renders the description dimmed right after the view name, so the
+    // header reads "FOXXYCODE  0.1.6" next to the toolbar buttons.
+    view.description = formatViewDescription(extensionVersion);
     this.controller = new FoxxyCodePanelController(view.webview, view, {
       extensionUri: this.extensionUri,
       onUrl: this.onUrl,

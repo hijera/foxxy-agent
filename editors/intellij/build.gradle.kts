@@ -188,15 +188,45 @@ tasks {
         }
     }
 
-    // ProxyEnvironmentTest is a plain JVM unit test (no IntelliJ platform needed). The IntelliJ
-    // Gradle plugin configures the test JVM to boot through the IDE's
-    // `com.intellij.util.lang.PathClassLoader`; when that loader jar isn't resolvable the test VM
-    // fails to initialize. The override lives inside a Windows `@argfile` alongside the classpath, so
-    // we rewrite the argfile dropping only the `java.system.class.loader` line — keeping the classpath
-    // — and let plain JVM tests run on the default system loader.
-    // ProxyEnvironmentTest is a plain JUnit4 unit test (ProxyEnvironment.buildProxyEnv drives a fake
-    // configurable via reflection — no IntelliJ platform needed).
+    // The unit tests here are plain JUnit4 ones that never touch the IntelliJ platform
+    // (ProxyEnvironmentTest drives a fake configurable through reflection;
+    // ProjectRelativePathsTest is pure path math). The IntelliJ Gradle plugin nevertheless
+    // configures every Test task for an IDE run, which breaks the test JVM twice over:
+    //
+    //  1. -Djava.system.class.loader=com.intellij.util.lang.PathClassLoader — that class ships
+    //     in the IDE distribution, not on a unit test's runtime classpath, so the VM dies with
+    //     "Error occurred during initialization of VM ... ClassNotFoundException:
+    //      com.intellij.util.lang.PathClassLoader".
+    //  2. the kotlinx-coroutines debug javaagent — a manifest-only jar whose Premain-Class
+    //     resolves through that same platform classpath, otherwise
+    //     "Exception in thread \"main\" java.lang.ClassNotFoundException:
+    //      kotlinx.coroutines.debug.AgentPremain".
+    //
+    // Both are stripped below (in doFirst, so they also clear whatever the plugin added during
+    // lazy configuration). If a test ever does need the IntelliJ platform, give it its own task
+    // rather than putting these back here.
+    //
+    // KNOWN ENVIRONMENT LIMIT: this task still cannot fork a worker on a machine whose
+    // GRADLE_USER_HOME contains non-ASCII characters (e.g. C:\Users\<cyrillic>\.gradle).
+    // Gradle writes the worker classpath argfile as UTF-8 while the JVM parses argfiles using
+    // sun.jnu.encoding (Cp1251 there), so every cached jar path turns to mojibake and the VM
+    // reports "Could not find or load main class
+    // worker.org.gradle.process.internal.worker.GradleWorkerMain". That is upstream Gradle
+    // behaviour, unrelated to the two workarounds above; the fix is an ASCII Gradle home.
     test {
         useJUnit()
+        doFirst {
+            systemProperties.remove("java.system.class.loader")
+            // The agent comes from the plugin's IntelliJPlatformArgumentProvider, which is
+                // reachable neither through jvmArgs nor systemProperties (and assigning
+            // allJvmArgs fails: its setter touches the already-finalized debug options).
+            // Drop that whole provider — its other arguments only configure an IDE sandbox
+            // these platform-free tests never open.
+            jvmArgumentProviders.removeIf { provider ->
+                provider.asArguments().any {
+                    it.startsWith("-javaagent:") && it.contains("coroutines-javaagent")
+                }
+            }
+        }
     }
 }

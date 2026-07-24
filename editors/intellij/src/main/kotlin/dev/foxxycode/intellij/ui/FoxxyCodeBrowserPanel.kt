@@ -5,9 +5,11 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.dnd.DnDDropHandler
 import com.intellij.ide.dnd.DnDEvent
+import com.intellij.ide.dnd.DnDNativeTarget
 import com.intellij.ide.dnd.DnDSupport
 import com.intellij.ide.dnd.DnDTargetChecker
 import com.intellij.ide.dnd.TransferableWrapper
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
@@ -15,13 +17,20 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.ui.docking.DockableContent
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeLocaleState
 import dev.foxxycode.intellij.FoxxyCodeNotifications
@@ -34,6 +43,8 @@ import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
+import java.awt.datatransfer.DataFlavor
+import java.io.File
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -51,6 +62,13 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
     private val center = JPanel(BorderLayout())
     private var toolbarComponent: JComponent? = null
 
+    /** True once the SPA page has finished its first load, so JS calls will land. */
+    @Volatile
+    private var browserReady = false
+
+    /** File mentions requested before the page was ready; flushed on first load end. */
+    private val pendingMentions = ArrayList<String>()
+
     @Volatile
     private var currentUrl: String? = null
 
@@ -61,6 +79,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
     private var panelMode = PanelMode.NONE
 
     init {
+        panelsByProject[project] = this
         val tb = createToolbar()
         toolbarComponent = tb
         add(tb, BorderLayout.NORTH)
@@ -150,6 +169,8 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                         injectLocaleBridge()
                         syncTheme()
                         syncLocale()
+                        browserReady = true
+                        flushPendingMentions()
                     }
                 }
             }, it.cefBrowser)
@@ -164,10 +185,11 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
     private var fileDropInstalled = false
 
     /**
-     * Accepts file drags from the Project view onto the browser and inserts each dropped
-     * file into the composer as a short `@`-mention (via [insertFileMention]). Uses the
-     * IntelliJ DnD framework so it works over the heavyweight JCEF component. Best-effort:
-     * a drag that carries no files is ignored so normal editor DnD is unaffected.
+     * Accepts file drags from the Project view **and the editor tab strip** onto the browser
+     * and inserts each dropped file into the composer as a short `@`-mention (via
+     * [insertFileMention]). Uses the IntelliJ DnD framework so it works over the heavyweight
+     * JCEF component. Best-effort: a drag that carries no files is ignored so normal editor
+     * DnD is unaffected.
      */
     private fun installFileDropTarget(component: JComponent) {
         if (fileDropInstalled) return
@@ -176,6 +198,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         DnDSupport.createBuilder(component)
             .setTargetChecker(
                 DnDTargetChecker { event ->
+                    logDragOnce(event)
                     if (droppedProjectFiles(event).isNotEmpty()) {
                         event.isDropPossible = true
                         true
@@ -186,7 +209,9 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             )
             .setDropHandler(
                 DnDDropHandler { event ->
-                    for (rel in droppedProjectFiles(event)) {
+                    val rels = droppedProjectFiles(event)
+                    LOG.info("FoxxyCode DnD drop: ${rels.size} file(s) over composer")
+                    for (rel in rels) {
                         insertFileMention(rel)
                     }
                 },
@@ -195,29 +220,83 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             .install()
     }
 
+    /** Last drag payload class we logged, so a hovering drag does not spam the log. */
+    private var lastDnDClass: String? = null
+
+    /**
+     * Records what a drag over the composer actually carries. Editor-tab / Project-view drags
+     * are intra-IDE, and the heavyweight JCEF surface can swallow the mouse tracking that
+     * `DnDManager` relies on, so this is the only way to tell whether the checker even fires
+     * (and with what `attachedObject`) without a debugger attached to a live IDE.
+     */
+    private fun logDragOnce(event: DnDEvent) {
+        val cls = event.attachedObject?.javaClass?.name ?: "null"
+        if (cls != lastDnDClass) {
+            lastDnDClass = cls
+            LOG.info("FoxxyCode DnD over composer: attachedObject=$cls")
+        }
+    }
+
     /** Project-relative POSIX paths for files carried by a DnD event (empty when none). */
     private fun droppedProjectFiles(event: DnDEvent): List<String> {
-        val attached = event.attachedObject
-        if (attached !is TransferableWrapper) return emptyList()
-        val files = attached.asFileList() ?: return emptyList()
-        val base = project.basePath ?: return emptyList()
-        val basePath = try {
-            java.nio.file.Paths.get(base)
-        } catch (e: Exception) {
-            return emptyList()
-        }
-        val out = ArrayList<String>()
-        for (f in files) {
-            if (f.isDirectory) continue
-            val rel = try {
-                basePath.relativize(f.toPath()).toString().replace('\\', '/')
-            } catch (e: Exception) {
-                continue
+        val files = draggedFiles(event.attachedObject)
+        if (files.isEmpty()) return emptyList()
+        return ProjectRelativePaths.relativize(project.basePath, files)
+    }
+
+    /**
+     * Files carried by a drag, from every source the panel accepts:
+     *  - [TransferableWrapper] — Project view / any tree selection;
+     *  - [DockableContent] — an **editor tab** drag, whose key is the tab's VirtualFile;
+     *  - [DnDNativeTarget.EventInfo] — native OS drags exposing `javaFileListFlavor`.
+     * Anything else yields an empty list so unrelated drags pass through untouched.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun draggedFiles(attached: Any?): List<File> = try {
+        when (attached) {
+            is TransferableWrapper -> attached.asFileList().orEmpty()
+            is DockableContent<*> -> {
+                val vf = attached.key as? VirtualFile
+                if (vf != null && vf.isInLocalFileSystem) listOf(VfsUtilCore.virtualToIoFile(vf))
+                else emptyList()
             }
-            if (rel.isEmpty() || rel.startsWith("..")) continue
-            out.add(rel)
+            is DnDNativeTarget.EventInfo -> {
+                val t = attached.transferable
+                if (t != null && t.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+                    (t.getTransferData(DataFlavor.javaFileListFlavor) as? List<File>).orEmpty()
+                } else {
+                    emptyList()
+                }
+            }
+            else -> emptyList()
         }
-        return out
+    } catch (e: Exception) {
+        // A drag we cannot read is simply not ours.
+        emptyList()
+    }
+
+    /**
+     * Inserts one or more workspace-relative paths into the composer as `@`-mentions.
+     * Public entry point for the **Add to FoxxyCode** action (right-click editor tab / file):
+     * a reliable alternative to dragging onto the heavyweight JCEF surface. Paths requested
+     * before the page has loaded are queued and flushed on first load end.
+     */
+    fun requestInsertFileMentions(paths: List<String>) {
+        if (paths.isEmpty()) return
+        ApplicationManager.getApplication().invokeLater {
+            if (!browserReady || browser == null) {
+                pendingMentions.addAll(paths)
+                return@invokeLater
+            }
+            paths.forEach { insertFileMention(it) }
+        }
+    }
+
+    private fun flushPendingMentions() {
+        if (pendingMentions.isEmpty()) return
+        val queued = pendingMentions.toList()
+        pendingMentions.clear()
+        queued.forEach { insertFileMention(it) }
     }
 
     /** Pushes a workspace-relative path into the SPA composer as an `@`-mention chip. */
@@ -409,14 +488,51 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
         })
         val toolbar = ActionManager.getInstance().createActionToolbar("FoxxyCodeToolbar", group, true)
         toolbar.setTargetComponent(this) // 2021.2 exposes only the setter, not a property
-        return toolbar.component
+
+        // "FoxxyCode <version>" on the same row as the buttons, so a bug report can be
+        // pinned to a build without digging through Settings | Plugins.
+        val row = JPanel(BorderLayout())
+        row.isOpaque = false
+        row.add(toolbar.component, BorderLayout.WEST)
+        row.add(versionLabel(), BorderLayout.EAST)
+        return row
     }
 
+    private fun versionLabel(): JComponent {
+        val version = pluginVersion()
+        val label = JLabel(if (version.isEmpty()) PRODUCT_NAME else "$PRODUCT_NAME  $version")
+        label.foreground = UIUtil.getContextHelpForeground()
+        label.border = JBUI.Borders.emptyRight(8)
+        label.toolTipText = if (version.isEmpty()) PLUGIN_ID else "$PLUGIN_ID $version"
+        return label
+    }
+
+    /** Version from the installed plugin descriptor, or "" when it cannot be resolved. */
+    private fun pluginVersion(): String =
+        try {
+            PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))?.version.orEmpty()
+        } catch (e: Exception) {
+            ""
+        }
+
     override fun dispose() {
+        panelsByProject.remove(project, this)
         // JBCefBrowser is released via its Disposer registration on this panel.
     }
 
     companion object {
+        private val LOG = logger<FoxxyCodeBrowserPanel>()
+
+        /** Must match `<id>` in META-INF/plugin.xml (asserted by plugin_build_test.go). */
+        const val PLUGIN_ID = "dev.foxxycode.intellij"
+        private const val PRODUCT_NAME = "FoxxyCode"
+
+        /** Live panels by project, so an action can reach the composer of the right window. */
+        private val panelsByProject = java.util.concurrent.ConcurrentHashMap<Project, FoxxyCodeBrowserPanel>()
+
+        /** The panel hosting the FoxxyCode tool window for [project], if it is open. */
+        fun forProject(project: Project): FoxxyCodeBrowserPanel? = panelsByProject[project]
+
         private val BOOTSTRAP_JS = """
             (function () {
               // Polyfill crypto.randomUUID for older embedded Chromium (< 92).

@@ -706,6 +706,18 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
 		return
 	}
+	// Project scope: the IDE plugins run one server per project and pass the
+	// project root so History does not mix every workspace the user ever opened.
+	// Applied before paging so hasMore/nextCursor describe the filtered list.
+	if scope := strings.TrimSpace(r.URL.Query().Get("cwd")); scope != "" {
+		kept := rows[:0]
+		for _, row := range rows {
+			if session.CWDInScope(row.CWD, scope) {
+				kept = append(kept, row)
+			}
+		}
+		rows = kept
+	}
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 		rows, err = fs.FilterSnapshotListForSearch(rows, q)
 		if err != nil {

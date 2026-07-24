@@ -789,17 +789,56 @@ def vsce_target(goos: str, goarch: str) -> str:
     return GO_TO_VSCE[key]
 
 
+# Strict enough that `vsce package <version>` never rejects it: MAJOR.MINOR.PATCH
+# with optional semver prerelease/build. Matches release tags (0.2.8), git-describe
+# (0.2.8-1-gsha) and CI dev builds (0.0.0-dev-sha); rejects bare "dev" or "0.2.8dev4".
+_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
+
+
+def vsce_package(ui: UI, vs_dir: Path, vsce: str, version: str, dry_run: bool) -> None:
+    """Package the VSIX for one target, stamping ``version`` into its manifest.
+
+    ``vsce package <version>`` rewrites package.json's version before packaging (like
+    ``npm version``); without it the VSIX would carry the static package.json version.
+    package.json and package-lock.json are snapshotted and restored so the working tree
+    is not left dirty. A non-semver version is packaged with the package.json value.
+    """
+    npm = npm_cmd()
+    cmd = [npm, "exec", "--", "vsce", "package"]
+    stamp = bool(_SEMVER_RE.match(version or ""))
+    if stamp:
+        cmd += [version, "--no-git-tag-version", "--target", vsce]
+    else:
+        if version and version != "dev":
+            ui.warn(f"Версия '{version}' не semver X.Y.Z — VSIX получит версию из package.json.")
+        cmd += ["--target", vsce]
+
+    if dry_run or not stamp:
+        run_cmd(ui, cmd, cwd=vs_dir, dry_run=dry_run)
+        return
+
+    pkg = vs_dir / "package.json"
+    lock = vs_dir / "package-lock.json"
+    pkg_backup = pkg.read_bytes()
+    lock_backup = lock.read_bytes() if lock.is_file() else None
+    try:
+        run_cmd(ui, cmd, cwd=vs_dir, dry_run=False)
+    finally:
+        pkg.write_bytes(pkg_backup)
+        if lock_backup is not None:
+            lock.write_bytes(lock_backup)
+
+
 def build_target_vscode(ui: UI, opts: BuildOptions) -> None:
     require_tools(ui, ["go", "node", "npm"])
-    ui.warn(
-        "Расширение VS Code — scaffold (см. editors/vscode/README.md); "
-        "сборка VSIX подготовительная."
-    )
 
     vs_dir = REPO_ROOT / "editors" / "vscode"
     if not vs_dir.is_dir():
         ui.err(f"Каталог не найден: {vs_dir}")
         raise SystemExit(1)
+
+    version = opts.plugin_version or (git_version() if which("git") else "dev")
+    ui.info(f"Версия VS Code-расширения: {version}")
 
     targets: list[tuple[str, str]] = []
     if opts.vscode_targets:
@@ -821,6 +860,8 @@ def build_target_vscode(ui: UI, opts: BuildOptions) -> None:
             ui,
             ["node", "scripts/prepare-binary.mjs", "--target", go_target],
             cwd=vs_dir,
+            # Stamp internal/version.Version into the bundled binary (read by prepare-binary.mjs).
+            env={"FOXXYCODE_PLUGIN_VERSION": version},
             dry_run=opts.dry_run,
         )
         run_cmd(
@@ -829,12 +870,7 @@ def build_target_vscode(ui: UI, opts: BuildOptions) -> None:
             cwd=vs_dir,
             dry_run=opts.dry_run,
         )
-        run_cmd(
-            ui,
-            [npm, "exec", "--", "vsce", "package", "--target", vsce],
-            cwd=vs_dir,
-            dry_run=opts.dry_run,
-        )
+        vsce_package(ui, vs_dir, vsce, version, opts.dry_run)
 
     if not opts.dry_run:
         vsix = list(vs_dir.glob("*.vsix"))
@@ -869,6 +905,7 @@ def build_target_all(ui: UI, opts: BuildOptions) -> None:
     vs_opts = BuildOptions(
         target="vscode",
         vscode_targets=[f"{g}-{a}" for g, a in RELEASE_TARGETS],
+        plugin_version=opts.plugin_version,
         dry_run=opts.dry_run,
         no_color=opts.no_color,
     )
@@ -1050,6 +1087,7 @@ def interactive_menu(ui: UI) -> None:
         build_target_intellij(ui, opts)
 
     elif main == "3":
+        ver = input("Версия VSIX (Enter = из git): ").strip()
         plat = prompt_choice(
             ui,
             "Платформа VSIX:",
@@ -1063,7 +1101,12 @@ def interactive_menu(ui: UI) -> None:
             vs_targets = [f"{g}-{a}" for g, a in RELEASE_TARGETS]
         else:
             vs_targets = [f"{host[0]}-{host[1]}"]
-        opts = BuildOptions(target="vscode", vscode_targets=vs_targets, dry_run=dry_run)
+        opts = BuildOptions(
+            target="vscode",
+            vscode_targets=vs_targets,
+            plugin_version=ver,
+            dry_run=dry_run,
+        )
         build_target_vscode(ui, opts)
 
     elif main == "4":
@@ -1090,7 +1133,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
   python scripts/build.py --target cli --all-release --preset full --ldflags-strip
   python scripts/build.py --target intellij --plugin-version 1.2.3 --production
   python scripts/build.py --target vscode --vscode-target darwin-arm64
-  python scripts/build.py --target all --preset full
+  python scripts/build.py --target vscode --plugin-version 1.2.3 --vscode-target windows-amd64
+  python scripts/build.py --target all --preset full --plugin-version 1.2.3
 """,
     )
     p.add_argument(
@@ -1124,7 +1168,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Добавить -s -w к ldflags (как release CI).",
     )
-    p.add_argument("--plugin-version", help="Версия IntelliJ-плагина (по умолчанию из git).")
+    p.add_argument(
+        "--plugin-version",
+        help="Версия плагина IntelliJ и расширения VS Code (по умолчанию из git).",
+    )
     p.add_argument(
         "--production",
         action="store_true",

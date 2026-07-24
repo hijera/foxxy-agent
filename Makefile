@@ -144,14 +144,34 @@ intellij-run:
 # scripts/prepare-binary.mjs prints the Go -> VS Code mapping.
 VSCE_TARGET ?=
 
+# FOXXYCODE_PLUGIN_VERSION stamps the bundled binary's internal/version.Version (read by
+# scripts/prepare-binary.mjs), mirroring the IntelliJ gradle build. The vsce version argument
+# (guarded to semver-looking PLUGIN_VERSION; CI always passes X.Y.Z or 0.0.0-dev-<sha>) rewrites
+# the VSIX **manifest** version — vsce reads package.json, so without it every VSIX shipped the
+# static package.json version regardless of the release tag. package.json is snapshotted and
+# restored so the source tree is not left dirty.
 vscode-build:
-	cd editors/vscode && npm install --no-fund --no-audit && npm run build
+	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" npm run build
 
 vscode-build-target:
-	cd editors/vscode && npm install --no-fund --no-audit && node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile
+	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile
 
 vscode-package:
-	cd editors/vscode && npm install --no-fund --no-audit && npm run prepare-binary && npm run compile && npx vsce package -o foxxycode-vscode-$(PLUGIN_VERSION).vsix
+	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" npm run prepare-binary && npm run compile && { \
+		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; \
+		case "$(PLUGIN_VERSION)" in \
+			[0-9]*.[0-9]*.[0-9]*) npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
+			*) npx vsce package -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
+		esac; \
+		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; exit $$status; \
+	}
 
 vscode-package-target:
-	cd editors/vscode && npm install --no-fund --no-audit && node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile && npx vsce package --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix
+	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile && { \
+		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; \
+		case "$(PLUGIN_VERSION)" in \
+			[0-9]*.[0-9]*.[0-9]*) npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
+			*) npx vsce package --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
+		esac; \
+		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; exit $$status; \
+	}

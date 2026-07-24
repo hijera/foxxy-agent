@@ -151,6 +151,36 @@ describe("VSIX packaging invariants", () => {
   });
 });
 
+describe("version stamping", () => {
+  // The VSIX manifest version and the bundled binary version both used to be wrong:
+  // vsce read the static package.json version, and prepare-binary built with `-s -w`
+  // only. Guard both mechanisms so a release cannot silently ship 0.1.6 / dev again.
+  const prepareBinary = fs.readFileSync(
+    path.join(root, "scripts", "prepare-binary.mjs"),
+    "utf8",
+  );
+  const makefile = fs.readFileSync(
+    path.join(root, "..", "..", "Makefile"),
+    "utf8",
+  );
+
+  it("stamps internal/version.Version into the bundled binary", () => {
+    expect(prepareBinary).toContain(
+      "-X github.com/hijera/foxxycode-agent/internal/version.Version=",
+    );
+  });
+
+  it("drives the stamped version from FOXXYCODE_PLUGIN_VERSION", () => {
+    expect(prepareBinary).toContain("FOXXYCODE_PLUGIN_VERSION");
+    expect(makefile).toContain('FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)"');
+  });
+
+  it("passes PLUGIN_VERSION to vsce so the VSIX manifest version is not static", () => {
+    // vsce package <version> rewrites package.json's version before packaging.
+    expect(makefile).toMatch(/vsce package "\$\(PLUGIN_VERSION\)" --no-git-tag-version/);
+  });
+});
+
 describe("walkthrough", () => {
   const walkthrough = (pkg.contributes?.walkthroughs ?? []).find((w) => w.id === "foxxycode.welcome");
 

@@ -34,3 +34,39 @@ test("ignores non-file uris and relative plain text", () => {
   expect(parseDroppedPaths({ uriList: "https://example.com/x" })).toEqual([]);
   expect(parseDroppedPaths({ plain: "just some text" })).toEqual([]);
 });
+
+// Dragging an editor tab in VS Code puts the ResourceURLs JSON array on the
+// DataTransfer; older builds carry it without a text/uri-list entry at all.
+test("parses the VS Code ResourceURLs JSON array", () => {
+  const resourceUrls = JSON.stringify([
+    "file:///home/me/proj/src/tab.ts",
+    "file:///C:/proj/other.ts",
+  ]);
+  expect(parseDroppedPaths({ resourceUrls })).toEqual([
+    "/home/me/proj/src/tab.ts",
+    "C:/proj/other.ts",
+  ]);
+});
+
+test("uri-list still wins over ResourceURLs, and both de-duplicate", () => {
+  expect(
+    parseDroppedPaths({
+      uriList: "file:///a/x.ts",
+      resourceUrls: JSON.stringify(["file:///a/x.ts", "file:///b/y.ts"]),
+    }),
+  ).toEqual(["/a/x.ts", "/b/y.ts"]);
+});
+
+test("malformed or non-file ResourceURLs payloads are ignored", () => {
+  expect(parseDroppedPaths({ resourceUrls: "not json" })).toEqual([]);
+  expect(parseDroppedPaths({ resourceUrls: JSON.stringify({}) })).toEqual([]);
+  expect(
+    parseDroppedPaths({ resourceUrls: JSON.stringify(["untitled:Untitled-1"]) }),
+  ).toEqual([]);
+});
+
+test("ResourceURLs does not suppress the plain-text fallback when it yields nothing", () => {
+  expect(
+    parseDroppedPaths({ resourceUrls: "not json", plain: "/home/me/foo.ts" }),
+  ).toEqual(["/home/me/foo.ts"]);
+});
