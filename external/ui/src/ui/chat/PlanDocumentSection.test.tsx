@@ -160,12 +160,12 @@ test("a transcript merge does not clobber an unsaved markdown draft", async () =
   }
 });
 
-test("Show in IDE is hidden in the browser shell", () => {
+test("View in IDE is hidden in the browser shell", () => {
   renderPlan();
   expect(screen.queryByTestId("plan_document_open_in_ide")).toBeNull();
 });
 
-test("Show in IDE sits before Run plan inside an editor plugin", async () => {
+test("View in IDE is an icon button in the pane tool rail, before the eye", async () => {
   vi.mocked(isEditorEmbed).mockReturnValue(true);
   const fetchMock = vi.fn().mockResolvedValue({ ok: true });
   vi.stubGlobal("fetch", fetchMock);
@@ -173,12 +173,25 @@ test("Show in IDE sits before Run plan inside an editor plugin", async () => {
     renderPlan();
 
     const openBtn = screen.getByTestId("plan_document_open_in_ide");
-    const runBtn = document.querySelector('[data-test="plan_document_run"]');
-    expect(runBtn).toBeTruthy();
-    // Node.compareDocumentPosition: FOLLOWING (4) means runBtn comes after openBtn.
-    expect(openBtn.compareDocumentPosition(runBtn!)).toBe(
+    const eyeBtn = screen.getByRole("button", { name: "Toggle preview" });
+    // Both live in the floating rail over the body, not in the footer.
+    const rail = document.querySelector(".plan-document-pane-tools");
+    expect(rail).toBeTruthy();
+    expect(rail!.contains(openBtn)).toBe(true);
+    expect(rail!.contains(eyeBtn)).toBe(true);
+    expect(document.querySelector(".plan-document-foot")!.contains(openBtn)).toBe(
+      false,
+    );
+    // Node.compareDocumentPosition: FOLLOWING (4) means the eye comes after it.
+    expect(openBtn.compareDocumentPosition(eyeBtn)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+
+    // Icon-only: the label rides on title/aria-label so the button stays compact.
+    expect(openBtn).toHaveAttribute("aria-label", "View in IDE");
+    expect(openBtn).toHaveAttribute("title", "View in IDE");
+    expect(openBtn.textContent?.trim()).toBe("");
+    expect(openBtn.querySelector("svg.plan-document-ide-svg")).toBeTruthy();
 
     fireEvent.click(openBtn);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -192,12 +205,12 @@ test("Show in IDE sits before Run plan inside an editor plugin", async () => {
   }
 });
 
-test("a failed Show in IDE surfaces an error on the card", async () => {
+test("a failed View in IDE surfaces an error on the card", async () => {
   vi.mocked(isEditorEmbed).mockReturnValue(true);
   const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
   vi.stubGlobal("fetch", fetchMock);
   try {
-    renderPlan({ expanded: false });
+    renderPlan();
     fireEvent.click(screen.getByTestId("plan_document_open_in_ide"));
     await screen.findByText("Could not open the plan in the IDE");
   } finally {
@@ -205,10 +218,17 @@ test("a failed Show in IDE surfaces an error on the card", async () => {
   }
 });
 
-test("Show in IDE is disabled for a discarded plan", () => {
+test("View in IDE is disabled for a discarded plan", () => {
   vi.mocked(isEditorEmbed).mockReturnValue(true);
   renderPlan({ discarded: true });
   expect(screen.getByTestId("plan_document_open_in_ide")).toBeDisabled();
+});
+
+// The tool rail lives in the expanded body, so a collapsed card has no icons.
+test("View in IDE is not rendered while the card is collapsed", () => {
+  vi.mocked(isEditorEmbed).mockReturnValue(true);
+  renderPlan({ expanded: false });
+  expect(screen.queryByTestId("plan_document_open_in_ide")).toBeNull();
 });
 
 test("a plan rewritten by the model replaces an untouched body", () => {

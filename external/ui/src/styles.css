@@ -7435,11 +7435,19 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   box-sizing: border-box;
 }
 
-.plan-document-eye {
+/* Icon rail floating over the top-right of the plan body: open-in-IDE + preview eye. */
+.plan-document-pane-tools {
   position: absolute;
   top: 8px;
   right: 12px;
   z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-document-eye,
+.plan-document-ide {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7462,9 +7470,15 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     box-shadow 120ms ease;
 }
 
-.plan-document-eye:hover {
+.plan-document-eye:hover,
+.plan-document-ide:hover:not(:disabled) {
   color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
   border-color: color-mix(in srgb, var(--text) 20%, var(--foxxycode-blend-base));
+}
+
+.plan-document-ide:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .plan-document-eye.is-on {
@@ -7473,7 +7487,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: rgba(249, 115, 22, 0.16);
 }
 
-.plan-document-eye-svg {
+.plan-document-eye-svg,
+.plan-document-ide-svg {
   width: 18px;
   height: 18px;
   display: block;
@@ -7618,28 +7633,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   filter: brightness(1.08);
 }
 
-/* Secondary action next to Run plan: hands the plan file to the host IDE editor. */
-.plan-document-open-ide {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
-  border-radius: 10px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.plan-document-open-ide:hover:not(:disabled) {
-  color: var(--text);
-  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
-}
-
 .plan-document-run:disabled,
-.plan-document-open-ide:disabled,
 .plan-document-discard:disabled {
   opacity: 0.42;
   cursor: not-allowed;

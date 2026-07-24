@@ -84,11 +84,64 @@ function PlanPreviewEyeToggle(p: {
   );
 }
 
+/**
+ * Opens the plan file in the host IDE editor. Icon-only and parked next to the
+ * preview eye: the footer is too tight for a worded button in a plugin panel, and
+ * a document glyph reads faster than "Показать в IDE" wrapped over two lines.
+ */
+function PlanOpenInIdeButton(p: {
+  discarded: boolean;
+  onOpenInIde: () => void;
+  t: (key: string) => string;
+}) {
+  const label = p.t("prompts.planOpenInIde");
+  return (
+    <button
+      type="button"
+      className="plan-document-ide"
+      title={label}
+      aria-label={label}
+      data-test="plan_document_open_in_ide"
+      data-testid="plan_document_open_in_ide"
+      disabled={p.discarded}
+      onClick={() => p.onOpenInIde()}
+    >
+      <svg
+        className="plan-document-ide-svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden
+      >
+        <path
+          d="M14.25 3.75H7.5A1.5 1.5 0 0 0 6 5.25v13.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V7.5l-3.75-3.75Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M14.25 3.75V7.5H18"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M9 12.75h6M9 15.75h4"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
 function PlanDocumentActions(p: {
   discarded: boolean;
   onRunPlan: () => void;
   onDiscard: () => void;
-  onOpenInIde: () => void;
   t: (key: string) => string;
 }) {
   return (
@@ -102,19 +155,6 @@ function PlanDocumentActions(p: {
       >
         {p.t("prompts.planDiscard")}
       </button>
-      {/* Only inside an editor plugin: in the browser there is no IDE to open. */}
-      {isEditorEmbed() ? (
-        <button
-          type="button"
-          className="plan-document-open-ide"
-          data-test="plan_document_open_in_ide"
-          data-testid="plan_document_open_in_ide"
-          disabled={p.discarded}
-          onClick={() => p.onOpenInIde()}
-        >
-          {p.t("prompts.planOpenInIde")}
-        </button>
-      ) : null}
       <button
         type="button"
         className="plan-document-run"
@@ -258,8 +298,8 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
               <span className="plan-document-desc">{description}</span>
             ) : null}
           </button>
-          {/* A failure must stay visible on a collapsed card too — the actions
-              row (Show in IDE / Run plan) is rendered in both states. */}
+          {/* A failure stays visible after the card is collapsed, so an autosave or
+              open-in-IDE error is not silently lost when the body is hidden. */}
           {(props.expanded && saving) || saveError ? (
             <div className="plan-document-head-status">
               {saving ? (
@@ -275,13 +315,23 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         {props.expanded ? (
           <div className="plan-document-body">
             <div className="plan-document-pane">
-              <PlanPreviewEyeToggle
-                previewOn={previewOn}
-                t={t}
-                onToggle={() =>
-                  setBodyView((v) => (v === "preview" ? "markdown" : "preview"))
-                }
-              />
+              <div className="plan-document-pane-tools">
+                {/* Only inside an editor plugin: in the browser there is no IDE to open. */}
+                {isEditorEmbed() ? (
+                  <PlanOpenInIdeButton
+                    discarded={discarded}
+                    onOpenInIde={openInIde}
+                    t={t}
+                  />
+                ) : null}
+                <PlanPreviewEyeToggle
+                  previewOn={previewOn}
+                  t={t}
+                  onToggle={() =>
+                    setBodyView((v) => (v === "preview" ? "markdown" : "preview"))
+                  }
+                />
+              </div>
               <div
                 className={
                   previewOn
@@ -329,7 +379,6 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
             discarded={discarded}
             onRunPlan={props.onRunPlan}
             onDiscard={props.onDiscard}
-            onOpenInIde={openInIde}
             t={t}
           />
         </footer>

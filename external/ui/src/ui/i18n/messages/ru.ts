@@ -495,7 +495,7 @@ export const messagesRu: Record<string, string> = {
   "prompts.reject": "Отклонить",
   "prompts.planTogglePreview": "Переключить предпросмотр",
   "prompts.planDiscard": "Отменить",
-  "prompts.planOpenInIde": "Показать в IDE",
+  "prompts.planOpenInIde": "Посмотреть в IDE",
   "prompts.planOpenInIdeFailed": "Не удалось открыть план в IDE",
   "prompts.planRun": "Запустить план",
   "prompts.planSaving": "Сохранение…",

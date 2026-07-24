@@ -487,7 +487,7 @@ export const messagesEn: Record<string, string> = {
   "prompts.reject": "Reject",
   "prompts.planTogglePreview": "Toggle preview",
   "prompts.planDiscard": "Discard",
-  "prompts.planOpenInIde": "Show in IDE",
+  "prompts.planOpenInIde": "View in IDE",
   "prompts.planOpenInIdeFailed": "Could not open the plan in the IDE",
   "prompts.planRun": "Run plan",
   "prompts.planSaving": "Saving…",
