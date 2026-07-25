@@ -5,6 +5,7 @@
   "main": "app.js",
   "scripts": {
     "test": "vitest run",
+    "test:layout": "go test -tags=http,ui,browser -run=^TestUILayoutColumnsAlign$ -count=1 -timeout=45s .",
     "test:watch": "vitest",
     "dev": "vite",
     "build": "vite build",

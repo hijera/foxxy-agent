@@ -878,6 +878,12 @@
       "additionalProperties": false,
       "description": "Filesystem and shell policy for built-in tools.",
       "properties": {
+        "ask_disable_extended_tools": {
+          "default": false,
+          "description": "In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.",
+          "title": "Disable extended Ask tools",
+          "type": "boolean"
+        },
         "command_allowlist": {
           "default": [],
           "description": "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -910,7 +916,8 @@
       "x-foxxycode-property-order": [
         "permission_mode",
         "command_allowlist",
-        "plan_no_self_run"
+        "plan_no_self_run",
+        "ask_disable_extended_tools"
       ]
     },
     "ui": {

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-layout-scroll-check>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FoxxyCode layout check</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="root">
+      <div class="shell">
+        <aside class="rail-column" aria-hidden="true">
+          <div class="rail-pill">
+            <span class="rail-brand">F</span>
+          </div>
+        </aside>
+
+        <div class="shell-main">
+          <main class="main">
+            <div class="chat-stack">
+              <div id="messages" class="chat-scroll">
+                <div class="chat-scroll-sticky-head">
+                  <div class="chat-title-column">
+                    <header class="chat-header">
+                      <div class="chat-title">
+                        <button type="button" class="chat-title-btn">
+                          Layout check
+                        </button>
+                      </div>
+                    </header>
+                  </div>
+                </div>
+
+                <div class="messages-inner">
+                  <div class="msg-assistant-stack">
+                    <div class="msg msg-assistant">
+                      <div class="md">
+                        <p>Transcript column alignment fixture.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="chat-scroll-tail" aria-hidden="true"></div>
+              </div>
+
+              <div class="chat-bottom chat-bottom--docked">
+                <div class="chat-bottom-inner">
+                  <footer class="composer-wrap composer-wrap-docked">
+                    <div class="composer-card">
+                      <div class="composer-field-wrap">
+                        <div class="composer-stack">
+                          <textarea
+                            id="composer"
+                            rows="2"
+                            readonly
+                            aria-label="Layout check composer"
+                          >Read-only layout fixture</textarea>
+                        </div>
+                      </div>
+                      <div class="composer-bar">
+                        <div class="composer-tabs">
+                          <button type="button" class="composer-tab mode-btn">
+                            Ask
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </footer>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

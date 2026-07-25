@@ -50,9 +50,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		MCPServers: []MCPServerJSON{},
 		Tools: ToolsJSON{
-			PermissionMode:   PermModeAsk,
-			CommandAllowlist: nil,
-			PlanNoSelfRun:    &planNoSelfRun,
+			PermissionMode:          PermModeAsk,
+			CommandAllowlist:        nil,
+			PlanNoSelfRun:           &planNoSelfRun,
+			AskDisableExtendedTools: false,
 		},
 		Logger: LoggerJSON{
 			Level:    LogLevelInfo,

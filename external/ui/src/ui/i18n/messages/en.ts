@@ -30,6 +30,7 @@ export const messagesEn: Record<string, string> = {
   "composer.modeAgent": "Agent",
   "composer.modePlan": "Plan",
   "composer.modeDocs": "Documentation",
+  "composer.modeAsk": "Ask",
   "composer.model": "Model",
   "composer.modelTitle": "YAML backend (metadata.model)",
   "composer.reasoning": "Reasoning",

@@ -84,6 +84,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		{id: string(session.ModeAgent), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModePlan), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModeDocs), ownedBy: ownedByFoxxyCodeSession},
+		{id: string(session.ModeAsk), ownedBy: ownedByFoxxyCodeSession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -148,6 +149,47 @@ func TestResponsesDocsProfileSetsSessionMode(t *testing.T) {
 	}
 }
 
+func TestResponsesAskProfileSetsSessionMode(t *testing.T) {
+	cfg := &config.Config{
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+	}
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		if st.GetMode() != string(session.ModeAsk) {
+			t.Errorf("runner mode: want %q got %q", session.ModeAsk, st.GetMode())
+		}
+		return "ok", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sn, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"ask","input":"explain this","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sn.SessionID)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, body)
+	}
+	if got := mgr.SessionByID(sn.SessionID).GetMode(); got != string(session.ModeAsk) {
+		t.Fatalf("session mode: want ask got %q", got)
+	}
+}
+
 func TestGETModelsMultimodalField(t *testing.T) {
 	cfg := &config.Config{
 		Agent: config.Agent{Model: "openai/gpt-4o"},
@@ -188,6 +230,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 		{id: string(session.ModeAgent)},
 		{id: string(session.ModePlan)},
 		{id: string(session.ModeDocs)},
+		{id: string(session.ModeAsk)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}
@@ -2279,7 +2322,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 }
 
 // TestResponsesInlineFilesAcceptedForAgent verifies that inline_files are
-// accepted in agent/plan mode (images are forwarded to the LLM as ImageParts).
+// accepted in session profile modes (images are forwarded to the LLM as ImageParts).
 func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	ts := httptest.NewServer(srv.Handler())
@@ -2292,7 +2335,7 @@ func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _ = ioReadAllClose(res.Body)
-	// inline_files are now accepted for agent/plan mode; any non-4xx response is fine.
+	// inline_files are accepted for session profile modes; any non-4xx response is fine.
 	if res.StatusCode == http.StatusBadRequest {
 		t.Fatalf("inline_files should be accepted for agent mode, got 400")
 	}

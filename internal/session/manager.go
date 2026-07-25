@@ -334,7 +334,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	}
 
 	mode := Mode(snap.Meta.Mode)
-	if mode != ModeAgent && mode != ModePlan && mode != ModeDocs {
+	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
@@ -616,7 +616,7 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 		return fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
-	if params.ModeID != string(ModeAgent) && params.ModeID != string(ModePlan) && params.ModeID != string(ModeDocs) {
+	if !IsValidMode(params.ModeID) {
 		return fmt.Errorf("unknown mode: %s", params.ModeID)
 	}
 
@@ -644,7 +644,7 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 
 	switch params.ConfigID {
 	case "mode":
-		if params.Value != string(ModeAgent) && params.Value != string(ModePlan) && params.Value != string(ModeDocs) {
+		if !IsValidMode(params.Value) {
 			return nil, fmt.Errorf("invalid mode value: %q", params.Value)
 		}
 		state.SetMode(params.Value)

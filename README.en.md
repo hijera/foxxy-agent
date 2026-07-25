@@ -66,7 +66,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
-- **Three operating modes** - `agent` (full tool access), `plan` (planning without code execution), and `docs` (markdown documentation only)
+- **Four operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), and `ask` (read-only answers and investigation)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
@@ -205,7 +205,7 @@ To **build the image locally** instead, use **`docker-compose.dev.yml`**: **`doc
 http://127.0.0.1:12345/
 ```
 
-The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, or **docs** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
+The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, **docs**, or **ask** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
 
 Sanity check without a browser: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
 
@@ -345,6 +345,19 @@ Documentation maintenance mode with a closed tool surface:
 The Markdown writers reject out-of-workspace and symlink escapes, protect **`internal/prompts/`**, require explicit opt-in before overwriting an existing file, and require a non-empty unique exact match for targeted edits unless replacing all matches deliberately. Switch to **agent** mode for source-code or configuration changes.
 
 Best for: keeping README and `docs/` aligned with the code, updating operator guides, API prose.
+
+### Ask Mode
+
+Read-only question-answering and investigation mode:
+
+- Read, search, and inspect the workspace without file or documentation writers
+- Use guarded read-only shell commands, web search/fetch, scheduler inspection, and MCP tools annotated with **`readOnlyHint: true`**
+- Refuse shell chaining, output redirection, command substitution, and commands outside the read-only allowlist before execution
+- Never expose plan/todo mutations, scheduler mutations, SSH, browser automation, or memory mutations
+
+The **Disable extended Ask tools** checkbox in Settings → Tools sets **`tools.ask_disable_extended_tools`**. It is off by default. When enabled, Ask hides shell, MCP, web, and scheduler tools while retaining repository read/search/tree, questions, and skills.
+
+Best for: answering repository questions, code reviews, and evidence-based investigation without changing project state.
 
 Use your editor session mode selector (or **`session/set_config_option`**).
 
@@ -521,7 +534,7 @@ By default, `foxxycode acp` and `foxxycode http` store each session bundle under
 
 The foxxycode_todo_* tools keep the active checklist mirrored to `todos/active.md`. A wholesale **`foxxycode_todo_plan_replace`** while items are incomplete is rejected until you finish rows or run **`foxxycode_todo_plan_archive`**; replacing when every row is **`completed`** moves the prior `active.md` into **`todos/archive/`** (`todo-<nanos>.md`). **`foxxycode_todo_plan_archive`** finishes open rows to **`completed`**, writes **`todos/archive/plan_<unix_seconds>.md`**, then clears the session plan when persistence is on.
 
-When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template (embedded defaults, or files under **`prompts.dir`** using **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`**, which default to **`agent.md`**, **`plan.md`**, and **`docs.md`**) via `{{if .TodoList}}` … `{{end}}`. That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
+When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template. Embedded or **`prompts.dir`** templates use configurable **`agent.md`**, **`plan.md`**, and **`docs.md`** names plus **`ask.md`** for Ask; Ask ships tuned **`ask.openai.md`** and **`ask.gpt-oss.md`** variants. The todo block uses `{{if .TodoList}}` … `{{end}}` and is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
 
 ## Development
 

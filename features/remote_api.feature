@@ -22,7 +22,7 @@ Feature: Remote API parity
     Given the client presents the token
     When I request the model list
     Then the request succeeds
-    And the model list includes profiles "agent, plan"
+    And the model list includes profiles "agent, plan, docs, ask"
 
   Scenario: A remote client can change the session working directory
     Given the client presents the token
@@ -63,4 +63,4 @@ Feature: Remote API parity
     And the client presents no token
     When I request the model list
     Then the request succeeds
-    And the model list includes profiles "agent, plan"
+    And the model list includes profiles "agent, plan, docs, ask"

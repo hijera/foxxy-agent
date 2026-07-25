@@ -67,7 +67,7 @@ describe("ProviderPickerDialog", () => {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
       if (url === "/v1/models") {
-        // Real shape: synthetic agent/plan/docs pseudo-models (owned_by
+        // Real shape: synthetic agent/plan/docs/ask pseudo-models (owned_by
         // "foxxycode") come first, then the configured provider models.
         return new Response(
           JSON.stringify({
@@ -151,7 +151,7 @@ describe("ProviderPickerDialog", () => {
     const modelInput = screen.getByTestId(
       "provider-model-id",
     ) as HTMLInputElement;
-    // Must skip agent/plan/docs (owned_by "foxxycode") and pick the real model.
+    // Must skip agent/plan/docs/ask (owned_by "foxxycode") and pick the real model.
     expect(modelInput.value).not.toBe("agent");
     expect(modelInput.value).toBe("openai/gpt-4o");
   });

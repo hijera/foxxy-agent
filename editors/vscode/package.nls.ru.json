@@ -29,7 +29,7 @@
   "walkthrough.step.apiKey.title": "Укажите API-ключ",
   "walkthrough.step.apiKey.description": "Во встроенном UI откройте **Settings** и вставьте API-ключ провайдера, либо задайте `OPENAI_API_KEY` перед запуском VS Code. Настройки расширения: **Settings → Extensions → FoxxyCode**.",
   "walkthrough.step.firstMessage.title": "Отправьте первое сообщение",
-  "walkthrough.step.firstMessage.description": "Введите задачу в composer внизу панели. Выберите **Mode** (agent / plan / docs) и **Model** в селекторе над полем ввода, затем нажмите Enter.",
+  "walkthrough.step.firstMessage.description": "Введите задачу в composer внизу панели. Выберите **Mode** (agent / plan / docs / ask) и **Model** в селекторе над полем ввода, затем нажмите Enter.",
   "walkthrough.step.reviewEdits.title": "Проверяйте правки агента",
   "walkthrough.step.reviewEdits.description": "Когда агент меняет файл, VS Code показывает зелёные/красные inline-декорации и уведомление с кнопками **Accept**, **Reject**, **Show diff** или **Revert**.",
   "walkthrough.step.toolbar.title": "Кнопки панели инструментов",
