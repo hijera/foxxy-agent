@@ -12,22 +12,13 @@ import {
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
 import { useT } from "../i18n/I18nProvider";
-import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
-import { DiffView } from "./DiffView";
+import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
+import { buildToolCallPreview } from "../chat/permissionToolPreview";
 import { BrowserAction } from "./BrowserAction";
 import {
   isBrowserToolName,
   parseBrowserActionResult,
 } from "./browserActionDisplay";
-
-function safePrettyJSON(text: string): string {
-  try {
-    const v = JSON.parse(text);
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return text;
-  }
-}
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -105,20 +96,24 @@ export function ToolCallMessage(props: {
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
 }) {
   const { t } = useT();
-  const args = useMemo(
-    () =>
-      toolCallArgsDisplay(props.argsText, {
-        kind: props.kind,
-        title: props.title,
-      }),
-    [props.argsText, props.kind, props.title],
-  );
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
     [props.resultText],
   );
   const full = props.fullResultText || "";
   const rawName = (props.title || props.kind || t("messages.toolDefaultName")).trim();
+  const toolPreview = useMemo(
+    () =>
+      buildToolCallPreview(
+        {
+          title: props.title,
+          kind: props.kind,
+          argsText: props.argsText,
+        },
+        props.argsText || "",
+      ),
+    [props.argsText, props.kind, props.title],
+  );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
 
@@ -272,35 +267,35 @@ export function ToolCallMessage(props: {
     props.resultWasTruncated === true || (showExpanded && full.trim() !== "");
 
   const showToggleRow = canExpand && !!fetchFull && !!(preview || full);
-  let toggleLink: ReactElement | null = null;
+  let toggleButton: ReactElement | null = null;
   if (showToggleRow) {
     if (showExpanded && full) {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-hide-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-less"
           onClick={(e) => {
             e.preventDefault();
             onHide();
           }}
         >
-          {t("messages.toolHide")}
+          {t("messages.toolLess")}
         </button>
       );
     } else {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-more-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-more"
           disabled={loadingFull}
           onClick={(e) => {
             e.preventDefault();
             void onLoadMore();
           }}
         >
-          {loadingFull ? t("messages.toolLoading") : t("messages.toolLoadMore")}
+          {loadingFull ? t("messages.toolLoading") : t("messages.toolMore")}
         </button>
       );
     }
@@ -309,26 +304,34 @@ export function ToolCallMessage(props: {
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
   const showBrowserAction = isBrowserTool && !!browserInfo;
-  const showJsonArgs =
-    !!args && !isQuestionTool && !isPatchTool && !isBrowserTool;
-  const showDiffView = isPatchTool && !!patchContent;
+  const toolPreviewHasContent =
+    toolPreview.header.trim() !== "" ||
+    toolPreview.meta.length > 0 ||
+    toolPreview.copyText.trim() !== "" ||
+    (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
+    (toolPreview.kind === "move" &&
+      (toolPreview.sourcePath.trim() !== "" ||
+        toolPreview.destinationPath.trim() !== ""));
+  // Browser calls keep their dedicated screenshot/console card as the only renderer.
+  const showToolPreview =
+    !isQuestionTool && !isBrowserTool && toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
-  const showJsonResult =
+  const showResult =
     !isQuestionTool &&
     !isPatchTool &&
     !isBrowserTool &&
     !!(resultBody && resultBody.length > 0);
+  const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const hasBody =
     isQuestionTool ||
     showBrowserAction ||
-    showJsonArgs ||
-    showDiffView ||
+    showToolPreview ||
     showPatchResult ||
-    showJsonResult ||
-    !!toggleLink;
+    showResult ||
+    !!toggleButton;
 
   return (
     <div
@@ -355,9 +358,8 @@ export function ToolCallMessage(props: {
           <div
             className={[
               "thinking-body foxxycode-tool-call-body",
-              showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
-                ? "foxxycode-tool-call-body--diff"
-                : "",
+              isQuestionTool && "foxxycode-tool-call-body--question",
+              hasConnectedResult && "foxxycode-tool-call-body--connected-result",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -377,38 +379,41 @@ export function ToolCallMessage(props: {
                 sessionId={(props.sessionId || "").trim()}
               />
             ) : null}
-            {showJsonArgs ? (
-              <pre className="tool-block" aria-label={t("messages.toolArgumentsAriaLabel")}>
-                {args}
-              </pre>
+            {showToolPreview ? (
+              <PermissionToolPreview
+                preview={toolPreview}
+                interactive={false}
+              />
             ) : null}
-            {showDiffView && patchContent ? (
-              <DiffView patch={patchContent} filePath={args} />
-            ) : null}
-            {showPatchResult ? (
-              <div
-                className="tool-block tool-result tool-result-raw"
-                aria-label={t("messages.toolResultAriaLabel")}
-              >
-                <pre className="tool-result-pre">{resultBody}</pre>
-              </div>
-            ) : null}
-            {showJsonResult ? (
+            {showPatchResult || showResult ? (
               <div
                 className={[
-                  "tool-block tool-result tool-result-raw",
-                  useTallViewport &&
-                    `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  "tool-call-result-card",
+                  status === "failed" && "tool-call-result-card--failed",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 aria-label={t("messages.toolResultAriaLabel")}
               >
-                <pre className="tool-result-pre">{resultBody}</pre>
+                <div className="tool-call-result-head">
+                  <span className="tool-call-result-dot" aria-hidden />
+                  <span>{t("messages.toolResultSection")}</span>
+                </div>
+                <div
+                  className={[
+                    "tool-call-result-content",
+                    useTallViewport &&
+                      `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <pre className="tool-result-pre">{resultBody}</pre>
+                </div>
               </div>
             ) : null}
-            {toggleLink ? (
-              <div className="tool-result-toggle-row">{toggleLink}</div>
+            {toggleButton ? (
+              <div className="tool-result-toggle-row">{toggleButton}</div>
             ) : null}
           </div>
         ) : null}

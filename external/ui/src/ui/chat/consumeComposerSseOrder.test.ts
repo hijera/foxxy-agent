@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { consumeComposerSseReader } from "./consumeComposerSse";
+import {
+  consumeComposerSseReader,
+  type ContextUsageUpdate,
+} from "./consumeComposerSse";
 import type { TranscriptItem } from "./types";
 
 function readerFromChunks(
@@ -20,6 +23,7 @@ function readerFromChunks(
 
 function harness(reader: ReadableStreamDefaultReader<Uint8Array>) {
   let items: TranscriptItem[] = [];
+  const contextUsage: ContextUsageUpdate[] = [];
   return {
     reader,
     dec: new TextDecoder(),
@@ -29,6 +33,10 @@ function harness(reader: ReadableStreamDefaultReader<Uint8Array>) {
       items = fn(items);
     },
     setTokenUsage: () => {},
+    setContextUsage: (u: ContextUsageUpdate) => {
+      contextUsage.push(u);
+    },
+    getContextUsage: () => contextUsage,
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map<string, number>() },
     newId: (p: string) => `${p}${++seq}`,
@@ -47,6 +55,26 @@ const reasoning = (s: string) =>
 const toolCall = (id: string) =>
   `event: tool_call\ndata: ${JSON.stringify({ toolCallId: id, title: "edit", status: "pending" })}\n\n`;
 const DONE = "data: [DONE]\n\n";
+const usageUpdate = (used: number, size: number) =>
+  `event: usage_update\ndata: ${JSON.stringify({ sessionUpdate: "usage_update", used, size })}\n\n`;
+
+describe("consumeComposerSseReader context usage", () => {
+  it("usage_update replaces the displayed current context after compaction", async () => {
+    seq = 0;
+    const p = harness(readerFromChunks([usageUpdate(42000, 128000), DONE]));
+    await consumeComposerSseReader(p);
+
+    expect(p.getContextUsage()).toEqual([{ used: 42000, size: 128000 }]);
+  });
+
+  it("ignores a usage_update without a positive window size", async () => {
+    seq = 0;
+    const p = harness(readerFromChunks([usageUpdate(42000, 0), DONE]));
+    await consumeComposerSseReader(p);
+
+    expect(p.getContextUsage()).toEqual([]);
+  });
+});
 
 describe("consumeComposerSseReader chronological ordering", () => {
   it("keeps thinking, text and actions in arrival order", async () => {

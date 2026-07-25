@@ -1,36 +1,11 @@
-import { t } from "../i18n/i18n";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
 
-function humanizeKind(kind: string): string {
-  const k = kind.trim().toLowerCase();
-  if (!k) return t("prompts.permissionToolFallback");
-  if (k === "run_command" || k === "shell") return t("prompts.permissionRunCommand");
-  return k
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
-}
-
-/** Sentence-case title for the permission gate (not RUN: RUN_COMMAND). */
-export function permissionPromptTitle(payload: FoxxyCodePermissionPayload): string {
-  const kind = (payload.toolCall.kind || "").trim();
-  const title = (payload.toolCall.title || "").trim();
-  if (kind) {
-    return humanizeKind(kind);
-  }
-  if (title) {
-    const stripped = title.replace(/^run:\s*/i, "").trim();
-    if (stripped) {
-      return humanizeKind(stripped.replace(/\s+/g, "_"));
-    }
-    return title;
-  }
-  return t("prompts.permissionFallback");
-}
-
-/** Plain detail text for the quote block (command line, not raw Arguments JSON). */
+/**
+ * Plain detail text extracted from the ACP permission rationale (command line, not raw Arguments
+ * JSON). It is the fallback body for buildPermissionToolPreview when the matching transcript
+ * tool_call has no structured argsText yet.
+ */
 export function permissionPromptDetail(
   payload: FoxxyCodePermissionPayload,
 ): string {

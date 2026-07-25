@@ -101,7 +101,16 @@ export function shouldShowRestoredPermissionPrompt(
     return true;
   }
   if (
-    ["write", "edit", "apply_patch", "mkdir", "touch", "mv"].includes(name)
+    [
+      "write",
+      "edit",
+      "apply_patch",
+      "mkdir",
+      "rmdir",
+      "touch",
+      "rm",
+      "mv",
+    ].includes(name)
   ) {
     return policy.requirePermissionForWrites;
   }
