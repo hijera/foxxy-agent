@@ -8,11 +8,14 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
-import { contextUsagePercent } from "./chat/contextUsage";
+import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
-import { consumeComposerSseReader } from "./chat/consumeComposerSse";
+import {
+  consumeComposerSseReader,
+  type ContextUsageUpdate,
+} from "./chat/consumeComposerSse";
 import {
   parseFoxxyCodePermissionPayload,
   type PermissionResolvedState,
@@ -3081,6 +3084,12 @@ export function App() {
         debouncedRefreshSessionStats(key);
       }
     };
+    const branchContextUsage = (u: ContextUsageUpdate) => {
+      if (viewedSessionIdRef.current.trim() === key) {
+        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+        debouncedRefreshSessionStats(key);
+      }
+    };
 
     let reconcileOnExit = true;
     try {
@@ -3108,6 +3117,7 @@ export function App() {
         assistantId,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
+        setContextUsage: branchContextUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
@@ -3292,6 +3302,12 @@ export function App() {
         if (u === null) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
+          debouncedRefreshSessionStats(streamKey);
+        }
+      };
+      const branchContextUsage = (u: ContextUsageUpdate) => {
+        if (viewedSessionIdRef.current.trim() === streamKey) {
+          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
           debouncedRefreshSessionStats(streamKey);
         }
       };
@@ -3495,6 +3511,7 @@ export function App() {
         assistantId,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
+        setContextUsage: branchContextUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,

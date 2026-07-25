@@ -458,6 +458,7 @@ func (a *Agent) runReActLoop(
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 					}
 					a.state.AddMessage(assistantMsg)
+					a.refreshConversationContextUsage(true)
 				}
 			}
 			if errors.Is(streamErr, context.Canceled) {
@@ -548,6 +549,7 @@ func (a *Agent) runReActLoop(
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
+		a.refreshConversationContextUsage(true)
 
 		// After the first assistant response, generate a short session title off the hot path.
 		// Internal guards make this a no-op when the title is pinned or already generated, and it
@@ -608,6 +610,7 @@ func (a *Agent) runReActLoop(
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
+			a.refreshConversationContextUsage(true)
 		}
 		// The model made progress (executed tool calls), so reset the empty-turn counter. The
 		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow

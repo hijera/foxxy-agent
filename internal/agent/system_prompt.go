@@ -93,8 +93,10 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	full = languageDirective(a.cfg.UI.Locale) + "\n\n" + full
 	// Appended outside the configurable template so custom prompts cannot drop platform facts.
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
-	if rs, ok := a.state.(rulesState); ok {
-		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.state.GetMessages(), toolDefs))
+	if _, ok := a.state.(rulesState); ok {
+		// The Conversation estimate mirrors what buildMessages sends: only the window the active
+		// compaction engine still replays.
+		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.llmVisibleMessages(), toolDefs), false)
 	}
 	return full
 }

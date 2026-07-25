@@ -29,6 +29,7 @@ function baseParams(reader: ReadableStreamDefaultReader<Uint8Array>) {
       items = fn(items);
     },
     setTokenUsage: () => {},
+    setContextUsage: () => {},
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map<string, number>() },
     newId: (p: string) => `${p}-${Math.random().toString(36).slice(2)}`,

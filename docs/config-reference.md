@@ -210,6 +210,12 @@ Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; im
 
 Automatic context compaction (`config.CompactionConfig`, `internal/config/compaction.go`; always compiled). When the running prompt approaches the model's context window (`models[].max_context_tokens`), older turns are summarized into one message so the session can continue. Two engines share this section, selected by `engine`: the default **coddy** engine inserts a summary row and replays only the window from the last summary onward (and enables the manual `/compact` command plus the HTTP compact endpoint); the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript.
 
+Either engine republishes the context estimate right after it folds history: the agent recomputes the
+`conversation` / `summary` categories over the window that engine actually sends, persists the result
+next to the provider token counters in `stats.json`, and emits the `usage_update` ACP/SSE event. The
+composer context ring therefore drops without a reload, and a session reopened after a restart
+reports the compacted window rather than its pre-compaction size.
+
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `engine` | string | no | `coddy` | Compaction implementation: `coddy` or `opencode`. |
