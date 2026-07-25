@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/project"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // FolderPickerFunc opens a native folder dialog and returns the chosen
@@ -47,6 +49,8 @@ func (s *Server) registerProjectRoutes() {
 	s.mux.HandleFunc("PUT /foxxycode/project", s.foxxycodeProjectPut)
 	s.mux.HandleFunc("GET /foxxycode/projects/recent", s.foxxycodeProjectsRecentGet)
 	s.mux.HandleFunc("POST /foxxycode/project/pick-folder", s.foxxycodeProjectPickFolder)
+	s.mux.HandleFunc("GET /foxxycode/project/last-session", s.foxxycodeProjectLastSessionGet)
+	s.mux.HandleFunc("PUT /foxxycode/project/last-session", s.foxxycodeProjectLastSessionPut)
 }
 
 func (s *Server) writeProjectDTO(w http.ResponseWriter) {
@@ -118,6 +122,78 @@ func (s *Server) foxxycodeProjectsRecentGet(w http.ResponseWriter, r *http.Reque
 		"object": "list",
 		"data":   data,
 	})
+}
+
+// writeLastSessionDTO reports the session an editor plugin should reopen for
+// the current project. The id is validated against the store on the way out:
+// a deleted session, or one that has since moved to another project, would
+// otherwise route the SPA to an empty chat with no error.
+func (s *Server) writeLastSessionDTO(w http.ResponseWriter) {
+	scope := s.sessionDefaultCWD()
+	id := ""
+	if s.projects != nil {
+		id = strings.TrimSpace(s.projects.LastSession(scope))
+	}
+	if id != "" && !s.lastSessionUsable(id, scope) {
+		id = ""
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":     "foxxycode.project_last_session",
+		"path":       scope,
+		"session_id": id,
+	})
+}
+
+// lastSessionUsable reports whether id still names a persisted, non-scheduler
+// session whose working directory belongs to scope.
+func (s *Server) lastSessionUsable(id, scope string) bool {
+	if session.ValidateFolderSessionID(id) != nil {
+		return false
+	}
+	fs := s.mgr.FileStore()
+	if fs == nil || fs.Root == "" {
+		return false
+	}
+	meta, err := fs.ReadMeta(id)
+	if err != nil {
+		return false
+	}
+	if meta.ExcludedFromComposerSessionList(id) {
+		return false
+	}
+	return session.CWDInScope(meta.CWD, scope)
+}
+
+func (s *Server) foxxycodeProjectLastSessionGet(w http.ResponseWriter, r *http.Request) {
+	s.writeLastSessionDTO(w)
+}
+
+func (s *Server) foxxycodeProjectLastSessionPut(w http.ResponseWriter, r *http.Request) {
+	if s.projects == nil {
+		http.Error(w, `{"error":{"message":"project store unavailable"}}`, http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
+	// An empty id clears the record: the user went back to a new chat.
+	id := strings.TrimSpace(body.SessionID)
+	if id != "" {
+		if err := session.ValidateFolderSessionID(id); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+	}
+	if err := s.projects.SetLastSession(s.sessionDefaultCWD(), id); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	s.writeLastSessionDTO(w)
 }
 
 func (s *Server) foxxycodeProjectPickFolder(w http.ResponseWriter, r *http.Request) {

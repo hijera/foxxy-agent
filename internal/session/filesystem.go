@@ -244,18 +244,31 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	}, nil
 }
 
+// ReadMeta reads session.json only, skipping messages and the rest of the
+// snapshot. Use it when a caller just needs metadata such as cwd or title.
+func (f *FileStore) ReadMeta(sessionID string) (SessionMeta, error) {
+	if f == nil || f.Root == "" {
+		return SessionMeta{}, fmt.Errorf("session store unavailable")
+	}
+	metaPath := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
+	b, err := os.ReadFile(metaPath)
+	if err != nil {
+		return SessionMeta{}, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return SessionMeta{}, fmt.Errorf("session.json: %w", err)
+	}
+	return meta, nil
+}
+
 // ReadDiskActivity returns activitySeq and readActivitySeq from session.json only.
 func (f *FileStore) ReadDiskActivity(sessionID string) (activitySeq, readActivitySeq uint64, err error) {
 	if f == nil || f.Root == "" {
 		return 0, 0, nil
 	}
-	metaPath := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
-	b, err := os.ReadFile(metaPath)
+	meta, err := f.ReadMeta(sessionID)
 	if err != nil {
-		return 0, 0, err
-	}
-	var meta SessionMeta
-	if err := json.Unmarshal(b, &meta); err != nil {
 		return 0, 0, err
 	}
 	return meta.ActivitySeq, meta.ReadActivitySeq, nil
