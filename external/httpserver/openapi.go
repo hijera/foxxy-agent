@@ -558,6 +558,54 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/project/last-session": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Session to reopen for the current project",
+					"description": "Returns the session the user last had open in the current project, for editor plugins that reopen their panel on a fresh random port each launch. **`session_id`** is empty when nothing was recorded, or when the recorded session was deleted, is a scheduler run, or no longer lives under **`path`**.",
+					"operationId": "foxxycodeProjectLastSessionGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Last opened session for the current project",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeProjectLastSession"},
+								},
+							},
+						},
+					},
+				},
+				"put": map[string]interface{}{
+					"summary":     "Record the session to reopen for the current project",
+					"description": "Stores **`session_id`** against the current project in `~/.foxxycode/projects.json`. An empty **`session_id`** clears the record, so the next launch starts on a new chat. The recent-projects order and the current project are left unchanged.",
+					"operationId": "foxxycodeProjectLastSessionPut",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"session_id"},
+									"properties": map[string]interface{}{
+										"session_id": map[string]string{"type": "string", "description": "Session id, or empty to clear the record"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Updated record",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeProjectLastSession"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/project/pick-folder": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Open the native folder dialog (desktop only)",
@@ -1759,6 +1807,14 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+					},
+				},
+				"FoxxyCodeProjectLastSession": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":     map[string]string{"type": "string", "example": "foxxycode.project_last_session"},
+						"path":       map[string]string{"type": "string", "description": "Project directory the record belongs to (same value as **GET** `/foxxycode/project`)"},
+						"session_id": map[string]string{"type": "string", "description": "Session to reopen; empty when there is none or the recorded one is no longer usable"},
 					},
 				},
 				"FoxxyCodeProjectPick": map[string]interface{}{

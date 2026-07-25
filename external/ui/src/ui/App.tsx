@@ -137,6 +137,11 @@ import {
   sessionsProjectCwdParam,
   writeProjectOnlyPref,
 } from "./sessions/sessionsProjectFilter";
+import {
+  fetchLastProjectSession,
+  recordLastProjectSession,
+  shouldRestoreLastSession,
+} from "./sessions/lastProjectSession";
 import { isEditorEmbed } from "./embedShell";
 import { scheduleSessionTitleRefresh } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
@@ -806,6 +811,10 @@ export function App() {
   const viewedSessionIdRef = useRef("");
   /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
   const sessionDeleteBackdropSuppressUntilRef = useRef(0);
+  /** Set once the editor-embed last-session probe finished (or was skipped). */
+  const lastSessionRestoreDoneRef = useRef(false);
+  /** Last value sent to the last-session record; null until the first write. */
+  const lastRecordedSessionRef = useRef<string | null>(null);
   const bumpComposerActivity = () =>
     setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
 
@@ -1696,6 +1705,58 @@ export function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [applyLocationHash]);
+
+  // Editor plugins open their panel on the bare route, so continue where the
+  // user left off in this project instead of showing the hero screen. Runs
+  // once; any explicit deep link in the hash wins.
+  useEffect(() => {
+    if (
+      !shouldRestoreLastSession({
+        embed: isEditorEmbed(),
+        branch: parseAppHash().branch,
+      })
+    ) {
+      lastSessionRestoreDoneRef.current = true;
+      return;
+    }
+    const startHash = window.location.hash;
+    void (async () => {
+      const sid = await fetchLastProjectSession();
+      lastSessionRestoreDoneRef.current = true;
+      // The probe is a loopback call, but the user may still have navigated
+      // (History pick, New chat) while it was in flight - never override that.
+      if (
+        !sid ||
+        window.location.hash !== startHash ||
+        viewedSessionIdRef.current
+      ) {
+        return;
+      }
+      openSessionFromRoute(sid);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Remember what to reopen next launch. Gated on the probe above: the empty
+  // sessionId of a fresh mount would otherwise clear the record before the
+  // restore had a chance to read it. Once the user has a session open, going
+  // back to a new chat records an empty id so that sticks across restarts too.
+  useEffect(() => {
+    if (!isEditorEmbed() || !lastSessionRestoreDoneRef.current) {
+      return;
+    }
+    const sid = sessionId.trim();
+    // A deep-linked id arrives one render after mount, so the opening empty
+    // value is startup noise, not the user asking for a new chat.
+    if (!sid && lastRecordedSessionRef.current === null) {
+      return;
+    }
+    if (lastRecordedSessionRef.current === sid) {
+      return;
+    }
+    lastRecordedSessionRef.current = sid;
+    recordLastProjectSession(sid);
+  }, [sessionId]);
 
   useEffect(() => {
     void (async () => {

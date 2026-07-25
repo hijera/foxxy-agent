@@ -83,6 +83,7 @@ Narrow-rail tooltips (desktop)
   - Draft sessions use `#/draft/<draftId>` and are stored in `localStorage` under `foxxycode_draft_sessions_v1`.
   - History rows show a `Draft:` title prefix.
 - Session id is sent in the `X-FoxxyCode-Session-ID` header for chat transport.
+- **Editor embeds reopen the project's last session.** Inside a plugin webview (`?embed=…`, `isEditorEmbed()`), an empty hash on load means *continue where the user left off*, not *new chat*: the SPA reads `GET /foxxycode/project/last-session` and routes to `#/s/<sessionId>`. Any explicit hash (`#/s/…`, `#/draft/…`, `#/history`, `#/settings`, `#/scheduler`) wins over the restore, and the desktop app and plain browser tabs are unaffected. The viewed session is recorded back with `PUT /foxxycode/project/last-session`; going back to a new chat records an empty id so that sticks too. Logic lives in `external/ui/src/ui/sessions/lastProjectSession.ts`; the record is per project in `~/.foxxycode/projects.json`, because plugins bind a fresh random port on every IDE launch and browser storage is keyed by origin.
 - Session id validation matches `internal/session/ValidateFolderSessionID`.
 - Session persisted files live under the session directory and are deleted together when the session is deleted.
   - `tool_calls/` tool call history

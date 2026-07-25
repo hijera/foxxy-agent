@@ -193,13 +193,31 @@ first paint, and CSS overrides keyed on `[data-embed="intellij"]` then:
 - drop the docked vignette above the composer;
 - tighten hero/composer spacing.
 
-Only the visual chrome changes; behaviour and the `window.foxxycodeUi` theme
-contract are unchanged. Other embeddings may pass their own id, but
-`intellij` is the only id the shipped CSS currently specialises.
+Beyond the visual chrome, embed mode changes one behaviour: **loading with an
+empty hash reopens the project's last session** instead of showing the hero
+screen (see below). The `window.foxxycodeUi` theme contract is unchanged. Other
+embeddings may pass their own id, but `intellij` is the only id the shipped CSS
+currently specialises.
 
 ```text
 http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
 ```
+
+### Reopening the last session
+
+A plugin does **not** need to track sessions or build a `#/s/<sessionId>` URL.
+Loading the bare route in embed mode is enough: the SPA calls
+`GET /foxxycode/project/last-session` and navigates to the session the user
+last had open in the project the backend was started for (`--cwd`), recording
+each new one with `PUT /foxxycode/project/last-session`. An explicit hash in
+the URL still wins, so deep links keep working.
+
+The record is stored server-side, per project, in `~/.foxxycode/projects.json`.
+That matters because plugins bind the backend to a **fresh random port** on
+every IDE launch: `localStorage`/`sessionStorage` are keyed by origin and would
+be empty each time. It also means a host-side reload that drops the fragment
+(for example the VS Code panel re-rendering its HTML on a theme change) lands
+back on the same session rather than on a new chat.
 
 ## Verifying against real Chromium 104
 
