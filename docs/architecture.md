@@ -71,14 +71,14 @@ Handles:
 - `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
-- `session/set_mode` - switch between `agent`, `plan`, and `docs` modes (legacy, kept in sync with config options)
+- `session/set_mode` - switch between `agent`, `plan`, `docs`, and `ask` modes (legacy, kept in sync with config options)
 - `session/set_config_option` - change mode or model for the session (preferred ACP API)
 
 ### Session Manager (`internal/session`)
 
 Maintains the state for each conversation session:
 - Conversation history (messages, tool results)
-- Current operating mode (`agent` / `plan` / `docs`)
+- Current operating mode (`agent` / `plan` / `docs` / `ask`)
 - Optional model override per session (when the user selects a model via ACP)
 - Connected MCP server clients
 - Working directory
@@ -89,8 +89,8 @@ Maintains the state for each conversation session:
 
 The core reasoning engine (**`react.go`**):
 
-1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`** and **`plan`**, but not in the closed **`docs`** tool surface.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`docs.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`** and **`plan`**. Ask receives only MCP tools annotated with **`readOnlyHint: true`**, unless **`tools.ask_disable_extended_tools`** is enabled. Docs has a closed tool surface with no MCP.
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`**. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`**. Model-specific and family-specific variants use **`<mode>.<model-slug>.md`** and **`<mode>.<family>.md`**. The built-ins include **`ask.openai.md`** for GPT/OpenAI models and **`ask.gpt-oss.md`** for gpt-oss-120b. Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
@@ -192,7 +192,7 @@ Connects to external MCP servers specified in `session/new`. Supports:
 - stdio transport (always available)
 - HTTP transport (capability: `mcpCapabilities.http`)
 
-Tools from MCP servers are appended to the LLM tool list in **`agent`** and **`plan`** modes (see **`internal/agent/react.go`**).
+Tools from MCP servers are appended to the LLM tool list in **`agent`** and **`plan`** modes. Ask receives only tools explicitly annotated with **`readOnlyHint: true`** and only while its extended-tool setting is off (see **`internal/agent/react.go`**).
 
 ### Skills loader (`internal/skills`)
 
@@ -228,8 +228,17 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 - No shell, MCP, general filesystem mutators, plan tools, todo tools, scheduler tools, or memory tools
 - Suitable for: evidence-based documentation reviews and explicit Markdown documentation updates without code changes
 
+### `ask` mode
+- Read-only question-answering surface enforced by **`internal/agent.ToolSetForMode("ask")`** and execution-time guards
+- Basic tools: repository read/search/tree, interactive questions, and skills
+- By default, also exposes web search/fetch, read-only scheduler inspection, MCP tools whose server declares **`readOnlyHint: true`**, and a guarded shell command allowlist
+- Shell syntax that can chain commands, redirect output, perform substitution, or invoke a non-read command is refused before execution
+- **`tools.ask_disable_extended_tools: true`** hides shell, MCP, web, and scheduler tools while keeping the basic read-only set
+- No file/document writers, plan/todo mutators, scheduler mutations, SSH, browser automation, or memory mutations
+- Suitable for: repository-grounded explanations, reviews, investigation, and user questions without changing project state
+
 Mode switching:
-- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, or `docs`
+- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, `docs`, or `ask`
 - Agent sends `current_mode_update` and `config_option_update` when mode changes
 
 ## Directory Structure

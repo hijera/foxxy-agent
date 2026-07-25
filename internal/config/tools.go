@@ -50,6 +50,11 @@ type Tools struct {
 	// at execution time, so a tool call outside it is refused instead of run. Defaults to
 	// false; editor plugins turn it on via PlanNoSelfRunFlagName.
 	PlanNoSelfRun *bool `yaml:"plan_no_self_run"`
+
+	// AskDisableExtendedTools keeps Ask mode on the basic repository-reading
+	// surface. When false (the default), Ask also receives read-only shell, web,
+	// annotated MCP, and scheduler inspection tools.
+	AskDisableExtendedTools bool `yaml:"ask_disable_extended_tools"`
 }
 
 // PlanNoSelfRunEnabled reports whether the model is barred from leaving plan mode itself.

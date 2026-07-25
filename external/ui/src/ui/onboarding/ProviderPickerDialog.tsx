@@ -295,7 +295,7 @@ export function ProviderPickerDialog(props: {
       const mj = (await models.json()) as {
         data?: { id: string; owned_by?: string }[];
       };
-      // GET /v1/models lists the synthetic agent/plan/docs pseudo-models
+      // GET /v1/models lists the synthetic agent/plan/docs/ask pseudo-models
       // (owned_by "foxxycode") before the real configured provider models, so
       // never auto-select one of those — pick the first real provider model.
       if (!modelId.trim() && mj.data && mj.data.length > 0) {

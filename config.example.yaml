@@ -158,6 +158,11 @@ tools:
   # VS Code plugins pass -plan-no-self-run, so their panels are guarded by default.
   # plan_no_self_run: false
 
+  # Keep Ask mode on basic repository-reading tools only. When false (default),
+  # Ask also gets guarded read-only shell, web, read-only MCP, and scheduler
+  # inspection tools.
+  # ask_disable_extended_tools: false
+
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # Optional bearer auth + CORS + remote environment selector: see docs/remote-control.md.
 # httpserver:

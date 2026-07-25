@@ -66,6 +66,35 @@ test("mode menu opens up in active chat composer", () => {
   expect(menu).toHaveClass("opens-up");
 });
 
+test("mode menu renders Ask and applies its mode class", () => {
+  const { rerender } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "docs", "ask"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+  expect(screen.getByRole("menuitem", { name: "Ask" })).toBeTruthy();
+
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="ask"
+      modes={["agent", "plan", "docs", "ask"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Mode" })).toHaveClass("mode-ask");
+});
+
 test("switching session refocuses textarea in active chat", () => {
   const { rerender } = render(
     <Composer

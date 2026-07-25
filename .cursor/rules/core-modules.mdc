@@ -8,7 +8,7 @@ alwaysApply: false
 
 - **`internal/acp`** - ACP RPC server, session lifecycle from editors.
 - **`internal/agent`** - tool loop and LLM turns.
-- **`internal/session`** - session manager and mode (`agent` / `plan`).
+- **`internal/session`** - session manager and mode (`agent` / `plan` / `docs` / `ask`).
 - **`internal/config`** - YAML and flags.
 - **`internal/tools`** - filesystem, shell, todo, MCP merge, etc.
 - **`internal/skills`** - skill loading, enable/disable, and neuraldeep.ru registry client. Default dirs: `~/.agents/skills` (global, shared with `npx skills`/`npx skillsbd`), `~/.foxxycode/skills` (foxxycode-specific), `${CWD}/.foxxycode/skills` (project-local). No `install_dir` — installation is handled externally by `npx skills` / `npx skillsbd` or the HTTP UI (Settings → Skills). See `docs/skills.md`.

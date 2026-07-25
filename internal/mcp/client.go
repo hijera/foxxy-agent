@@ -23,6 +23,10 @@ type ToolInfo struct {
 	Name        string
 	Description string
 	InputSchema interface{}
+	// ReadOnly is true only when the MCP server explicitly advertises the
+	// standard annotations.readOnlyHint capability. Ask mode excludes tools
+	// without this positive declaration.
+	ReadOnly bool
 }
 
 // Client connects to a single MCP server and exposes its tools.
@@ -180,26 +184,39 @@ func (c *Client) listTools(ctx context.Context) error {
 		return err
 	}
 
+	tools, err := parseToolListResult(result)
+	if err != nil {
+		return err
+	}
+	c.tools = tools
+	return nil
+}
+
+func parseToolListResult(result []byte) ([]ToolInfo, error) {
 	var resp struct {
 		Tools []struct {
 			Name        string      `json:"name"`
 			Description string      `json:"description"`
 			InputSchema interface{} `json:"inputSchema"`
+			Annotations struct {
+				ReadOnlyHint bool `json:"readOnlyHint"`
+			} `json:"annotations"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return fmt.Errorf("parse tools/list: %w", err)
+		return nil, fmt.Errorf("parse tools/list: %w", err)
 	}
 
-	c.tools = make([]ToolInfo, len(resp.Tools))
+	tools := make([]ToolInfo, len(resp.Tools))
 	for i, t := range resp.Tools {
-		c.tools[i] = ToolInfo{
+		tools[i] = ToolInfo{
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: t.InputSchema,
+			ReadOnly:    t.Annotations.ReadOnlyHint,
 		}
 	}
-	return nil
+	return tools, nil
 }
 
 func (c *Client) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {

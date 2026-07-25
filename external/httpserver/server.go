@@ -204,7 +204,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	maxCtx := maxContextDefault(s)
-	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeDocs} {
+	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeDocs, session.ModeAsk} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
@@ -585,7 +585,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		Metadata    json.RawMessage                `json:"metadata,omitempty"`
 		Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
 		// InlineFiles carries base64 data URIs from the browser file picker.
-		// Only supported for direct YAML model calls (not agent/plan).
+		// Only supported for direct YAML model calls (not session profiles).
 		InlineFiles []inlineFileJSON `json:"inline_files,omitempty"`
 	}
 
@@ -639,10 +639,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Attachments) > 0 && !httpModelIsFoxxyCodeProfile(model) {
-		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, or docs model"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, docs, or ask model"}}`, http.StatusBadRequest)
 		return
 	}
-	// inline_files are supported for both direct YAML calls and agent/plan mode.
+	// inline_files are supported for both direct YAML calls and session profiles.
 
 	if httpModelIsFoxxyCodeProfile(model) {
 		cwdAbs, err := filepath.Abs(st.GetCWD())

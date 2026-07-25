@@ -139,6 +139,9 @@ export const schemaTextRu: Record<string, string> = {
     "Запретить модели самой начать выполнять план",
   "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.":
     "В режиме плана скрывает plan_exit и отклоняет любой инструмент вне списка плана, поэтому реализацию запускаете только вы — кнопкой на карточке плана. По умолчанию выключено; плагины редакторов включают его сами.",
+  "Disable extended Ask tools": "Отключить расширенные инструменты Ask",
+  "In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.":
+    "В режиме Ask скрыть команды shell только для чтения, веб-поиск, MCP-инструменты только для чтения и инструменты просмотра планировщика. Чтение и поиск по репозиторию, дерево файлов, вопросы и навыки остаются доступны. По умолчанию отключено.",
 
   // Skills
   Skills: "Навыки",

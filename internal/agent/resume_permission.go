@@ -129,11 +129,15 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	userText := lastUserText(a.state.GetMessages())
 	contextFiles := extractContextFiles(nil)
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
-	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled())
+	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
+	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if ModeAllowsMCPTools(mode) {
+	if ModeAllowsMCPTools(mode, askBasicOnly) {
 		for _, mcpClient := range a.state.GetMCPClients() {
 			for _, t := range mcpClient.Tools() {
+				if !MCPToolAllowedForMode(mode, askBasicOnly, t) {
+					continue
+				}
 				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
 			}
 		}

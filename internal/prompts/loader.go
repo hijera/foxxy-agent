@@ -29,6 +29,7 @@ const (
 	fileAgent = "agent.md"
 	filePlan  = "plan.md"
 	fileDocs  = "docs.md"
+	fileAsk   = "ask.md"
 )
 
 // TemplateData holds values injected into prompt templates.
@@ -65,7 +66,7 @@ type TemplateData struct {
 }
 
 // Embedded default prompt template files. The glob covers the base per-mode
-// templates (agent.md, plan.md, docs.md) and any per-family variants
+// templates (agent.md, plan.md, docs.md, ask.md) and any per-family variants
 // (for example agent.anthropic.md) selected by Family.
 //
 //go:embed *.md
@@ -73,8 +74,8 @@ var embeddedPrompts embed.FS
 
 // Render renders the prompt template for the given mode with the provided data.
 // promptsDir must be empty to use built-in templates; otherwise it is a directory that
-// contains the files named agentFile, planFile, and docsFile (for example agent.md, plan.md, docs.md).
-// mode must be "agent", "plan", or "docs". Unknown modes use the agent template file.
+// contains the files named agentFile, planFile, and docsFile plus ask.md.
+// mode must be "agent", "plan", "docs", or "ask". Unknown modes use the agent template file.
 func Render(mode, promptsDir, agentFile, planFile, docsFile string, data TemplateData) (string, error) {
 	return RenderForFamily(mode, "", promptsDir, agentFile, planFile, docsFile, data)
 }
@@ -180,6 +181,8 @@ func fileNameForMode(mode string) string {
 		return filePlan
 	case "docs":
 		return fileDocs
+	case "ask":
+		return fileAsk
 	default:
 		return fileAgent
 	}
@@ -200,6 +203,8 @@ func loadSource(mode string, variants []string, promptsDir, agentFile, planFile,
 		base = strings.TrimSpace(planFile)
 	case "docs":
 		base = strings.TrimSpace(docsFile)
+	case "ask":
+		base = fileAsk
 	}
 	if base == "" {
 		base = fileNameForMode(mode)

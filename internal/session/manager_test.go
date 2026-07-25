@@ -150,6 +150,15 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	if modeOpt.CurrentValue != "agent" {
 		t.Fatalf("expected current mode agent, got %q", modeOpt.CurrentValue)
 	}
+	var askModeFound bool
+	for _, option := range modeOpt.Options {
+		if option.Value == string(session.ModeAsk) && option.Name == "Ask" {
+			askModeFound = true
+		}
+	}
+	if !askModeFound {
+		t.Fatalf("expected Ask mode option, got %+v", modeOpt.Options)
+	}
 	if modelOpt == nil {
 		t.Fatal("expected config option id model")
 		return
@@ -230,6 +239,31 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	if modelCur != "p1/gpt-4o" {
 		t.Fatalf("expected effective model p1/gpt-4o for plan mode without override, got %q", modelCur)
 	}
+}
+
+func TestManagerSetConfigOptionAskMode(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	out, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: res.SessionID,
+		ConfigID:  "mode",
+		Value:     "ask",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionSetConfigOption ask: %v", err)
+	}
+	for _, option := range out.ConfigOptions {
+		if option.ID == "mode" && option.CurrentValue == "ask" {
+			return
+		}
+	}
+	t.Fatalf("Ask mode was not selected: %+v", out.ConfigOptions)
 }
 
 func TestManagerSetConfigOptionUnknownValue(t *testing.T) {

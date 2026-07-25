@@ -7,10 +7,12 @@ import react from "@vitejs/plugin-react";
 import resolveColorMix from "./postcss-resolve-color-mix.mjs";
 
 const backend = (process.env.FOXXYCODE_UI_BACKEND || "").trim();
+const cacheDir = (process.env.FOXXYCODE_UI_VITE_CACHE_DIR || "").trim();
 
 export default defineConfig({
   root: "src",
   publicDir: path.resolve(import.meta.dirname, "public"),
+  ...(cacheDir ? { cacheDir } : {}),
   plugins: [react()],
   css: {
     // Resolves color-mix() to Chromium-104-safe literals at build time

@@ -75,7 +75,7 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 }
 
 // resolveDirectYAMLMaxTokens returns the max_tokens value to send to the LLM
-// for a direct single-turn YAML model completion (non-agent, non-plan).
+// for a direct single-turn YAML model completion (not a FoxxyCode session profile).
 // The configured value is used as-is; zero or negative falls back to 0 so the
 // provider applies its own internal default.
 func resolveDirectYAMLMaxTokens(rm *config.ResolvedLLM) int {

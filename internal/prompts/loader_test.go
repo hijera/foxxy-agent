@@ -114,6 +114,72 @@ func TestRenderDocsPrompt(t *testing.T) {
 	}
 }
 
+func TestRenderAskPrompt(t *testing.T) {
+	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+		CWD:    "/tmp/ask-workspace",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("Render ask: %v", err)
+	}
+	for _, want := range []string{
+		"/tmp/ask-workspace",
+		"Mode: Ask",
+		"read-only",
+		"never modify",
+		"evidence",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("Ask prompt should contain %q", want)
+		}
+	}
+	for _, forbid := range []string{"docs_write", "docs_edit", "plan_write", "switch modes yourself"} {
+		if strings.Contains(result, forbid) {
+			t.Errorf("Ask prompt must not advertise %q", forbid)
+		}
+	}
+}
+
+func TestEmbeddedAskModelVariants(t *testing.T) {
+	base, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+		CWD:    "/p",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		family string
+		want   []string
+	}{
+		{family: "openai", want: []string{"Mode: Ask", "GPT", "tool-call interface"}},
+		{family: "gpt-oss", want: []string{"Mode: Ask", "gpt-oss-120b", "tool-call channel"}},
+	} {
+		t.Run(tc.family, func(t *testing.T) {
+			got, err := prompts.RenderForFamily(
+				"ask",
+				tc.family,
+				"",
+				defaultAgentTplFile,
+				defaultPlanTplFile,
+				defaultDocsTplFile,
+				prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == base {
+				t.Fatalf("Ask %s variant should differ from the base prompt", tc.family)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("Ask %s prompt should contain %q", tc.family, want)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
 	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
 		CWD:    "/project",
@@ -262,6 +328,14 @@ func TestDefaultSource(t *testing.T) {
 	}
 	if docsSrc == agentSrc || docsSrc == planSrc {
 		t.Error("docs source should differ from agent and plan")
+	}
+
+	askSrc := prompts.DefaultSource("ask")
+	if askSrc == "" {
+		t.Error("ask source should not be empty")
+	}
+	if askSrc == agentSrc || askSrc == planSrc || askSrc == docsSrc {
+		t.Error("ask source should differ from agent, plan, and docs")
 	}
 }
 

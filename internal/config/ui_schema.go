@@ -46,6 +46,12 @@ func boolProp(title, description string) map[string]interface{} {
 	}
 }
 
+func boolPropDefault(title, description string, value bool) map[string]interface{} {
+	out := boolProp(title, description)
+	out["default"] = value
+	return out
+}
+
 func objectSchema(title, description string, props map[string]interface{}, order []string, required []string) map[string]interface{} {
 	out := map[string]interface{}{
 		"type":                 "object",
@@ -367,8 +373,10 @@ func UISchemaMap() map[string]interface{} {
 				},
 				"plan_no_self_run": boolProp("Forbid the model from running the plan itself",
 					"In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on."),
+				"ask_disable_extended_tools": boolPropDefault("Disable extended Ask tools",
+					"In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.", false),
 			},
-			[]string{"permission_mode", "command_allowlist", "plan_no_self_run"},
+			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "ask_disable_extended_tools"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",

@@ -27,6 +27,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/tools"
+	toolshell "github.com/hijera/foxxycode-agent/internal/tools/shell"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -171,11 +172,15 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled())
+	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
+	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if ModeAllowsMCPTools(mode) {
+	if ModeAllowsMCPTools(mode, askBasicOnly) {
 		for _, mcpClient := range a.state.GetMCPClients() {
 			for _, t := range mcpClient.Tools() {
+				if !MCPToolAllowedForMode(mode, askBasicOnly, t) {
+					continue
+				}
 				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
 			}
 		}
@@ -637,13 +642,35 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// The mode allowlist filters the definitions sent to the model; enforce it here too
 	// so a call the model was never offered cannot run (tools.plan_no_self_run only).
-	if toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled()) {
+	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
+	if toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly) {
 		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 			SessionUpdate: acp.UpdateTypeToolCallUpdate,
 			ToolCallID:    tc.ID,
 			Status:        "cancelled",
 		})
 		return modeToolRefusalMessage(mode, tc.Name), nil
+	}
+	if mode == string(session.ModeAsk) {
+		if strings.Contains(tc.Name, "__") && !a.askMCPToolAllowed(tc.Name, askBasicOnly) {
+			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+				SessionUpdate: acp.UpdateTypeToolCallUpdate,
+				ToolCallID:    tc.ID,
+				Status:        "cancelled",
+			})
+			return modeToolRefusalMessage(mode, tc.Name), nil
+		}
+		if tc.Name == "run_command" {
+			command := permission.ExtractRunCommand(tc.InputJSON)
+			if err := toolshell.ValidateReadOnlyCommand(command); err != nil {
+				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: acp.UpdateTypeToolCallUpdate,
+					ToolCallID:    tc.ID,
+					Status:        "cancelled",
+				})
+				return fmt.Sprintf("error: command is not available in Ask mode: %v", err), nil
+			}
+		}
 	}
 
 	sessionDir := ""
@@ -806,6 +833,26 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
+}
+
+func (a *Agent) askMCPToolAllowed(namespacedName string, basicOnly bool) bool {
+	idx := strings.Index(namespacedName, "__")
+	if idx <= 0 || idx >= len(namespacedName)-2 {
+		return false
+	}
+	serverName := namespacedName[:idx]
+	toolName := namespacedName[idx+2:]
+	for _, client := range a.state.GetMCPClients() {
+		if client.Name() != serverName {
+			continue
+		}
+		for _, tool := range client.Tools() {
+			if tool.Name == toolName {
+				return MCPToolAllowedForMode(string(session.ModeAsk), basicOnly, tool)
+			}
+		}
+	}
+	return false
 }
 
 // buildMessages constructs the message slice to send to the LLM.

@@ -116,7 +116,7 @@ prompts:
   # Per-provider prompts: when enabled (default), each mode can pick a prompt
   # tuned to the active model, resolved most-specific first:
   #   <mode>.<model-slug>.md  per-model (model-list id, "/" -> "-": openai/gpt-4o
-  #                           -> agent.openai-gpt-4o.md or plan.openai-gpt-4o.md)
+  #                           -> agent.openai-gpt-4o.md or ask.openai-gpt-4o.md)
   #   <mode>.<family>.md      per-family (anthropic, openai, gemini, gpt-oss, qwen,
   #                           gemma, neuraldeep); family defaults are built in
   #   <mode>.md               shared fallback
@@ -192,6 +192,11 @@ tools:
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
 
+  # Keep Ask on basic repository-reading tools only (default: false).
+  # When false, Ask also exposes guarded read-only shell, web, annotated MCP,
+  # and scheduler inspection tools.
+  # ask_disable_extended_tools: false
+
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"
@@ -256,7 +261,7 @@ The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`
 
 The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`foxxycode acp -scheduler-enabled`** / **`foxxycode http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
 
-Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`foxxycode`** was started), **`model`**, **`mode`** (`agent` or `plan`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
+Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`foxxycode`** was started), **`model`**, **`mode`** (`agent`, `plan`, `docs`, or `ask`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
 **`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
 

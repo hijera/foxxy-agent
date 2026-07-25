@@ -161,9 +161,10 @@ type HTTPHeaderJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode   string   `json:"permission_mode,omitempty"`
-	CommandAllowlist []string `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun    *bool    `json:"plan_no_self_run,omitempty"`
+	PermissionMode          string   `json:"permission_mode,omitempty"`
+	CommandAllowlist        []string `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun           *bool    `json:"plan_no_self_run,omitempty"`
+	AskDisableExtendedTools bool     `json:"ask_disable_extended_tools,omitempty"`
 }
 
 // LoggerJSON mirrors Logger for JSON APIs.
@@ -294,9 +295,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.MCPServers = append(out.MCPServers, mj)
 	}
 	out.Tools = ToolsJSON{
-		PermissionMode:   c.Tools.ResolvedPermMode(),
-		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
-		PlanNoSelfRun:    c.Tools.PlanNoSelfRun,
+		PermissionMode:          c.Tools.ResolvedPermMode(),
+		CommandAllowlist:        append([]string(nil), c.Tools.CommandAllowlist...),
+		PlanNoSelfRun:           c.Tools.PlanNoSelfRun,
+		AskDisableExtendedTools: c.Tools.AskDisableExtendedTools,
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -405,9 +407,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.MCPServers = append(cfg.MCPServers, mc)
 	}
 	cfg.Tools = Tools{
-		PermissionMode:   j.Tools.PermissionMode,
-		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),
-		PlanNoSelfRun:    j.Tools.PlanNoSelfRun,
+		PermissionMode:          j.Tools.PermissionMode,
+		CommandAllowlist:        append([]string(nil), j.Tools.CommandAllowlist...),
+		PlanNoSelfRun:           j.Tools.PlanNoSelfRun,
+		AskDisableExtendedTools: j.Tools.AskDisableExtendedTools,
 	}
 	cfg.Logger = Logger{
 		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),

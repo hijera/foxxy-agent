@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
 )
 
 // ToolSet is an allowlist of tool names passed to the LLM. Empty or nil means unrestricted
@@ -49,10 +50,29 @@ var docsToolNames = []string{
 	"docs_edit",
 }
 
+var askBasicToolNames = []string{
+	"read",
+	"glob",
+	"grep",
+	"print_tree",
+	"question",
+	"load_skill",
+}
+
+var askExtendedToolNames = []string{
+	"run_command",
+	"websearch",
+	"webfetch",
+	"foxxycode_scheduler_jobs_list",
+	"foxxycode_scheduler_job_get",
+	"foxxycode_scheduler_job_runs",
+}
+
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.
 // noSelfRun mirrors tools.plan_no_self_run: in plan mode it removes plan_exit, so the model
-// cannot switch the session to agent mode and start implementing on its own.
-func ToolSetForMode(mode string, noSelfRun bool) ToolSet {
+// cannot switch the session to agent mode and start implementing on its own. The optional
+// askBasicOnly value mirrors tools.ask_disable_extended_tools.
+func ToolSetForMode(mode string, noSelfRun bool, askBasicOnly ...bool) ToolSet {
 	if mode == "plan" {
 		out := make(ToolSet, 0, len(planToolNames))
 		for _, n := range planToolNames {
@@ -68,40 +88,71 @@ func ToolSetForMode(mode string, noSelfRun bool) ToolSet {
 		copy(out, docsToolNames)
 		return out
 	}
+	if mode == "ask" {
+		out := make(ToolSet, len(askBasicToolNames))
+		copy(out, askBasicToolNames)
+		if !optionalBool(askBasicOnly) {
+			out = append(out, askExtendedToolNames...)
+		}
+		return out
+	}
 	return nil
 }
 
 // ModeAllowsMCPTools reports whether external MCP tools are exposed in a mode.
 // Docs mode keeps a closed, documentation-only mutation surface because MCP
-// servers do not currently expose enforceable read-only guarantees.
-func ModeAllowsMCPTools(mode string) bool {
-	return mode != "docs"
+// servers do not currently expose enforceable read-only guarantees. Ask mode
+// accepts only tools explicitly annotated read-only unless its extended tools
+// are disabled entirely.
+func ModeAllowsMCPTools(mode string, askBasicOnly ...bool) bool {
+	if mode == "docs" {
+		return false
+	}
+	return mode != "ask" || !optionalBool(askBasicOnly)
+}
+
+// MCPToolAllowedForMode applies the mode boundary to one MCP tool definition.
+// Ask requires the standard readOnlyHint annotation; absence is treated as unsafe.
+func MCPToolAllowedForMode(mode string, askBasicOnly bool, tool mcp.ToolInfo) bool {
+	if !ModeAllowsMCPTools(mode, askBasicOnly) {
+		return false
+	}
+	return mode != "ask" || tool.ReadOnly
 }
 
 // toolCallRefusedByMode reports whether a tool call must be refused instead of executed.
 // Filtering the definitions sent to the model is not enough on its own: a model can still
 // emit a call for a tool it was never offered (hallucination, or a name carried over from
-// an earlier agent-mode turn), and the registry would happily run it. Only the
-// tools.plan_no_self_run guard turns this on, so default behaviour is unchanged.
-// MCP tools (server__tool) are exempt wherever the mode exposes them.
-func toolCallRefusedByMode(mode, toolName string, noSelfRun bool) bool {
-	if !noSelfRun || mode != "plan" {
+// an earlier turn), and the registry would happily run it. Plan enables this
+// boundary through tools.plan_no_self_run; Ask always enforces it. MCP tools
+// (server__tool) pass through here only when the mode exposes them and Ask
+// validates their read-only annotation separately.
+func toolCallRefusedByMode(mode, toolName string, noSelfRun bool, askBasicOnly ...bool) bool {
+	enforce := mode == "ask" || (mode == "plan" && noSelfRun)
+	if !enforce {
 		return false
 	}
 	name := strings.TrimSpace(toolName)
 	if name == "" {
 		return false
 	}
-	if strings.Contains(name, "__") && ModeAllowsMCPTools(mode) {
+	if strings.Contains(name, "__") && ModeAllowsMCPTools(mode, askBasicOnly...) {
 		return false
 	}
-	return !ToolSetForMode(mode, noSelfRun).Allows(name)
+	return !ToolSetForMode(mode, noSelfRun, askBasicOnly...).Allows(name)
 }
 
 // modeToolRefusalMessage is the tool result handed back to the model for a refused call.
 func modeToolRefusalMessage(mode, toolName string) string {
+	if mode == "ask" {
+		return fmt.Sprintf("error: tool %q is not available in Ask mode because it is not read-only", toolName)
+	}
 	return fmt.Sprintf("error: tool %q is not available in %s mode; "+
 		"the user starts the implementation from the plan card", toolName, mode)
+}
+
+func optionalBool(values []bool) bool {
+	return len(values) > 0 && values[0]
 }
 
 // Unrestricted reports whether the set imposes no name filter.
