@@ -101,12 +101,119 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
 
 ---
 
+## Волна `6666606 → 19754e8` (тег `0.9.43`) — ГОТОВО
+
+9 не-merge коммитов (2026-07-22…23), портированы двумя коммитами на ветке
+`claude/sync-foxxy-coddy-agents-c89f5c`.
+
+### Коммит 1 — `usage_update` после компакции (upstream `29c58ae`)
+
+- **ACP/HTTP**: новый `acp.UsageUpdate` (`sessionUpdate: "usage_update"`, `used`/`size`) —
+  текущая занятость окна контекста; в `bridge.go` мапится в именованный SSE-эвент
+  `usage_update`, описан в `openapi.go` и `docs/http-api.md`.
+- **`internal/agent/context_usage.go`** (новый): `setContextBreakdown` пишет оценку в
+  `stats.json` через `session.WriteSessionContextBreakdown` (провайдерские счётчики токенов
+  сохраняются) и публикует эвент; `refreshConversationContextUsage` пересчитывает
+  транскриптовые категории после компакции и после каждого persist-а сообщения.
+- **`internal/session/manager_usage.go`** (новый): `restoreContextBreakdown` при загрузке
+  сессии + `sendContextUsageUpdate` сразу после регистрации — переоткрытая сессия отдаёт
+  сжатое окно, а не значение до компакции.
+- **Turn-lock**: `acquireStubTurnLock` теперь `TryLock` и возвращает `ErrSessionTurnBusy`
+  (как unix-flock), т.е. второй параллельный turn падает быстро, а не встаёт в очередь.
+  Это путь `!unix`, т.е. **Windows** — прогнаны `internal/session` и `external/httpserver`.
+- **SPA**: `withContextUsedTokens` в `contextUsage.ts`, ветка `usage_update` в
+  `consumeComposerSse.ts`, `branchContextUsage` в обоих вызовах `consumeComposerSseReader`
+  в `App.tsx`.
+
+**Расхождения с upstream (осознанные, из-за двух движков компакции):**
+- `llmVisibleMessages()` повторяет диспетчеризацию `buildMessages` (`MessagesForLLM` для
+  `coddy`, фильтр `isLLMHistoryMessage` для `opencode`) и теперь кормит
+  `computeContextBreakdown`. Это **починка живого бага форка**: `buildSystemPrompt` передавал
+  нефильтрованный транскрипт, поэтому на дефолтном движке `coddy` (у него свёрнутые сообщения
+  без флага) кольцо контекста не уменьшалось после компакции.
+- Движок `opencode` теперь тоже публикует usage (после `ReplaceMessagesAndPersist`) — до этого
+  он не отдавал `usage_update` вообще.
+- Пересчитываются **и** `Conversation`, **и** `Summary`: компакция переносит текст из первой
+  категории во вторую.
+- `internal/skills/remote_test.go` (Windows-фикс `filepath.Abs`) не портирован — в форке уже
+  есть эквивалентное исправление через `t.TempDir()`.
+
+**Тесты:** upstream-овские BDD-шаги (ACP/HTTP/stats) + юнит-тесты, плюс два фичефайла форка,
+которых в upstream нет: `features/context_compaction_engines.feature` (ACP-usage совпадает с
+LLM-окном на **обоих** движках) и `features/context_compaction_restore.feature` (usage
+выживает перезапуск сервера на обоих движках; `/compact` рекламируется только на `coddy`).
+Оба проверены «наоборот»: без форковых правок сценарии падают.
+
+### Коммит 2 — Tool-approval previews (upstream `2d5f2e7` + 6 follow-up)
+
+Портировано как итоговое состояние (`git diff 6666606 upstream/main`), т.к. follow-up-ы только
+дошлифовывают первый коммит, а три из них — только скриншоты.
+
+- Новые `chat/permissionToolPreview.ts` и `chat/PermissionPromptPreview.tsx`: общий
+  tool-specific preview для permission-гейта и раскрытой карточки инструмента.
+- `PermissionPromptSection` — вопрос + один tool-id бейдж + preview; `ToolCallMessage` —
+  статический preview + отдельная карточка `Результат`; единая кнопка
+  `tool-overflow-toggle` (`Ещё…`/`Свернуть`) вместо текстовых ссылок в `ToolCallMessage`
+  и `DiffView`; `rm`/`rmdir` добавлены в write-списки.
+
+**Расхождения с upstream (осознанные):**
+- **i18n:** весь новый слой переведён сразу (~30 ключей `prompts.permissionQuestion.*`,
+  `prompts.permissionHeader.*`, `prompts.permissionMeta.*`, `messages.toolMore/toolLess/
+  toolResultSection/patchPreviewAriaLabel/editPreviewAriaLabel`) в `en.ts` **и** `ru.ts`.
+  Upstream-версия целиком английская.
+- Upstream удаляет `permissionPromptTitle`; в форке он кормил desktop-тост, поэтому тост
+  перевешен на `buildPermissionToolPreview(p).title` (тост и карточка теперь дают один текст),
+  а ключи `prompts.permission{Fallback,ToolFallback,RunCommand}` удалены.
+- `PermissionPromptSection` сохраняет форковый `submitPermissionChoice` (не inline `fetch`).
+- `ToolCallMessage` сохраняет `useT()`, проп `sessionId` и ветку `BrowserAction`; новый preview
+  выключен для browser-инструментов (`!isBrowserTool`), чтобы карточка скриншота осталась
+  единственным рендерером.
+- **CSS:** upstream-правило `[data-theme="light"] .chat-bottom:has(.composer-wrap-docked)` не
+  проходит Chromium-104 гейт — переписано на форковый маркер `.chat-bottom--docked`
+  (`themeCssContract.test.ts` матчится на него). У `.shell` `100svh` заменён на `100dvh`,
+  потому что `check:compat` требует не-viewport fallback **непосредственно** перед `dvh`.
+- `DiffView.tsx` и `chat/toolCallArgsDisplay.ts` остаются в дереве (как в upstream), хотя
+  `ToolCallMessage` их больше не использует.
+
+**Живая проверка** (реальный провайдер `neuraldeep`, ключ только через `NEURALDEEP_API_KEY`,
+изолированные home/config вне репозитория):
+- счётчик растёт на реальных turn-ах и совпадает с `usage_update` и `/stats` до токена;
+- `/compact` на большой сессии: 6824 → 5052, значение из стрима == `/stats`, без перезагрузки;
+- перезапуск бинаря: 5052 восстановлено из `stats.json` (и 4803 на `opencode`);
+- авто-компакция срезает окно **внутри** одного стрима (5757 → 4918 на `coddy`,
+  5757 → 4840 на `opencode` вместе с эвентами `compaction` start/done);
+- кольцо в SPA живьём: 53.4 → 42.5 → 42.6 без перезагрузки;
+- permission-карточки `write` / `run_command` / `edit` и раскрытая карточка инструмента —
+  по-русски, `Ещё…`/`Свернуть` работает на усечённом результате (20 → 41 строка, viewport
+  переключается на `--scroll`), консоль чистая.
+
+**Отложено:** четыре PNG `docs/assets/screenshot-tool-previews*.png`. Решено снимать своим UI
+(не тащить coddy-брендированные кадры upstream), но снять их в этой сессии не удалось — панель
+браузера не отображалась (`screenshot` требует компоновки кадров), подключённого Chrome нет.
+Записи в `docs/assets/INDEX.md` намеренно **не** добавлены, чтобы не ссылаться на отсутствующие
+файлы. Когда панель будет открыта: снять `screenshot-tool-previews-{light,dark}.png` и
+`screenshot-tool-previews-overflow-{light,dark}.png` и добавить секцию в `INDEX.md`.
+
+---
+
 ## Последняя синхронизация
 
 | Поле | Значение |
 | --- | --- |
+| **Дата** | 2026-07-25 |
+| **Синхронизировано до `upstream/main`** | `19754e8` (2026-07-24) |
+| **Ближайший upstream-тег** | `0.9.43` |
+| **Наш коммит-порт** | `323ba32` (волна A: `usage_update`), следующий коммит (волна B: tool previews) — ветка `claude/sync-foxxy-coddy-agents-c89f5c` |
+| **Отложенные follow-up** | четыре PNG `docs/assets/screenshot-tool-previews*.png` (см. выше) |
+
+---
+
+## Волна `bc1afb9 → 6666606` — предыдущая синхронизация
+
+| Поле | Значение |
+| --- | --- |
 | **Дата** | 2026-07-23 (перепроверка; новых коммитов нет) |
-| **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) — на 2026-07-23 это по-прежнему HEAD ветки `upstream/main`, `git fetch upstream --prune` ничего не приносит |
+| **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) |
 | **Ближайший upstream-тег** | `0.9.43` |
 | **Наш коммит-порт** | `f0a2506`, `60af986`, `305fc5a`, `3b3e812`, `0e75aa7` (ветка `sync/upstream-6666606`) |
 | **Отложенные follow-up** | нет — все три закрыты: exhaustive OpenAPI для skill-роутов и BDD `skills_marketplace`/`plugin_command`/`remote_api` в `f2f4682`, i18n `SkillsSection.tsx` в `f2f4682`+`3d2fa15`, остальной английский в SPA — `ea7095d` (PR #7) |
@@ -163,7 +270,7 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges bc1afb9..upstream/main` — список кандидатов.
+2. `git log --oneline --no-merges 19754e8..upstream/main` — список кандидатов.
 3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
 4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
 5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.

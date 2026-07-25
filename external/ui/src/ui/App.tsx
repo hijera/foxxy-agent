@@ -99,10 +99,8 @@ import {
   armNotificationSoundUnlock,
   playNotificationSound,
 } from "./desktop/desktopNotifySound";
-import {
-  permissionPromptDetail,
-  permissionPromptTitle,
-} from "./chat/permissionPromptDisplay";
+import { permissionPromptDetail } from "./chat/permissionPromptDisplay";
+import { buildPermissionToolPreview } from "./chat/permissionToolPreview";
 import { submitPermissionChoice } from "./chat/permissionSubmit";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
@@ -1122,7 +1120,8 @@ export function App() {
           sessionId: key,
           toolCallId: tcid,
           itemId: stablePermissionPromptItemId(tcid),
-          title: permissionPromptTitle(p),
+          // Same wording as the inline card so the toast and the transcript agree.
+          title: buildPermissionToolPreview(p).title,
           detail: permissionPromptDetail(p),
           options: p.options.map((o) => ({
             optionId: o.optionId,

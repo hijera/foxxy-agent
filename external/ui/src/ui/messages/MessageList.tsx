@@ -62,6 +62,16 @@ export function MessageList(props: {
     () => permissionPendingToolCallIds(props.items),
     [props.items],
   );
+  const toolCallsById = useMemo(() => {
+    const byId = new Map<
+      string,
+      Extract<TranscriptItem, { type: "tool_call" }>
+    >();
+    for (const item of props.items) {
+      if (item.type === "tool_call") byId.set(item.toolCallId, item);
+    }
+    return byId;
+  }, [props.items]);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -226,6 +236,7 @@ export function MessageList(props: {
               <PermissionPromptSection
                 itemId={it.id}
                 payload={it.payload}
+                toolCall={toolCallsById.get(it.payload.toolCall.toolCallId)}
                 resolved={it.resolved}
                 onResolved={(state) =>
                   props.onPermissionPromptResolved?.(

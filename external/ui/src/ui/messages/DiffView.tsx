@@ -121,20 +121,20 @@ export function DiffView(props: {
           {showAll ? (
             <button
               type="button"
-              className="tool-result-text-link"
-              data-testid="diff-hide-link"
+              className="tool-overflow-toggle"
+              data-testid="diff-less"
               onClick={onHide}
             >
-              {t("messages.toolHide")}
+              {t("messages.toolLess")}
             </button>
           ) : (
             <button
               type="button"
-              className="tool-result-text-link"
-              data-testid="diff-load-more"
+              className="tool-overflow-toggle"
+              data-testid="diff-more"
               onClick={onLoadMore}
             >
-              {t("messages.toolLoadMore")}
+              {t("messages.toolMore")}
             </button>
           )}
         </div>
