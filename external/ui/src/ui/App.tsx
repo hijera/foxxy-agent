@@ -685,11 +685,15 @@ export function App() {
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
   const [worktreePref, setWorktreePref] = useState(false);
+  // Subversion has no worktrees: this is the "check the branch out into its own
+  // folder" preference behind the checkbox next to the SVN chip.
+  const [svnFolderPref, setSvnFolderPref] = useState(false);
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
     path?: string;
     branch?: string;
     worktree?: boolean;
+    vcs?: "git" | "svn";
   } | null>(null);
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
@@ -1383,6 +1387,7 @@ export function App() {
     path?: string;
     branch?: string;
     worktree?: boolean;
+    vcs?: "git" | "svn";
   }) {
     const sid = sessionId.trim();
     if (!sid) {
@@ -1404,15 +1409,22 @@ export function App() {
         }
       } else if (payload.branch) {
         const nextBranch = payload.branch;
-        setWorkspaceCtx((prev) =>
-          prev
-            ? {
-                ...prev,
-                branch: nextBranch,
-                is_worktree: Boolean(payload.worktree),
-              }
-            : prev,
-        );
+        setWorkspaceCtx((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          if (payload.vcs === "svn") {
+            return {
+              ...prev,
+              svn: { ...(prev.svn ?? { available: true }), branch: nextBranch },
+            };
+          }
+          return {
+            ...prev,
+            branch: nextBranch,
+            is_worktree: Boolean(payload.worktree),
+          };
+        });
       }
       return;
     }
@@ -1459,6 +1471,7 @@ export function App() {
             body: JSON.stringify({
               branch: pending.branch,
               worktree: Boolean(pending.worktree),
+              vcs: pending.vcs ?? "git",
             }),
         });
       }
@@ -4133,12 +4146,17 @@ export function App() {
           sessionId={sessionId}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
+          svnFolderPref={svnFolderPref}
           workspaceLocked={items.length > 0}
           onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
           onWorkspacePickBranch={(b: string, wt: boolean) =>
             void switchWorkspace({ branch: b, worktree: wt })
           }
           onWorktreeToggle={() => setWorktreePref((v) => !v)}
+          onWorkspacePickSvnBranch={(b: string, folder: boolean) =>
+            void switchWorkspace({ branch: b, worktree: folder, vcs: "svn" })
+          }
+          onSvnFolderToggle={() => setSvnFolderPref((v) => !v)}
           sessionLoading={sessionLoading}
           sessionFadingOut={sessionFadingOut}
           heroAccentVerb={heroAccentVerb}

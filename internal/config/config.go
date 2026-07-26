@@ -124,6 +124,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Browser.Validate(); err != nil {
 		return fmt.Errorf("browser: %w", err)
 	}
+	if err := cfg.VCS.Validate(); err != nil {
+		return fmt.Errorf("vcs: %w", err)
+	}
 	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
 	}
@@ -175,6 +178,8 @@ func applyDefaults(cfg *Config) {
 	cfg.UI.ApplyDefaults()
 
 	cfg.Browser.ApplyDefaults()
+
+	cfg.VCS.ApplyDefaults()
 
 	if len(cfg.Providers) == 0 && len(cfg.Models) == 0 {
 		if key := os.Getenv("OPENAI_API_KEY"); key != "" {

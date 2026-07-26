@@ -11,6 +11,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	planNoSelfRun := false
 	titleEnabled := true
 	browserHeadless := true
+	svnEnabled := true
+	svnBranchLookup := true
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
 			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
@@ -107,6 +109,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Headless:       &browserHeadless,
 			ExecutablePath: "",
 			TimeoutSeconds: BrowserDefaultTimeoutSeconds,
+		},
+		VCS: VCSJSON{
+			SVN: SVNJSON{
+				Enabled:        &svnEnabled,
+				Binary:         "",
+				TimeoutSeconds: SVNDefaultTimeoutSeconds,
+				BranchLookup:   &svnBranchLookup,
+			},
 		},
 	}
 }

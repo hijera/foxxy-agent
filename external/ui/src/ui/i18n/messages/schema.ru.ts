@@ -374,6 +374,25 @@ export const schemaTextRu: Record<string, string> = {
   "Action timeout (seconds)": "Таймаут действия (секунды)",
   "Per-action timeout for navigation, clicks, and other browser operations.":
     "Таймаут на каждое действие: навигацию, клики и прочие операции браузера.",
+
+  // Version control
+  "Version control": "Система контроля версий",
+  "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.":
+    "Интеграция с системами контроля версий. Git работает из коробки; Subversion добавляет чип SVN рядом с чипом git и инструменты svn_*, когда обнаружена рабочая копия.",
+  Subversion: "Subversion",
+  "Subversion support for SVN working copies and branch folders.":
+    "Поддержка Subversion для рабочих копий SVN и папок-веток.",
+  "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.":
+    "Включает поддержку Subversion. Включено по умолчанию; при отключении чип SVN скрывается, а все инструменты svn_* перестают передаваться модели.",
+  "SVN client path": "Путь к клиенту SVN",
+  'Optional path to the svn client. Empty resolves "svn" on PATH; set it when the client is installed outside PATH.':
+    "Необязательный путь к клиенту svn. Пусто — команда «svn» ищется в PATH; укажите путь, если клиент установлен вне PATH.",
+  "Command timeout (seconds)": "Таймаут команды (секунды)",
+  "Per-command timeout for svn invocations such as update, commit, and merge.":
+    "Таймаут на каждую команду svn: update, commit, merge и остальные.",
+  "List repository branches": "Список веток репозитория",
+  "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.":
+    "Разрешает получать список trunk и branches/ для меню чипа SVN. Требует обращения к серверу; отключите на медленном канале.",
 };
 
 /**

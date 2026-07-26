@@ -24,4 +24,5 @@ type Config struct {
 	Gateways     GatewayConfig     `yaml:"gateways"`
 	UI           UIConfig          `yaml:"ui"`
 	Browser      BrowserConfig     `yaml:"browser"`
+	VCS          VCSConfig         `yaml:"vcs"`
 }

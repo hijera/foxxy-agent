@@ -958,6 +958,54 @@
         "locale",
         "send_mode"
       ]
+    },
+    "vcs": {
+      "additionalProperties": false,
+      "description": "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
+      "properties": {
+        "svn": {
+          "additionalProperties": false,
+          "description": "Subversion support for SVN working copies and branch folders.",
+          "properties": {
+            "binary": {
+              "description": "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH.",
+              "title": "SVN client path",
+              "type": "string"
+            },
+            "branch_lookup": {
+              "default": true,
+              "description": "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.",
+              "title": "List repository branches",
+              "type": "boolean"
+            },
+            "enabled": {
+              "default": true,
+              "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "timeout_seconds": {
+              "default": 120,
+              "description": "Per-command timeout for svn invocations such as update, commit, and merge.",
+              "title": "Command timeout (seconds)",
+              "type": "integer"
+            }
+          },
+          "title": "Subversion",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled",
+            "binary",
+            "timeout_seconds",
+            "branch_lookup"
+          ]
+        }
+      },
+      "title": "Version control",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "svn"
+      ]
     }
   },
   "title": "FoxxyCode config",
@@ -979,6 +1027,7 @@
     "sessions",
     "gateways",
     "browser",
+    "vcs",
     "ui"
   ]
 }

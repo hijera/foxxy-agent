@@ -90,6 +90,11 @@ export const messagesRu: Record<string, string> = {
     "Эта сессия работает в отдельном worktree",
   "composer.workspace.worktreeToggleTitle":
     "Переключать ветки в отдельном worktree",
+  "composer.workspace.svnWorkingCopy": "svn",
+  "composer.workspace.svnNoBranches": "Веток svn нет",
+  "composer.workspace.svnFolder": "папка-ветка",
+  "composer.workspace.svnFolderToggleTitle":
+    "Выгружать ветку в отдельную папку вместо переключения на месте",
 
   "composer.folderModal.title": "Открыть папку",
   "composer.folderModal.close": "Закрыть обзор папок",

@@ -28,6 +28,21 @@ type ConfigJSON struct {
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
 	Browser      BrowserJSON      `json:"browser,omitempty"`
+	VCS          VCSJSON          `json:"vcs,omitempty"`
+}
+
+// VCSJSON mirrors VCSConfig for JSON APIs.
+type VCSJSON struct {
+	SVN SVNJSON `json:"svn,omitempty"`
+}
+
+// SVNJSON mirrors SVNConfig for JSON APIs. Enabled and BranchLookup are pointers
+// so an unset value round-trips as "use default" (true) rather than false.
+type SVNJSON struct {
+	Enabled        *bool  `json:"enabled,omitempty"`
+	Binary         string `json:"binary,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	BranchLookup   *bool  `json:"branch_lookup,omitempty"`
 }
 
 // BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
@@ -361,6 +376,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
 		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
 	}
+	out.VCS = VCSJSON{SVN: SVNJSON{
+		Enabled: c.VCS.SVN.Enabled, Binary: c.VCS.SVN.Binary,
+		TimeoutSeconds: c.VCS.SVN.TimeoutSeconds, BranchLookup: c.VCS.SVN.BranchLookup,
+	}}
 	return out
 }
 
@@ -474,6 +493,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,
 		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,
 	}
+	cfg.VCS = VCSConfig{SVN: SVNConfig{
+		Enabled: j.VCS.SVN.Enabled, Binary: j.VCS.SVN.Binary,
+		TimeoutSeconds: j.VCS.SVN.TimeoutSeconds, BranchLookup: j.VCS.SVN.BranchLookup,
+	}}
 	return cfg
 }
 

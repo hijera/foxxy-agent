@@ -302,6 +302,23 @@ Interactive browser automation tool (`config.BrowserConfig`, `internal/config/br
 | `executable_path` | string | no | `""` (auto) | — | Path to a specific Chrome/Chromium binary; empty lets chromedp auto-detect an installed browser. |
 | `timeout_seconds` | int | no | `30` | — | Per-action timeout for navigation, clicks, and other browser operations. |
 
+## `vcs`
+
+Version control integration (`config.VCSConfig`, `internal/config/vcs.go`). Git needs no configuration; this section carries the Subversion settings.
+
+### `vcs.svn`
+
+Subversion support: working copy detection for the composer chips plus the `svn_*` tools (`svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout`). Detection is independent of git, so a branch folder that also holds a git repository reports both.
+
+| Field | Type | Required | Default | Env fallback | Description |
+|---|---|---|---|---|---|
+| `enabled` | bool | no | `true` | — | Turns Subversion support on. `false` hides the SVN chip and removes every `svn_*` tool from the definitions sent to the model. |
+| `binary` | string | no | `""` (PATH) | — | Path to the svn client; empty resolves `svn` on `PATH`. Set it when the client is installed outside `PATH`. |
+| `timeout_seconds` | int | no | `120` | — | Per-command timeout for svn invocations such as update, commit, and merge. |
+| `branch_lookup` | bool | no | `true` | — | Allows listing `trunk` and `branches/` for the SVN chip menu. This contacts the server; turn it off on slow links. |
+
+When no svn client is installed, detection reports `available: false`, the chip stays hidden and the tools are not registered — nothing else changes.
+
 ## Related environment variables
 
 These control config discovery itself, not individual fields (see [config.md](config.md#config-file-location-and-paths)):

@@ -32,13 +32,32 @@ const gitCtx: WorkspaceContext = {
   worktrees: [{ path: "/repos/foxxycode-agent", branch: "main", main: true }],
 };
 
+// An SVN branch folder that also holds a git repository: both chips must show.
+const svnCtx: WorkspaceContext = {
+  ...gitCtx,
+  is_svn_repo: true,
+  svn: {
+    available: true,
+    wc_root: "/repos/foxxycode-agent",
+    url: "https://svn.example.test/repo/branches/feature-x",
+    relative_url: "^/branches/feature-x",
+    repository_root: "https://svn.example.test/repo",
+    revision: 42,
+    branch: "branches/feature-x",
+    branches: ["trunk", "branches/feature-x", "branches/release-1"],
+  },
+};
+
 function renderChips(overrides: Partial<React.ComponentProps<typeof WorkspaceChips>> = {}) {
   const props: React.ComponentProps<typeof WorkspaceChips> = {
     context: gitCtx,
     worktreePref: false,
+    svnFolderPref: false,
     onPickFolder: vi.fn(),
     onPickBranch: vi.fn(),
     onWorktreeToggle: vi.fn(),
+    onPickSvnBranch: vi.fn(),
+    onSvnFolderToggle: vi.fn(),
     ...overrides,
   };
   const utils = render(<WorkspaceChips {...props} />);
@@ -227,6 +246,76 @@ describe("WorkspaceChips", () => {
     expect(modal.textContent).toContain("Вложенных папок нет");
     expect(screen.getByTestId("workspace-modal-cancel").textContent).toBe(
       "Отмена",
+    );
+  });
+
+  it("hides the svn chip outside an svn working copy", () => {
+    renderChips();
+    expect(screen.queryByTestId("composer-svn-chip")).toBeNull();
+    expect(screen.queryByTestId("composer-svn-folder-checkbox")).toBeNull();
+  });
+
+  it("shows the svn chip next to the git chip in a mixed workspace", () => {
+    renderChips({ context: svnCtx });
+    const gitChip = screen.getByTestId("composer-branch-chip");
+    const svnChip = screen.getByTestId("composer-svn-chip");
+    expect(gitChip.textContent).toContain("main");
+    expect(svnChip.textContent).toContain("branches/feature-x");
+    expect(svnChip.getAttribute("title")).toContain("r42");
+    // Both chips live in the same row, git first.
+    expect(
+      gitChip.compareDocumentPosition(svnChip) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows the svn chip without git when only a working copy is present", () => {
+    renderChips({
+      context: { ...svnCtx, is_git_repo: false, branches: [], worktrees: [] },
+    });
+    expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
+    expect(screen.getByTestId("composer-svn-chip")).toBeTruthy();
+  });
+
+  it("opens the svn menu and picks a branch with the folder preference", () => {
+    const { props } = renderChips({ context: svnCtx, svnFolderPref: true });
+    fireEvent.click(screen.getByTestId("composer-svn-chip"));
+    const menu = screen.getByTestId("workspace-svn-menu");
+    const rows = menu.querySelectorAll("[data-testid^='workspace-svn-branch-row-']");
+    expect(rows.length).toBe(3);
+    // The current branch leads the list, then trunk.
+    expect(rows[0]?.textContent).toBe("branches/feature-x");
+    expect(rows[1]?.textContent).toBe("trunk");
+    fireEvent.click(screen.getByTestId("workspace-svn-branch-row-trunk"));
+    expect(props.onPickSvnBranch).toHaveBeenCalledWith("trunk", true);
+  });
+
+  it("toggles the svn branch-folder preference through the checkbox", () => {
+    const { props } = renderChips({ context: svnCtx });
+    const box = screen.getByTestId("composer-svn-folder-checkbox") as HTMLInputElement;
+    expect(box.type).toBe("checkbox");
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect(props.onSvnFolderToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks the svn controls once the conversation started", () => {
+    renderChips({ context: svnCtx, locked: true });
+    expect(
+      (screen.getByTestId("composer-svn-chip") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("composer-svn-folder-checkbox") as HTMLInputElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByTestId("composer-svn-chip"));
+    expect(screen.queryByTestId("workspace-svn-menu")).toBeNull();
+  });
+
+  it("renders the svn chips in Russian", () => {
+    setLocale("ru");
+    renderChips({ context: svnCtx });
+    expect(screen.getByTestId("composer-svn-folder-chip").textContent).toContain(
+      "папка-ветка",
     );
   });
 

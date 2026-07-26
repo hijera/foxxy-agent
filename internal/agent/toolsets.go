@@ -37,6 +37,15 @@ var planToolNames = []string{
 	// Read-only: lets the planner pull a catalogued skill's instructions when
 	// skills.auto_discovery is on (the tool is only registered when enabled).
 	"load_skill",
+	// Read-only Subversion inspection, mirroring the read-only git commands the
+	// planner can already run through run_command. Registered only when
+	// vcs.svn is enabled and a client is installed; an unregistered name simply
+	// never appears in the definitions.
+	"svn_info",
+	"svn_status",
+	"svn_diff",
+	"svn_log",
+	"svn_list",
 }
 
 var docsToolNames = []string{
@@ -66,6 +75,11 @@ var askExtendedToolNames = []string{
 	"foxxycode_scheduler_jobs_list",
 	"foxxycode_scheduler_job_get",
 	"foxxycode_scheduler_job_runs",
+	"svn_info",
+	"svn_status",
+	"svn_diff",
+	"svn_log",
+	"svn_list",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

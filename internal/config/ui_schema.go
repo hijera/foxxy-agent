@@ -533,6 +533,20 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enabled", "headless", "executable_path", "timeout_seconds"},
 			nil),
+		"vcs": objectSchema("Version control", "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
+			map[string]interface{}{
+				"svn": objectSchema("Subversion", "Subversion support for SVN working copies and branch folders.",
+					map[string]interface{}{
+						"enabled":         boolProp("Enabled", "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model."),
+						"binary":          strProp("SVN client path", "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH."),
+						"timeout_seconds": intProp("Command timeout (seconds)", "Per-command timeout for svn invocations such as update, commit, and merge."),
+						"branch_lookup":   boolProp("List repository branches", "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links."),
+					},
+					[]string{"enabled", "binary", "timeout_seconds", "branch_lookup"},
+					nil),
+			},
+			[]string{"svn"},
+			nil),
 		"ui": objectSchema("UI", "Embedded SPA preferences for desktop and HTTP UI.",
 			map[string]interface{}{
 				"enabled": boolProp("Serve the SPA", "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available."),
@@ -555,7 +569,7 @@ func UISchemaMap() map[string]interface{} {
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "ui",
+		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui",
 	}
 
 	doc := map[string]interface{}{

@@ -32,6 +32,8 @@ func ValidateReadOnlyCommand(command string) error {
 	switch name {
 	case "git":
 		return validateReadOnlyGit(args)
+	case "svn":
+		return validateReadOnlySVN(args)
 	case "go":
 		return validateReadOnlyGo(args)
 	case "rg":
@@ -133,6 +135,25 @@ func validateReadOnlyGit(args []string) error {
 		}
 	}
 	return fmt.Errorf("git subcommand %q may modify state and is unavailable in Ask mode", sub)
+}
+
+// validateReadOnlySVN mirrors validateReadOnlyGit for Subversion working copies:
+// inspection subcommands only, and no flags that run helper programs or write files.
+func validateReadOnlySVN(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("svn requires an explicit read-only subcommand in Ask mode")
+	}
+	if hasAnyArgPrefix(args, "--config-dir", "--config-option", "--editor-cmd", "--diff-cmd",
+		"--diff3-cmd", "--merge-cmd", "--extensions", "--file", "--targets") {
+		return fmt.Errorf("svn helper-program, editor, and file flags are unavailable in Ask mode")
+	}
+	sub := strings.ToLower(args[0])
+	switch sub {
+	case "info", "status", "st", "log", "diff", "cat", "list", "ls", "blame", "praise",
+		"annotate", "propget", "proplist", "plist":
+		return nil
+	}
+	return fmt.Errorf("svn subcommand %q may modify state and is unavailable in Ask mode", sub)
 }
 
 func validateReadOnlyGo(args []string) error {

@@ -76,11 +76,14 @@ export function ChatScreen(props: {
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
+  svnFolderPref?: boolean;
   /** The workspace is chosen once: locked as soon as the conversation starts. */
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
+  onSvnFolderToggle?: () => void;
 }) {
   const { t } = useT();
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -276,10 +279,13 @@ export function ChatScreen(props: {
                 ? {
                     workspaceCtx: props.workspaceCtx ?? null,
                     worktreePref: props.worktreePref ?? false,
+                    svnFolderPref: props.svnFolderPref ?? false,
                     workspaceLocked: props.workspaceLocked ?? false,
                     onWorkspacePickFolder: props.onWorkspacePickFolder,
                     onWorkspacePickBranch: props.onWorkspacePickBranch,
                     onWorktreeToggle: props.onWorktreeToggle,
+                    onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
+                    onSvnFolderToggle: props.onSvnFolderToggle,
                   }
                 : {})}
             />
@@ -400,10 +406,13 @@ export function ChatScreen(props: {
                   ? {
                       workspaceCtx: props.workspaceCtx ?? null,
                       worktreePref: props.worktreePref ?? false,
+                      svnFolderPref: props.svnFolderPref ?? false,
                       workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
                       onWorktreeToggle: props.onWorktreeToggle,
+                      onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
+                      onSvnFolderToggle: props.onSvnFolderToggle,
                     }
                   : {})}
               />
