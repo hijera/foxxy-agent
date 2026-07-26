@@ -124,6 +124,18 @@ export const schemaTextRu: Record<string, string> = {
   "LLM min interval ms": "Мин. интервал LLM (мс)",
   "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing).":
     "Минимальный промежуток между последовательными вызовами LLM в миллисекундах (0 отключает ограничение).",
+  "Loop guard": "Защита от зацикливания",
+  "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.":
+    "Останавливать ответ, выродившийся в повтор самого себя, и блокировать инструмент, который вызывают снова и снова с теми же аргументами.",
+  "Loop tool repeat limit": "Лимит повторов инструмента",
+  "Consecutive identical tool calls before the loop guard steps in (0 disables the check).":
+    "Сколько одинаковых вызовов инструмента подряд допускается до вмешательства защиты (0 отключает проверку).",
+  "Loop stream repeat cycles": "Циклов повтора в потоке",
+  "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).":
+    "Сколько одинаковых циклов вывода подряд внутри одного потокового ответа допускается до его обрыва (0 отключает проверку).",
+  "Loop nudge max": "Макс. подсказок при зацикливании",
+  "How many times one turn may be nudged back on track before the loop guard stops it.":
+    "Сколько раз за один шаг модель можно подтолкнуть вернуться к задаче, прежде чем защита остановит шаг.",
 
   // Tools
   "Tools and permissions": "Инструменты и разрешения",

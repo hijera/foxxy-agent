@@ -437,6 +437,12 @@ export const messagesRu: Record<string, string> = {
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",
   "messages.systemLabel": "Система",
   "messages.systemToggleAriaLabel": "Показать детали ошибки",
+  "messages.loopGuardStream":
+    "Остановлено: модель повторяла один и тот же текст вместо того, чтобы завершить задачу.",
+  "messages.loopGuardReasoning":
+    "Остановлено: модель повторяла одно и то же рассуждение, так и не придя к ответу.",
+  "messages.loopGuardTool":
+    "Остановлено: модель снова и снова запрашивала вызов {tool} с теми же аргументами.",
   "messages.thinkingInProgress": "думаю…",
   "messages.thinkingCompleted": "размышление",
   "messages.thinkingSummaryAriaLabel": "Сводка размышления",
