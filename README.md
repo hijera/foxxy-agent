@@ -502,6 +502,7 @@ LLM  Инструменты Навыки  MCP
 ## Документация
 
 - [Отличия FoxxyCode от coddy-agent](docs/vs-coddy.md) — функции форка в сравнении с исходным проектом
+- [Дорожная карта](ROADMAP.md) — планы по версиям 0.3.x, 0.4.x и 0.5.x
 - [Сборка из исходников](docs/build.md) — требования, **`make build`**, отличие **`TAGS`** от **`go build -tags`**, каталог **`build/foxxycode`**
 - [Обновление FoxxyCode](docs/update.md) — **`foxxycode update`**, артефакты релизов, **`PATH`** и **`make install`**
 - [Docker](docs/docker.md) — образ GHCR, **`docker compose`**, встроенный интерфейс по адресу **`http://127.0.0.1:12345/`**

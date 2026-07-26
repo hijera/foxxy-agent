@@ -502,6 +502,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 ## Documentation
 
 - [What FoxxyCode adds over coddy-agent](docs/vs-coddy.md) - fork-specific features vs upstream
+- [Roadmap](ROADMAP.en.md) - plans for 0.3.x, 0.4.x, and 0.5.x
 - [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxycode`**
 - [Updating FoxxyCode](docs/update.md) - **`foxxycode update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
