@@ -7,6 +7,7 @@ import (
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 	toolssh "github.com/hijera/foxxycode-agent/internal/tools/ssh"
+	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 	toolweb "github.com/hijera/foxxycode-agent/internal/tools/web"
 )
@@ -54,6 +55,9 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	if cfg == nil || cfg.Skills.AutoDiscoveryEnabled() {
 		r.Register(LoadSkillTool())
 	}
+	// Subversion tools: registered only when vcs.svn is enabled and a client is
+	// installed, so turning the setting off removes them from the next turn.
+	toolsvn.RegisterBuiltins(r.Register, cfg)
 	registerSchedulerTools(r, cfg)
 	registerBrowserTools(r, cfg)
 	return r

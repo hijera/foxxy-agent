@@ -279,3 +279,12 @@ logger:
 #   headless: true          # false to watch the automated session in a real window
 #   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
 #   timeout_seconds: 30     # per-action timeout
+
+# Version control integration. Git works out of the box; Subversion adds the SVN chip
+# next to the git chip and the svn_* tools when a working copy is detected.
+# vcs:
+#   svn:
+#     enabled: true         # false hides the SVN chip and removes every svn_* tool
+#     binary: ""            # "" = resolve "svn" on PATH; or a path to the client
+#     timeout_seconds: 120  # per-command timeout (update, commit, merge, ...)
+#     branch_lookup: true   # list trunk/branches for the chip menu (contacts the server)

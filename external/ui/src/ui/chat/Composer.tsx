@@ -180,11 +180,14 @@ export function Composer(props: {
   /** Workspace context chips (folder / branch / worktree) above the field. */
   workspaceCtx?: WorkspaceContext | null;
   worktreePref?: boolean;
+  svnFolderPref?: boolean;
   /** The workspace is chosen once: locked as soon as the conversation starts. */
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
+  onSvnFolderToggle?: () => void;
 }) {
   const { t } = useT();
   const idleSendDisabled = props.value.trim() === "";
@@ -1514,9 +1517,12 @@ export function Composer(props: {
             <WorkspaceChips
               context={props.workspaceCtx ?? null}
               worktreePref={props.worktreePref ?? false}
+              svnFolderPref={props.svnFolderPref ?? false}
               onPickFolder={props.onWorkspacePickFolder}
               onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
               onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
+              onPickSvnBranch={props.onWorkspacePickSvnBranch ?? (() => {})}
+              onSvnFolderToggle={props.onSvnFolderToggle ?? (() => {})}
               opensUp={!props.isEmpty}
               locked={props.workspaceLocked ?? false}
             />

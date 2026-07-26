@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   branchChipVisible,
   folderChipLabel,
+  isSvnFolderCheckoutActive,
   isWorktreeBadgeActive,
   sortedBranches,
+  sortedSvnBranches,
+  svnBranchLabel,
+  svnChipVisible,
   worktreeForBranch,
   type WorkspaceContext,
 } from "./workspaceContext";
@@ -20,6 +24,22 @@ const gitCtx: WorkspaceContext = {
     { path: "/repos/foxxycode-agent", branch: "main", main: true },
     { path: "/home/.foxxycode/worktrees/foxxycode-agent/feature-login", branch: "feature/login", main: false },
   ],
+};
+
+// A branch folder checked out from SVN that also holds a git repository.
+const svnCtx: WorkspaceContext = {
+  ...gitCtx,
+  is_svn_repo: true,
+  svn: {
+    available: true,
+    wc_root: "/repos/foxxycode-agent",
+    url: "https://svn.example.test/repo/branches/feature-x",
+    relative_url: "^/branches/feature-x",
+    repository_root: "https://svn.example.test/repo",
+    revision: 42,
+    branch: "branches/feature-x",
+    branches: ["branches/release-1", "trunk", "branches/feature-x"],
+  },
 };
 
 describe("workspaceContext helpers", () => {
@@ -59,5 +79,49 @@ describe("workspaceContext helpers", () => {
     expect(isWorktreeBadgeActive(gitCtx, false)).toBe(false);
     expect(isWorktreeBadgeActive(gitCtx, true)).toBe(true);
     expect(isWorktreeBadgeActive({ ...gitCtx, is_worktree: true }, false)).toBe(true);
+  });
+
+  it("shows the svn chip only inside svn working copies", () => {
+    expect(svnChipVisible(null)).toBe(false);
+    expect(svnChipVisible(gitCtx)).toBe(false);
+    expect(svnChipVisible(svnCtx)).toBe(true);
+  });
+
+  it("keeps git and svn detection independent in a mixed workspace", () => {
+    // The same folder is a git repository and an svn branch folder.
+    expect(branchChipVisible(svnCtx)).toBe(true);
+    expect(svnChipVisible(svnCtx)).toBe(true);
+    expect(svnChipVisible({ ...gitCtx, is_git_repo: false, is_svn_repo: true })).toBe(
+      true,
+    );
+  });
+
+  it("labels the svn chip from the branch, falling back when the layout is unknown", () => {
+    expect(svnBranchLabel(svnCtx, "svn")).toBe("branches/feature-x");
+    expect(
+      svnBranchLabel({ ...svnCtx, svn: { available: true, branch: "" } }, "svn"),
+    ).toBe("svn");
+    expect(svnBranchLabel(null, "svn")).toBe("svn");
+  });
+
+  it("sorts svn branches with the current one first, then trunk", () => {
+    expect(sortedSvnBranches(svnCtx)).toEqual([
+      "branches/feature-x",
+      "trunk",
+      "branches/release-1",
+    ]);
+    expect(
+      sortedSvnBranches({
+        ...svnCtx,
+        svn: { ...svnCtx.svn!, branch: "trunk" },
+      }),
+    ).toEqual(["trunk", "branches/feature-x", "branches/release-1"]);
+  });
+
+  it("marks the svn branch-folder badge active from the preference", () => {
+    expect(isSvnFolderCheckoutActive(null, true)).toBe(false);
+    expect(isSvnFolderCheckoutActive(gitCtx, true)).toBe(false);
+    expect(isSvnFolderCheckoutActive(svnCtx, false)).toBe(false);
+    expect(isSvnFolderCheckoutActive(svnCtx, true)).toBe(true);
   });
 });

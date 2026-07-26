@@ -628,10 +628,12 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/workspace/context": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
+					"summary": "Workspace context for the composer chips (folder, git branch, worktree, svn branch)",
 					"description": "Describes the workspace of the session in **`X-FoxxyCode-Session-ID`** (or the server default cwd without the header). " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
-						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree.",
+						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. " +
+						"Subversion is detected independently of git, so a branch folder that also holds a git repository reports both: **`is_svn_repo`** plus an **`svn`** object with **`available`**, **`wc_root`**, **`url`**, **`relative_url`**, **`repository_root`**, **`revision`**, **`branch`** (`trunk`, `branches/<name>`), **`branches`** (when `vcs.svn.branch_lookup` is on), and **`nested`** (the working copy root sits above the folder). " +
+						"With **`vcs.svn.enabled: false`** or no svn client installed, **`is_svn_repo`** is false.",
 					"operationId": "foxxycodeWorkspaceContextGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -884,12 +886,15 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/sessions/{id}/workspace": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary": "Switch the session workspace folder, git branch, or worktree",
+					"summary": "Switch the session workspace folder, git branch, worktree, or svn branch",
 					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder (skills, project rules, and slash commands are re-derived; the new cwd persists in **session.json**). " +
 						"Body **`{\"branch\": b}`** checks the branch out in place; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
 						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created under **`<home>/worktrees/<repo>/`** on demand) and moves the session cwd into it. " +
+						"**`vcs`** selects the version control system: **`git`** (default) or **`svn`**. With **`{\"vcs\": \"svn\", \"branch\": b}`** the working copy is switched in place (`svn switch`); " +
+						"Subversion has no worktrees, so **`{\"vcs\": \"svn\", \"branch\": b, \"worktree\": true}`** checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** and moves the session cwd there. An existing checkout of that branch is reused. " +
 						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
-						"A missing folder or a branch switch outside a git repository yields **400**; git checkout/worktree failures yield **409**. The session is created on demand (draft flow). Responds with the fresh workspace context.",
+						"A missing folder or a branch switch outside the corresponding repository yields **400**; git checkout/worktree and svn switch/checkout failures yield **409**, as does an svn switch with **`vcs.svn.enabled: false`** or no svn client installed. " +
+						"The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "foxxycodeSessionWorkspacePost",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -908,6 +913,11 @@ func openAPISpec() map[string]interface{} {
 										"path":     map[string]string{"type": "string"},
 										"branch":   map[string]string{"type": "string"},
 										"worktree": map[string]string{"type": "boolean"},
+										"vcs": map[string]interface{}{
+											"type":        "string",
+											"enum":        []interface{}{"git", "svn"},
+											"description": "Version control system for a branch switch. Default git.",
+										},
 									},
 								},
 							},
@@ -2126,12 +2136,40 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"is_svn_repo": map[string]interface{}{
+							"type":        "boolean",
+							"description": "The folder is an svn working copy. Detected independently of git: a branch folder holding a git repository reports both.",
+						},
+						"svn": map[string]interface{}{
+							"type":        "object",
+							"description": "Subversion state; present whenever vcs.svn.enabled is on, with available:false when no client is installed. Absent when Subversion support is disabled.",
+							"properties": map[string]interface{}{
+								"available":       map[string]string{"type": "boolean"},
+								"wc_root":         map[string]string{"type": "string"},
+								"url":             map[string]string{"type": "string"},
+								"relative_url":    map[string]string{"type": "string"},
+								"repository_root": map[string]string{"type": "string"},
+								"revision":        map[string]string{"type": "integer"},
+								"branch": map[string]interface{}{
+									"type":        "string",
+									"description": "trunk, branches/<name>, or tags/<name>; empty for an unrecognised layout.",
+								},
+								"branches": map[string]interface{}{
+									"type":  "array",
+									"items": map[string]string{"type": "string"},
+								},
+								"nested": map[string]interface{}{
+									"type":        "boolean",
+									"description": "The folder itself is unversioned; the working copy root sits above it.",
+								},
+							},
+						},
 						"id": map[string]interface{}{
 							"type":        "string",
 							"description": "Session id (present on POST /foxxycode/sessions/{id}/workspace responses).",
 						},
 					},
-					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree"},
+					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree", "is_svn_repo"},
 				},
 			},
 		},

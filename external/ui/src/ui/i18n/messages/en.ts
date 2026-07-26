@@ -89,6 +89,11 @@ export const messagesEn: Record<string, string> = {
     "This session works in a dedicated worktree",
   "composer.workspace.worktreeToggleTitle":
     "Open branch switches in a dedicated worktree",
+  "composer.workspace.svnWorkingCopy": "svn",
+  "composer.workspace.svnNoBranches": "No svn branches",
+  "composer.workspace.svnFolder": "branch folder",
+  "composer.workspace.svnFolderToggleTitle":
+    "Check the branch out into its own folder instead of switching in place",
 
   "composer.folderModal.title": "Open folder",
   "composer.folderModal.close": "Close folder browser",

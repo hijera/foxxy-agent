@@ -730,6 +730,42 @@
           "default": 30
         }
       }
+    },
+    "vcs": {
+      "type": "object",
+      "title": "Version control",
+      "description": "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
+      "additionalProperties": false,
+      "properties": {
+        "svn": {
+          "type": "object",
+          "title": "Subversion",
+          "description": "Subversion support for SVN working copies and branch folders.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
+              "default": true
+            },
+            "binary": {
+              "type": "string",
+              "description": "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH.",
+              "default": ""
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Per-command timeout for svn invocations such as update, commit, and merge.",
+              "default": 120
+            },
+            "branch_lookup": {
+              "type": "boolean",
+              "description": "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.",
+              "default": true
+            }
+          }
+        }
+      }
     }
   }
 }
