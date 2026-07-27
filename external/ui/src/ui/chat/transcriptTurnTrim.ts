@@ -8,6 +8,23 @@ import type { TranscriptItem } from "./types";
  * (If the relay buffer overflowed, head-of-turn content reappears when the
  * turn ends and loadMessages reconciles from disk.)
  */
+/**
+ * Gate that applies {@link trimTranscriptForTurnReplay} to the FIRST live mutation
+ * only. Re-attaching to an in-flight turn must not empty the visible turn up front:
+ * when the relay never answers (turn already over, backend restarted) there is no
+ * replay to rebuild it, and the user would be left staring at a truncated chat.
+ */
+export function createTurnReplayTrimGate(): (
+  items: TranscriptItem[],
+) => TranscriptItem[] {
+  let trimmed = false;
+  return (items: TranscriptItem[]) => {
+    if (trimmed) return items;
+    trimmed = true;
+    return trimTranscriptForTurnReplay(items);
+  };
+}
+
 export function trimTranscriptForTurnReplay(
   items: TranscriptItem[],
 ): TranscriptItem[] {

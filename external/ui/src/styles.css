@@ -2460,6 +2460,24 @@ a.rail-brand {
   margin-bottom: 6px;
 }
 
+/* Neutral variant of the system row: a status note (e.g. "re-attached to the running
+   turn"), not a failure. Overrides the red family the base rules set up. */
+.msg-system.msg-system-info {
+  background: rgba(38, 40, 48, 0.55);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.msg-system-info .msg-system-label,
+.msg-system-info .msg-system-chevron,
+.msg-system-info .msg-system-preview,
+.msg-system-info .msg-system-time {
+  color: var(--muted);
+}
+
+.msg-system-info .msg-system-body {
+  color: var(--text);
+}
+
 /* Collapsible error disclosure (mirrors .thinking-details). */
 .msg-system-details {
   margin: 0;
@@ -7994,6 +8012,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-color: rgba(220, 38, 38, 0.2);
 }
 
+[data-theme="light"] .msg-system.msg-system-info {
+  background: rgba(244, 244, 247, 0.92);
+  border-color: rgba(24, 24, 27, 0.14);
+}
+
 [data-theme="light"] .msg-system-label {
   color: #b91c1c;
 }
@@ -8011,6 +8034,19 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
    timestamp on the light canvas; keep it a muted member of the error family. */
 [data-theme="light"] .msg-system-time {
   color: rgba(185, 28, 28, 0.6);
+}
+
+/* The light rules above are error-red and, sharing specificity with the neutral
+   .msg-system-info rules, would win by order - restate the info family here. */
+[data-theme="light"] .msg-system-info .msg-system-label,
+[data-theme="light"] .msg-system-info .msg-system-chevron,
+[data-theme="light"] .msg-system-info .msg-system-preview,
+[data-theme="light"] .msg-system-info .msg-system-time {
+  color: var(--muted);
+}
+
+[data-theme="light"] .msg-system-info .msg-system-body {
+  color: var(--text);
 }
 
 [data-theme="light"] .composer-wrap-docked .composer-card,

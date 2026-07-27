@@ -55,7 +55,11 @@ import {
   upsertPermissionPromptRecord,
 } from "./chat/permissionPromptSessionStore";
 import { permissionPromptInsertIndex } from "./chat/permissionPromptPlacement";
-import { trimTranscriptForTurnReplay } from "./chat/transcriptTurnTrim";
+import { createTurnReplayTrimGate } from "./chat/transcriptTurnTrim";
+import {
+  isNoLiveTurnRelayError,
+  parseSessionBusyResponse,
+} from "./chat/liveTurnRecovery";
 import {
   parseToolsPermissionPolicy,
   type ToolsPermissionPolicy,
@@ -2871,12 +2875,15 @@ export function App() {
               setSessionLoading(false);
             }
           }
-          if (
-            loaded &&
-            sess?.turnActive &&
-            !activeComposerSidRef.current.has(sessionId)
-          ) {
-            void rejoinComposerLiveStream(sessionId, loaded);
+          if (loaded && !activeComposerSidRef.current.has(sessionId)) {
+            if (sess?.turnActive) {
+              void rejoinComposerLiveStream(sessionId, loaded);
+            } else {
+              // The list row is only the fast path: it is one page deep (limit 30,
+              // project-scoped) and a moment stale. Ask the session itself, so a turn
+              // still running after a webview reload is never missed.
+              void reconnectLiveStreamIfActive(sessionId);
+            }
           }
         }
       } else {
@@ -2895,6 +2902,11 @@ export function App() {
         // with an empty shadow (first send, before the first token) must not leave
         // the loading state stuck — the stream fills the transcript as it arrives.
         setSessionLoading(false);
+        // Missing from the History page does not mean idle (project scope, paging,
+        // a snapshot written moments ago): a running turn is still worth re-joining.
+        if (!activeComposerSidRef.current.has(sessionId)) {
+          void reconnectLiveStreamIfActive(sessionId);
+        }
       }
     })();
     return () => {
@@ -3137,18 +3149,31 @@ export function App() {
     addActiveComposer(key);
     const assistantId = newId("a");
     streamingAssistantBySidRef.current.set(key, assistantId);
-    // The relay replays the in-flight turn's SSE from the start, so drop any
-    // partial turn output already loaded from disk — the replay rebuilds it in
-    // emission order (otherwise the turn's text would render twice).
-    const replayBase = trimTranscriptForTurnReplay(baseline);
-    streamShadowBySidRef.current.set(key, [...replayBase]);
+    streamShadowBySidRef.current.set(key, [...baseline]);
     if (viewedSessionIdRef.current.trim() === key) {
-      setItems([...replayBase]);
+      setItems([...baseline]);
     }
 
+    // The relay replays the in-flight turn's SSE from the start, so the partial turn
+    // output loaded from disk has to go — otherwise the turn's text renders twice.
+    // The gate trims on the FIRST relay byte, not up front: when no relay answers
+    // (turn already over, backend restarted) the transcript must stay as the user
+    // left it instead of being emptied by a replay that never arrives.
+    const trimOnFirstReplayByte = createTurnReplayTrimGate();
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
-    ) => applyStreamItemsForSession(key, fn);
+    ) =>
+      applyStreamItemsForSession(key, (prev) =>
+        fn(trimOnFirstReplayByte(prev)),
+      );
+
+    // Give up on the live stream and let the disk poller show the turn's progress.
+    // (The finally block below clears the abort controller and reconciles.)
+    const fallBackToDisk = () => {
+      streamingAssistantBySidRef.current.delete(key);
+      removeActiveComposer(key);
+      startDiskFallbackPoll(key);
+    };
 
     const branchTokenUsage = (u: TokenUsage | null) => {
       if (u === null) return;
@@ -3171,6 +3196,9 @@ export function App() {
         { headers: { [HDR]: key }, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
+        // No relay to attach to (auth, restart, session gone). Keep the transcript
+        // and let the poller reveal the turn's progress if it is still running.
+        fallBackToDisk();
         return;
       }
       const reader = res.body.getReader();
@@ -3242,6 +3270,16 @@ export function App() {
         }
       };
 
+      if (isNoLiveTurnRelayError(streamErrorMessage)) {
+        // The relay has nothing to attach to. That is a state, not a failure: the
+        // turn may have finished while we reconnected, or it runs somewhere this
+        // process cannot see. Reconcile from disk and keep watching if it is live.
+        flushToolQueue();
+        finishThinking();
+        fallBackToDisk();
+        return;
+      }
+
       if (streamErrorMessage) {
         flushToolQueue();
         finishThinking();
@@ -3272,11 +3310,13 @@ export function App() {
 
       if (endedWithoutDone) {
         // Relay was cut before [DONE]; the turn is likely still running. Schedule
-        // another re-attach and leave the transcript as-is for now.
+        // another re-attach and leave the transcript as-is for now. Poll the
+        // persisted rows meanwhile so progress shows even if every retry fails.
         flushToolQueue();
         finishThinking();
         reconcileOnExit = false;
         scheduleLiveStreamReconnect(key);
+        startDiskFallbackPoll(key);
         return;
       }
       liveReconnectAttemptsRef.current.delete(key);
@@ -3487,31 +3527,46 @@ export function App() {
       });
 
       if (res.status === 409) {
-        let msg = t("app.chatBusy");
+        let parsedBody: unknown = null;
         try {
-          const body = (await res.json()) as {
-            error?: { message?: string };
-          };
-          const m = body?.error?.message;
-          if (typeof m === "string" && m.trim()) {
-            msg = m.trim();
-          }
+          parsedBody = await res.json();
         } catch {
           // ignore
         }
+        const busy = parseSessionBusyResponse(res.status, parsedBody);
+        const serverMsg = busy.message.trim();
+        const busySid = (busy.sessionId || postSessionKey).trim();
+
+        // The turn that owns this chat is still running server-side (typically a
+        // long request the user reloaded away from). Nothing was accepted, so put
+        // the text back in the composer, drop the optimistic row, and open the
+        // running turn instead of leaving a dead-end error behind.
         applyStreamItems((prev) => [
-          ...prev,
+          ...prev.filter((it) => it.id !== userItem.id),
           {
             id: newId("s"),
             type: "system_notice",
-            level: "error" as const,
-            message: msg,
+            level: busy.busy ? ("info" as const) : ("error" as const),
+            message: busy.busy
+              ? t("app.chatBusyReattached")
+              : serverMsg || t("app.chatBusy"),
             createdAtUtc: new Date().toISOString(),
           },
         ]);
         postAbortBySidRef.current.delete(postSessionKey);
         streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
+        if (busy.busy) {
+          setDraft(text);
+          if (busySid && viewedSessionIdRef.current.trim() !== busySid) {
+            openSessionFromRoute(busySid);
+          }
+          // Detached: the finally block below still has to release this send's
+          // composer state before the re-attach can claim it.
+          void Promise.resolve().then(() =>
+            reconnectLiveStreamIfActive(busySid, { reconcileIfDone: true }),
+          );
+        }
         return;
       }
 

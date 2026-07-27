@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { trimTranscriptForTurnReplay } from "./transcriptTurnTrim";
+import {
+  createTurnReplayTrimGate,
+  trimTranscriptForTurnReplay,
+} from "./transcriptTurnTrim";
 import type { TranscriptItem } from "./types";
 
 const user = (id: string): TranscriptItem => ({
@@ -60,5 +63,22 @@ describe("trimTranscriptForTurnReplay", () => {
     const items = [user("u1"), assistant("a1"), user("u2")];
     const out = trimTranscriptForTurnReplay(items);
     expect(out.map((x) => x.id)).toEqual(["u1", "a1", "u2"]);
+  });
+});
+
+describe("createTurnReplayTrimGate", () => {
+  const inFlight = [user("u1"), assistant("a1"), tool("t1")];
+
+  it("trims the first mutation and passes later ones through", () => {
+    const gate = createTurnReplayTrimGate();
+    expect(gate(inFlight).map((x) => x.id)).toEqual(["u1"]);
+    // The replay has taken over; its own rows must survive untouched.
+    const replayed = [user("u1"), assistant("a2"), tool("t2")];
+    expect(gate(replayed).map((x) => x.id)).toEqual(["u1", "a2", "t2"]);
+  });
+
+  it("leaves the transcript alone when the relay never sends anything", () => {
+    createTurnReplayTrimGate();
+    expect(inFlight.map((x) => x.id)).toEqual(["u1", "a1", "t1"]);
   });
 });

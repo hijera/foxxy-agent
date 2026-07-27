@@ -46,6 +46,14 @@ func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Waiting only pays off while a turn is actually running and its relay has not
+	// registered yet. With no turn in flight the client (SPA re-attach after a webview
+	// reload) must hear that immediately so it can fall back to the persisted transcript.
+	if s.peekComposerRelay(id) == nil && !s.sessionTurnActive(id) {
+		writeComposerStreamError(w, fl)
+		return
+	}
+
 	deadline := time.NewTimer(composerStreamWaitDeadline)
 	defer deadline.Stop()
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -61,16 +69,38 @@ func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.R
 			}
 			return
 		}
+		if !s.sessionTurnActive(id) {
+			writeComposerStreamError(w, fl)
+			return
+		}
 		select {
 		case <-r.Context().Done():
 			return
 		case <-deadline.C:
-			_, _ = io.WriteString(w, "event: error\ndata: {\"message\":\"no active composer stream\"}\n\n")
-			fl.Flush()
+			writeComposerStreamError(w, fl)
 			return
 		case <-ticker.C:
 			_, _ = io.WriteString(w, ": composer stream pending\n\n")
 			fl.Flush()
 		}
 	}
+}
+
+// sessionTurnActive mirrors the turnActive flag of GET /foxxycode/sessions/{id}/activity.
+func (s *Server) sessionTurnActive(id string) bool {
+	if s.mgr.SessionTurnActiveInProcess(id) {
+		return true
+	}
+	fs := s.mgr.FileStore()
+	if fs == nil || fs.Root == "" {
+		return false
+	}
+	return session.TurnLockHeld(fs.SessionPath(id))
+}
+
+// writeComposerStreamError reports "no relay to attach to" in the OpenAI error shape the
+// SPA's stream reader understands; a bare {"message":...} reads to it as a dropped stream.
+func writeComposerStreamError(w http.ResponseWriter, fl http.Flusher) {
+	_, _ = io.WriteString(w, "event: error\ndata: {\"error\":{\"message\":\"no active composer stream\"}}\n\n")
+	fl.Flush()
 }

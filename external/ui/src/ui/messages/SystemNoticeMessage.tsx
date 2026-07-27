@@ -17,7 +17,7 @@ function firstLine(message: string): string {
 }
 
 export function SystemNoticeMessage(props: {
-  level: "error";
+  level: "error" | "info";
   message: string;
   createdAtUtc?: string;
 }) {
@@ -36,7 +36,10 @@ export function SystemNoticeMessage(props: {
   const preview = firstLine(message);
   return (
     <div className="msg-system-stack">
-      <div className={`msg msg-system msg-system-${props.level}`} role="alert">
+      <div
+        className={`msg msg-system msg-system-${props.level}`}
+        role={props.level === "error" ? "alert" : "status"}
+      >
         {/* Collapsed by default: the full (often long) error body is behind a disclosure so it
             can be read on demand without flooding the chat. */}
         <details className="msg-system-details">
