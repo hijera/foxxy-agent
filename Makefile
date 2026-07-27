@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon test lint clean install print-version intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
+.PHONY: build build-acp build-desktop icon test lint clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -117,6 +117,13 @@ clean:
 # Run the linter (requires golangci-lint).
 lint:
 	golangci-lint run ./...
+
+# Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
+# Bypass a single commit with: git commit --no-verify
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Enabled .githooks — 'git commit' now runs the linter (scripts/checks.sh)."
+	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full; skip lint with FOXXYCODE_HOOK_LINT=0; bypass once with --no-verify."
 
 # ---- Editor plugins ----
 # Build the JetBrains plugin from the repo root. Requires Go, Node/npm, and a JDK 17 on PATH.

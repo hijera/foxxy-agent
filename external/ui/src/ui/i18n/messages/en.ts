@@ -429,6 +429,12 @@ export const messagesEn: Record<string, string> = {
   "messages.copyErrorMessage": "Copy error message",
   "messages.systemLabel": "System",
   "messages.systemToggleAriaLabel": "Show error details",
+  "messages.loopGuardStream":
+    "Stopped: the model kept repeating the same output instead of finishing the task.",
+  "messages.loopGuardReasoning":
+    "Stopped: the model kept repeating the same reasoning without reaching an answer.",
+  "messages.loopGuardTool":
+    "Stopped: the model kept requesting the same {tool} call with identical arguments.",
   "messages.thinkingInProgress": "thinking...",
   "messages.thinkingCompleted": "thinking",
   "messages.thinkingSummaryAriaLabel": "Thinking summary",

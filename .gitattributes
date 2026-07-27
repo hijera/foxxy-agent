@@ -1,0 +1,6 @@
+# Shell scripts must keep LF endings. This fork is developed on Windows, where
+# core.autocrlf=true would otherwise rewrite them on checkout — and a CRLF
+# shebang line breaks the interpreter, including the bash that Git for Windows
+# uses to run hooks.
+*.sh text eol=lf
+.githooks/* text eol=lf

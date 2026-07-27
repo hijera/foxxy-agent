@@ -3,6 +3,7 @@ import {
   formatUtcToLocalHM,
 } from "./formatMessageTime";
 import { useT } from "../i18n/I18nProvider";
+import { localizeLoopGuardNotice } from "../chat/loopGuardNotice";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 
 /** First non-empty line of the message, used as the collapsed preview. */
@@ -28,7 +29,10 @@ export function SystemNoticeMessage(props: {
     props.createdAtUtc && timeHM
       ? formatUtcToLocalFullDetail(props.createdAtUtc)
       : "";
-  const message = props.message ?? "";
+  // Loop-guard stops arrive as an English backend error; show (and copy) the
+  // localized wording instead. Every other error renders verbatim.
+  const raw = props.message ?? "";
+  const message = localizeLoopGuardNotice(raw, t) ?? raw;
   const preview = firstLine(message);
   return (
     <div className="msg-system-stack">
@@ -51,7 +55,7 @@ export function SystemNoticeMessage(props: {
       </div>
       <div className="msg-system-foot">
         <MessageCopyIconButton
-          textToCopy={props.message}
+          textToCopy={message}
           tooltip={t("messages.copyMessage")}
           ariaLabel={t("messages.copyErrorMessage")}
           dataTestId="system-message-copy"

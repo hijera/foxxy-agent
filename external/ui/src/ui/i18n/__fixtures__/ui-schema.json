@@ -24,6 +24,30 @@
           "title": "LLM retry max",
           "type": "integer"
         },
+        "loop_guard": {
+          "default": true,
+          "description": "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "title": "Loop guard",
+          "type": "boolean"
+        },
+        "loop_nudge_max": {
+          "default": 2,
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it.",
+          "title": "Loop nudge max",
+          "type": "integer"
+        },
+        "loop_stream_repeat_cycles": {
+          "default": 5,
+          "description": "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
+          "title": "Loop stream repeat cycles",
+          "type": "integer"
+        },
+        "loop_tool_repeat_limit": {
+          "default": 3,
+          "description": "Consecutive identical tool calls before the loop guard steps in (0 disables the check).",
+          "title": "Loop tool repeat limit",
+          "type": "integer"
+        },
         "max_tokens_per_turn": {
           "default": 200000,
           "description": "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
@@ -51,7 +75,11 @@
         "max_tokens_per_turn",
         "llm_retry_max",
         "llm_retry_base_ms",
-        "llm_min_interval_ms"
+        "llm_min_interval_ms",
+        "loop_guard",
+        "loop_tool_repeat_limit",
+        "loop_stream_repeat_cycles",
+        "loop_nudge_max"
       ]
     },
     "browser": {

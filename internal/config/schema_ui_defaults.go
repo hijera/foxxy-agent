@@ -13,6 +13,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	browserHeadless := true
 	svnEnabled := true
 	svnBranchLookup := true
+	loopGuard := true
+	loopToolRepeatLimit := AgentDefaultLoopToolRepeatLimit
+	loopStreamRepeatCycles := AgentDefaultLoopStreamRepeatCycles
+	loopNudgeMax := AgentDefaultLoopNudgeMax
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
 			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
@@ -26,11 +30,15 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			},
 		},
 		Agent: AgentJSON{
-			Model:            "openai/gpt-4o",
-			MaxTurns:         AgentDefaultMaxTurns,
-			MaxTokensPerTurn: AgentDefaultMaxTokensPerTurn,
-			LLMRetryMax:      AgentDefaultLLMRetryMax,
-			LLMRetryBaseMS:   AgentDefaultLLMRetryBaseMS,
+			Model:                  "openai/gpt-4o",
+			MaxTurns:               AgentDefaultMaxTurns,
+			MaxTokensPerTurn:       AgentDefaultMaxTokensPerTurn,
+			LLMRetryMax:            AgentDefaultLLMRetryMax,
+			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
+			LoopGuard:              &loopGuard,
+			LoopToolRepeatLimit:    &loopToolRepeatLimit,
+			LoopStreamRepeatCycles: &loopStreamRepeatCycles,
+			LoopNudgeMax:           &loopNudgeMax,
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",

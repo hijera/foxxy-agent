@@ -196,14 +196,119 @@ LLM-окном на **обоих** движках) и `features/context_compacti
 
 ---
 
+## Волна `19754e8 → 96c04fb` (тег `0.9.44`) — ГОТОВО
+
+5 не-merge коммитов (2026-07-25…26), 38 файлов. Портированы четырьмя коммитами.
+Разведка перед портом показала, что база почти не разошлась: `internal/rules/{agents,select,list}.go`
+**побайтово совпадали** с upstream на `19754e8`, сигнатуры `buildSystemPrompt`/`buildMessages`
+идентичны, места патча в `.github/workflows/*` совпадали построчно.
+
+### Коммит 1 — Loop guard (upstream `875bade`, наш `3c12ebd`)
+
+Защита от зацикливания ReAct-турна. `internal/agent/loopguard.go` (портирован 1:1):
+`streamRepeatDetector` следит за одним потоковым каналом (текст ответа или reasoning) по
+скользящему нормализованному окну и срабатывает, когда хвост — это один и тот же фрагмент,
+повторённый подряд; `toolRepeatDetector` считает подряд идущие одинаковые вызовы инструмента
+по ключу «имя + канонизированные аргументы». При срабатывании повтор **вырезается** из
+сохранённого сообщения ассистента (иначе `buildMessages` вернёт его модели и пересеет цикл).
+Политика — nudge-then-stop: до `agent.loop_nudge_max` подсказок, затем `StopReasonRefused`.
+Конфиг (секция `agent`, всё с дефолтами): `loop_guard`, `loop_tool_repeat_limit`,
+`loop_stream_repeat_cycles`, `loop_nudge_max` — плюс полная обвязка jsondto/ui_schema/
+schema_ui_defaults/`docs/config.schema.json`/`config-reference`/`config.md`/`config.example.yaml`/
+`react-agent.md`/`architecture.md`/`README.md`.
+
+**Расхождения с upstream (осознанные):**
+- **Стрим-колбэк.** В форке текстовая ветка раздвоена (`else if chunk.TextDelta != ""` —
+  whitespace-дельты не закрывают reasoning-часы). Проверка детектора вставлена **перед** обеими
+  ветками, а срабатывающая дельта переиспускается с форковым правилом `markReasonEnd`
+  (`strings.TrimSpace(delta) != ""`), а не безусловным `true`, как в upstream.
+- **jsondto / schema_ui_defaults.** В форке нет upstream-хелперов `cloneBoolPtr`/`cloneIntPtr`/
+  `boolPtr`/`intPtr`; следуем форковой конвенции — прямое копирование указателей (как
+  `Compaction.KeepRecentTurns`) и локальные переменные + `&x`.
+- **`NewAgent` вернул upstream-гард `if log == nil { log = slog.Default() }`.** Форк его потерял,
+  из-за чего новые `a.log.Warn` паниковали на nil-логгере в тестах. Это чинит и **предсуществующие**
+  nil-падения форка: `compact.go:218`, `context_usage.go:47`, `memory_hooks.go:78` дерефают
+  `a.log` без проверки.
+- **i18n:** текст остановки локализован в SPA — `chat/loopGuardNotice.ts` (матчинг по тексту
+  бэкенда, тот же приём, что в `chat/compactionSummary.ts`) + ключи `messages.loopGuard*` в
+  `en.ts`/`ru.ts`, подключено в `messages/SystemNoticeMessage.tsx` (локализованный текст идёт и в
+  кнопку «копировать»). Бэкенд-строки остаются английскими: они же попадают в поле `error`
+  HTTP/ACP-ответа. Строки config-схемы переведены в `schema.ru.ts`, фикстура `ui-schema.json`
+  перегенерирована.
+
+**Тесты:** `features/loop_protection.feature` (3 сценария — вырождение текста, вырождение
+reasoning, повтор тулкола — против настоящего `Agent.Run` с фейковым провайдером),
+`loopguard_test.go`, три кейса в `react_test.go` (исчерпание бюджета подсказок, выключенный
+гард, различающиеся аргументы тулкола), `loopGuardNotice.test.ts`.
+
+### Коммит 2 — Directory-scoped nested `AGENTS.md` (upstream `692a246`, наш `5d103cf`)
+
+`AgentsProvider` делал из каждого вложенного `AGENTS.md` always-applied auto-правило без глобов,
+поэтому `MatchAuto` пускал их все на первом же ходу. Теперь у каждого — свой `Rule.ScopeDir`
+(новый `internal/rules/scope.go`: `PathUnderDir`/`PathsUnderDir`/`MatchScoped`), и тело попадает
+в промпт только когда fs-тулкол или `file://`-путь целится в этот каталог или ниже; дальше
+залипает на сессию. `run_command` не активирует ничего. Плюс кап 256 КБ на тело (как
+`LoadProjectDocs`), колонка `GLOBS` → `ACTIVATES ON` в `foxxycode rules list`, фикс
+`file:///C:/…` в `extractContextFiles` (Windows-путь `/C:/…` не матчился ни с одним scope и глобом).
+
+**Форк-специфика:** хук `activateScopedRulesForToolCall` стоит в начале `executeToolCall` —
+эта точка покрывает **и** ReAct-цикл, **и** форковый resume-after-permission
+(`resume_permission.go:52` идёт через тот же `executeToolCall`). Активированное множество
+пишется в `SetActiveAutoRules`, откуда его подхватывает форковый `buildRulesPromptMarkdown`
+(`internal/agent/rules_prompt.go`) — правок в самом `rules_prompt.go` не потребовалось.
+`docs/rules.md` не заменён блоком upstream (файл разошёлся: `.foxxyrules`, свои источники) —
+внесены только смысловые правки.
+
+**Тесты:** `features/agents_md_scoping.feature` (**проверен «наоборот»**: с `ScopeDir: ""`
+сценарий падает на шаге «первый запрос несёт корневой AGENTS.md, но ни одного вложенного»),
+`internal/rules/scope_test.go`, `internal/tools/fs/toolpaths_test.go`,
+`internal/agent/rules_activation_test.go`, кап-кейс в `rules_test.go`.
+
+### Коммит 3 — pre-commit-гейт (upstream `1570a19` + `b9dd5cb`, наш `9f9b476`)
+
+`.githooks/pre-commit` → `scripts/checks.sh`; `make hooks` включает его один раз на клон.
+По умолчанию только `make lint`; docs-only коммиты гейт пропускают.
+
+**Форк-специфика:** переменные `CODDY_HOOK_*` → **`FOXXYCODE_HOOK_*`** (`LINT`/`TESTS`/`SKIP`).
+Добавлен **`.gitattributes`** с `*.sh text eol=lf` и `.githooks/* text eol=lf`: форк разрабатывается
+на Windows с `core.autocrlf=true`, который иначе переписал бы оба скрипта в CRLF при checkout и
+сломал строку shebang. Exec-биты выставлены явно (`git update-index --chmod=+x`) — Windows не
+сообщает filemode. В `AGENTS.md` отмечено, что `FOXXYCODE_HOOK_TESTS=full` идёт через `make test`,
+чей шаг `ui-build` на этой машине падает, поэтому практический opt-in — `fast`.
+
+**Проверено:** хук прогнан на обоих состояниях индекса (docs-only пропускает гейт; staged
+Makefile/скрипт запускает `make lint` — 0 issues); ручки `checks.sh` проверены напрямую
+(skip, lint off, неизвестное `TESTS` → выход 2).
+
+### Коммит 4 — фикс GitHub Actions (upstream `0191068`) + этот файл
+
+`allow-unsafe-pr-checkout: true` в `actions/checkout` трёх workflow (`docker-build-push`,
+`release-binaries`, `tag-on-merge`) — под `pull_request_target` checkout иначе отказывается брать
+tag, производный от форка. Патч применился как есть; гейты безопасности, на которые ссылаются
+комментарии (шаг «Ensure tag is on main», условие `merged == true`), в форке присутствуют.
+
+---
+
 ## Последняя синхронизация
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-07-26 |
+| **Синхронизировано до `upstream/main`** | `96c04fb` (2026-07-26) |
+| **Ближайший upstream-тег** | `0.9.44` |
+| **Наш коммит-порт** | `3c12ebd` (loop guard), `5d103cf` (AGENTS.md scoping), `9f9b476` (pre-commit gate), этот коммит (CI + UPSTREAM_SYNC) — ветка `claude/port-coddy-agent-commits-abeef1` |
+| **Отложенные follow-up** | четыре PNG `docs/assets/screenshot-tool-previews*.png` — перенесены из прошлой волны, см. её раздел |
+
+---
+
+## Предыдущая синхронизация (`6666606 → 19754e8`)
 
 | Поле | Значение |
 | --- | --- |
 | **Дата** | 2026-07-25 |
 | **Синхронизировано до `upstream/main`** | `19754e8` (2026-07-24) |
 | **Ближайший upstream-тег** | `0.9.43` |
-| **Наш коммит-порт** | `323ba32` (волна A: `usage_update`), следующий коммит (волна B: tool previews) — ветка `claude/sync-foxxy-coddy-agents-c89f5c` |
+| **Наш коммит-порт** | `323ba32` (волна A: `usage_update`) + волна B (tool previews) — ветка `claude/sync-foxxy-coddy-agents-c89f5c` |
 | **Отложенные follow-up** | четыре PNG `docs/assets/screenshot-tool-previews*.png` (см. выше) |
 
 ---
@@ -270,7 +375,7 @@ LLM-окном на **обоих** движках) и `features/context_compacti
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 19754e8..upstream/main` — список кандидатов.
+2. `git log --oneline --no-merges 96c04fb..upstream/main` — список кандидатов.
 3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
 4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
 5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.
