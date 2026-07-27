@@ -107,7 +107,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": sessionBusyResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -155,7 +155,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": sessionBusyResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -962,7 +962,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** and payload `{\"error\":{\"message\":\"no active composer stream\"}}` instead of waiting. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1713,7 +1713,10 @@ func openAPISpec() map[string]interface{} {
 						"error": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"message": map[string]string{"type": "string"},
+								"message":    map[string]string{"type": "string"},
+								"code":       map[string]string{"type": "string", "description": "Machine-readable error kind when the server has one; `session_busy` for a 409 raised by a live agent turn."},
+								"sessionId":  map[string]string{"type": "string", "description": "Session the error refers to (sent with `session_busy`)."},
+								"turnActive": map[string]string{"type": "boolean", "description": "True when the named session has an agent turn in flight (sent with `session_busy`)."},
 							},
 						},
 					},
@@ -2177,6 +2180,15 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
 	return doc
+}
+
+// sessionBusyResponseRef documents the 409 raised while another agent turn holds the
+// session: the body carries `code: session_busy` plus `sessionId`/`turnActive` so a client
+// can re-attach to the running turn via GET /foxxycode/sessions/{id}/composer-stream.
+func sessionBusyResponseRef() map[string]interface{} {
+	out := errorResponseRef()
+	out["description"] = "Session busy - another agent turn is in progress. `error.code` is `session_busy`, `error.sessionId` names the busy session, `error.turnActive` is true. Streaming requests wait up to 3s for the lock first, so a send issued right after `POST /foxxycode/sessions/{id}/cancel` succeeds while the cancelled turn unwinds."
+	return out
 }
 
 func errorResponseRef() map[string]interface{} {

@@ -82,7 +82,8 @@ export type TranscriptItem =
   | {
       id: string;
       type: "system_notice";
-      level: "error";
+      /** "info" is a neutral status row (e.g. re-attached to a running turn). */
+      level: "error" | "info";
       message: string;
       createdAtUtc?: string;
     }

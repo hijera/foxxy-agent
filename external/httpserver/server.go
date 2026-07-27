@@ -333,10 +333,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		if req.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sessionID, st)
+			unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sessionID, st, composerTurnLockWait)
 			if lockErr != nil {
 				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+					writeSessionBusy(w, sessionID, sessionBusyMessage)
 					return
 				}
 				s.log.Error("session turn lock", "error", lockErr)
@@ -366,17 +366,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}, bridge, promptOpts); err != nil {
 			s.log.Error("session prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !req.Stream {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+				writeSessionBusy(w, sessionID, sessionBusyMessage)
 				return
 			}
 			if req.Stream {
 				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 			} else {
-				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) {
-					code = http.StatusConflict
-				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -464,6 +460,35 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// sessionBusyMessage is the human-readable half of every session-busy conflict.
+const sessionBusyMessage = "session busy: another agent turn is in progress"
+
+// composerTurnLockWait is how long a streaming composer POST waits for the previous turn
+// to release the session before reporting it busy. Sized for the Stop-then-resend case
+// (a cancelled turn still persists and diffs the workspace on its way out), not for
+// queueing behind a turn that is genuinely still working.
+const composerTurnLockWait = 3 * time.Second
+
+// writeSessionBusy answers a 409 with a machine-readable body so clients can react to a
+// live turn (re-attach to it) instead of only surfacing the message text. sessionID may be
+// empty when the handler does not know it.
+func writeSessionBusy(w http.ResponseWriter, sessionID, message string) {
+	if strings.TrimSpace(message) == "" {
+		message = sessionBusyMessage
+	}
+	errBody := map[string]interface{}{
+		"message":    message,
+		"code":       "session_busy",
+		"turnActive": true,
+	}
+	if id := strings.TrimSpace(sessionID); id != "" {
+		errBody["sessionId"] = id
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": errBody})
 }
 
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
@@ -678,10 +703,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 
 		var bridge *Sender
 		if body.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sid, st)
+			unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sid, st, composerTurnLockWait)
 			if lockErr != nil {
 				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+					writeSessionBusy(w, sid, sessionBusyMessage)
 					return
 				}
 				s.log.Error("session turn lock", "error", lockErr)
@@ -718,17 +743,13 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts); err != nil {
 			s.log.Error("responses prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+				writeSessionBusy(w, sid, sessionBusyMessage)
 				return
 			}
 			if body.Stream {
 				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 			} else {
-				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) {
-					code = http.StatusConflict
-				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
 			return
 		}

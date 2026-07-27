@@ -305,7 +305,7 @@ func (s *Server) foxxycodePlanHTTPError(w http.ResponseWriter, err error) {
 	case errors.Is(err, plans.ErrInvalidSlug):
 		http.Error(w, `{"error":{"message":"invalid plan slug"}}`, http.StatusBadRequest)
 	case errors.Is(err, session.ErrSessionTurnBusy):
-		http.Error(w, `{"error":{"message":"session busy"}}`, http.StatusConflict)
+		writeSessionBusy(w, "", "session busy")
 	default:
 		s.log.Error("design plan", "error", err)
 		http.Error(w, `{"error":{"message":"request failed"}}`, http.StatusInternalServerError)

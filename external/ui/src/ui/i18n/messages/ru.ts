@@ -557,6 +557,8 @@ export const messagesRu: Record<string, string> = {
   "app.confirmDeleteChat": "Удалить чат",
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
+  "app.chatBusyReattached":
+    "Этот чат ещё выполняет прошлый запрос — открываю его. Сообщение вернулось в поле ввода, отправьте его, когда запрос завершится.",
   "app.emptyResponseBody": "Пустое тело ответа",
   "app.requestFailed": "Ошибка запроса",
   "app.requestFailedWithStatus": "Ошибка запроса ({status})",
