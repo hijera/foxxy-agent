@@ -4,6 +4,7 @@ import {
   buildPermissionToolPreview,
   buildToolCallPreview,
   permissionPromptToolName,
+  toolCallTargetText,
 } from "./permissionToolPreview";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 
@@ -187,4 +188,37 @@ test("builds readable transcript previews for read-only Coddy tools", () => {
     kind: "code",
     text: "permission-preview",
   });
+});
+
+test("toolCallTargetText picks the identifying argument per tool", () => {
+  expect(
+    toolCallTargetText({
+      title: "run_command",
+      argsText: '{"command":"npm test"}',
+    }),
+  ).toBe("npm test");
+  expect(
+    toolCallTargetText({
+      title: "write",
+      argsText: '{"path":"a/b.ts","content":"body"}',
+    }),
+  ).toBe("a/b.ts");
+  expect(
+    toolCallTargetText({ title: "mv", argsText: '{"src":"a","dst":"b"}' }),
+  ).toBe("a");
+  expect(
+    toolCallTargetText({ title: "grep", argsText: '{"pattern":"TODO"}' }),
+  ).toBe("TODO");
+  expect(
+    toolCallTargetText({ title: "webfetch", argsText: '{"url":"https://x"}' }),
+  ).toBe("https://x");
+});
+
+test("toolCallTargetText returns empty without usable arguments", () => {
+  expect(toolCallTargetText({ title: "read" })).toBe("");
+  expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
+  expect(toolCallTargetText({ title: "read", argsText: "{}" })).toBe("");
+  expect(
+    toolCallTargetText({ title: "question", argsText: '{"path":"a.ts"}' }),
+  ).toBe("");
 });

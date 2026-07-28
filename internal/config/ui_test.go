@@ -57,6 +57,43 @@ func TestUIConfigSendModeDefault(t *testing.T) {
 	}
 }
 
+func TestUIConfigStatusLineDefault(t *testing.T) {
+	var u UIConfig
+	if !u.IsStatusLineEnabled() {
+		t.Fatal("unset status_line should default to enabled")
+	}
+	off := false
+	u.StatusLine = &off
+	if u.IsStatusLineEnabled() {
+		t.Fatal("status_line=false should disable the status line")
+	}
+	on := true
+	u.StatusLine = &on
+	if !u.IsStatusLineEnabled() {
+		t.Fatal("status_line=true should enable the status line")
+	}
+}
+
+func TestConfigJSONRoundTripUIStatusLine(t *testing.T) {
+	paths := Paths{Home: t.TempDir(), CWD: t.TempDir()}
+	off := false
+	j := ConfigJSON{UI: UIJSON{StatusLine: &off}}
+	cfg := JSONDTOToConfig(&j, paths)
+	if cfg.UI.StatusLine == nil || *cfg.UI.StatusLine {
+		t.Fatalf("got status_line %v", cfg.UI.StatusLine)
+	}
+	out := ConfigToJSONDTO(cfg)
+	if out.UI.StatusLine == nil || *out.UI.StatusLine {
+		t.Fatalf("dto status_line %v", out.UI.StatusLine)
+	}
+
+	// An absent key must round-trip as absent, not as an explicit false.
+	empty := ConfigJSON{}
+	if got := ConfigToJSONDTO(JSONDTOToConfig(&empty, paths)).UI.StatusLine; got != nil {
+		t.Fatalf("absent status_line should stay nil, got %v", *got)
+	}
+}
+
 func TestConfigJSONRoundTripUILocale(t *testing.T) {
 	paths := Paths{Home: t.TempDir(), CWD: t.TempDir()}
 	j := ConfigJSON{UI: UIJSON{Locale: "ru", SendMode: "ctrl_enter"}}

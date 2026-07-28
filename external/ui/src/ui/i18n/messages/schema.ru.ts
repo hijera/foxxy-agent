@@ -370,6 +370,9 @@ export const schemaTextRu: Record<string, string> = {
   "Sending messages": "Отправка сообщений",
   'How the main chat composer submits a message. "enter": Enter sends (Shift/Ctrl+Enter insert a newline). "ctrl_enter": Ctrl/Cmd+Enter sends (Enter inserts a newline). "off": disable keyboard send (Send button only).':
     "Как основное окно чата отправляет сообщение. «enter»: отправка по Enter (Shift/Ctrl+Enter — перенос строки). «ctrl_enter»: отправка по Ctrl/Cmd+Enter (Enter — перенос строки). «off»: отправка с клавиатуры отключена (только кнопкой «Отправить»).",
+  "Status line": "Строка статуса",
+  "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.":
+    "Показывать рядом с анимированными точками строку статуса: текущий инструмент и над чем он работает, ожидание ответа модели и прошедшее время. Выключите, чтобы остались только точки.",
 
   // Browser tool
   "Browser tool": "Инструмент браузера",

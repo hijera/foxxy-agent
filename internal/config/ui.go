@@ -26,11 +26,20 @@ type UIConfig struct {
 	// SendMode controls how the main composer submits: "enter" (default),
 	// "ctrl_enter", or "off".
 	SendMode string `yaml:"send_mode" json:"send_mode"`
+	// StatusLine toggles the live status label next to the typing dots. A nil pointer means
+	// the default (true). Use IsStatusLineEnabled to read the effective value.
+	StatusLine *bool `yaml:"status_line" json:"status_line,omitempty"`
 }
 
 // IsEnabled reports whether the embedded SPA is served. Unset (nil) defaults to true.
 func (u *UIConfig) IsEnabled() bool {
 	return u.Enabled == nil || *u.Enabled
+}
+
+// IsStatusLineEnabled reports whether the SPA shows the live status label next to the
+// typing dots. Unset (nil) defaults to true.
+func (u *UIConfig) IsStatusLineEnabled() bool {
+	return u.StatusLine == nil || *u.StatusLine
 }
 
 // Normalize trims locale and normalizes send_mode (empty -> "enter").

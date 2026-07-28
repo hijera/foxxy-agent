@@ -723,6 +723,11 @@
           "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
           "enum": ["enter", "ctrl_enter", "off"],
           "default": "enter"
+        },
+        "status_line": {
+          "type": "boolean",
+          "description": "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Set false to show only the animated dots. Unset defaults to true.",
+          "default": true
         }
       }
     },

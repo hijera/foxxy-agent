@@ -95,6 +95,48 @@ function numberArg(
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/**
+ * Short "what is this tool acting on" string: file path, command, or search pattern.
+ * Never localized — the caller renders it verbatim next to a localized verb.
+ *
+ * Deliberately not derived from buildToolCallPreview: that one localizes `header` for
+ * shell/move tools, puts the whole file body in `text` for write, and re-parses diffs on
+ * every call. The live status label recomputes on every transcript change, so it needs a
+ * cheap accessor.
+ *
+ * Returns "" when the arguments have not arrived yet (a `pending` tool call legitimately
+ * has none until its `tool_call_update` frame).
+ */
+export function toolCallTargetText(context: PermissionToolCallContext): string {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  const args = parseArgsText(context.argsText || "");
+  if (!args) {
+    return "";
+  }
+  switch (toolName) {
+    case "run_command":
+    case "ssh_run_command":
+      return stringArg(args, "command");
+    case "grep":
+    case "glob":
+      return stringArg(args, "pattern");
+    case "websearch":
+      return stringArg(args, "query");
+    case "mv":
+      return stringArg(args, "src");
+    case "question":
+      return "";
+    default:
+      // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / list_dir /
+      // print_tree / docs_* / plan_* take a path; browser and webfetch take a url.
+      return stringArg(args, "path", "filePath", "file_path", "url", "name");
+  }
+}
+
 function questionForTool(
   toolName: string,
   args: Record<string, unknown>,

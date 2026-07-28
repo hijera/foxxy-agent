@@ -10,6 +10,7 @@ import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
+import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import {
@@ -829,6 +830,8 @@ export function App() {
   function addActiveComposer(sid: string) {
     const k = sid.trim();
     if (!k) return;
+    // A stream is attached, so the live-status label stops saying "reconnecting".
+    markConnected(k);
     if (activeComposerSidRef.current.has(k)) return;
     activeComposerSidRef.current.add(k);
     bumpComposerActivity();
@@ -837,6 +840,8 @@ export function App() {
   function removeActiveComposer(sid: string) {
     const k = sid.trim();
     if (!k) return;
+    // Backstop for the live-status label: every turn ends through here, however it ended.
+    markConnected(k);
     if (!activeComposerSidRef.current.delete(k)) return;
     bumpComposerActivity();
   }
@@ -2075,6 +2080,9 @@ export function App() {
         const { setSendMode, readSendModeFromConfigDoc } =
           await import("./i18n/sendModeConfig");
         setSendMode(readSendModeFromConfigDoc(res.data));
+        const { setStatusLineEnabled, readStatusLineFromConfigDoc } =
+          await import("./chat/statusLineConfig");
+        setStatusLineEnabled(readStatusLineFromConfigDoc(res.data));
       }
     })();
   }, [headers]);
@@ -2999,9 +3007,13 @@ export function App() {
     if (!key) return;
     if (userStoppedSidRef.current.has(key)) {
       userStoppedSidRef.current.delete(key);
+      markConnected(key);
       return;
     }
-    if (activeComposerSidRef.current.has(key)) return;
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
     let active = false;
     try {
       const act = await fetchJSON<{ turnActive?: boolean }>(
@@ -3010,10 +3022,12 @@ export function App() {
       );
       active = !!(act.ok && act.data?.turnActive);
     } catch {
+      markConnected(key);
       return;
     }
     if (!active) {
       liveReconnectAttemptsRef.current.delete(key);
+      markConnected(key);
       // The turn already finished. If we got here from a dropped stream, pull the
       // persisted transcript so a stuck partial assistant is replaced by the result.
       if (opts?.reconcileIfDone && !activeComposerSidRef.current.has(key)) {
@@ -3023,12 +3037,23 @@ export function App() {
       }
       return;
     }
-    if (activeComposerSidRef.current.has(key)) return;
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
     const loaded = await loadMessages(key, {
       skipSetItems: viewedSessionIdRef.current.trim() !== key,
     });
-    if (!loaded) return;
-    if (activeComposerSidRef.current.has(key)) return;
+    if (!loaded) {
+      markConnected(key);
+      return;
+    }
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
+    // addActiveComposer clears the reconnecting flag the moment the stream attaches;
+    // this call runs for the whole rejoined turn, so clearing it here would be too late.
     await rejoinComposerLiveStream(key, loaded);
   }
 
@@ -3037,8 +3062,12 @@ export function App() {
     if (!key) return;
     if (userStoppedSidRef.current.has(key)) return;
     const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
-    if (attempts >= LIVE_RECONNECT_MAX) return;
+    if (attempts >= LIVE_RECONNECT_MAX) {
+      markConnected(key);
+      return;
+    }
     liveReconnectAttemptsRef.current.set(key, attempts + 1);
+    markReconnecting(key);
     window.setTimeout(() => {
       // Go through the ref so the delayed call uses the current render's closure.
       reconnectLiveStreamRef.current(key, { reconcileIfDone: true });

@@ -294,6 +294,7 @@ Embedded SPA preferences (`config.UIConfig`, `internal/config/ui.go`). Used by t
 | `enabled` | bool | no | `true` | — | Serve the embedded web UI at `GET /`. Set `false` to run `foxxycode http` as an API-only server; `/v1/*` and `/foxxycode/*` stay available. |
 | `locale` | string | no | `""` (auto) | — | UI language: empty (auto-detect system/browser locale), `en`, or `ru`. |
 | `send_mode` | string | no | `enter` | — | How the main chat composer submits: `enter` (Enter sends, Shift/Ctrl+Enter insert a newline), `ctrl_enter` (Ctrl/Cmd+Enter sends, Enter inserts a newline), or `off` (keyboard send disabled, Send button only). |
+| `status_line` | bool | no | `true` | — | Show the live status line next to the typing dots while the agent works: current tool and its target, waiting for the model, and elapsed time. Set `false` to show only the animated dots. |
 
 ## `browser`
 

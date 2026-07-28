@@ -1,5 +1,9 @@
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
-import { GeneralLocalePicker, GeneralSendModePicker } from "./GeneralSection";
+import {
+  GeneralLocalePicker,
+  GeneralSendModePicker,
+  GeneralStatusLinePicker,
+} from "./GeneralSection";
 import { useT } from "../i18n/I18nProvider";
 import { tSchemaText } from "../i18n/schemaStrings";
 import { applyModelsChange } from "./applyModelsChange";
@@ -108,6 +112,7 @@ export function SettingsSection(props: {
       <>
         <GeneralLocalePicker doc={doc} setDoc={setDoc} />
         <GeneralSendModePicker doc={doc} setDoc={setDoc} />
+        <GeneralStatusLinePicker doc={doc} setDoc={setDoc} />
       </>
     );
   }
