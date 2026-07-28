@@ -1309,6 +1309,16 @@ Model-assisted checks are nondeterministic and must be identified as such in the
 test report. Release requires at least one non-model structural check whenever
 the workflow has a structured or file output.
 
+The draft editor provides an author-facing expectations field and a
+**Generate expected result with LLM** action. The generator treats the draft
+and expectations as untrusted data, produces a reusable `expected_result` and
+`acceptance_criterion`, and stores an executable `prompt` check bound to a
+declared fixed model. If the draft has no model binding, FoxxyCode snapshots the
+currently configured provider identity, canonical `base_url`, and model into a
+new fixed binding. Test and released runs ask that binding for a structured
+`{"passed": boolean, "reason": string}` verdict; internal reasoning is neither
+displayed nor persisted.
+
 ## 16. Outputs and result presentation
 
 Each output has an id, value reference, type, optional schema, export behavior,
@@ -1459,8 +1469,9 @@ blocking findings, and the current draft revision has a passing test.
 
 ## 18. Proposed HTTP API
 
-These routes describe the intended product contract; they are not implemented
-by this specification.
+These routes describe the product contract. The implemented MVP subset and its
+exact response behavior are documented in `docs/http-api.md`; routes that
+remain only in this section are forward-compatible requirements.
 
 All routes in this section are registered only by builds with `miniapps`.
 `GET /foxxycode/capabilities` advertises `"miniapps": true` for such a build and

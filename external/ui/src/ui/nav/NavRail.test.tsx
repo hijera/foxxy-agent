@@ -69,6 +69,50 @@ test("nav hides Scheduler when showScheduler is false", () => {
   expect(screen.queryByTestId("nav-scheduler")).toBeNull();
 });
 
+test("nav shows mini apps beside new chat only when the capability is linked", () => {
+  const { rerender } = render(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      showMiniApps={false}
+      onOpenMiniApps={() => {}}
+      miniAppsOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail
+      railLabelsWide
+      onToggleRailLabels={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("nav-miniapps")).toBeNull();
+
+  rerender(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      showMiniApps
+      onOpenMiniApps={() => {}}
+      miniAppsOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail
+      railLabelsWide
+      onToggleRailLabels={() => {}}
+    />,
+  );
+  const miniApps = screen.getByTestId("nav-miniapps");
+  expect(miniApps).toBeInTheDocument();
+  expect(miniApps.parentElement).toBe(
+    screen.getByTestId("nav-home").parentElement,
+  );
+});
+
 test("in-app nav links expose hash hrefs for new-tab open", () => {
   render(
     <NavRail
@@ -85,7 +129,16 @@ test("in-app nav links expose hash hrefs for new-tab open", () => {
     />,
   );
   expect(screen.getByTestId("nav-home")).toHaveAttribute("href", "#/");
-  expect(screen.getByTestId("nav-history")).toHaveAttribute("href", "#/history");
-  expect(screen.getByTestId("nav-scheduler")).toHaveAttribute("href", "#/scheduler");
-  expect(screen.getByTestId("nav-settings")).toHaveAttribute("href", "#/settings");
+  expect(screen.getByTestId("nav-history")).toHaveAttribute(
+    "href",
+    "#/history",
+  );
+  expect(screen.getByTestId("nav-scheduler")).toHaveAttribute(
+    "href",
+    "#/scheduler",
+  );
+  expect(screen.getByTestId("nav-settings")).toHaveAttribute(
+    "href",
+    "#/settings",
+  );
 });

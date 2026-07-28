@@ -746,6 +746,21 @@ actions. Release MUST use the normal release gates. Closing with unsaved
 locally-invalid edits MUST warn the author; closing an autosaved valid draft
 MUST preserve it.
 
+### FR-EDIT-010 — Direct session conversion
+
+An idle non-empty web or desktop chat MUST expose a direct action that starts
+distillation for that exact selected session, opens the mini-app workspace, and
+opens the generated draft. The action MUST be absent in IDE embeds and builds
+without the `miniapps` tag.
+
+### FR-EDIT-011 — Expected-result generation
+
+The structured editor MUST accept plain-language author expectations and expose
+an explicit LLM generation action. It MUST save a reusable expected result,
+acceptance criterion, fixed model binding, and executable prompt success check
+in canonical JSON. Runtime verification MUST return a structured verdict and
+MUST NOT expose or persist model reasoning.
+
 ## 14. Release and versioning
 
 ### FR-RELEASE-001 — Lifecycle

@@ -15,7 +15,77 @@ export const messagesEn: Record<string, string> = {
   "nav.history": "History",
   "nav.scheduler": "Scheduler",
   "nav.schedulerAriaLabel": "Scheduler jobs",
+  "nav.miniapps": "Mini apps",
+  "nav.miniappsAriaLabel": "Open mini apps",
   "nav.settings": "Settings",
+
+  "miniapps.title": "Mini apps",
+  "miniapps.subtitle":
+    "Distill, edit, test, release, and run reusable workflows",
+  "miniapps.close": "Close mini apps",
+  "miniapps.new": "New",
+  "miniapps.import": "Import JSON",
+  "miniapps.imported": "Mini-app JSON imported as a draft.",
+  "miniapps.export": "Export JSON",
+  "miniapps.createFromSession": "Create mini app",
+  "miniapps.createFromSessionAria": "Create mini app from this session",
+  "miniapps.distillSession": "Distill this session",
+  "miniapps.distillNeedsSession":
+    "Open a completed session before distilling it.",
+  "miniapps.distilling": "Starting session distillation…",
+  "miniapps.distilled": "The editable draft is ready.",
+  "miniapps.distillFailed": "Session distillation failed.",
+  "miniapps.distillTimeout": "Session distillation timed out.",
+  "miniapps.distillProgress": "{phase} · {progress}%",
+  "miniapps.search": "Filter by name or tags…",
+  "miniapps.catalog": "Mini-app catalog",
+  "miniapps.empty":
+    "No mini apps yet. Distill the current session or create one.",
+  "miniapps.selectTitle": "Choose a mini app",
+  "miniapps.selectDescription":
+    "Select a workflow from the catalog to edit its generated fields, JSON program, and run form.",
+  "miniapps.tab.form": "Workflow",
+  "miniapps.tab.json": "JSON",
+  "miniapps.tab.run": "Run",
+  "miniapps.name": "Name",
+  "miniapps.author": "Author",
+  "miniapps.description": "Description",
+  "miniapps.goal": "Goal",
+  "miniapps.steps": "Steps ({count})",
+  "miniapps.source": "Source session result",
+  "miniapps.inputs": "Inputs ({count})",
+  "miniapps.inputId": "Input id",
+  "miniapps.inputTitle": "Input title",
+  "miniapps.inputType": "Input type",
+  "miniapps.required": "Required",
+  "miniapps.acceptance": "Acceptance criteria",
+  "miniapps.acceptanceDescription":
+    "Describe the outcome, then let the configured model turn it into a reusable verification contract.",
+  "miniapps.authorExpectations": "Author expectations",
+  "miniapps.authorExpectationsPlaceholder":
+    "What must the result contain, preserve, create, or avoid?",
+  "miniapps.expectedResult": "Expected result",
+  "miniapps.acceptanceCriterion": "LLM acceptance criterion",
+  "miniapps.generateExpectedResult": "Generate expected result with LLM",
+  "miniapps.generatingExpectedResult": "Generating expected result…",
+  "miniapps.expectedResultGenerated":
+    "Expected result and acceptance criterion generated and saved.",
+  "miniapps.expectationsRequired":
+    "Describe your expectations before generating the result contract.",
+  "miniapps.jsonAria": "Mini-app JSON program",
+  "miniapps.invalidJson": "Invalid JSON: {message}",
+  "miniapps.saved": "Draft saved.",
+  "miniapps.saveDraft": "Save draft",
+  "miniapps.testRun": "Test run",
+  "miniapps.run": "Run",
+  "miniapps.result": "Result",
+  "miniapps.noResult": "Run the workflow to see its declared result.",
+  "miniapps.confirmation": "Explicit operator approval is required",
+  "miniapps.runSucceeded": "Run completed successfully.",
+  "miniapps.runFailed": "Run failed.",
+  "miniapps.version": "Release version",
+  "miniapps.release": "Release",
+  "miniapps.released": "Released version {version}.",
 
   "composer.messageLabel": "Message",
   "composer.placeholderEmpty": "Plan, Build, / for skills, @ for files",
@@ -24,8 +94,10 @@ export const messagesEn: Record<string, string> = {
   "composer.removeAttachment": "Remove {fileName}",
   "composer.attachFile": "Attach file",
   "composer.enhance": "Enhance prompt",
-  "composer.enhanceFailed": "Couldn't enhance the prompt. Your draft is unchanged.",
-  "composer.enhanceNoModel": "Couldn't enhance the prompt: no model is configured.",
+  "composer.enhanceFailed":
+    "Couldn't enhance the prompt. Your draft is unchanged.",
+  "composer.enhanceNoModel":
+    "Couldn't enhance the prompt: no model is configured.",
   "composer.mode": "Mode",
   "composer.modeAgent": "Agent",
   "composer.modePlan": "Plan",
@@ -107,7 +179,8 @@ export const messagesEn: Record<string, string> = {
   "env.error.unauthorizedRemote":
     "Unauthorized on remote {host} — check the bearer token for this environment.",
   "env.error.unauthorizedLocal": "Unauthorized ({status}).",
-  "env.error.requestFailedRemote": "Request to remote {host} failed ({status}).",
+  "env.error.requestFailedRemote":
+    "Request to remote {host} failed ({status}).",
   "env.error.requestFailedLocal": "Request failed ({status}).",
 
   "files.type.image": "Image",
@@ -218,7 +291,8 @@ export const messagesEn: Record<string, string> = {
   "settings.sendMode.ctrlEnter": "Ctrl+Enter",
   "settings.sendMode.off": "Off",
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
-  "onboarding.provider.neuraldeep.description": "Russian AI hub — models via api.neuraldeep.ru",
+  "onboarding.provider.neuraldeep.description":
+    "Russian AI hub — models via api.neuraldeep.ru",
   "onboarding.openHub": "Open hub.neuraldeep.ru",
   "onboarding.title": "Choose a provider",
   "onboarding.lead":
@@ -310,7 +384,8 @@ export const messagesEn: Record<string, string> = {
   "settings.providerLabel": "Provider",
   "settings.modelsFetchError":
     "Couldn't fetch models: {error}. Type the model id manually below.",
-  "settings.modelsFetchEmpty": "No models returned. Type the model id manually below.",
+  "settings.modelsFetchEmpty":
+    "No models returned. Type the model id manually below.",
   "settings.skills.installedLabel": "Installed skills",
   "settings.skills.installHintBefore": "You can also install skills via",
   "settings.skills.installHintOr": "or",
@@ -323,10 +398,13 @@ export const messagesEn: Record<string, string> = {
   "settings.skills.enableFailed": "Couldn't enable the skill",
   "settings.skills.disableFailed": "Couldn't disable the skill",
   "settings.skills.sourcesLegend": "Remote skill sources",
-  "settings.skills.sourcesDescBefore": "GitHub repos (owner/repo[@ref]), git URLs, or an",
+  "settings.skills.sourcesDescBefore":
+    "GitHub repos (owner/repo[@ref]), git URLs, or an",
   "settings.skills.sourcesDescStandard": "agents-standard",
-  "settings.skills.sourcesDescAfter": "marketplace.json URL. Saved to skills.sources; fetched only when you sync.",
-  "settings.skills.sourcePlaceholder": "owner/repo  ·  https://…/marketplace.json",
+  "settings.skills.sourcesDescAfter":
+    "marketplace.json URL. Saved to skills.sources; fetched only when you sync.",
+  "settings.skills.sourcePlaceholder":
+    "owner/repo  ·  https://…/marketplace.json",
   "settings.skills.synced": "Synced",
   "settings.skills.syncSource": "Sync {source}",
   "settings.skills.thisMarketplace": "this marketplace",
@@ -341,7 +419,8 @@ export const messagesEn: Record<string, string> = {
   "settings.skills.updateFailed": "Update failed",
   "settings.skills.syncFailed": "Sync failed",
   "settings.skills.autoDiscoveryLegend": "Skill auto-discovery",
-  "settings.skills.autoDiscoveryDesc": "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name.",
+  "settings.skills.autoDiscoveryDesc":
+    "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name.",
   "settings.skills.stateEnabled": "Enabled",
   "settings.skills.stateDisabled": "Disabled",
   "settings.skills.searchPlaceholder": "Search marketplace skills to install…",
@@ -366,7 +445,8 @@ export const messagesEn: Record<string, string> = {
   "settings.providers.exportCopied": "Copied (without secrets)",
   "settings.providers.exportedFile": "Exported to file",
   "settings.providers.importFailed": "Could not read providers",
-  "settings.providers.secretsExcludedHint": "API keys and proxy are not included",
+  "settings.providers.secretsExcludedHint":
+    "API keys and proxy are not included",
 
   "scheduler.title": "Scheduler",
   "scheduler.close": "Close scheduler",
@@ -507,8 +587,7 @@ export const messagesEn: Record<string, string> = {
 
   "app.confirmDeleteDraft": "Delete draft",
   "app.confirmDeleteChat": "Delete chat",
-  "app.chatBusy":
-    "This chat is busy in another client. Try again in a moment.",
+  "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.emptyResponseBody": "Empty response body",
   "app.requestFailed": "Request failed",
   "app.requestFailedWithStatus": "Request failed ({status})",

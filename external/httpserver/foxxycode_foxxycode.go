@@ -144,11 +144,21 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/plan", s.foxxycodePlanGet)
 	s.mux.HandleFunc("PUT /foxxycode/sessions/{id}/plan", s.foxxycodePlanPut)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/plan/archive", s.foxxycodePlanArchivePost)
+	s.mux.HandleFunc("GET /foxxycode/capabilities", s.foxxycodeCapabilitiesGet)
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
 	s.registerSchedulerRoutes()
+	s.registerMiniAppRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
+}
+
+func (s *Server) foxxycodeCapabilitiesGet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":   "foxxycode.capabilities",
+		"miniapps": miniAppsCapability(),
+	})
 }
 
 func (s *Server) foxxycodeSessionCancelGeneration(w http.ResponseWriter, r *http.Request) {

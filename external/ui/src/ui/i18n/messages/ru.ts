@@ -15,11 +15,82 @@ export const messagesRu: Record<string, string> = {
   "nav.history": "История",
   "nav.scheduler": "Планировщик",
   "nav.schedulerAriaLabel": "Задачи планировщика",
+  "nav.miniapps": "Мини-приложения",
+  "nav.miniappsAriaLabel": "Открыть мини-приложения",
   "nav.settings": "Настройки",
 
+  "miniapps.title": "Мини-приложения",
+  "miniapps.subtitle":
+    "Дистилляция, редактирование, тестирование, релиз и запуск воспроизводимых сценариев",
+  "miniapps.close": "Закрыть мини-приложения",
+  "miniapps.new": "Новое",
+  "miniapps.import": "Импорт JSON",
+  "miniapps.imported": "JSON мини-приложения импортирован как черновик.",
+  "miniapps.export": "Экспорт JSON",
+  "miniapps.createFromSession": "Создать мини-приложение",
+  "miniapps.createFromSessionAria": "Создать мини-приложение из этой сессии",
+  "miniapps.distillSession": "Дистиллировать сессию",
+  "miniapps.distillNeedsSession":
+    "Перед дистилляцией откройте завершённую сессию.",
+  "miniapps.distilling": "Запускаем дистилляцию сессии…",
+  "miniapps.distilled": "Редактируемый черновик готов.",
+  "miniapps.distillFailed": "Не удалось дистиллировать сессию.",
+  "miniapps.distillTimeout": "Время ожидания дистилляции истекло.",
+  "miniapps.distillProgress": "{phase} · {progress}%",
+  "miniapps.search": "Фильтр по названию или тегам…",
+  "miniapps.catalog": "Каталог мини-приложений",
+  "miniapps.empty":
+    "Мини-приложений пока нет. Дистиллируйте текущую сессию или создайте новое.",
+  "miniapps.selectTitle": "Выберите мини-приложение",
+  "miniapps.selectDescription":
+    "Выберите сценарий из каталога, чтобы изменить сгенерированные поля, JSON-программу и форму запуска.",
+  "miniapps.tab.form": "Сценарий",
+  "miniapps.tab.json": "JSON",
+  "miniapps.tab.run": "Запуск",
+  "miniapps.name": "Название",
+  "miniapps.author": "Автор",
+  "miniapps.description": "Описание",
+  "miniapps.goal": "Цель",
+  "miniapps.steps": "Шаги ({count})",
+  "miniapps.source": "Результат исходной сессии",
+  "miniapps.inputs": "Поля ввода ({count})",
+  "miniapps.inputId": "Идентификатор поля",
+  "miniapps.inputTitle": "Название поля",
+  "miniapps.inputType": "Тип поля",
+  "miniapps.required": "Обязательно",
+  "miniapps.acceptance": "Критерии приёмки",
+  "miniapps.acceptanceDescription":
+    "Опишите ожидаемый итог, а настроенная модель превратит его в переиспользуемый контракт проверки.",
+  "miniapps.authorExpectations": "Ожидания автора",
+  "miniapps.authorExpectationsPlaceholder":
+    "Что результат должен содержать, сохранить, создать или исключить?",
+  "miniapps.expectedResult": "Ожидаемый результат",
+  "miniapps.acceptanceCriterion": "LLM-критерий приёмки",
+  "miniapps.generateExpectedResult":
+    "Сгенерировать ожидаемый результат через LLM",
+  "miniapps.generatingExpectedResult": "Генерируем ожидаемый результат…",
+  "miniapps.expectedResultGenerated":
+    "Ожидаемый результат и критерий приёмки сгенерированы и сохранены.",
+  "miniapps.expectationsRequired":
+    "Перед генерацией опишите свои ожидания от результата.",
+  "miniapps.jsonAria": "JSON-программа мини-приложения",
+  "miniapps.invalidJson": "Некорректный JSON: {message}",
+  "miniapps.saved": "Черновик сохранён.",
+  "miniapps.saveDraft": "Сохранить черновик",
+  "miniapps.testRun": "Тестовый запуск",
+  "miniapps.run": "Запустить",
+  "miniapps.result": "Результат",
+  "miniapps.noResult":
+    "Запустите сценарий, чтобы увидеть объявленный результат.",
+  "miniapps.confirmation": "Требуется явное подтверждение оператора",
+  "miniapps.runSucceeded": "Выполнение успешно завершено.",
+  "miniapps.runFailed": "Выполнение завершилось ошибкой.",
+  "miniapps.version": "Версия релиза",
+  "miniapps.release": "Опубликовать",
+  "miniapps.released": "Опубликована версия {version}.",
+
   "composer.messageLabel": "Сообщение",
-  "composer.placeholderEmpty":
-    "План, сборка, / для навыков, @ для файлов",
+  "composer.placeholderEmpty": "План, сборка, / для навыков, @ для файлов",
   "composer.placeholderFollowUp": "Добавить уточнение",
   "composer.attachedFilesAriaLabel": "Прикреплённые файлы",
   "composer.removeAttachment": "Удалить {fileName}",
@@ -223,7 +294,8 @@ export const messagesRu: Record<string, string> = {
   "settings.sendMode.ctrlEnter": "Ctrl+Enter",
   "settings.sendMode.off": "Отключено",
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
-  "onboarding.provider.neuraldeep.description": "Российский AI-хаб — модели через api.neuraldeep.ru",
+  "onboarding.provider.neuraldeep.description":
+    "Российский AI-хаб — модели через api.neuraldeep.ru",
   "onboarding.openHub": "Открыть hub.neuraldeep.ru",
   "onboarding.title": "Выберите провайдера",
   "onboarding.lead":
@@ -330,10 +402,13 @@ export const messagesRu: Record<string, string> = {
   "settings.skills.enableFailed": "Не удалось включить навык",
   "settings.skills.disableFailed": "Не удалось отключить навык",
   "settings.skills.sourcesLegend": "Удалённые источники навыков",
-  "settings.skills.sourcesDescBefore": "GitHub-репозитории (owner/repo[@ref]), git-URL или",
+  "settings.skills.sourcesDescBefore":
+    "GitHub-репозитории (owner/repo[@ref]), git-URL или",
   "settings.skills.sourcesDescStandard": "agents-standard",
-  "settings.skills.sourcesDescAfter": "ссылка на marketplace.json. Сохраняется в skills.sources; загружается только при синхронизации.",
-  "settings.skills.sourcePlaceholder": "owner/repo  ·  https://…/marketplace.json",
+  "settings.skills.sourcesDescAfter":
+    "ссылка на marketplace.json. Сохраняется в skills.sources; загружается только при синхронизации.",
+  "settings.skills.sourcePlaceholder":
+    "owner/repo  ·  https://…/marketplace.json",
   "settings.skills.synced": "Синхронизировано",
   "settings.skills.syncSource": "Синхронизировать {source}",
   "settings.skills.thisMarketplace": "этот маркетплейс",
@@ -348,7 +423,8 @@ export const messagesRu: Record<string, string> = {
   "settings.skills.updateFailed": "Не удалось обновить",
   "settings.skills.syncFailed": "Не удалось синхронизировать",
   "settings.skills.autoDiscoveryLegend": "Авто-обнаружение навыков",
-  "settings.skills.autoDiscoveryDesc": "Позволяет агенту самому подтягивать полные инструкции подходящего навыка (инструмент load_skill), а не только когда вы вводите /имя.",
+  "settings.skills.autoDiscoveryDesc":
+    "Позволяет агенту самому подтягивать полные инструкции подходящего навыка (инструмент load_skill), а не только когда вы вводите /имя.",
   "settings.skills.stateEnabled": "Включено",
   "settings.skills.stateDisabled": "Отключено",
   "settings.skills.searchPlaceholder": "Поиск навыков для установки…",
@@ -378,8 +454,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.title": "Планировщик",
   "scheduler.close": "Закрыть планировщик",
   "scheduler.searchPlaceholder": "Поиск по описанию или id задачи",
-  "scheduler.searchAriaLabel":
-    "Поиск задач планировщика по описанию или id",
+  "scheduler.searchAriaLabel": "Поиск задач планировщика по описанию или id",
   "scheduler.clearSearch": "Очистить поиск",
   "scheduler.empty": "Задач пока нет",
   "scheduler.loading": "Загрузка…",
@@ -419,7 +494,7 @@ export const messagesRu: Record<string, string> = {
     "Только буквы, цифры и дефисы (пример: daily-report)",
   "scheduler.cron.empty": "Введите cron-выражение (5 полей, UTC).",
   "scheduler.cron.invalid": "Некорректное cron-выражение",
-  "scheduler.confirmDelete": 'Удалить задачу планировщика «{jobId}»?',
+  "scheduler.confirmDelete": "Удалить задачу планировщика «{jobId}»?",
   "scheduler.pause": "Пауза",
   "scheduler.resume": "Возобновить",
   "scheduler.delete": "Удалить",
@@ -522,6 +597,5 @@ export const messagesRu: Record<string, string> = {
   "app.requestFailedWithStatus": "Ошибка запроса ({status})",
   "app.branchCreationFailed": "Не удалось создать ветку ({status})",
   "app.branchCreationError": "Ошибка создания ветки: {error}",
-  "app.branchCreationNoSessionId":
-    "Создание ветки не вернуло ID сессии",
+  "app.branchCreationNoSessionId": "Создание ветки не вернуло ID сессии",
 };

@@ -4,6 +4,8 @@ The `foxxycode http` subcommand ships only when the binary is built with **`go b
 
 The bundled SPA is included only when you also set the **`ui`** tag (for example **`make build TAGS="http ui"`** or **`go build -tags=http,ui`**). With **http** only, **`GET /`** returns **404** with a plain-text hint.
 
+Mini apps are linked only with the **`miniapps`** tag. Use **`make build TAGS="http ui miniapps"`** for the authoring UI or **`go build -tags=miniapps`** for the headless interpreter/builder. The SPA discovers this through **`GET /foxxycode/capabilities`** and omits the mini-app button when the tag is absent; editor/IDE surfaces never expose that button.
+
 ## OpenAPI and Swagger UI
 
 Specs are regenerated on each request so they stay aligned with handlers.
@@ -29,6 +31,7 @@ No authentication is enforced. Run behind appropriate network controls.
 | GET | `/` | Embedded web UI (**`-tags=http,ui`**) or **404** with a hint (**`http` only**). **`Cache-Control: no-cache`** on **`/`**, **`/index.html`**, **`/app.js`**, **`/styles.css`** when the UI module is linked. |
 | GET | `/openapi.yaml`, `/openapi.json` | Spec. |
 | GET | `/docs`, `/docs/` | Swagger UI. |
+| GET | `/foxxycode/capabilities` | Build-time capability flags. **`miniapps`** is true only when the server was linked with **`miniapps`**. |
 | GET | `/v1/models` | Merged list: **`agent`**, **`plan`**, **`docs`**, **`ask`** (each **`owned_by`**: **`foxxycode`**), then every YAML **`models[].model`** row (**`id`** is the selector; **`owned_by`** is the provider prefix). Ordering is **`agent`**, **`plan`**, **`docs`**, **`ask`**, then **`models`** in configuration order (same ordering the server emits). Use any returned **`id`** as **`model`** on POST. The JSON object also includes optional **`default_agent_model`**, the configured **`agent.model`** (**`models[].model`**), when set; the bundled UI uses it as the default **`metadata.model`** for ReAct (**`agent`** / **`plan`** / **`docs`** / **`ask`**) requests. Each **`models[].model`** row also carries **`max_context_tokens`** (UI hint; 0 or absent for foxxycode-session profiles) and **`multimodal`** (**`true`** when **`models[].multimodal: true`** in YAML; the bundled UI shows a file attachment button in the composer when the selected model has **`multimodal: true`**). Reasoning models also carry **`reasoning_levels`** (array, e.g. **`["minimal","low","medium","high"]`**; absent for non-reasoning models) and optional **`reasoning_default`** (level pre-selected for new chats); the bundled UI shows a reasoning-level selector in the composer when **`reasoning_levels`** is non-empty. |
 | POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**). **`409`** when another **agent**, **plan**, **docs**, or **ask** turn already holds the session turn lock (exclusive per persisted bundle). |
 | POST | **`/v1/responses`** | **`model`**, **`input`**, optional **`stream`**, optional **`attachments`** ( **`path`** workspace-relative under session cwd, **`agent`** / **`plan`** / **`docs`** / **`ask`** only; server rejects traversal, oversized, non UTF-8, and folder **`path`**), optional **`inline_files`** (array of **`{name, data_url}`**; **`data_url`** is a `data:<mime>;base64,...` URI; works for all modes — direct YAML model and **`agent`** / **`plan`** / **`docs`** / **`ask`**). For **`agent`** / **`plan`** / **`docs`** / **`ask`**: each file is saved to the session **`assets/`** directory (`~/.foxxycode/sessions/<id>/assets/`) with **`0o444`** (read-only) permissions; the model receives a `<foxxycode_session_assets>` annotation in the user message so it can `read` or `cp` the files without re-transmitting their bytes over the API. For direct YAML model: each entry becomes an image content part on the user message so multimodal models receive the file inline. **`input`** remains the full composer text including **`@path`** echoes. Keeps history between turns when using headers. **`409`** when another **agent**, **plan**, **docs**, or **ask** turn already holds the session turn lock. |
@@ -88,6 +91,30 @@ No authentication is enforced. Run behind appropriate network controls.
 | POST | **`/foxxycode/sessions/{id}/plans/{slug}/open-in-ide`** | **Show in IDE** on the plan card: broadcasts **`event: open_file`** on **`/foxxycode/ide/events`** so the IntelliJ / VS Code plugin opens the plan file in its own editor. The absolute path is resolved server-side from the session bundle (callers cannot name a file); a plan missing on disk is **404** and nothing is broadcast. JSON **`{"object":"foxxycode.ide_open_file","path","delivered"}`** where **`delivered`** reports whether an editor client was subscribed. |
 
 After **`PUT`** **`/foxxycode/config`**, the next **`agent`**, **`plan`**, **`docs`**, or **`ask`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. **`mcp_servers`** changes apply fully to **new** sessions only.
+
+### Mini-app REST (**`-tags=http,miniapps`**)
+
+Mini-app routes and their OpenAPI schemas do not exist in a plain **`http`** build. Drafts and immutable releases live below the configured FoxxyCode home in **`miniapps/`**; run state, safe status logs, artifacts, and private portable-runtime caches live below **`apps/<app-id>/`**. Source-session evidence is private authoring data and is never copied into a released portable JSON program.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/foxxycode/sessions/{id}/miniapps/distill` | Starts asynchronous distillation of a saved session and returns **202**. |
+| GET | `/foxxycode/miniapp-distillations/{job_id}` | Polls queued/analyzing/completed/failed status. A completed job names the editable draft. |
+| GET/POST | `/foxxycode/miniapps` | Searches the catalog or imports a canonical JSON document as a draft. |
+| POST | `/foxxycode/miniapps/import` | Alias for JSON draft import. |
+| GET/PATCH | `/foxxycode/miniapps/{id}` | Reads catalog metadata or changes editable metadata/archive state. |
+| GET/PUT | `/foxxycode/miniapps/{id}/draft` | Reads or atomically replaces the current unversioned draft. Any change invalidates its passing-test gate. |
+| GET | `/foxxycode/miniapps/{id}/authoring/source` | Reads sanitized private source-session evidence used by the distillation editor. |
+| POST | `/foxxycode/miniapps/{id}/expected-result` | Accepts **`{"expectations":"...","draft":{...}}`**, asks the draft's fixed model or configured default model for a reusable expected result and acceptance criterion, adds an executable prompt check, saves the draft, and returns **`{"app":...,"suggestion":...}`**. |
+| POST | `/foxxycode/miniapps/{id}/validate` | Runs semantic validation, including the bounded **`foxxy-vm/1`** program verifier. |
+| POST | `/foxxycode/miniapps/{id}/sanitize` | Runs the mandatory release sanitization check. |
+| POST | `/foxxycode/miniapps/{id}/test-runs` | Tests the current draft with **`{"inputs":...,"confirmations":...}`** and records a passing result for that exact revision. |
+| POST | `/foxxycode/miniapps/{id}/release` | Creates the requested immutable **MAJOR.MINOR.PATCH** version only after current-revision test and sanitization gates pass. |
+| GET | `/foxxycode/miniapps/{id}/export?version=` | Exports draft JSON or an exact released JSON document. |
+| POST | `/foxxycode/miniapps/{id}/versions/{version}/runs` | Runs an exact released version. Fixed model bindings match configured providers by canonical **`base_url`**, exact API model id, and protocol type for OpenAI/Anthropic. |
+| GET | `/foxxycode/miniapp-runs/{run_id}` | Reads safe run state and declared outputs; agent reasoning and raw tool calls are never persisted. |
+
+Before workflow execution, locked portable runtimes are downloaded without an operator prompt into the app-private cache, verified by exact size and SHA-256, unpacked transactionally, and recorded in **`manifest.lock.json`**. Remote downloads require HTTPS (loopback HTTP is accepted for a reviewed local runtime); provisioning never invokes a system package manager or asks for elevation.
 
 ### Session memory REST (**`-tags=http,memory`**)
 

@@ -77,6 +77,7 @@ import {
 } from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
+import { MiniAppsWorkspace } from "./miniapps/MiniAppsWorkspace";
 import {
   fetchOnboardingStatus,
   shouldShowOnboarding,
@@ -198,9 +199,7 @@ async function markFoxxyCodeSessionActivityRead(id: string): Promise<void> {
 const SCHEDULER_JOBS_POLL_MS = 12_000;
 
 type SchedulerEditorState =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; jobId: string };
+  null | { mode: "create" } | { mode: "edit"; jobId: string };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -677,7 +676,9 @@ export function App() {
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
   // Workspace context chips: folder / git branch / worktree state per session.
-  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
+  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
+    null,
+  );
   const [worktreePref, setWorktreePref] = useState(false);
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
@@ -962,6 +963,11 @@ export function App() {
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  /** Advertised by /foxxycode/capabilities only for builds tagged miniapps. */
+  const [miniAppsHttpLinked, setMiniAppsHttpLinked] = useState(false);
+  const [miniAppsOpen, setMiniAppsOpen] = useState(false);
+  const [miniAppsDistillRequestEpoch, setMiniAppsDistillRequestEpoch] =
+    useState(0);
   /**
    * Root folder the server itself was launched with (`--cwd`). Unlike
    * `workspaceCtx`, which follows the *viewed session*, this stays put — so the
@@ -1169,8 +1175,7 @@ export function App() {
           );
           const existing = at >= 0 ? prev[at] : undefined;
           const row: TranscriptItem = {
-            id:
-              existing?.type === "plan_document" ? existing.id : newId("pd"),
+            id: existing?.type === "plan_document" ? existing.id : newId("pd"),
             type: "plan_document",
             slug: s,
             name: String(doc.name ?? ""),
@@ -1383,7 +1388,8 @@ export function App() {
       if (payload.path) {
         try {
           const res = await fetch(
-            "/foxxycode/workspace/context?path=" + encodeURIComponent(payload.path),
+            "/foxxycode/workspace/context?path=" +
+              encodeURIComponent(payload.path),
           );
           if (res.ok) {
             setWorkspaceCtx((await res.json()) as WorkspaceContext);
@@ -1435,21 +1441,27 @@ export function App() {
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
       if (pending.path) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`,
+          {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
-        });
+          },
+        );
       }
       if (pending.branch) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`,
+          {
             method: "POST",
             headers: base,
             body: JSON.stringify({
               branch: pending.branch,
               worktree: Boolean(pending.worktree),
             }),
-        });
+          },
+        );
       }
     } catch {
       // ignore: the session still starts in the default workspace
@@ -1513,6 +1525,7 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    setMiniAppsOpen(false);
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
@@ -1632,6 +1645,7 @@ export function App() {
 
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     if (parseAppHash().branch === "settings") {
@@ -1677,6 +1691,30 @@ export function App() {
       } catch {
         if (!cancelled) {
           setSchedulerHttpLinked(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isEditorEmbed()) {
+      setMiniAppsHttpLinked(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/foxxycode/capabilities");
+        const payload = (await response.json()) as { miniapps?: boolean };
+        if (!cancelled) {
+          setMiniAppsHttpLinked(response.ok && payload.miniapps === true);
+        }
+      } catch {
+        if (!cancelled) {
+          setMiniAppsHttpLinked(false);
         }
       }
     })();
@@ -2544,6 +2582,7 @@ export function App() {
   function goHome() {
     persistComposerDraftBeforeLeave();
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     if (fadeOutTimerRef.current !== null) {
@@ -3117,8 +3156,7 @@ export function App() {
         onPermission: handleComposerSsePermission,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
-        onDesignPlan: (slug: string) =>
-          handleComposerSseDesignPlan(key, slug),
+        onDesignPlan: (slug: string) => handleComposerSseDesignPlan(key, slug),
       });
 
       const syncAssistantFromServer = async () => {
@@ -3352,7 +3390,10 @@ export function App() {
       };
       const atts = extractAtFileAttachments(text);
       const profileModel =
-        mode === "agent" || mode === "plan" || mode === "docs" || mode === "ask";
+        mode === "agent" ||
+        mode === "plan" ||
+        mode === "docs" ||
+        mode === "ask";
       if (atts.length > 0 && profileModel) {
         reqBody.attachments = atts;
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
@@ -3608,7 +3649,9 @@ export function App() {
         } else {
           mergedForSyncProbe = sh ?? [];
         }
-        if (transcriptHasFilledAssistant(mergedForSyncProbe, finalAssistantId)) {
+        if (
+          transcriptHasFilledAssistant(mergedForSyncProbe, finalAssistantId)
+        ) {
           break;
         }
         await new Promise((r) => setTimeout(r, 16));
@@ -3811,6 +3854,7 @@ export function App() {
       return;
     }
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
@@ -3820,6 +3864,7 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setSettingsHash();
   }, []);
 
@@ -3853,12 +3898,42 @@ export function App() {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSettingsRoute(false);
+    setMiniAppsOpen(false);
     setSessionsOpen(true);
     setHistoryHash();
   }, []);
 
+  const openMiniAppsFromNav = useCallback(() => {
+    if (!miniAppsHttpLinked || isEditorEmbed()) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setMiniAppsOpen(true);
+  }, [miniAppsHttpLinked]);
+
+  const createMiniAppFromCurrentSession = useCallback(() => {
+    if (
+      !miniAppsHttpLinked ||
+      isEditorEmbed() ||
+      !sessionId.trim() ||
+      generating
+    ) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setMiniAppsOpen(true);
+    setMiniAppsDistillRequestEpoch((current) => current + 1);
+  }, [generating, miniAppsHttpLinked, sessionId]);
+
   const shellBackdropOpen =
     sessionsOpen ||
+    (miniAppsOpen && miniAppsHttpLinked) ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute;
 
@@ -3938,6 +4013,9 @@ export function App() {
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
+        showMiniApps={miniAppsHttpLinked && !isEditorEmbed()}
+        onOpenMiniApps={openMiniAppsFromNav}
+        miniAppsOpen={miniAppsOpen}
         showScheduler={schedulerHttpLinked === true}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
@@ -3978,6 +4056,13 @@ export function App() {
         />
 
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
+
+        <MiniAppsWorkspace
+          open={miniAppsOpen && miniAppsHttpLinked && !isEditorEmbed()}
+          currentSessionId={sessionId}
+          distillRequestEpoch={miniAppsDistillRequestEpoch}
+          onClose={() => setMiniAppsOpen(false)}
+        />
 
         {schedulerOpen && schedulerHttpLinked === true ? (
           <div
@@ -4057,7 +4142,9 @@ export function App() {
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           workspaceLocked={items.length > 0}
-          onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
+          onWorkspacePickFolder={(p: string) =>
+            void switchWorkspace({ path: p })
+          }
           onWorkspacePickBranch={(b: string, wt: boolean) =>
             void switchWorkspace({ branch: b, worktree: wt })
           }
@@ -4067,6 +4154,13 @@ export function App() {
           heroAccentVerb={heroAccentVerb}
           heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+          {...(miniAppsHttpLinked &&
+          !isEditorEmbed() &&
+          sessionId.trim() &&
+          items.length > 0 &&
+          !generating
+            ? { onCreateMiniApp: createMiniAppFromCurrentSession }
+            : {})}
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}

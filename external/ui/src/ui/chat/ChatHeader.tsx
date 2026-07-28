@@ -5,6 +5,7 @@ export function ChatHeader(props: {
   title: string;
   editable?: boolean;
   onTitleSave?: (title: string) => void;
+  onCreateMiniApp?: () => void;
 }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -67,6 +68,28 @@ export function ChatHeader(props: {
           </button>
         )}
       </div>
+      {props.onCreateMiniApp ? (
+        <button
+          type="button"
+          className="chat-miniapp-action"
+          aria-label={t("miniapps.createFromSessionAria")}
+          onClick={props.onCreateMiniApp}
+        >
+          <svg
+            className="chat-miniapp-action-icon"
+            viewBox="0 0 20 20"
+            aria-hidden="true"
+          >
+            <rect x="2.5" y="2.5" width="5" height="5" rx="1" />
+            <rect x="2.5" y="12.5" width="5" height="5" rx="1" />
+            <rect x="12.5" y="2.5" width="5" height="5" rx="1" />
+            <path d="M15 11.5v6M12 14.5h6" />
+          </svg>
+          <span className="chat-miniapp-action-label">
+            {t("miniapps.createFromSession")}
+          </span>
+        </button>
+      ) : null}
     </header>
   );
 }
