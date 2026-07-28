@@ -233,6 +233,80 @@ func TestResponsesAfterCancelIsAcceptedWhileTurnUnwinds(t *testing.T) {
 	wg.Wait()
 }
 
+// Behind nginx or a corporate HTTP proxy an SSE body is buffered by default, so the
+// answer only reaches the browser once the turn ends - it looks frozen, then complete
+// after a reload. Every stream must opt out of that buffering.
+func TestStreamingResponsesDisableProxyBuffering(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sn, err := srv.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := sn.SessionID
+
+	cases := []struct {
+		name string
+		do   func() (*http.Response, error)
+	}{
+		{"responses", func() (*http.Response, error) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses",
+				strings.NewReader(`{"model":"agent","input":"hi","stream":true}`))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-FoxxyCode-Session-ID", sid)
+			return ts.Client().Do(req)
+		}},
+		{"chat completions", func() (*http.Response, error) {
+			req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/chat/completions",
+				strings.NewReader(`{"model":"agent","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-FoxxyCode-Session-ID", sid)
+			return ts.Client().Do(req)
+		}},
+		{"composer relay", func() (*http.Response, error) {
+			req, err := http.NewRequest(http.MethodGet,
+				ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid)+"/composer-stream", nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("X-FoxxyCode-Session-ID", sid)
+			return ts.Client().Do(req)
+		}},
+		{"ide events", func() (*http.Response, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			t.Cleanup(cancel)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/foxxycode/ide/events", nil)
+			if err != nil {
+				return nil, err
+			}
+			return ts.Client().Do(req)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := tc.do()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = res.Body.Close() }()
+			if ct := res.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+				t.Fatalf("content type %q, want an SSE stream", ct)
+			}
+			if got := res.Header.Get("X-Accel-Buffering"); got != "no" {
+				t.Errorf("X-Accel-Buffering = %q, want \"no\": a buffering proxy would hide the whole turn", got)
+			}
+		})
+	}
+}
+
 // The composer relay is the SPA's re-attach path after a webview reload. With no turn
 // running it must say so immediately instead of holding the request open for 30s.
 func TestComposerStreamWithoutActiveTurnFailsFast(t *testing.T) {
