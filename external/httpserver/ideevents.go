@@ -76,9 +76,7 @@ func (s *Server) foxxycodeIdeEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"streaming unsupported"}}`, http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	writeSSEHeaders(w)
 
 	ch := ideEvents.subscribe()
 	defer ideEvents.unsubscribe(ch)

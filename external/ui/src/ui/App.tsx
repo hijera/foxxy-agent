@@ -2832,79 +2832,74 @@ export function App() {
         }
       }
 
-      const list = await loadSessionsList(true);
-      if (lifecycle.signal.aborted) {
-        return;
-      }
-      const exists = !!list?.some((s) => s.id === sessionId);
-      if (exists) {
-        const sess = list?.find((s) => s.id === sessionId);
-        const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-          `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
-          { headers },
-        );
+      // The transcript must not queue behind History: the list is a whole-store scan
+      // and one more round trip, and blocking on it is what leaves the panel on a
+      // spinner after a reload. Start it here, read it only where it is needed.
+      const listPromise = loadSessionsList(true);
+      const statsPromise = fetchJSON<{ stats?: SessionStats | null }>(
+        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
+        { headers },
+      );
+
+      const shadowSnap = streamShadowBySidRef.current.get(sessionId);
+      let loaded: TranscriptItem[] | null = null;
+      if (
+        activeComposerSidRef.current.has(sessionId) &&
+        shadowSnap &&
+        shadowSnap.length > 0
+      ) {
+        setItems([...shadowSnap]);
+      } else {
+        // freshLoad when no shadow: prevents stale itemsRef from a previous session
+        // bleeding into this session (e.g. React StrictMode double-invoke of effects).
+        const noShadow = !shadowSnap || shadowSnap.length === 0;
+        loaded = await loadMessages(undefined, {
+          freshLoad: noShadow,
+          preserveOnError: true,
+        });
         if (lifecycle.signal.aborted) {
           return;
         }
-        if (statsRes.ok && statsRes.data?.stats) {
-          applySessionStatsPayload(
-            statsRes.data.stats,
-            viewedSessionIdRef.current.trim() === sessionId,
-          );
-        }
-        const shadowSnap = streamShadowBySidRef.current.get(sessionId);
-        if (
-          activeComposerSidRef.current.has(sessionId) &&
-          shadowSnap &&
-          shadowSnap.length > 0
+        const shAfter = streamShadowBySidRef.current.get(sessionId);
+        if (activeComposerSidRef.current.has(sessionId) && shAfter?.length) {
+          setItems([...shAfter]);
+        } else if (
+          !loaded &&
+          !shAfter?.length &&
+          !activeComposerSidRef.current.has(sessionId)
         ) {
-          setItems([...shadowSnap]);
-          setSessionLoading(false);
-        } else {
-          // freshLoad when no shadow: prevents stale itemsRef from a previous session
-          // bleeding into this session (e.g. React StrictMode double-invoke of effects).
-          const noShadow = !shadowSnap || shadowSnap.length === 0;
-          const loaded = await loadMessages(undefined, { freshLoad: noShadow });
-          if (lifecycle.signal.aborted) {
-            return;
-          }
-          if (activeComposerSidRef.current.has(sessionId)) {
-            const sh = streamShadowBySidRef.current.get(sessionId);
-            if (sh && sh.length > 0) {
-              setItems([...sh]);
-              setSessionLoading(false);
-            }
-          }
-          if (loaded && !activeComposerSidRef.current.has(sessionId)) {
-            if (sess?.turnActive) {
-              void rejoinComposerLiveStream(sessionId, loaded);
-            } else {
-              // The list row is only the fast path: it is one page deep (limit 30,
-              // project-scoped) and a moment stale. Ask the session itself, so a turn
-              // still running after a webview reload is never missed.
-              void reconnectLiveStreamIfActive(sessionId);
-            }
-          }
-        }
-      } else {
-        const shElse = streamShadowBySidRef.current.get(sessionId);
-        if (
-          activeComposerSidRef.current.has(sessionId) ||
-          (shElse && shElse.length > 0)
-        ) {
-          if (shElse && shElse.length > 0) {
-            setItems([...shElse]);
-          }
-        } else {
+          // Nothing on disk for this id yet (a draft chat, or a read that failed):
+          // show it empty rather than the previous session's transcript.
           setItems([]);
         }
-        // Always clear the skeleton once this session is resolved. A live composer
-        // with an empty shadow (first send, before the first token) must not leave
-        // the loading state stuck — the stream fills the transcript as it arrives.
-        setSessionLoading(false);
-        // Missing from the History page does not mean idle (project scope, paging,
-        // a snapshot written moments ago): a running turn is still worth re-joining.
-        if (!activeComposerSidRef.current.has(sessionId)) {
+      }
+      // The chat is resolved either way. A failed or empty read must never leave the
+      // panel on a skeleton - that reads as "loading forever" to the user.
+      setSessionLoading(false);
+
+      const statsRes = await statsPromise;
+      if (lifecycle.signal.aborted) {
+        return;
+      }
+      if (statsRes.ok && statsRes.data?.stats) {
+        applySessionStatsPayload(
+          statsRes.data.stats,
+          viewedSessionIdRef.current.trim() === sessionId,
+        );
+      }
+
+      const list = await listPromise;
+      if (lifecycle.signal.aborted) {
+        return;
+      }
+      if (!activeComposerSidRef.current.has(sessionId)) {
+        const sess = list?.find((s) => s.id === sessionId);
+        if (loaded && sess?.turnActive) {
+          void rejoinComposerLiveStream(sessionId, loaded);
+        } else {
+          // The list row is only the fast path: one page deep (limit 30,
+          // project-scoped) and a moment stale, so a chat missing from it may still
+          // be working. Ask the session itself before deciding it is idle.
           void reconnectLiveStreamIfActive(sessionId);
         }
       }

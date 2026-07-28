@@ -301,21 +301,23 @@ func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) (
 			continue
 		}
 		id := ent.Name()
-		snap, err := f.ReadSnapshot(id)
+		// session.json only: a full ReadSnapshot would parse every stored transcript,
+		// turning the panel's first paint into a scan of the whole session history.
+		meta, err := f.ReadMeta(id)
 		if err != nil {
 			continue
 		}
-		if !includeSchedulerRuns && snap.Meta.ExcludedFromComposerSessionList(id) {
+		if !includeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
 			continue
 		}
-		if cwdFilter != "" && snap.Meta.CWD != cwdFilter {
+		if cwdFilter != "" && meta.CWD != cwdFilter {
 			continue
 		}
 		out = append(out, SessionListEntry{
-			SessionID: snap.Meta.ID,
-			CWD:       snap.Meta.CWD,
-			Title:     snap.Meta.Title,
-			UpdatedAt: snap.Meta.UpdatedAt,
+			SessionID: meta.ID,
+			CWD:       meta.CWD,
+			Title:     meta.Title,
+			UpdatedAt: meta.UpdatedAt,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

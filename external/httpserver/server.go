@@ -344,9 +344,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			defer unlock()
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
+			writeSSEHeaders(w)
 			rel := s.beginComposerRelay(sessionID)
 			defer s.endComposerRelay(sessionID, rel)
 			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
@@ -404,9 +402,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		writeSSEHeaders(w)
 		bridge = NewSender(s.activeCfg(), w, true, model)
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
@@ -691,9 +687,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				s.log.Error("responses prompt attachments", "error", err)
 			}
 			if body.Stream {
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				w.Header().Set("Connection", "keep-alive")
+				writeSSEHeaders(w)
 				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 			} else {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
@@ -714,9 +708,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			defer unlock()
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
+			writeSSEHeaders(w)
 			rel := s.beginComposerRelay(sid)
 			defer s.endComposerRelay(sid, rel)
 			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
@@ -775,9 +767,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 
 	var bridge *Sender
 	if body.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		writeSSEHeaders(w)
 		bridge = NewSender(s.activeCfg(), w, true, model)
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)

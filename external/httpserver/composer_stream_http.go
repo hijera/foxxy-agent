@@ -36,9 +36,7 @@ func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	writeSSEHeaders(w)
 
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -84,6 +82,20 @@ func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.R
 			fl.Flush()
 		}
 	}
+}
+
+// writeSSEHeaders prepares a response for Server-Sent Events.
+//
+// X-Accel-Buffering: no matters as much as the content type here: nginx and most
+// corporate HTTP proxies buffer a text/event-stream body by default, so the whole
+// answer only reaches the browser once the turn ends - the turn looks frozen and
+// then appears complete after a reload. This header is the standard opt-out.
+func writeSSEHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
 }
 
 // sessionTurnActive mirrors the turnActive flag of GET /foxxycode/sessions/{id}/activity.
