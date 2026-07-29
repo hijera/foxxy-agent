@@ -56,9 +56,10 @@ type BrowserJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Enabled  *bool  `json:"enabled,omitempty"`
-	Locale   string `json:"locale,omitempty"`
-	SendMode string `json:"send_mode,omitempty"`
+	Enabled    *bool  `json:"enabled,omitempty"`
+	Locale     string `json:"locale,omitempty"`
+	SendMode   string `json:"send_mode,omitempty"`
+	StatusLine *bool  `json:"status_line,omitempty"`
 }
 
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.
@@ -381,7 +382,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		})
 	}
 	out.Gateways = GatewaysJSON{Telegram: tgJSON}
-	out.UI = UIJSON{Enabled: c.UI.Enabled, Locale: c.UI.Locale, SendMode: c.UI.SendMode}
+	out.UI = UIJSON{
+		Enabled: c.UI.Enabled, Locale: c.UI.Locale,
+		SendMode: c.UI.SendMode, StatusLine: c.UI.StatusLine,
+	}
 	out.Browser = BrowserJSON{
 		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
 		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
@@ -502,7 +506,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		})
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg}
-	cfg.UI = UIConfig{Enabled: j.UI.Enabled, Locale: j.UI.Locale, SendMode: j.UI.SendMode}
+	cfg.UI = UIConfig{
+		Enabled: j.UI.Enabled, Locale: j.UI.Locale,
+		SendMode: j.UI.SendMode, StatusLine: j.UI.StatusLine,
+	}
 	cfg.Browser = BrowserConfig{
 		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,
 		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,

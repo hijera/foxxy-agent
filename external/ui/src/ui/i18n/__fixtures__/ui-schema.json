@@ -977,6 +977,11 @@
           ],
           "title": "Sending messages",
           "type": "string"
+        },
+        "status_line": {
+          "description": "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.",
+          "title": "Status line",
+          "type": "boolean"
         }
       },
       "title": "UI",
@@ -984,7 +989,8 @@
       "x-foxxycode-property-order": [
         "enabled",
         "locale",
-        "send_mode"
+        "send_mode",
+        "status_line"
       ]
     },
     "vcs": {

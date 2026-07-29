@@ -279,6 +279,8 @@ logger:
 #                         #   "enter"      Enter sends (Shift/Ctrl+Enter = newline)
 #                         #   "ctrl_enter" Ctrl/Cmd+Enter sends (Enter = newline)
 #                         #   "off"        keyboard send disabled (Send button only)
+#   status_line: true     # false = only animated dots while the agent works, no live
+#                         # status label (current tool / waiting for the model / elapsed)
 
 # Interactive browser automation tool (built with -tags browser; disabled by default).
 # Drives a local Chrome/Chromium over the DevTools Protocol via chromedp.

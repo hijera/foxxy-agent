@@ -1,5 +1,16 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
+import {
+  isReconnecting,
+  serverSnapshotLiveConnection,
+  snapshotLiveConnection,
+  subscribeLiveConnection,
+} from "../chat/liveConnectionState";
+import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
+import {
+  getStatusLineEnabled,
+  onStatusLineChange,
+} from "../chat/statusLineConfig";
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
 import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
@@ -72,6 +83,29 @@ export function MessageList(props: {
     }
     return byId;
   }, [props.items]);
+
+  // ui.status_line: when off, the dots render exactly as they did before this feature.
+  const statusLineOn = useSyncExternalStore(
+    onStatusLineChange,
+    getStatusLineEnabled,
+    () => true,
+  );
+  // A dropped stream makes every tool row stale, so the label says so instead.
+  const connectionEpoch = useSyncExternalStore(
+    subscribeLiveConnection,
+    snapshotLiveConnection,
+    serverSnapshotLiveConnection,
+  );
+  const reconnecting =
+    connectionEpoch >= 0 && !!props.sessionId && isReconnecting(props.sessionId);
+
+  const liveStatus = useMemo(
+    () =>
+      props.generating === true && statusLineOn
+        ? deriveLiveStatus(props.items, { reconnecting })
+        : null,
+    [props.generating, statusLineOn, props.items, reconnecting],
+  );
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -301,7 +335,20 @@ export function MessageList(props: {
         );
       })}
       {props.generating === true && !hasStreamingAssistant(props.items) ? (
-        <TypingDotsMessage />
+        <TypingDotsMessage
+          {...(liveStatus
+            ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
+            : {})}
+          {...(liveStatus && liveStatus.target
+            ? {
+                statusTarget: truncateStatusTarget(liveStatus.target),
+                statusTargetFull: liveStatus.target,
+              }
+            : {})}
+          {...(typeof liveStatus?.startedAtMs === "number"
+            ? { startedAtMs: liveStatus.startedAtMs }
+            : {})}
+        />
       ) : null}
     </>
   );
