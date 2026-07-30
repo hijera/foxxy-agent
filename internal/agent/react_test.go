@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -30,6 +31,12 @@ func (resumePermissionSender) RequestPermission(context.Context, acp.PermissionR
 
 func (resumePermissionSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	return &acp.QuestionResult{}, nil
+}
+
+func TestFirstTokenTimeoutBoundsSilentProviderStartup(t *testing.T) {
+	if firstTokenTimeout != 30*time.Second {
+		t.Fatalf("firstTokenTimeout=%v want 30s", firstTokenTimeout)
+	}
 }
 
 type resumePermissionProvider struct {

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // proxyForRequest resolves the proxy the client's transport would use for rawURL.
@@ -60,15 +61,16 @@ func TestProviderProxyOverridesEnvironment(t *testing.T) {
 		}
 	})
 
-	// Empty means "inherit the environment (editor) proxy": a nil client leaves the SDK on
-	// http.DefaultTransport, whose ProxyFromEnvironment reads HTTP_PROXY/HTTPS_PROXY.
+	// Empty means "inherit the environment (editor) proxy". The dedicated client preserves
+	// ProxyFromEnvironment while adding the bounded response-header wait.
 	t.Run("empty falls back to the env proxy", func(t *testing.T) {
 		c, err := HTTPClientForOptionalProxy("")
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if c != nil {
-			t.Fatalf("expected nil client so the env proxy applies, got %v", c)
+		got := proxyForRequest(t, c, "https://api.openai.com/v1/models")
+		if got == nil || got.Host != "ide-proxy.local:8080" {
+			t.Fatalf("expected the inherited IDE proxy, got %v", got)
 		}
 	})
 }
@@ -113,9 +115,7 @@ func TestHTTPClientForOptionalProxy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if c != nil {
-			t.Fatalf("expected nil client")
-		}
+		assertLLMResponseHeaderTimeout(t, c)
 	})
 	t.Run("whitespace", func(t *testing.T) {
 		t.Parallel()
@@ -123,9 +123,7 @@ func TestHTTPClientForOptionalProxy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		if c != nil {
-			t.Fatalf("expected nil client")
-		}
+		assertLLMResponseHeaderTimeout(t, c)
 	})
 	t.Run("bad_url", func(t *testing.T) {
 		t.Parallel()
@@ -153,6 +151,7 @@ func TestHTTPClientForOptionalProxy(t *testing.T) {
 		if c == nil || c.Transport == nil {
 			t.Fatal("expected non-nil client and transport")
 		}
+		assertLLMResponseHeaderTimeout(t, c)
 	})
 	t.Run("socks5_ok", func(t *testing.T) {
 		t.Parallel()
@@ -163,5 +162,23 @@ func TestHTTPClientForOptionalProxy(t *testing.T) {
 		if c == nil || c.Transport == nil {
 			t.Fatal("expected non-nil client and transport")
 		}
+		assertLLMResponseHeaderTimeout(t, c)
 	})
+}
+
+func assertLLMResponseHeaderTimeout(t *testing.T, c *http.Client) {
+	t.Helper()
+	if c == nil {
+		t.Fatal("expected a dedicated LLM HTTP client")
+	}
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport is %T, want *http.Transport", c.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 30*time.Second {
+		t.Fatalf("ResponseHeaderTimeout=%v want 30s", tr.ResponseHeaderTimeout)
+	}
+	if c.Timeout != 0 {
+		t.Fatalf("client Timeout=%v; streaming bodies must not have a whole-request timeout", c.Timeout)
+	}
 }

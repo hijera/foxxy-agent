@@ -61,7 +61,16 @@ describe("consumeComposerSseReader endedWithoutDone", () => {
     const p = baseParams(readerFromChunks([errEvent]));
     const res = await consumeComposerSseReader(p);
     expect(res.endedWithoutDone).toBe(false);
-    expect(res.streamErrorMessage).toBeTruthy();
+    expect(res.streamErrorMessage).toBe("boom");
+  });
+
+  it("surfaces the silent first-token timeout message verbatim", async () => {
+    const message = "model did not respond (no output within 30s)";
+    const errEvent = `data: {"error":{"message":"${message}"}}\n\n`;
+    const p = baseParams(readerFromChunks([errEvent]));
+    const res = await consumeComposerSseReader(p);
+    expect(res.endedWithoutDone).toBe(false);
+    expect(res.streamErrorMessage).toBe(message);
   });
 });
 

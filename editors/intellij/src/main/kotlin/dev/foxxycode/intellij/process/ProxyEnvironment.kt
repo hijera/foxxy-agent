@@ -187,12 +187,7 @@ internal object ProxyEnvironment {
      */
     internal fun buildProxyEnv(configurable: Any): Map<String, String> {
         val proxyUrl = proxyUrl(configurable) ?: return emptyMap()
-        val out = LinkedHashMap<String, String>()
-        for (key in proxyKeys) out[key] = proxyUrl
-        noProxy(configurable)?.let { value ->
-            for (key in noProxyKeys) out[key] = value
-        }
-        return out
+        return buildEnvFromResolved(proxyUrl, stringField(configurable, "PROXY_EXCEPTIONS"))
     }
 
     /**
@@ -209,9 +204,7 @@ internal object ProxyEnvironment {
         val selector = ProxySelector.getDefault() ?: return emptyMap()
         val proxies = runCatching { selector.select(URI.create(PROBE_URL)) }.getOrNull() ?: return emptyMap()
         val proxyUrl = resolvedProxyUrl(proxies, authPrefix(configurable)) ?: return emptyMap()
-        val out = LinkedHashMap<String, String>()
-        for (key in proxyKeys) out[key] = proxyUrl
-        return out
+        return buildEnvFromResolved(proxyUrl, stringField(configurable, "PROXY_EXCEPTIONS"))
     }
 
     /**
@@ -253,12 +246,6 @@ internal object ProxyEnvironment {
             ?: stringMethod(configurable, "getProxyPassword")
             ?: ""
         return encode(login) + ":" + encode(password) + "@"
-    }
-
-    private fun noProxy(configurable: Any): String? {
-        val raw = stringField(configurable, "PROXY_EXCEPTIONS")?.trim().orEmpty()
-        if (raw.isBlank()) return null
-        return splitExceptions(raw).joinToString(",").ifBlank { null }
     }
 
     /**
