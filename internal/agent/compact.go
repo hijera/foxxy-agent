@@ -72,7 +72,15 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if !ok {
 		return nil, ErrNothingToCompact
 	}
-	head := session.MessagesForLLM(msgs[:splitIdx])
+	visible := session.MessagesForLLM(msgs)
+	visibleStart := len(msgs) - len(visible)
+	if splitIdx < visibleStart || splitIdx > len(msgs) {
+		return nil, fmt.Errorf("invalid compaction boundary %d for visible window %d..%d", splitIdx, visibleStart, len(msgs))
+	}
+	// Pins and writes in the kept tail can make an older result useful or stale,
+	// so project the whole visible window before slicing the summarizer head.
+	projected := a.prunedForLLM(visible)
+	head := projected[:splitIdx-visibleStart]
 
 	provider, modelID, err := a.coddyCompactionProvider()
 	if err != nil {

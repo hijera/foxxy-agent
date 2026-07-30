@@ -44,6 +44,7 @@ type SessionState interface {
 	ReplaceMessagesAndPersist(msgs []llm.Message)
 	InsertCompactionSummary(idx int, msg llm.Message)
 	GetMCPClients() []*mcp.Client
+	GetMCPToolFilter() func(server, tool string) bool
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
 	GetMemoryCopilotBlock() string
@@ -179,9 +180,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if ModeAllowsMCPTools(mode, askBasicOnly) {
+		mcpAllowed := a.state.GetMCPToolFilter()
 		for _, mcpClient := range a.state.GetMCPClients() {
 			for _, t := range mcpClient.Tools() {
-				if !MCPToolAllowedForMode(mode, askBasicOnly, t) {
+				if !mcpAllowed(mcpClient.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
 					continue
 				}
 				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
@@ -249,6 +251,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
 		LoadSkillBody:     a.loadSkillBody,
+		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -429,7 +432,10 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
-		response, streamErr = provider.Stream(streamCtx, messages, toolDefs, func(chunk llm.StreamChunk) {
+		// Prune only the provider projection. The working slice and persisted
+		// transcript retain full tool results.
+		sendMessages := a.prunedForLLM(messages)
+		response, streamErr = provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -1003,6 +1009,13 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		serverName := tc.Name[:idx]
 		toolName := tc.Name[idx+2:]
 		result, execErr = a.callMCPTool(ctx, serverName, toolName, tc.InputJSON)
+		// MCP calls bypass the built-in registry, so apply the shared default
+		// output limit here.
+		if execErr == nil {
+			result = tools.ApplyOutputLimit(result, tc.Name, env)
+		} else {
+			execErr = tools.ApplyOutputLimitError(execErr, tc.Name, env)
+		}
 	} else {
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
 	}
@@ -1046,8 +1059,28 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	return result, execErr
 }
 
-// callMCPTool routes a tool call to the appropriate MCP client.
+// mcpToolDefinitions converts the tools of connected MCP clients into LLM
+// tool definitions, hiding entries the filter disallows. Shared by the main
+// prompt path and the permission-resume path.
+func mcpToolDefinitions(clients []*mcp.Client, allowed func(server, tool string) bool) []llm.ToolDefinition {
+	var defs []llm.ToolDefinition
+	for _, client := range clients {
+		for _, t := range client.Tools() {
+			if !allowed(client.Name(), t.Name) {
+				continue
+			}
+			defs = append(defs, t.ToLLMToolDefinition(client.Name()))
+		}
+	}
+	return defs
+}
+
+// callMCPTool routes a tool call to the appropriate MCP client. Disabled
+// tools are rejected here too so stale history cannot invoke them.
 func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON string) (string, error) {
+	if allowed := a.state.GetMCPToolFilter(); !allowed(serverName, toolName) {
+		return "", fmt.Errorf("MCP tool %s__%s is disabled", serverName, toolName)
+	}
 	for _, client := range a.state.GetMCPClients() {
 		if client.Name() == serverName {
 			return client.CallTool(ctx, toolName, argsJSON)
@@ -1204,6 +1237,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   rm.MaxTokens,
 		Temperature: rm.Temperature,
 	}, a.cfg.Agent.LLMRetryMax, a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
@@ -1294,9 +1328,11 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "glob", "grep", "websearch", "webfetch":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch":
 		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv",
+		"svn_add", "svn_revert", "svn_resolve", "svn_update", "svn_commit",
+		"svn_switch", "svn_merge", "svn_checkout":
 		return "write"
 	case "run_command":
 		return "run_command"
@@ -1307,7 +1343,9 @@ func toolKind(name string) string {
 
 func filesystemWriteTool(name string) bool {
 	switch name {
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv",
+		"svn_add", "svn_revert", "svn_resolve", "svn_update", "svn_commit",
+		"svn_switch", "svn_merge", "svn_checkout":
 		return true
 	default:
 		return false

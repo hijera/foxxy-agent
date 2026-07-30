@@ -160,13 +160,15 @@ type SkillsJSON struct {
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
 type MCPServerJSON struct {
-	Type    string           `json:"type,omitempty"`
-	Name    string           `json:"name"`
-	Command string           `json:"command,omitempty"`
-	Args    []string         `json:"args,omitempty"`
-	Env     []EnvVarJSON     `json:"env,omitempty"`
-	URL     string           `json:"url,omitempty"`
-	Headers []HTTPHeaderJSON `json:"headers,omitempty"`
+	Type          string           `json:"type,omitempty"`
+	Name          string           `json:"name"`
+	Command       string           `json:"command,omitempty"`
+	Args          []string         `json:"args,omitempty"`
+	Env           []EnvVarJSON     `json:"env,omitempty"`
+	URL           string           `json:"url,omitempty"`
+	Headers       []HTTPHeaderJSON `json:"headers,omitempty"`
+	Disabled      bool             `json:"disabled,omitempty"`
+	DisabledTools []string         `json:"disabled_tools,omitempty"`
 }
 
 // EnvVarJSON mirrors EnvVarConfig.
@@ -183,10 +185,23 @@ type HTTPHeaderJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode          string   `json:"permission_mode,omitempty"`
-	CommandAllowlist        []string `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun           *bool    `json:"plan_no_self_run,omitempty"`
-	AskDisableExtendedTools bool     `json:"ask_disable_extended_tools,omitempty"`
+	PermissionMode          string               `json:"permission_mode,omitempty"`
+	CommandAllowlist        []string             `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun           *bool                `json:"plan_no_self_run,omitempty"`
+	AskDisableExtendedTools bool                 `json:"ask_disable_extended_tools,omitempty"`
+	OutputLimits            ToolOutputLimitsJSON `json:"output_limits,omitempty"`
+}
+
+type ToolOutputLimitsJSON struct {
+	Read          *int `json:"read,omitempty"`
+	Grep          *int `json:"grep,omitempty"`
+	Glob          *int `json:"glob,omitempty"`
+	PrintTree     *int `json:"print_tree,omitempty"`
+	RunCommand    *int `json:"run_command,omitempty"`
+	SSHRunCommand *int `json:"ssh_run_command,omitempty"`
+	WebFetch      *int `json:"webfetch,omitempty"`
+	WebSearch     *int `json:"websearch,omitempty"`
+	Default       *int `json:"default,omitempty"`
 }
 
 // LoggerJSON mirrors Logger for JSON APIs.
@@ -224,12 +239,19 @@ type MemoryJSON struct {
 // "use default" (true) rather than an explicit false; KeepRecentTurns is a pointer so an explicit
 // 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
-	Engine           string `json:"engine,omitempty"`
-	Enabled          *bool  `json:"enabled,omitempty"`
-	Model            string `json:"model,omitempty"`
-	ThresholdPercent int    `json:"threshold_percent,omitempty"`
-	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
-	MaxTokens        int    `json:"max_tokens,omitempty"`
+	Engine           string             `json:"engine,omitempty"`
+	Enabled          *bool              `json:"enabled,omitempty"`
+	Model            string             `json:"model,omitempty"`
+	ThresholdPercent int                `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
+	MaxTokens        int                `json:"max_tokens,omitempty"`
+	ResultEviction   ResultEvictionJSON `json:"result_eviction,omitempty"`
+}
+
+type ResultEvictionJSON struct {
+	Enabled        *bool `json:"enabled,omitempty"`
+	KeepRecent     *int  `json:"keep_recent,omitempty"`
+	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
 }
 
 // TitleJSON mirrors TitleConfig. Enabled is a pointer so an unset value round-trips as
@@ -311,7 +333,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		AutoDiscovery: c.Skills.AutoDiscovery,
 	}
 	for _, s := range c.MCPServers {
-		mj := MCPServerJSON{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mj := MCPServerJSON{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mj.Env = append(mj.Env, EnvVarJSON(e))
 		}
@@ -325,6 +352,13 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CommandAllowlist:        append([]string(nil), c.Tools.CommandAllowlist...),
 		PlanNoSelfRun:           c.Tools.PlanNoSelfRun,
 		AskDisableExtendedTools: c.Tools.AskDisableExtendedTools,
+		OutputLimits: ToolOutputLimitsJSON{
+			Read: c.Tools.OutputLimits.Read, Grep: c.Tools.OutputLimits.Grep,
+			Glob: c.Tools.OutputLimits.Glob, PrintTree: c.Tools.OutputLimits.PrintTree,
+			RunCommand: c.Tools.OutputLimits.RunCommand, SSHRunCommand: c.Tools.OutputLimits.SSHRunCommand,
+			WebFetch: c.Tools.OutputLimits.WebFetch, WebSearch: c.Tools.OutputLimits.WebSearch,
+			Default: c.Tools.OutputLimits.Default,
+		},
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -341,6 +375,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
 		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
 		MaxTokens: c.Compaction.MaxTokens,
+		ResultEviction: ResultEvictionJSON{
+			Enabled: c.Compaction.ResultEviction.Enabled, KeepRecent: c.Compaction.ResultEviction.KeepRecent,
+			MinResultBytes: c.Compaction.ResultEviction.MinResultBytes,
+		},
 	}
 	out.Title = TitleJSON{
 		Enabled: c.Title.Enabled, Model: c.Title.Model, MaxTokens: c.Title.MaxTokens,
@@ -434,7 +472,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AutoDiscovery: j.Skills.AutoDiscovery,
 	}
 	for _, s := range j.MCPServers {
-		mc := MCPServerConfig{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mc := MCPServerConfig{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mc.Env = append(mc.Env, EnvVarConfig(e))
 		}
@@ -448,6 +491,13 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CommandAllowlist:        append([]string(nil), j.Tools.CommandAllowlist...),
 		PlanNoSelfRun:           j.Tools.PlanNoSelfRun,
 		AskDisableExtendedTools: j.Tools.AskDisableExtendedTools,
+		OutputLimits: ToolOutputLimits{
+			Read: j.Tools.OutputLimits.Read, Grep: j.Tools.OutputLimits.Grep,
+			Glob: j.Tools.OutputLimits.Glob, PrintTree: j.Tools.OutputLimits.PrintTree,
+			RunCommand: j.Tools.OutputLimits.RunCommand, SSHRunCommand: j.Tools.OutputLimits.SSHRunCommand,
+			WebFetch: j.Tools.OutputLimits.WebFetch, WebSearch: j.Tools.OutputLimits.WebSearch,
+			Default: j.Tools.OutputLimits.Default,
+		},
 	}
 	cfg.Logger = Logger{
 		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),
@@ -466,6 +516,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
 		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
 		MaxTokens: j.Compaction.MaxTokens,
+		ResultEviction: ResultEviction{
+			Enabled: j.Compaction.ResultEviction.Enabled, KeepRecent: j.Compaction.ResultEviction.KeepRecent,
+			MinResultBytes: j.Compaction.ResultEviction.MinResultBytes,
+		},
 	}
 	cfg.Title = TitleConfig{
 		Enabled: j.Title.Enabled, Model: j.Title.Model, MaxTokens: j.Title.MaxTokens,

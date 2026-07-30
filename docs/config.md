@@ -15,9 +15,11 @@ The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMa
 
 Resolved locations use environment variables and flags (see README). In short:
 
-- **`FOXXYCODE_HOME`** - agent state directory. Default **`~/.foxxycode`**. Holds `config.yaml`, `sessions/`, `skills/`, and **`scheduler/`** when using the optional cron scheduler.
+- **`FOXXYCODE_HOME`** - agent state directory. Default **`~/.foxxycode`**. Holds `config.yaml`, `sessions/`, `skills/`, managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`FOXXYCODE_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`FOXXYCODE_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
+- **`CODEX_HOME`** - Codex CLI state directory read by `type: codex` providers when no FoxxyCode-managed credential exists. Default **`~/.codex`**.
+- **`FOXXYCODE_CODEX_BASE_URL`** - process-level Codex backend override. The default is the official backend; `providers[].api_base` is intentionally ignored for Codex.
 
 If no **`--config`** is given, the loader uses **`$FOXXYCODE_HOME/config.yaml`** (default home **`~/.foxxycode`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
@@ -60,6 +62,11 @@ providers:
     api_base: "https://api.deepseek.com/v1"
     api_key: "${DEEPSEEK_API_KEY}"
 
+  # Use Sign In with ChatGPT in the bundled UI. Tokens are stored under
+  # $FOXXYCODE_HOME/providers/codex/, not in config.yaml.
+  - name: "codex"
+    type: "codex"
+
 # Logical models (Go: []config.ModelEntry, internal/config/models.go).
 # Each model value is "provider_name/api_model_id". The first path segment must match providers[].name.
 # The same string is the ACP model selector and agent.model default.
@@ -86,6 +93,9 @@ models:
   - model: "deepseek/deepseek-coder-v2"
     max_tokens: 8192
     temperature: 0.1
+
+  - model: "codex/gpt-5.6-sol"
+    max_tokens: 8192
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
@@ -393,12 +403,12 @@ Inside the raw config file body, **`${CWD}`** and **`${FOXXYCODE_HOME}`** are ex
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**.
 
 YAML split:
 
-- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default).
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**.
+- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (ignored for fixed-endpoint `neuraldeep` and `codex` providers), optional **`proxy`**. Codex credentials are managed out of band through the UI or `foxxycode codex`.
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`**, optional **`multimodal`**, optional **`reasoning_levels`**, and optional **`reasoning_default`**. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

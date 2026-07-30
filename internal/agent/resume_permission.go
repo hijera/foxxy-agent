@@ -119,6 +119,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
+		OutputLineLimits: a.cfg.Tools.OutputLimits.AsMap(),
 	}
 	a.wireFileEditHook(env)
 	return env
@@ -133,9 +134,10 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if ModeAllowsMCPTools(mode, askBasicOnly) {
+		mcpAllowed := a.state.GetMCPToolFilter()
 		for _, mcpClient := range a.state.GetMCPClients() {
 			for _, t := range mcpClient.Tools() {
-				if !MCPToolAllowedForMode(mode, askBasicOnly, t) {
+				if !mcpAllowed(mcpClient.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
 					continue
 				}
 				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))

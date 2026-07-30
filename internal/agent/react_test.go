@@ -121,6 +121,40 @@ func TestToolKind(t *testing.T) {
 	}
 }
 
+func TestMCPToolDefinitionsFilter(t *testing.T) {
+	clients := []*mcp.Client{
+		mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}, {Name: "write"}}),
+		mcp.NewStaticClient("other", []mcp.ToolInfo{{Name: "echo"}}),
+	}
+	defs := mcpToolDefinitions(clients, func(server, tool string) bool {
+		return server != "srv" || tool != "write"
+	})
+	names := make([]string, 0, len(defs))
+	for _, d := range defs {
+		names = append(names, d.Name)
+	}
+	want := []string{"srv__echo", "other__echo"}
+	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
+		t.Fatalf("defs = %v, want %v", names, want)
+	}
+}
+
+func TestCallMCPToolDisabledGuard(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_mcp_guard",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		MCPClients: []*mcp.Client{mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}})},
+		MCPFilterFactory: func() func(server, tool string) bool {
+			return func(server, tool string) bool { return false }
+		},
+	}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+	if _, err := ag.callMCPTool(context.Background(), "srv", "echo", "{}"); err == nil {
+		t.Fatal("disabled MCP tool must be rejected at dispatch")
+	}
+}
+
 func TestExtractCommand(t *testing.T) {
 	if g := extractCommand(`{"command":"ls -la"}`); g != "ls -la" {
 		t.Fatalf("got %q", g)
@@ -751,7 +785,7 @@ func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read"} {
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read"} {
 		if !got[want] {
 			t.Errorf("plan toolset should include %q", want)
 		}
@@ -788,6 +822,14 @@ func TestToolSetForAgentIsUnrestricted(t *testing.T) {
 	set := ToolSetForMode("agent", false)
 	if !set.Unrestricted() {
 		t.Fatal("agent mode should use unrestricted tool set")
+	}
+}
+
+func TestKeepResultIsAvailableInReadCapableModes(t *testing.T) {
+	for _, mode := range []string{"plan", "docs", "ask"} {
+		if !ToolSetForMode(mode, false).Allows("keep_result") {
+			t.Errorf("%s mode must offer keep_result for read/grep pinning", mode)
+		}
 	}
 }
 

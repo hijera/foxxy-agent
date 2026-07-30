@@ -79,7 +79,7 @@ func (a *Agent) refreshConversationContextUsage(persist bool) {
 	if b == nil {
 		b = &session.ContextBreakdown{}
 	}
-	visible := a.llmVisibleMessages()
+	visible := a.prunedForLLM(a.llmVisibleMessages())
 	b.Conversation = session.EstimateTokens(conversationText(visible))
 	b.Summary = session.EstimateTokens(compactionSummaryText(visible))
 	a.setContextBreakdown(b, persist)

@@ -63,8 +63,18 @@ type State struct {
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
-	// MCPClients are connected MCP servers for this session.
+	// MCPClients are MCP servers supplied by the session client (for example
+	// ACP). They survive configured project-server reconnects.
 	MCPClients []*mcp.Client
+
+	// configuredMCPClients are derived from config.yaml plus global/project
+	// mcp.json. They are replaced when the session workspace changes.
+	configuredMCPClients []*mcp.Client
+
+	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
+	// Manager; may be nil = allow all). Re-reading config and .foxxycode/mcp.json
+	// on every build lets enable/disable toggles apply to live sessions.
+	MCPFilterFactory func() func(server, tool string) bool
 
 	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
@@ -141,6 +151,8 @@ func (s *State) GetID() string {
 
 // GetCWD returns the session working directory.
 func (s *State) GetCWD() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.CWD
 }
 
@@ -219,7 +231,66 @@ func (s *State) GetSkills() []*skills.Skill {
 func (s *State) GetMCPClients() []*mcp.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.MCPClients
+	out := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.MCPClients))
+	out = append(out, s.configuredMCPClients...)
+	out = append(out, s.MCPClients...)
+	return out
+}
+
+func (s *State) addMCPClient(client *mcp.Client) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	s.MCPClients = append(s.MCPClients, client)
+	s.mu.Unlock()
+}
+
+func (s *State) setMCPFilterFactory(factory func() func(server, tool string) bool) {
+	s.mu.Lock()
+	s.MCPFilterFactory = factory
+	s.mu.Unlock()
+}
+
+// replaceConfiguredMCPClients atomically swaps only the clients derived from
+// FoxxyCode configuration. Session-client supplied connections remain live.
+func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
+	s.mu.Lock()
+	old := s.configuredMCPClients
+	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
+	s.mu.Unlock()
+	for _, client := range old {
+		_ = client.Close()
+	}
+}
+
+// setCWDAndConfiguredMCPClients commits a workspace switch as one state
+// transition, then closes the configured clients from the previous workspace.
+func (s *State) setCWDAndConfiguredMCPClients(dir string, clients []*mcp.Client) {
+	s.mu.Lock()
+	old := s.configuredMCPClients
+	s.CWD = dir
+	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
+	persist := s.persist
+	s.mu.Unlock()
+	if persist != nil {
+		persist()
+	}
+	for _, client := range old {
+		_ = client.Close()
+	}
+}
+
+// GetMCPToolFilter builds the current MCP tool filter. Without a factory the
+// filter allows everything (ACP-supplied servers, tests).
+func (s *State) GetMCPToolFilter() func(server, tool string) bool {
+	s.mu.RLock()
+	factory := s.MCPFilterFactory
+	s.mu.RUnlock()
+	if factory == nil {
+		return func(string, string) bool { return true }
+	}
+	return factory()
 }
 
 // SetPersistHook registers a callback after state that is written to disk changes.
@@ -309,7 +380,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if ent == nil {
 		return ""
 	}
-	levels := ent.ResolvedReasoningLevels()
+	levels := cfg.ReasoningLevelsFor(ent)
 	if len(levels) == 0 {
 		return ""
 	}
@@ -321,7 +392,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 			return sel
 		}
 	}
-	return ent.DefaultReasoningLevel()
+	return cfg.DefaultReasoningLevelFor(ent)
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.
@@ -751,11 +822,15 @@ func (s *State) Cancel() {
 // CloseAll closes all MCP clients.
 func (s *State) CloseAll() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, c := range s.MCPClients {
+	clients := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.MCPClients))
+	clients = append(clients, s.configuredMCPClients...)
+	clients = append(clients, s.MCPClients...)
+	s.configuredMCPClients = nil
+	s.MCPClients = nil
+	s.mu.Unlock()
+	for _, c := range clients {
 		_ = c.Close()
 	}
-	s.MCPClients = nil
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).

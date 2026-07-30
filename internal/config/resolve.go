@@ -7,11 +7,13 @@ import (
 
 // ResolvedLLM is provider settings merged with one model entry for llm.NewProvider.
 type ResolvedLLM struct {
+	ProviderName string
 	ProviderType string
 	Model        string
 	APIKey       string
 	BaseURL      string
 	ProxyURL     string
+	AuthPath     string
 	MaxTokens    int
 	// MaxContextTokens is the model's context window (models[].max_context_tokens), 0 when unset.
 	// Used by auto-compaction to detect when history approaches the window.
@@ -57,11 +59,13 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		return nil, fmt.Errorf("model %q: provider %q not found", ref, provName)
 	}
 	return &ResolvedLLM{
+		ProviderName:     prov.Name,
 		ProviderType:     prov.Type,
 		Model:            entry.APIModel(),
 		APIKey:           prov.EffectiveAPIKey(),
 		BaseURL:          prov.APIBase,
 		ProxyURL:         prov.Proxy,
+		AuthPath:         CodexAuthPath(c.Paths.Home, prov.Name),
 		MaxTokens:        entry.MaxTokens,
 		MaxContextTokens: entry.MaxContextTokens,
 		Temperature:      entry.Temperature,

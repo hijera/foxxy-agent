@@ -181,6 +181,49 @@ func transcriptText(msgs []llm.Message) string {
 	return b.String()
 }
 
+func TestCoddyCompactionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
+	st := &session.State{ID: "sess_compact_stale_read", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "inspect the file"})
+	st.AddMessage(asstRead("read", "big.go", 1, 500, true))
+	st.AddMessage(toolResult("read", bigBody("STALE FILE CONTENT")))
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "now change it"})
+	st.AddMessage(asstWrite("write", "write", "big.go"))
+	st.AddMessage(toolResult("write", "written"))
+
+	keepTurns := 1
+	keepResults := 0
+	minBytes := 10
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+		Compaction: config.CompactionConfig{
+			Engine:          config.CompactionEngineCoddy,
+			KeepRecentTurns: &keepTurns,
+			ResultEviction: config.ResultEviction{
+				KeepRecent:     &keepResults,
+				MinResultBytes: &minBytes,
+			},
+		},
+	}
+	provider := &bddCompactionProvider{}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	if _, err := ag.CompactSession(context.Background(), "", false); err != nil {
+		t.Fatal(err)
+	}
+	request := transcriptText(provider.completeSeen[0])
+	if strings.Contains(request, "STALE FILE CONTENT") {
+		t.Fatalf("compaction retained a read made stale by a write in the kept tail:\n%s", request)
+	}
+	if !strings.Contains(request, "modified after this read") {
+		t.Fatalf("compaction request missing stale-read placeholder:\n%s", request)
+	}
+}
+
 // nextLLMRequest sends a probe prompt through the agent and returns the
 // message slice the provider received for it.
 func (s *compactionFeatureState) nextLLMRequest() ([]llm.Message, error) {

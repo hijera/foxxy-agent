@@ -5,6 +5,7 @@ package httpserver
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -13,6 +14,7 @@ import (
 func (s *Server) registerProvidersRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/providers/{name}/models", s.foxxycodeProviderModelsGet)
 	s.mux.HandleFunc("POST /foxxycode/providers/models-probe", s.foxxycodeProviderModelsProbe)
+	s.registerCodexAuthRoutes()
 }
 
 // foxxycodeProviderModelsGet fetches the model list advertised by a configured
@@ -50,39 +52,57 @@ func (s *Server) foxxycodeProviderModelsGet(w http.ResponseWriter, r *http.Reque
 		APIKey:   prov.EffectiveAPIKey(),
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
+		AuthPath: config.CodexAuthPath(c.Paths.Home, prov.Name),
 	})
 	writeProviderModelsResult(w, models, err)
 }
 
 // foxxycodeProviderModelsProbe fetches the model list for a provider that is not
-// saved in the config yet (onboarding): credentials arrive in the request body
-// instead of being resolved by provider name. Response shape matches the GET
-// variant: {"ok":true,"models":[...]} or {"ok":false,"error":...,"models":[]}
-// with HTTP 200 on upstream failure so the UI can fall back to manual entry.
-// A malformed body or unsupported provider type returns 400. The api_base is
-// ignored for the neuraldeep type, whose endpoint is fixed (llm.providerBaseURL).
+// saved in the config yet (onboarding): API credentials arrive in the request
+// body instead of being resolved by provider name. Codex is the exception:
+// provider_name resolves its server-side OAuth file, so the browser never handles
+// the token. Response shape matches the GET variant:
+// {"ok":true,"models":[...]} or {"ok":false,"error":...,"models":[]} with HTTP
+// 200 on upstream failure so the UI can fall back to manual entry.
 func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Type    string `json:"type"`
-		APIBase string `json:"api_base"`
-		APIKey  string `json:"api_key"`
-		Proxy   string `json:"proxy"`
+		Type         string `json:"type"`
+		ProviderName string `json:"provider_name"`
+		APIBase      string `json:"api_base"`
+		APIKey       string `json:"api_key"`
+		Proxy        string `json:"proxy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if _, ok := config.AllowedLLMProviderTypes[in.Type]; !ok {
-		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "type must be \"openai\", \"anthropic\", or \"neuraldeep\"")
+		writeFoxxyCodeConfigErr(w, http.StatusBadRequest, "type must be \"openai\", \"anthropic\", \"neuraldeep\", or \"codex\"")
 		return
 	}
 
-	models, err := llm.ListModels(r.Context(), llm.ProviderInput{
+	providerInput := llm.ProviderInput{
 		Type:     in.Type,
 		APIKey:   in.APIKey,
 		BaseURL:  in.APIBase,
 		ProxyURL: in.Proxy,
-	})
+	}
+	if in.Type == "codex" {
+		probe := config.ProviderConfig{Name: strings.TrimSpace(in.ProviderName), Type: "codex"}
+		probe.Normalize()
+		if err := probe.Validate(); err != nil {
+			writeFoxxyCodeConfigErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		c := s.activeCfg()
+		if c == nil || strings.TrimSpace(c.Paths.Home) == "" {
+			writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config home unavailable")
+			return
+		}
+		providerInput.AuthPath = config.CodexAuthPath(c.Paths.Home, probe.Name)
+	}
+
+	models, err := llm.ListModels(r.Context(), providerInput)
 	writeProviderModelsResult(w, models, err)
 }
 

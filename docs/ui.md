@@ -39,6 +39,15 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
 
+## Settings: Codex OAuth
+
+- The first-run provider picker includes **Codex**. Selecting it replaces the API-key field with the same **Sign In with ChatGPT** device-flow card, keeps the optional proxy and model controls, and saves `type: codex` without credentials in the config document.
+- After sign-in, **Fetch models** probes the Codex catalog using the server-side credential for the unsaved `codex` provider name; the browser never receives or resubmits the OAuth token.
+- In **Settings → LLM Providers**, a row with **`type: codex`** hides the generic **API base URL**, **API key**, and **API key command** fields and renders **Sign In with ChatGPT**.
+- The button starts **`POST /foxxycode/providers/{name}/codex-auth/device`**, opens the returned official verification page, displays the one-time code, and polls **`GET .../device/{loginID}`** until completion or failure. The displayed link remains available if the browser blocks the automatic tab.
+- Connected state comes from **`GET /foxxycode/providers/{name}/codex-auth`**. **Sign Out** deletes only the FoxxyCode-managed credential; a server-side Codex CLI login may still appear as a compatibility connection.
+- OAuth tokens never enter the settings document or browser. The server stores them under **`$FOXXYCODE_HOME/providers/<name>/codex-auth.json`**.
+
 ## Layout
 
 Desktop layout
@@ -420,6 +429,36 @@ File API
 
 - `GET /foxxycode/sessions/{id}/memory/file` reads.
 - `PUT /foxxycode/sessions/{id}/memory/file` writes.
+
+## MCP servers (Settings tab)
+
+Functional checklist for the Settings -> MCP servers tab (`MCPSection.tsx`,
+section kind `mcp`; visual contract in `DESIGN.md`):
+
+- `GET /foxxycode/mcp` backs the list: merged `config.yaml` + global `~/.foxxycode/mcp.json`
+  + project `./.foxxycode/mcp.json` servers, each with `source` (`global` / `local`
+  scope badge), `origin` (`config` / `home` / `project` — drives the badge
+  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  `status`, and its tool inventory.
+- Status dot per server: connected (green), error (red, tooltip shows the probe
+  error), disabled (gray), unknown transport type (amber, `unsupported`).
+- Server switch toggles `POST /foxxycode/mcp/{name}/enable|disable`; the change
+  persists into the file that defines the server.
+- Expanding a row lists tools with per-tool switches
+  (`POST /foxxycode/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
+  locked while the server is disabled.
+- Edit and Delete are locked for `readonly` (config.yaml) rows; mcp.json rows
+  of both scopes stay editable. Delete calls `DELETE /foxxycode/mcp/{name}`, Edit
+  opens the JSON editor card inline with the scope pinned to the owning file.
+- Add server opens the editor prefilled with a Cursor-style entry template and
+  a Local/Global scope picker (default Local); Save issues
+  `PUT /foxxycode/mcp/{name}?scope=local|global` after client-side validation
+  (`mcpServerJson.ts`: JSON object, `command` or `url` required, name without
+  `__`, spaces, or path separators).
+- Refresh re-probes all servers via `GET /foxxycode/mcp?refresh=1`.
+- List refreshes never unmount the list (initial-load-only placeholder), so the
+  drawer scroll position is preserved.
+- The tab does not participate in the settings document Save all flow.
 
 ## Swagger
 

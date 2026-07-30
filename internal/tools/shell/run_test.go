@@ -15,7 +15,10 @@ func TestRunCommandToolDescriptionMatchesShell(t *testing.T) {
 		shell platform.Shell
 		want  []string
 	}{
-		{platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"}, []string{"PowerShell", "Get-ChildItem", "Select-String", "Get-Process"}},
+		// The PowerShell description also has to tell the model how to pass literal
+		// text: emitting a backtick inside double quotes is what made run_command
+		// fail in practice.
+		{platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"}, []string{"PowerShell", "Get-ChildItem", "Select-String", "Get-Process", "here-string", "@'...'@", "backtick", "heredoc"}},
 		{platform.Shell{Kind: platform.ShellCmd, Path: "cmd.exe"}, []string{"cmd.exe", "findstr", "tasklist"}},
 		{platform.Shell{Kind: platform.ShellBash, Path: "/bin/bash"}, []string{"bash", "POSIX"}},
 	}
@@ -31,12 +34,12 @@ func TestRunCommandToolDescriptionMatchesShell(t *testing.T) {
 
 func TestExecuteRunCommandWithCurrentShell(t *testing.T) {
 	commandShell := platform.CurrentShell()
-	command := "printf coddy-shell-ok"
+	command := "printf foxxycode-shell-ok"
 	switch commandShell.Kind {
 	case platform.ShellPwsh, platform.ShellPowerShell:
-		command = "Write-Output 'coddy-shell-ok'"
+		command = "Write-Output 'foxxycode-shell-ok'"
 	case platform.ShellCmd:
-		command = "echo coddy-shell-ok"
+		command = "echo foxxycode-shell-ok"
 	}
 	args, err := json.Marshal(runCommandArgs{Command: command})
 	if err != nil {
@@ -46,7 +49,7 @@ func TestExecuteRunCommandWithCurrentShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "coddy-shell-ok") {
+	if !strings.Contains(out, "foxxycode-shell-ok") {
 		t.Fatalf("output = %q", out)
 	}
 }

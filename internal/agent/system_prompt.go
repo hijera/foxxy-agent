@@ -96,7 +96,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	if _, ok := a.state.(rulesState); ok {
 		// The Conversation estimate mirrors what buildMessages sends: only the window the active
 		// compaction engine still replays.
-		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.llmVisibleMessages(), toolDefs), false)
+		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.prunedForLLM(a.llmVisibleMessages()), toolDefs), false)
 	}
 	return full
 }

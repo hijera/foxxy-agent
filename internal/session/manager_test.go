@@ -3,15 +3,19 @@ package session_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -634,5 +638,229 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 	}
 	if got := st.GetCWD(); got != beta {
 		t.Fatalf("cwd changed on failed switch: %q", got)
+	}
+}
+
+func TestSetSessionWorkspaceRejectsActiveTurn(t *testing.T) {
+	root := t.TempDir()
+	alpha := filepath.Join(root, "alpha")
+	beta := filepath.Join(root, "beta")
+	for _, dir := range []string{alpha, beta} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		close(entered)
+		<-release
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), alpha, nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: alpha})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := m.SessionByID(res.SessionID)
+	if st == nil {
+		t.Fatal("session not registered")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = m.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+			SessionID: res.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hold"}},
+		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+	}()
+	<-entered
+	defer func() {
+		close(release)
+		<-done
+	}()
+	if err := m.SetSessionWorkspace(st, beta); !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("SetSessionWorkspace error = %v, want ErrSessionTurnBusy", err)
+	}
+	if got := st.GetCWD(); got != alpha {
+		t.Fatalf("cwd changed during active turn: %q", got)
+	}
+}
+
+func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
+		{Name: "cfg-srv", Command: "cfg-mcp"},
+		{Name: "off-srv", Command: "off-mcp", Disabled: true},
+	}}
+	cfg.Paths.Home = home
+	cwd := t.TempDir()
+
+	// Global <home>/mcp.json overrides config.yaml; project overrides both.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "cfg-srv", config.MCPJSONServer{Command: "home-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "home-srv", config.MCPJSONServer{Command: "proj-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	servers := session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 4 {
+		t.Fatalf("servers = %+v, want 4", servers)
+	}
+	byName := map[string]config.MCPServerConfig{}
+	for _, s := range servers {
+		byName[s.Name] = s
+	}
+	if byName["cfg-srv"].Command != "home-override" {
+		t.Errorf("cfg-srv command = %q, want global mcp.json override", byName["cfg-srv"].Command)
+	}
+	if byName["home-srv"].Command != "proj-override" {
+		t.Errorf("home-srv command = %q, want project override", byName["home-srv"].Command)
+	}
+	if !byName["off-srv"].Disabled {
+		t.Errorf("off-srv must keep its disabled flag in the effective list")
+	}
+	if _, ok := byName["proj-srv"]; !ok {
+		t.Errorf("proj-srv missing from effective list")
+	}
+
+	// A broken project mcp.json must not fail the session; config.yaml plus
+	// the global file still apply.
+	if err := os.WriteFile(filepath.Join(cwd, ".foxxycode", "mcp.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	servers = session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 3 {
+		t.Fatalf("servers with broken project mcp.json = %+v, want 3", servers)
+	}
+}
+
+func TestStateMCPToolFilter(t *testing.T) {
+	st := &session.State{ID: "s", CWD: t.TempDir()}
+	if allowed := st.GetMCPToolFilter(); !allowed("any", "tool") {
+		t.Error("nil factory must allow everything")
+	}
+	st.MCPFilterFactory = func() func(server, tool string) bool {
+		return func(server, tool string) bool { return tool == "echo" }
+	}
+	allowed := st.GetMCPToolFilter()
+	if !allowed("srv", "echo") || allowed("srv", "write") {
+		t.Error("factory-built filter must be used when set")
+	}
+}
+
+func TestSetSessionWorkspaceReconnectsProjectMCPAndPreservesClientServers(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	alpha := filepath.Join(root, "alpha")
+	beta := filepath.Join(root, "beta")
+	for _, dir := range []string{home, alpha, beta} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mcpServer := httptest.NewServer(&fakeBetaHandler{token: "workspace"})
+	defer mcpServer.Close()
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(alpha), "alpha-project", config.MCPJSONServer{
+		Type:          "http",
+		URL:           mcpServer.URL,
+		DisabledTools: []string{"alpha-disabled"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(beta), "beta-project", config.MCPJSONServer{
+		Type:          "http",
+		URL:           mcpServer.URL,
+		DisabledTools: []string{"beta-disabled"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testConfig()
+	cfg.Paths.Home = home
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), alpha, nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{
+		CWD: alpha,
+		MCPServers: []acp.MCPServer{{
+			Name: "client-supplied",
+			Type: "http",
+			URL:  mcpServer.URL,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	st := m.SessionByID(res.SessionID)
+	if st == nil {
+		t.Fatal("session not registered")
+	}
+	defer st.CloseAll()
+
+	assertMCPClientNames(t, st, "alpha-project", "client-supplied")
+	clientSupplied := mcpClientByName(t, st, "client-supplied")
+	alphaFilter := st.GetMCPToolFilter()
+	if alphaFilter("alpha-project", "alpha-disabled") {
+		t.Fatal("alpha project disabled tool is allowed")
+	}
+
+	if err := m.SetSessionWorkspace(st, beta); err != nil {
+		t.Fatalf("SetSessionWorkspace: %v", err)
+	}
+	assertMCPClientNames(t, st, "beta-project", "client-supplied")
+	if got := mcpClientByName(t, st, "client-supplied"); got != clientSupplied {
+		t.Fatal("workspace switch replaced the client-supplied MCP connection")
+	}
+	result, err := mcpClientByName(t, st, "beta-project").CallTool(context.Background(), "get_token", `{}`)
+	if err != nil {
+		t.Fatalf("call beta project MCP tool: %v", err)
+	}
+	if result != "workspace" {
+		t.Fatalf("beta project MCP tool result = %q, want workspace", result)
+	}
+
+	betaFilter := st.GetMCPToolFilter()
+	if betaFilter("beta-project", "beta-disabled") {
+		t.Fatal("beta project disabled tool is allowed after workspace switch")
+	}
+	if !betaFilter("alpha-project", "alpha-disabled") {
+		t.Fatal("filter still reads the alpha project after workspace switch")
+	}
+}
+
+func mcpClientByName(t *testing.T, st *session.State, name string) *mcp.Client {
+	t.Helper()
+	for _, client := range st.GetMCPClients() {
+		if client.Name() == name {
+			return client
+		}
+	}
+	t.Fatalf("MCP client %q not found", name)
+	return nil
+}
+
+func assertMCPClientNames(t *testing.T, st *session.State, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(st.GetMCPClients()))
+	for _, client := range st.GetMCPClients() {
+		got = append(got, client.Name())
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if len(got) != len(want) {
+		t.Fatalf("MCP clients = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("MCP clients = %v, want %v", got, want)
+		}
 	}
 }

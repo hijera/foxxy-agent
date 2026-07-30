@@ -24,8 +24,10 @@ export const messagesEn: Record<string, string> = {
   "composer.removeAttachment": "Remove {fileName}",
   "composer.attachFile": "Attach file",
   "composer.enhance": "Enhance prompt",
-  "composer.enhanceFailed": "Couldn't enhance the prompt. Your draft is unchanged.",
-  "composer.enhanceNoModel": "Couldn't enhance the prompt: no model is configured.",
+  "composer.enhanceFailed":
+    "Couldn't enhance the prompt. Your draft is unchanged.",
+  "composer.enhanceNoModel":
+    "Couldn't enhance the prompt: no model is configured.",
   "composer.mode": "Mode",
   "composer.modeAgent": "Agent",
   "composer.modePlan": "Plan",
@@ -112,7 +114,8 @@ export const messagesEn: Record<string, string> = {
   "env.error.unauthorizedRemote":
     "Unauthorized on remote {host} — check the bearer token for this environment.",
   "env.error.unauthorizedLocal": "Unauthorized ({status}).",
-  "env.error.requestFailedRemote": "Request to remote {host} failed ({status}).",
+  "env.error.requestFailedRemote":
+    "Request to remote {host} failed ({status}).",
   "env.error.requestFailedLocal": "Request failed ({status}).",
 
   "files.type.image": "Image",
@@ -226,7 +229,8 @@ export const messagesEn: Record<string, string> = {
   "settings.statusLine.on": "Show",
   "settings.statusLine.off": "Hide",
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
-  "onboarding.provider.neuraldeep.description": "Russian AI hub — models via api.neuraldeep.ru",
+  "onboarding.provider.neuraldeep.description":
+    "Russian AI hub — models via api.neuraldeep.ru",
   "onboarding.openHub": "Open hub.neuraldeep.ru",
   "onboarding.title": "Choose a provider",
   "onboarding.lead":
@@ -262,6 +266,8 @@ export const messagesEn: Record<string, string> = {
   "onboarding.provider.compatible.label": "OpenAI-compatible",
   "onboarding.provider.compatible.description":
     "DeepSeek, Groq, Together, custom api_base",
+  "onboarding.provider.codex.description":
+    "Use your ChatGPT subscription through OAuth",
 
   "settings.restartOnboarding": "Restart onboarding",
   "settings.restartOnboardingDesc":
@@ -318,7 +324,113 @@ export const messagesEn: Record<string, string> = {
   "settings.providerLabel": "Provider",
   "settings.modelsFetchError":
     "Couldn't fetch models: {error}. Type the model id manually below.",
-  "settings.modelsFetchEmpty": "No models returned. Type the model id manually below.",
+  "settings.modelsFetchEmpty":
+    "No models returned. Type the model id manually below.",
+  "settings.codexAuth.signInFailed": "ChatGPT sign in failed.",
+  "settings.codexAuth.incompleteResponse":
+    "The OAuth server returned an incomplete sign-in response.",
+  "settings.codexAuth.connectedCli":
+    "Connected via the Codex CLI login on this server.",
+  "settings.codexAuth.connectedChatGPT": "Connected with ChatGPT.",
+  "settings.codexAuth.accountLabel": "ChatGPT account",
+  "settings.codexAuth.description":
+    "Codex uses your ChatGPT subscription through OAuth. Credentials are stored on the FoxxyCode server and are never added to config.yaml.",
+  "settings.codexAuth.enterCode":
+    "Enter this one-time code on the ChatGPT page:",
+  "settings.codexAuth.openSignIn": "Open sign-in page",
+  "settings.codexAuth.waitingConfirmation": "Waiting for confirmation…",
+  "settings.codexAuth.signingOut": "Signing out…",
+  "settings.codexAuth.signOut": "Sign out",
+  "settings.codexAuth.waitingChatGPT": "Waiting for ChatGPT…",
+  "settings.codexAuth.signIn": "Sign in with ChatGPT",
+  "settings.codexAuth.providerNameRequired":
+    "Enter a provider name before signing in.",
+  "settings.mcp.legend": "MCP servers",
+  "settings.mcp.description.start":
+    "Model Context Protocol servers from three levels:",
+  "settings.mcp.description.global": "the global file",
+  "settings.mcp.description.local": "and the project's local file",
+  "settings.mcp.description.end":
+    "(Cursor-compatible; later levels override by name). Disable a whole server or individual tools — toggles persist to the file that defines the server and reach running sessions on their next turn.",
+  "settings.mcp.addServer": "Add server",
+  "settings.mcp.refreshTitle": "Re-probe all servers",
+  "settings.mcp.refreshAriaLabel": "Refresh MCP servers",
+  "settings.mcp.loading": "Loading…",
+  "settings.mcp.empty.start":
+    "No MCP servers are configured. Add one here and save it to",
+  "settings.mcp.empty.orGlobal": "or",
+  "settings.mcp.empty.orConfig": "you can also declare it under",
+  "settings.mcp.empty.inConfig": "in",
+  "settings.mcp.status.connected": "Connected — tools: {count}",
+  "settings.mcp.status.probeFailed": "Probe failed",
+  "settings.mcp.status.disabled": "Disabled",
+  "settings.mcp.status.unsupported": "Transport not supported",
+  "settings.mcp.error.disableServer": "Couldn't disable MCP server {name}.",
+  "settings.mcp.error.enableServer": "Couldn't enable MCP server {name}.",
+  "settings.mcp.error.disableTool": "Couldn't disable tool {tool}.",
+  "settings.mcp.error.enableTool": "Couldn't enable tool {tool}.",
+  "settings.mcp.error.deleteServer": "Couldn't delete MCP server {name}.",
+  "settings.mcp.error.saveServer": "Couldn't save the MCP server.",
+  "settings.mcp.collapseTools": "Collapse tools",
+  "settings.mcp.expandTools": "Expand tools",
+  "settings.mcp.collapseToolsAriaLabel": "Collapse tools for {name}",
+  "settings.mcp.expandToolsAriaLabel": "Expand tools for {name}",
+  "settings.mcp.definedIn": "Defined in {origin}",
+  "settings.mcp.scope.local": "local",
+  "settings.mcp.scope.global": "global",
+  "settings.mcp.enabledClickToDisable": "Enabled — click to disable",
+  "settings.mcp.disabledClickToEnable": "Disabled — click to enable",
+  "settings.mcp.disableServerAriaLabel": "Disable MCP server {name}",
+  "settings.mcp.enableServerAriaLabel": "Enable MCP server {name}",
+  "settings.mcp.editEntry": "Edit entry ({origin})",
+  "settings.mcp.editConfigHint":
+    "Defined in config.yaml — edit it in the config sections",
+  "settings.mcp.editAriaLabel": "Edit {name}",
+  "settings.mcp.deleteFrom": "Delete from {origin}",
+  "settings.mcp.deleteConfigHint":
+    "Defined in config.yaml — cannot delete here",
+  "settings.mcp.deleteAriaLabel": "Delete {name}",
+  "settings.mcp.noTools": "This server advertises no tools.",
+  "settings.mcp.noToolsUnreachable":
+    "No tool list — the server is not reachable.",
+  "settings.mcp.serverDisabled": "Server is disabled",
+  "settings.mcp.disableToolAriaLabel":
+    "Disable tool {tool} from server {server}",
+  "settings.mcp.enableToolAriaLabel": "Enable tool {tool} from server {server}",
+  "settings.mcp.editor.namePlaceholder": "server-name",
+  "settings.mcp.editor.nameAriaLabel": "Server name",
+  "settings.mcp.editor.scopeAriaLabel": "Server scope",
+  "settings.mcp.editor.scopeLocal": "Local",
+  "settings.mcp.editor.scopeGlobal": "Global",
+  "settings.mcp.editor.jsonAriaLabel": "Server entry JSON",
+  "settings.mcp.editor.descriptionStart": "One",
+  "settings.mcp.editor.descriptionEntry": "entry in Cursor format:",
+  "settings.mcp.editor.descriptionOptions": "(object), with optional",
+  "settings.mcp.editor.descriptionAnd": "and",
+  "settings.mcp.editor.savedTo": "Saved to",
+  "settings.mcp.editor.save": "Save",
+  "settings.mcp.editor.cancel": "Cancel",
+  "settings.mcp.validation.nameRequired": "Server name is required.",
+  "settings.mcp.validation.nameNamespace": 'Server name must not contain "__".',
+  "settings.mcp.validation.namePath":
+    "Server name must not contain spaces or path separators.",
+  "settings.mcp.validation.invalidJson": "Invalid JSON.",
+  "settings.mcp.validation.objectRequired": "Entry must be a JSON object.",
+  "settings.mcp.validation.typeString": '"type" must be a string.',
+  "settings.mcp.validation.commandString": '"command" must be a string.',
+  "settings.mcp.validation.urlString": '"url" must be a string.',
+  "settings.mcp.validation.commandOrUrl":
+    'Either "command" or "url" is required.',
+  "settings.mcp.validation.argsStringArray":
+    '"args" must be an array of strings.',
+  "settings.mcp.validation.envStringMap":
+    '"env" must be an object of string values.',
+  "settings.mcp.validation.headersStringMap":
+    '"headers" must be an object of string values.',
+  "settings.mcp.validation.disabledBoolean": '"disabled" must be a boolean.',
+  "settings.mcp.validation.disabledToolsStringArray":
+    '"disabledTools" must be an array of strings.',
+  "settings.mcp.validation.invalidEntry": "Invalid entry.",
   "settings.skills.installedLabel": "Installed skills",
   "settings.skills.installHintBefore": "You can also install skills via",
   "settings.skills.installHintOr": "or",
@@ -331,10 +443,13 @@ export const messagesEn: Record<string, string> = {
   "settings.skills.enableFailed": "Couldn't enable the skill",
   "settings.skills.disableFailed": "Couldn't disable the skill",
   "settings.skills.sourcesLegend": "Remote skill sources",
-  "settings.skills.sourcesDescBefore": "GitHub repos (owner/repo[@ref]), git URLs, or an",
+  "settings.skills.sourcesDescBefore":
+    "GitHub repos (owner/repo[@ref]), git URLs, or an",
   "settings.skills.sourcesDescStandard": "agents-standard",
-  "settings.skills.sourcesDescAfter": "marketplace.json URL. Saved to skills.sources; fetched only when you sync.",
-  "settings.skills.sourcePlaceholder": "owner/repo  ·  https://…/marketplace.json",
+  "settings.skills.sourcesDescAfter":
+    "marketplace.json URL. Saved to skills.sources; fetched only when you sync.",
+  "settings.skills.sourcePlaceholder":
+    "owner/repo  ·  https://…/marketplace.json",
   "settings.skills.synced": "Synced",
   "settings.skills.syncSource": "Sync {source}",
   "settings.skills.thisMarketplace": "this marketplace",
@@ -349,7 +464,8 @@ export const messagesEn: Record<string, string> = {
   "settings.skills.updateFailed": "Update failed",
   "settings.skills.syncFailed": "Sync failed",
   "settings.skills.autoDiscoveryLegend": "Skill auto-discovery",
-  "settings.skills.autoDiscoveryDesc": "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name.",
+  "settings.skills.autoDiscoveryDesc":
+    "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name.",
   "settings.skills.stateEnabled": "Enabled",
   "settings.skills.stateDisabled": "Disabled",
   "settings.skills.searchPlaceholder": "Search marketplace skills to install…",
@@ -374,7 +490,8 @@ export const messagesEn: Record<string, string> = {
   "settings.providers.exportCopied": "Copied (without secrets)",
   "settings.providers.exportedFile": "Exported to file",
   "settings.providers.importFailed": "Could not read providers",
-  "settings.providers.secretsExcludedHint": "API keys and proxy are not included",
+  "settings.providers.secretsExcludedHint":
+    "API keys and proxy are not included",
 
   "scheduler.title": "Scheduler",
   "scheduler.close": "Close scheduler",
@@ -581,8 +698,7 @@ export const messagesEn: Record<string, string> = {
 
   "app.confirmDeleteDraft": "Delete draft",
   "app.confirmDeleteChat": "Delete chat",
-  "app.chatBusy":
-    "This chat is busy in another client. Try again in a moment.",
+  "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.chatBusyReattached":
     "This chat is still working on the previous request — reopening it. Your message is back in the composer; send it when the turn finishes.",
   "app.emptyResponseBody": "Empty response body",

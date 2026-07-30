@@ -21,6 +21,7 @@ const PlanExitToolName = "plan_exit"
 // MCP server tools are appended separately in react.go (same as agent mode).
 var planToolNames = []string{
 	"read",
+	"keep_result",
 	"glob",
 	"grep",
 	"print_tree",
@@ -50,6 +51,7 @@ var planToolNames = []string{
 
 var docsToolNames = []string{
 	"read",
+	"keep_result",
 	"glob",
 	"grep",
 	"websearch",
@@ -61,6 +63,7 @@ var docsToolNames = []string{
 
 var askBasicToolNames = []string{
 	"read",
+	"keep_result",
 	"glob",
 	"grep",
 	"print_tree",
