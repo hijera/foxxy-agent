@@ -117,6 +117,19 @@ type codexAuthSource struct {
 	httpClient   *http.Client
 	tokenURL     string
 	now          func() time.Time
+	log          *slog.Logger
+	// writeFile persists the credential file; nil uses writePrivateFile. It is a
+	// seam for exercising the write-failure path, like now and tokenURL above.
+	writeFile func(path string, data []byte) error
+}
+
+// logger returns the source's logger, defaulting to the process logger so a
+// zero-value codexAuthSource (used by codexAuthNotice) stays usable.
+func (s *codexAuthSource) logger() *slog.Logger {
+	if s.log != nil {
+		return s.log
+	}
+	return slog.Default()
 }
 
 // codexAuthMu serializes credential reads, refreshes, and rewrites across all
@@ -186,7 +199,13 @@ func (s *codexAuthSource) Credential(ctx context.Context) (codexCredential, erro
 			auth.Tokens.RefreshToken = refreshed.RefreshToken
 		}
 		if werr := s.save(activePath, auth); werr != nil {
-			// A write failure must not break an otherwise usable token.
+			// A write failure must not break an otherwise usable token, but it
+			// is not harmless either: OpenAI rotates refresh tokens, so the one
+			// just consumed is already dead server-side and its replacement only
+			// lives in this process. The next start will have to sign in again,
+			// which is impossible to diagnose without this line.
+			s.logger().Error("codex auth: refreshed tokens could not be saved; sign-in will be lost on restart",
+				"path", activePath, "error", werr)
 			return codexCredential{AccessToken: auth.Tokens.AccessToken, AccountID: auth.Tokens.AccountID}, nil
 		}
 	}
@@ -241,6 +260,9 @@ func (s *codexAuthSource) save(path string, auth *codexAuthFile) error {
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return err
+	}
+	if s.writeFile != nil {
+		return s.writeFile(path, out)
 	}
 	return writePrivateFile(path, out)
 }

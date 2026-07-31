@@ -23,8 +23,8 @@ func DecodeOutput(b []byte) string {
 	if len(b) == 0 || utf8.Valid(b) {
 		return string(b)
 	}
-	codePage, err := windows.GetConsoleOutputCP()
-	if err != nil || codePage == 0 {
+	codePage := childOutputCodePage()
+	if codePage == 0 {
 		return string(b)
 	}
 	decoded, err := decodeCodePage(codePage, b)
@@ -32,6 +32,30 @@ func DecodeOutput(b []byte) string {
 		return string(b)
 	}
 	return decoded
+}
+
+// procGetOEMCP is resolved lazily; x/sys/windows exports GetACP but not GetOEMCP.
+var procGetOEMCP = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetOEMCP")
+
+// childOutputCodePage returns the code page console children write in, or 0 when
+// it cannot be determined.
+//
+// GetConsoleOutputCP only answers for a process that owns a console. The desktop
+// launcher (foxxycode desktop / WebView2) and a detached `foxxycode http` have
+// none, so it fails there - and those are exactly the runs where unreadable
+// output is most visible, since there is no terminal to inspect. A console child
+// spawned from such a process gets a fresh console at the system OEM code page
+// (866 on a Russian install), which is what GetOEMCP reports, so that is the
+// fallback. GetACP would be wrong here: on the same install it is 1251.
+func childOutputCodePage() uint32 {
+	if cp, err := windows.GetConsoleOutputCP(); err == nil && cp != 0 {
+		return cp
+	}
+	if err := procGetOEMCP.Find(); err != nil {
+		return 0
+	}
+	cp, _, _ := procGetOEMCP.Call()
+	return uint32(cp)
 }
 
 // decodeCodePage converts bytes in the given Windows code page to a Go string.

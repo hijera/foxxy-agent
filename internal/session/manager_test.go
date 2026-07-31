@@ -1,6 +1,7 @@
 package session_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -740,6 +742,49 @@ func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
 	servers = session.EffectiveMCPServers(cfg, cwd, slog.Default())
 	if len(servers) != 3 {
 		t.Fatalf("servers with broken project mcp.json = %+v, want 3", servers)
+	}
+}
+
+func TestEffectiveMCPServersReportsABrokenFileOnce(t *testing.T) {
+	// The effective list is rebuilt on every turn and every MCP tool call, so a
+	// file that stays broken must not warn each time. A different failure, or the
+	// same one after a good load, is reported again.
+	home := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.Home = home
+	cwd := t.TempDir()
+
+	var logged bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	path := config.MCPJSONPath(cwd)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(body string) {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	warnings := func() int {
+		return strings.Count(logged.String(), "failed to load mcp.json")
+	}
+
+	write("{broken")
+	for i := 0; i < 5; i++ {
+		session.EffectiveMCPServers(cfg, cwd, log)
+	}
+	if got := warnings(); got != 1 {
+		t.Fatalf("same failure logged %d times, want 1:\n%s", got, logged.String())
+	}
+
+	// Fixing the file and breaking it again must warn again, so a real
+	// regression is never swallowed by the deduplication.
+	write(`{"mcpServers":{}}`)
+	session.EffectiveMCPServers(cfg, cwd, log)
+	write("{broken")
+	session.EffectiveMCPServers(cfg, cwd, log)
+	if got := warnings(); got != 2 {
+		t.Fatalf("a failure after a good load logged %d times total, want 2:\n%s", got, logged.String())
 	}
 }
 

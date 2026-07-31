@@ -716,19 +716,33 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 	})
 }
 
+// mcpJSONLoadErrors remembers the last load failure reported per mcp.json path,
+// so a file that stays broken is reported once instead of on every turn. A
+// successful load clears the entry, so a file that breaks again is reported
+// again.
+var mcpJSONLoadErrors sync.Map // path -> last error string
+
 // EffectiveMCPServers merges config.yaml servers with the global
 // <home>/mcp.json and the project-local <cwd>/.foxxycode/mcp.json (later files
 // override earlier ones by name). A broken mcp.json is logged and skipped so
 // the session still starts.
+//
+// This runs on every turn and on every MCP tool call (the tool filter is rebuilt
+// from it so enable/disable toggles reach live sessions), hence the deduplicated
+// warning: a single malformed file would otherwise fill the log.
 func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []config.MCPServerConfig {
 	loadJSON := func(path string) []config.MCPServerConfig {
 		servers, err := config.LoadMCPJSONServers(path)
 		if err != nil {
-			if log != nil {
-				log.Warn("failed to load mcp.json", "path", path, "error", err)
+			if prev, seen := mcpJSONLoadErrors.Load(path); !seen || prev != err.Error() {
+				mcpJSONLoadErrors.Store(path, err.Error())
+				if log != nil {
+					log.Warn("failed to load mcp.json", "path", path, "error", err)
+				}
 			}
 			return nil
 		}
+		mcpJSONLoadErrors.Delete(path)
 		return servers
 	}
 	global := loadJSON(config.GlobalMCPJSONPath(cfg.Paths.Home))

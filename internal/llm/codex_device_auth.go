@@ -16,6 +16,16 @@ import (
 
 const codexDeviceLoginTimeout = 15 * time.Minute
 
+// The issuer chooses the device polling interval, so it is clamped into a sane
+// band: without a floor, an interval of 0 turns the wait into a tight loop
+// against the OAuth endpoint for the whole 15-minute timeout, and without a
+// ceiling a large value would make the sign-in look hung.
+const (
+	codexDeviceMinInterval     = 1 * time.Second
+	codexDeviceMaxInterval     = 30 * time.Second
+	codexDeviceDefaultInterval = 5 * time.Second
+)
+
 // CodexIssuerURL is the official ChatGPT OAuth issuer used by the device flow.
 const CodexIssuerURL = "https://auth.openai.com"
 
@@ -150,10 +160,7 @@ type codexDeviceToken struct {
 }
 
 func pollCodexDeviceToken(ctx context.Context, issuer string, client *http.Client, login CodexDeviceLogin) (codexDeviceToken, error) {
-	interval := login.Interval
-	if interval < 10*time.Millisecond {
-		interval = 10 * time.Millisecond
-	}
+	interval := clampCodexDeviceInterval(login.Interval)
 	for {
 		body, _ := json.Marshal(map[string]string{
 			"device_auth_id": login.DeviceAuthID,
@@ -228,9 +235,25 @@ func exchangeCodexDeviceToken(ctx context.Context, issuer string, client *http.C
 	return tokens, nil
 }
 
+// clampCodexDeviceInterval keeps a server-supplied polling interval inside the
+// band above. A zero value (or an interval the issuer omitted) becomes the
+// default rather than the floor, so ordinary sign-ins keep their usual cadence.
+func clampCodexDeviceInterval(d time.Duration) time.Duration {
+	if d <= 0 {
+		return codexDeviceDefaultInterval
+	}
+	if d < codexDeviceMinInterval {
+		return codexDeviceMinInterval
+	}
+	if d > codexDeviceMaxInterval {
+		return codexDeviceMaxInterval
+	}
+	return d
+}
+
 func parseCodexDeviceInterval(raw json.RawMessage) (time.Duration, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return 5 * time.Second, nil
+		return codexDeviceDefaultInterval, nil
 	}
 	var secondsString string
 	if err := json.Unmarshal(raw, &secondsString); err == nil {

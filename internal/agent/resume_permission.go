@@ -134,15 +134,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if ModeAllowsMCPTools(mode, askBasicOnly) {
-		mcpAllowed := a.state.GetMCPToolFilter()
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				if !mcpAllowed(mcpClient.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
-					continue
-				}
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
+		toolDefs = append(toolDefs, a.mcpToolDefinitions(mode, askBasicOnly)...)
 	}
 	provider, err := a.getProvider(mode)
 	if err != nil {

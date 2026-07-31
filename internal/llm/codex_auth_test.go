@@ -1,9 +1,12 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -183,6 +186,48 @@ func TestCodexAuthCredentialRefreshesExpiredToken(t *testing.T) {
 	}
 	if saved.Tokens.RefreshToken != "rt-new" {
 		t.Errorf("saved refresh token = %q, want rt-new", saved.Tokens.RefreshToken)
+	}
+}
+
+func TestCodexAuthLogsWhenRefreshedTokensCannotBeSaved(t *testing.T) {
+	// OpenAI rotates refresh tokens, so a failed write means the sign-in is gone
+	// after the next restart. The credential still has to work for this process,
+	// but the failure must not be silent.
+	dir := t.TempDir()
+	newToken := makeJWT(time.Now().Add(time.Hour))
+	path := writeCodexAuth(t, dir, codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens: codexTokens{
+			AccessToken:  makeJWT(time.Now().Add(-time.Hour)), // expired
+			RefreshToken: "rt-old",
+		},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(codexRefreshResponse{
+			AccessToken:  newToken,
+			RefreshToken: "rt-new",
+			IDToken:      "id-new",
+		})
+	}))
+	defer srv.Close()
+
+	var logged bytes.Buffer
+	src := newCodexAuthSource(path, http.DefaultClient)
+	src.tokenURL = srv.URL
+	src.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelError}))
+	src.writeFile = func(string, []byte) error { return errors.New("disk full") }
+
+	cred, err := src.Credential(context.Background())
+	if err != nil {
+		t.Fatalf("Credential must still succeed on a write failure: %v", err)
+	}
+	if cred.AccessToken != newToken {
+		t.Errorf("AccessToken = %q, want the refreshed token", cred.AccessToken)
+	}
+	out := logged.String()
+	if !strings.Contains(out, "disk full") || !strings.Contains(out, "level=ERROR") {
+		t.Fatalf("write failure was not reported at error level: %q", out)
 	}
 }
 

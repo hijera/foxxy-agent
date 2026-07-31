@@ -189,7 +189,8 @@ type ToolsJSON struct {
 	CommandAllowlist        []string             `json:"command_allowlist,omitempty"`
 	PlanNoSelfRun           *bool                `json:"plan_no_self_run,omitempty"`
 	AskDisableExtendedTools bool                 `json:"ask_disable_extended_tools,omitempty"`
-	OutputLimits            ToolOutputLimitsJSON `json:"output_limits,omitempty"`
+	// omitempty does not apply to structs; all-nil limits serialize as {}.
+	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 }
 
 type ToolOutputLimitsJSON struct {
@@ -245,7 +246,8 @@ type CompactionJSON struct {
 	ThresholdPercent int                `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
 	MaxTokens        int                `json:"max_tokens,omitempty"`
-	ResultEviction   ResultEvictionJSON `json:"result_eviction,omitempty"`
+	// omitempty does not apply to structs; unset eviction serializes as {}.
+	ResultEviction ResultEvictionJSON `json:"result_eviction"`
 }
 
 type ResultEvictionJSON struct {

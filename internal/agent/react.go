@@ -180,15 +180,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if ModeAllowsMCPTools(mode, askBasicOnly) {
-		mcpAllowed := a.state.GetMCPToolFilter()
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				if !mcpAllowed(mcpClient.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
-					continue
-				}
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
+		toolDefs = append(toolDefs, a.mcpToolDefinitions(mode, askBasicOnly)...)
 	}
 
 	// Get or create LLM provider.
@@ -1062,14 +1054,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	return result, execErr
 }
 
-// mcpToolDefinitions converts the tools of connected MCP clients into LLM
-// tool definitions, hiding entries the filter disallows. Shared by the main
-// prompt path and the permission-resume path.
-func mcpToolDefinitions(clients []*mcp.Client, allowed func(server, tool string) bool) []llm.ToolDefinition {
+// mcpToolDefinitions converts the tools of connected MCP clients into LLM tool
+// definitions, applying both gates a caller must never skip: the configured
+// enable/disable filter and the fork's per-mode annotation filter. Shared by the
+// main prompt path and the permission-resume path so the two cannot drift.
+//
+// Callers are responsible for checking ModeAllowsMCPTools first; this only
+// filters within a mode that gets MCP tools at all.
+func (a *Agent) mcpToolDefinitions(mode string, askBasicOnly bool) []llm.ToolDefinition {
+	allowed := a.state.GetMCPToolFilter()
 	var defs []llm.ToolDefinition
-	for _, client := range clients {
+	for _, client := range a.state.GetMCPClients() {
 		for _, t := range client.Tools() {
-			if !allowed(client.Name(), t.Name) {
+			if !allowed(client.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
 				continue
 			}
 			defs = append(defs, t.ToLLMToolDefinition(client.Name()))

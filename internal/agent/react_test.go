@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -128,21 +129,51 @@ func TestToolKind(t *testing.T) {
 	}
 }
 
-func TestMCPToolDefinitionsFilter(t *testing.T) {
-	clients := []*mcp.Client{
-		mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}, {Name: "write"}}),
-		mcp.NewStaticClient("other", []mcp.ToolInfo{{Name: "echo"}}),
+func TestMCPToolDefinitionsAppliesBothFilters(t *testing.T) {
+	// The configured enable/disable filter and the fork's per-mode annotation
+	// filter both have to apply. Ask only gets read-only MCP tools, so a helper
+	// that dropped the mode gate would silently hand Ask a writing tool.
+	newAgent := func() *Agent {
+		st := &session.State{
+			ID:   "sess_mcp_defs",
+			CWD:  t.TempDir(),
+			Mode: session.ModeAgent,
+			MCPClients: []*mcp.Client{
+				mcp.NewStaticClient("srv", []mcp.ToolInfo{
+					{Name: "echo", ReadOnly: true},
+					{Name: "write"},
+					{Name: "secret", ReadOnly: true},
+				}),
+				mcp.NewStaticClient("other", []mcp.ToolInfo{{Name: "echo", ReadOnly: true}}),
+			},
+			MCPFilterFactory: func() func(server, tool string) bool {
+				return func(server, tool string) bool {
+					return server != "srv" || tool != "secret"
+				}
+			},
+		}
+		return NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
 	}
-	defs := mcpToolDefinitions(clients, func(server, tool string) bool {
-		return server != "srv" || tool != "write"
-	})
-	names := make([]string, 0, len(defs))
-	for _, d := range defs {
-		names = append(names, d.Name)
+
+	names := func(defs []llm.ToolDefinition) []string {
+		out := make([]string, 0, len(defs))
+		for _, d := range defs {
+			out = append(out, d.Name)
+		}
+		return out
 	}
-	want := []string{"srv__echo", "other__echo"}
-	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
-		t.Fatalf("defs = %v, want %v", names, want)
+
+	got := names(newAgent().mcpToolDefinitions(string(session.ModeAgent), false))
+	want := []string{"srv__echo", "srv__write", "other__echo"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("agent mode defs = %v, want %v", got, want)
+	}
+
+	// Ask drops the non-read-only tool on top of the disabled one.
+	got = names(newAgent().mcpToolDefinitions("ask", false))
+	want = []string{"srv__echo", "other__echo"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ask mode defs = %v, want %v", got, want)
 	}
 }
 

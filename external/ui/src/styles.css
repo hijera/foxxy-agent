@@ -83,9 +83,18 @@
   --rail-pill-track: 74px;
   /* Matches .rail-pill horizontal padding (box-sizing border-box width includes this) */
   --rail-pill-pad-inline: 10px;
+  /* Semantic status colors (MCP connection dots). Defined once here so every
+     theme inherits them; only light overrides, where the dark-theme tints are
+     too pale against a white surface. */
+  --foxxycode-status-ok: #34c759;
+  --foxxycode-status-error: #ff453a;
+  --foxxycode-status-warn: #ff9f0a;
 }
 
 [data-theme="light"] {
+  --foxxycode-status-ok: #248a3d;
+  --foxxycode-status-error: #d70015;
+  --foxxycode-status-warn: #b25000;
   --bg: #f8f8fa;
   --diff-add-bg: rgba(46, 160, 67, 0.09);
   --diff-del-bg: rgba(248, 81, 73, 0.09);
@@ -6834,17 +6843,17 @@ textarea#composer {
 }
 
 .mcp-status-dot.is-connected {
-  background: #34c759;
-  box-shadow: 0 0 5px color-mix(in srgb, #34c759 60%, transparent);
+  background: var(--foxxycode-status-ok);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--foxxycode-status-ok) 60%, transparent);
 }
 
 .mcp-status-dot.is-error {
-  background: #ff453a;
-  box-shadow: 0 0 5px color-mix(in srgb, #ff453a 60%, transparent);
+  background: var(--foxxycode-status-error);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--foxxycode-status-error) 60%, transparent);
 }
 
 .mcp-status-dot.is-unsupported {
-  background: #ff9f0a;
+  background: var(--foxxycode-status-warn);
 }
 
 .mcp-status-dot.is-disabled {

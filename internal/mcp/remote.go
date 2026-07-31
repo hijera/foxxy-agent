@@ -244,6 +244,12 @@ func newSSETransport(ctx context.Context, name, rawURL string, headers map[strin
 
 // resolveSSEEndpoint resolves the endpoint event payload (usually a relative
 // URI) against the SSE stream URL.
+//
+// The payload is server-controlled, and every later POST carries the configured
+// headers (typically an Authorization bearer). An endpoint pointing at another
+// origin would therefore hand those credentials to a host the operator never
+// configured, so a cross-origin endpoint is refused rather than followed - the
+// same restriction the MCP transport spec places on this event.
 func resolveSSEEndpoint(base, endpoint string) (string, error) {
 	b, err := url.Parse(base)
 	if err != nil {
@@ -253,7 +259,34 @@ func resolveSSEEndpoint(base, endpoint string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return b.ResolveReference(e).String(), nil
+	resolved := b.ResolveReference(e)
+	if !sameOrigin(b, resolved) {
+		return "", fmt.Errorf("endpoint %s is not on the stream origin %s", resolved.Redacted(), originOf(b))
+	}
+	return resolved.String(), nil
+}
+
+// sameOrigin compares scheme, host, and port, treating the default port of a
+// scheme as equal to that port written out.
+func sameOrigin(a, b *url.URL) bool {
+	return originOf(a) == originOf(b)
+}
+
+// originOf renders scheme://host:port with the scheme's default port made
+// explicit, so "https://h" and "https://h:443" compare equal.
+func originOf(u *url.URL) string {
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return scheme + "://" + host + ":" + port
 }
 
 func (t *sseTransport) Send(ctx context.Context, data []byte) error {

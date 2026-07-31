@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func codexTestJWT(claims map[string]any) string {
@@ -158,6 +159,24 @@ func TestCodexDeviceLoginExchangesAndPersistsTokens(t *testing.T) {
 	}
 	if !status.Connected || status.Source != "foxxycode" {
 		t.Fatalf("status = %+v, want connected foxxycode credentials", status)
+	}
+}
+
+func TestClampCodexDeviceInterval(t *testing.T) {
+	// The issuer picks this value, so it must not be able to turn the 15-minute
+	// wait into a hot loop against the OAuth endpoint, nor stall it.
+	for _, tc := range []struct {
+		in, want time.Duration
+	}{
+		{0, codexDeviceDefaultInterval},
+		{-time.Second, codexDeviceDefaultInterval},
+		{time.Millisecond, codexDeviceMinInterval},
+		{3 * time.Second, 3 * time.Second},
+		{time.Hour, codexDeviceMaxInterval},
+	} {
+		if got := clampCodexDeviceInterval(tc.in); got != tc.want {
+			t.Errorf("clampCodexDeviceInterval(%v) = %v, want %v", tc.in, got, tc.want)
+		}
 	}
 }
 

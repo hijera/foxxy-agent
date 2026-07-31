@@ -229,6 +229,54 @@ func TestPruneSVNMutationInvalidatesPinnedRead(t *testing.T) {
 	}
 }
 
+func TestPruneSVNMutationScope(t *testing.T) {
+	// Only Subversion tools that rewrite working-copy content may invalidate an
+	// earlier read, and a call that names paths must not reach beyond them.
+	svnCall := func(name, argsJSON string) []llm.Message {
+		return []llm.Message{
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID: "svn", Name: name, InputJSON: argsJSON,
+				}},
+			},
+			toolResult("svn", "done, revision 42."),
+		}
+	}
+
+	tests := []struct {
+		name        string
+		tool        string
+		argsJSON    string
+		wantEvicted bool
+	}{
+		{"add does not rewrite content", "svn_add", `{"paths":["src/main.go"]}`, false},
+		{"commit only ships what is on disk", "svn_commit", `{"paths":["src/main.go"],"message":"m"}`, false},
+		{"update of another path leaves the read alone", "svn_update", `{"paths":["docs"]}`, false},
+		{"update of the read path invalidates it", "svn_update", `{"paths":["src/main.go"]}`, true},
+		{"update of a parent invalidates the read", "svn_update", `{"paths":["src"]}`, true},
+		{"revert without paths means the whole tree", "svn_revert", `{}`, true},
+		{"switch can replace any subtree", "svn_switch", `{"branch":"branches/x"}`, true},
+		{"merge can replace any subtree", "svn_merge", `{"source":"branches/x"}`, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := append([]llm.Message{
+				asstRead("r", "src/main.go", 1, 500, true),
+				toolResult("r", bigBody("PINNED BEFORE SVN")),
+			}, svnCall(tc.tool, tc.argsJSON)...)
+			out := pruneToolResults(in, resultEvictionOptions{
+				Enabled: true, KeepRecent: 10, MinResultBytes: 10, CWD: testCWD,
+			})
+			got := contentByID(out, "r")
+			if evicted(got) != tc.wantEvicted {
+				t.Fatalf("%s %s: evicted = %v, want %v (%q)",
+					tc.tool, tc.argsJSON, evicted(got), tc.wantEvicted, got)
+			}
+		})
+	}
+}
+
 func TestPruneDirectoryMutationInvalidatesRelatedReads(t *testing.T) {
 	tests := []struct {
 		name  string
