@@ -32,6 +32,14 @@ const (
 	compactionMaxThresholdPercent = 99
 )
 
+const (
+	// ResultEvictionDefaultKeepRecent keeps the common read-plus-grep working
+	// pair intact. A window of one causes alternating re-fetches.
+	ResultEvictionDefaultKeepRecent = 2
+	// ResultEvictionDefaultMinResultBytes leaves small results untouched.
+	ResultEvictionDefaultMinResultBytes = 2000
+)
+
 // CompactionConfig controls automatic context compaction (summarization of older turns when the
 // conversation approaches the model's context window). Two engines share this section, selected
 // by Engine; implementations live in internal/agent (compact.go for coddy, compaction.go for
@@ -63,6 +71,46 @@ type CompactionConfig struct {
 	// MaxTokens caps the summary completion size for the opencode engine. The coddy engine issues
 	// the summary request without an output cap and ignores this. Default 4096.
 	MaxTokens int `yaml:"max_tokens"`
+
+	// ResultEviction prunes superseded read/grep results only from the LLM
+	// projection. Persisted transcript messages are never rewritten.
+	ResultEviction ResultEviction `yaml:"result_eviction"`
+}
+
+// ResultEviction controls collapsing stale read and grep results to short
+// placeholders when building an LLM request.
+type ResultEviction struct {
+	Enabled        *bool `yaml:"enabled"`
+	KeepRecent     *int  `yaml:"keep_recent"`
+	MinResultBytes *int  `yaml:"min_result_bytes"`
+}
+
+func (r *ResultEviction) IsEnabled() bool {
+	return r.Enabled == nil || *r.Enabled
+}
+
+func (r *ResultEviction) EffectiveKeepRecent() int {
+	if r.KeepRecent == nil {
+		return ResultEvictionDefaultKeepRecent
+	}
+	return *r.KeepRecent
+}
+
+func (r *ResultEviction) EffectiveMinResultBytes() int {
+	if r.MinResultBytes == nil {
+		return ResultEvictionDefaultMinResultBytes
+	}
+	return *r.MinResultBytes
+}
+
+func (r *ResultEviction) Validate() error {
+	if r.KeepRecent != nil && *r.KeepRecent < 0 {
+		return fmt.Errorf("compaction.result_eviction.keep_recent: must be >= 0")
+	}
+	if r.MinResultBytes != nil && *r.MinResultBytes < 0 {
+		return fmt.Errorf("compaction.result_eviction.min_result_bytes: must be >= 0")
+	}
+	return nil
 }
 
 // CompactionEnabled reports whether compaction is active. Unset (nil) defaults to true.
@@ -141,6 +189,9 @@ func (c *CompactionConfig) Validate(cfg *Config) error {
 	case "", CompactionEngineCoddy, CompactionEngineOpenCode:
 	default:
 		return fmt.Errorf("engine %q: must be %q or %q", c.Engine, CompactionEngineCoddy, CompactionEngineOpenCode)
+	}
+	if err := c.ResultEviction.Validate(); err != nil {
+		return err
 	}
 	if !c.CompactionEnabled() {
 		return nil

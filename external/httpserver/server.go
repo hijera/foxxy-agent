@@ -52,8 +52,17 @@ type Server struct {
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
+	// mcpProbeCache holds probed MCP tool inventories for /foxxycode/mcp (keyed
+	// by server name, invalidated on config fingerprint change or edit).
+	mcpProbeMu    sync.Mutex
+	mcpProbeCache map[string]mcpProbeEntry
+
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	codexAuthIssuer string
+	codexAuthMu     sync.Mutex
+	codexAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	bgWG               sync.WaitGroup
@@ -62,6 +71,7 @@ type Server struct {
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	s.cancelCodexAuthLogins()
 	s.bgWG.Wait()
 }
 
@@ -76,6 +86,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
 		slashCache:           make(map[string]slashListCacheEntry),
+		codexAuthIssuer:      llm.CodexIssuerURL,
+		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 	}
 	s.cfgAt.Store(cfg)
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
@@ -133,6 +145,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -157,6 +170,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -231,8 +245,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: mc,
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  ent.ResolvedReasoningLevels(),
-				ReasoningDefault: ent.DefaultReasoningLevel(),
+				ReasoningLevels:  s.activeCfg().ReasoningLevelsFor(ent),
+				ReasoningDefault: s.activeCfg().DefaultReasoningLevelFor(ent),
 			})
 		}
 	}
@@ -368,7 +382,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if req.Stream {
-				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+				_ = bridge.SendError(err)
 			} else {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
@@ -427,7 +441,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("direct completion", "error", err)
 		if req.Stream {
-			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+			_ = bridge.SendError(err)
 		} else {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		}
@@ -739,7 +753,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if body.Stream {
-				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+				_ = bridge.SendError(err)
 			} else {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
@@ -792,7 +806,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("responses direct completion", "error", err)
 		if body.Stream {
-			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+			_ = bridge.SendError(err)
 		} else {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		}

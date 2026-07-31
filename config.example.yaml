@@ -52,6 +52,14 @@ providers:
   #   type: neuraldeep
   #   api_key: "${NEURALDEEP_API_KEY}"
 
+  # Codex ChatGPT OAuth. In the bundled web UI, add/select this provider and use
+  # Sign In with ChatGPT. FoxxyCode stores tokens under
+  # $FOXXYCODE_HOME/providers/codex/ with restrictive file permissions (no
+  # api_key or api_base needed). A Codex CLI login remains a compatibility
+  # fallback when no FoxxyCode-managed token exists.
+  # - name: codex
+  #   type: codex
+
 models:
   - model: "openai/gpt-4o"
     max_tokens: 8192
@@ -69,6 +77,10 @@ models:
   # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192
   #   temperature: 0.2
+
+  # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
+  #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens
+  #   reasoning_default: medium
   #   multimodal: false
 
 agent:
@@ -121,12 +133,20 @@ skills:
   # instructions on its own). Default true.
   # auto_discovery: true
 
+# MCP servers connected for every new session (the "global" scope, together with
+# ~/.foxxycode/mcp.json - a Cursor-compatible "mcpServers" object like Cursor's
+# ~/.cursor/mcp.json). Project-local servers live in <workspace>/.foxxycode/mcp.json
+# (the "local" scope). Later levels override same-named servers from earlier ones.
+# Remove the [] below when uncommenting an example entry.
 mcp_servers: []
   # Example: filesystem MCP server
   # - name: "filesystem"
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
   #   env: []
+  #   # Optional switches, also togglable from Settings -> MCP in the web UI:
+  #   disabled: false
+  #   disabled_tools: ["write_file"]
 
   # Example: GitHub MCP server
   # - name: "github"
@@ -159,6 +179,19 @@ tools:
 
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
+
+  # Per-tool line ceilings for results and errors. Positive limits also impose
+  # a 64 KiB safety ceiling; truncated output ends with a recovery hint.
+  # output_limits:
+  #   read: 1000
+  #   grep: 200
+  #   glob: 300
+  #   print_tree: 400
+  #   run_command: 500
+  #   ssh_run_command: 500
+  #   webfetch: 800
+  #   websearch: 200
+  #   default: 1000         # unlisted and MCP tools; 0 = unlimited
 
   # Forbid the model from starting to execute a plan on its own (default: false).
   # When true, plan mode does not offer plan_exit and refuses any tool outside the
@@ -225,6 +258,10 @@ tools:
 #   threshold_percent: 80   # trigger at this % of the model context window (opencode clamps 50..99)
 #   keep_recent_turns: 2    # most recent user turns kept verbatim
 #   max_tokens: 4096        # completion cap for the summary (opencode engine only)
+#   result_eviction:
+#     enabled: true
+#     keep_recent: 2         # working window; 0 keeps none
+#     min_result_bytes: 2000 # smaller results are never evicted
 
 # Automatic session title: after the first exchange in a fresh, non-pinned session, a hidden
 # internal "title" agent generates a short thread title. Runs backend-side for all clients

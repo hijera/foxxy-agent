@@ -1208,6 +1208,66 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/providers/{name}/codex-auth": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get Codex OAuth status",
+					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"operationId": "getProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Non-secret Codex OAuth connection status.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Remove FoxxyCode-managed Codex OAuth credentials",
+					"description": "Deletes only the credential stored under `FOXXYCODE_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
+					"operationId": "deleteProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Connection status after removal.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/providers/{name}/codex-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Start Codex ChatGPT device authorization",
+					"description": "Starts the official ChatGPT device flow. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"operationId": "startProviderCodexDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/providers/{name}/codex-auth/device/{loginID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Poll Codex device authorization",
+					"description": "Returns `pending`, `completed`, or `failed`. Token values are never returned.",
+					"operationId": "getProviderCodexDeviceAuth",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "loginID", "in": "path", "required": true,
+							"schema": map[string]string{"type": "string"},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/skills/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a skill",
@@ -1222,6 +1282,119 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Skill disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List MCP servers",
+					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.foxxycode/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
+					"operationId": "listMCPServers",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Set to `1` to bypass the probe cache.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "MCP server list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/MCPServerList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable an MCP server",
+					"description": "Clears the disabled flag, persisting into the file that defines the server (config.yaml or `.foxxycode/mcp.json`). New sessions connect it; live sessions see its tools on their next turn.",
+					"operationId": "enableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable an MCP server",
+					"description": "Sets the disabled flag in the owning file. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"operationId": "disableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable a single MCP tool",
+					"description": "Removes **{tool}** from the server's disabled-tools list in the owning file.",
+					"operationId": "enableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable a single MCP tool",
+					"description": "Adds **{tool}** to the server's disabled-tools list (`disabled_tools` in config.yaml, `disabledTools` in `.foxxycode/mcp.json`). The tool is hidden from the agent and rejected at dispatch.",
+					"operationId": "disableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Create or update an mcp.json MCP server",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.foxxycode/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Config.yaml-defined servers are edited via **PUT** `/foxxycode/config` instead.",
+					"operationId": "putMCPServer",
+					"parameters": []interface{}{
+						mcpServerNameParam(),
+						map[string]interface{}{
+							"name": "scope", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
+							"description": "Target file: local (default) = ./.foxxycode/mcp.json, global = <home>/mcp.json.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/MCPJSONServer"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server saved."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Delete an mcp.json MCP server",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.foxxycode/mcp.json`** or global **`<home>/mcp.json`**). Servers defined in config.yaml are refused with 400.",
+					"operationId": "deleteMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server deleted."},
 						"400": errorResponseRef(),
 					},
 				},
@@ -1416,7 +1589,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**). The provider is resolved from the saved config, so its credentials (`api_key` / `api_key_command` / `NAME_API_KEY`) and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**; codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1435,7 +1608,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/models-probe": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "List models for an unsaved provider (onboarding probe)",
-					"description": "Fetches the model list for a provider that is not saved in the config yet: credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Malformed body or unsupported `type` returns 400.",
+					"description": "Fetches the model list for a provider that is not saved in the config yet: API credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). For `type: codex`, `provider_name` is required and the server reads that name's managed OAuth credential; no token enters the request body. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Malformed body, invalid Codex provider name, or unsupported `type` returns 400.",
 					"operationId": "probeProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1445,10 +1618,11 @@ func openAPISpec() map[string]interface{} {
 									"type":     "object",
 									"required": []string{"type"},
 									"properties": map[string]interface{}{
-										"type":     map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic", "neuraldeep"}},
-										"api_base": map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. http://localhost:11434/v1). Empty uses the type default. Ignored for type neuraldeep, whose endpoint is fixed at https://api.neuraldeep.ru/v1."},
-										"api_key":  map[string]interface{}{"type": "string"},
-										"proxy":    map[string]interface{}{"type": "string", "description": "Optional proxy URL."},
+										"type":          map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic", "neuraldeep", "codex"}},
+										"provider_name": map[string]interface{}{"type": "string", "description": "Provider name whose server-side OAuth credential is used. Required for type codex; ignored otherwise."},
+										"api_base":      map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. http://localhost:11434/v1). Empty uses the type default. Ignored for type neuraldeep and codex."},
+										"api_key":       map[string]interface{}{"type": "string"},
+										"proxy":         map[string]interface{}{"type": "string", "description": "Optional proxy URL."},
 									},
 								},
 							},
@@ -1457,6 +1631,7 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"400": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -1838,6 +2013,61 @@ func openAPISpec() map[string]interface{} {
 						"path":      map[string]string{"type": "string", "description": "Chosen directory; empty when cancelled"},
 					},
 				},
+				"MCPToolRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Tool name as advertised by the server."},
+						"description": map[string]string{"type": "string"},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the tool is in the server's disabled-tools list."},
+					},
+				},
+				"MCPServerRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":      map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":    map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.foxxycode/mcp.json)."},
+						"origin":    map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.foxxycode/mcp.json."},
+						"readonly":  map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"transport": map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":   map[string]string{"type": "string"},
+						"args":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":       map[string]string{"type": "string"},
+						"env":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":   map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"enabled":   map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":    map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type)."},
+						"error":     map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported."},
+						"tools": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
+						},
+						"disabled_tools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
+				"MCPServerList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "foxxycode.mcp_list"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPServerRow"},
+						},
+					},
+				},
+				"MCPJSONServer": map[string]interface{}{
+					"type":        "object",
+					"description": "One mcp.json entry (global <home>/mcp.json or project .foxxycode/mcp.json; Cursor-compatible).",
+					"properties": map[string]interface{}{
+						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
+						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
+						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"url":           map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
+						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"disabled":      map[string]interface{}{"type": "boolean"},
+						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
 				"FoxxyCodeConfigJSON": map[string]interface{}{
 					"type":        "object",
 					"description": "FoxxyCode configuration as JSON (same logical fields as **config.yaml**). See **GET** `/foxxycode/config/schema` for the machine-readable JSON Schema.",
@@ -1848,6 +2078,39 @@ func openAPISpec() map[string]interface{} {
 						"ok":    map[string]string{"type": "boolean"},
 						"error": map[string]string{"type": "string"},
 					},
+				},
+				"CodexAuthStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"connected": map[string]string{"type": "boolean"},
+						"source": map[string]interface{}{
+							"type": "string", "enum": []string{"foxxycode", "codex_cli"},
+						},
+						"account_id": map[string]string{"type": "string"},
+					},
+					"required": []string{"connected"},
+				},
+				"CodexAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id":         map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{"type": "string", "format": "uri"},
+						"user_code":        map[string]string{"type": "string"},
+						"status":           map[string]string{"type": "string", "example": "pending"},
+						"connected":        map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
+				},
+				"CodexAuthDeviceStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"status": map[string]interface{}{
+							"type": "string", "enum": []string{"pending", "completed", "failed"},
+						},
+						"connected": map[string]string{"type": "boolean"},
+						"error":     map[string]string{"type": "string"},
+					},
+					"required": []string{"status", "connected"},
 				},
 				"ModelList": map[string]interface{}{
 					"type": "object",
@@ -1871,7 +2134,7 @@ func openAPISpec() map[string]interface{} {
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},
-										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Omitted for non-reasoning models.",
+										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. Omitted for non-reasoning models.",
 									},
 									"reasoning_default": map[string]string{
 										"type":        "string",
@@ -2201,6 +2464,43 @@ func errorResponseRef() map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+func codexProviderNameParameter() map[string]interface{} {
+	return map[string]interface{}{
+		"name":        "name",
+		"in":          "path",
+		"required":    true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Codex provider name. Valid unsaved provider names are accepted by the OAuth routes.",
+	}
+}
+
+func jsonSchemaResponse(description, ref string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"$ref": ref},
+			},
+		},
+	}
+}
+
+func mcpServerNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "MCP server name (no `__`, spaces, or path separators).",
+	}
+}
+
+func mcpToolNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "tool", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Tool name as advertised by the server.",
 	}
 }
 

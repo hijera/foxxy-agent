@@ -30,6 +30,8 @@ export const schemaTextRu: Record<string, string> = {
   "API base URL": "Базовый URL API",
   "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.":
     "Необязательная замена базового URL API по умолчанию для этого провайдера. Игнорируется для neuraldeep — он всегда использует https://api.neuraldeep.ru/v1.",
+  "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.":
+    "Необязательная замена базового URL API. Игнорируется для neuraldeep и codex: они используют фиксированные официальные адреса.",
   "API key": "API-ключ",
   "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).":
     "Можно задать ключ напрямую, сослаться на ${ENV} в YAML (подставляется при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание имени провайдера).",
@@ -50,6 +52,8 @@ export const schemaTextRu: Record<string, string> = {
   "Max tokens": "Макс. токенов",
   "Upper bound on completion tokens the model may emit for one assistant message.":
     "Верхняя граница токенов ответа, которые модель может выдать в одном сообщении ассистента.",
+  "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.":
+    "Верхняя граница токенов одного ответа ассистента. Игнорируется Codex, потому что его backend не принимает max_output_tokens.",
   Temperature: "Температура",
   "Sampling temperature for this logical model (0 = deterministic, higher = more random).":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
@@ -71,8 +75,8 @@ export const schemaTextRu: Record<string, string> = {
   "Model Context Protocol servers started or contacted for new sessions.":
     "Серверы Model Context Protocol, запускаемые или используемые для новых сессий.",
   "Server type": "Тип сервера",
-  "stdio runs a local command; http connects to a remote MCP endpoint.":
-    "stdio запускает локальную команду; http подключается к удалённому MCP-эндпоинту.",
+  "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport.":
+    "stdio запускает локальную команду; http использует Streamable HTTP по указанному URL (с откатом на legacy SSE); sse принудительно использует legacy-транспорт HTTP+SSE.",
   "Server name": "Имя сервера",
   "Stable id referenced by the agent; must be unique in this list.":
     "Стабильный id, на который ссылается агент; должен быть уникальным в этом списке.",
@@ -101,6 +105,12 @@ export const schemaTextRu: Record<string, string> = {
     "Имя HTTP-заголовка для HTTP-транспортов MCP.",
   "Header value": "Значение заголовка",
   "HTTP header value.": "Значение HTTP-заголовка.",
+  Disabled: "Отключён",
+  "Skip connecting this server without removing its definition.":
+    "Не подключать этот сервер, сохранив его описание.",
+  "Disabled tools": "Отключённые инструменты",
+  "Tool names of this server hidden from the agent.":
+    "Названия инструментов этого сервера, скрытых от агента.",
 
   // Agent
   "ReAct agent": "Агент ReAct",
@@ -141,6 +151,36 @@ export const schemaTextRu: Record<string, string> = {
   "Tools and permissions": "Инструменты и разрешения",
   "Filesystem and shell policy for built-in tools.":
     "Политика файловой системы и шелла для встроенных инструментов.",
+  "Tool output limits": "Лимиты вывода инструментов",
+  "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB per-call byte ceiling. 0 disables both limits; unset uses the built-in default.":
+    "Максимум строк результата или ошибки инструмента в контексте LLM. Положительный лимит также включает предел 64 КиБ на вызов. 0 отключает оба ограничения; пустое значение использует встроенный лимит.",
+  read: "read",
+  "Max lines for a read page or directory listing (default 1000).":
+    "Максимум строк страницы файла или списка каталога (по умолчанию 1000).",
+  grep: "grep",
+  "Max grep records (default 200).":
+    "Максимум записей grep (по умолчанию 200).",
+  glob: "glob",
+  "Max paths from glob (default 300).":
+    "Максимум путей от glob (по умолчанию 300).",
+  print_tree: "print_tree",
+  "Max directory-tree lines (default 400).":
+    "Максимум строк дерева каталогов (по умолчанию 400).",
+  run_command: "run_command",
+  "Max stdout and stderr lines (default 500).":
+    "Максимум строк stdout и stderr (по умолчанию 500).",
+  ssh_run_command: "ssh_run_command",
+  "Max remote command output lines (default 500).":
+    "Максимум строк вывода удалённой команды (по умолчанию 500).",
+  webfetch: "webfetch",
+  "Max fetched page lines (default 800).":
+    "Максимум строк загруженной страницы (по умолчанию 800).",
+  websearch: "websearch",
+  "Max search result lines (default 200).":
+    "Максимум строк результатов поиска (по умолчанию 200).",
+  default: "По умолчанию",
+  "Limit for unlisted and MCP tools (default 1000; 0 is unlimited).":
+    "Лимит для остальных инструментов и MCP (по умолчанию 1000; 0 — без ограничений).",
   "Permission mode": "Режим разрешений",
   'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts.':
     "Определяет, когда агент запрашивает подтверждение перед запуском инструментов. «ask»: подтверждать команды и запись. «accept_edits»: автоматически подтверждать запись, спрашивать про команды. «bypass»: пропускать все запросы.",
@@ -215,6 +255,17 @@ export const schemaTextRu: Record<string, string> = {
   "Summary max tokens": "Макс. токенов сводки",
   "Completion token cap for the summary generation (opencode engine only).":
     "Лимит токенов ответа для генерации сводки (только движок opencode).",
+  "Read/grep result eviction": "Вытеснение результатов read/grep",
+  "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.":
+    "Заменяет устаревшие результаты read/grep плейсхолдерами в запросе LLM; сохранённая история не изменяется.",
+  "Master switch for result eviction. Defaults to true.":
+    "Главный переключатель вытеснения результатов. По умолчанию включён.",
+  "Keep recent results": "Сохранять последние результаты",
+  "Most recent evictable results kept as a working window (default 2).":
+    "Количество последних вытесняемых результатов в рабочем окне (по умолчанию 2).",
+  "Min result bytes": "Минимальный размер результата",
+  "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).":
+    "Результаты этого размера или меньше не вытесняются (по умолчанию 2000; 0 делает кандидатами все результаты).",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",
@@ -420,6 +471,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   neuraldeep: "NeuralDeep",
+  codex: "Codex",
   // tools.permission_mode
   ask: "Спрашивать",
   accept_edits: "Авто-подтверждение правок",

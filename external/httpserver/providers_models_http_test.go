@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -179,13 +182,75 @@ func TestProviderModelsProbeAcceptsNeuralDeep(t *testing.T) {
 	}
 }
 
+func TestProviderModelsProbeCodexUsesManagedOAuth(t *testing.T) {
+	home := t.TempDir()
+	authPath := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	accessToken := codexHTTPTestJWT(map[string]any{"exp": time.Now().Add(time.Hour).Unix()})
+	authBody, err := json.Marshal(map[string]any{
+		"auth_mode": "chatgpt",
+		"tokens": map[string]string{
+			"access_token": accessToken,
+			"account_id":   "acct-onboarding",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authPath, authBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotAuth, gotAccount string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAccount = r.Header.Get("chatgpt-account-id")
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5.6-sol","display_name":"GPT-5.6 Sol"}]}`))
+	}))
+	defer upstream.Close()
+	t.Setenv("FOXXYCODE_CODEX_BASE_URL", upstream.URL)
+
+	ts := newProviderModelsServer(t, &config.Config{Paths: config.Paths{Home: home}})
+	res, err := http.Post(
+		ts.URL+"/foxxycode/providers/models-probe",
+		"application/json",
+		strings.NewReader(`{"type":"codex","provider_name":"codex"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	var body struct {
+		OK     bool `json:"ok"`
+		Models []struct {
+			ID string `json:"id"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || len(body.Models) != 1 || body.Models[0].ID != "gpt-5.6-sol" {
+		t.Fatalf("unexpected body: %+v", body)
+	}
+	if gotAuth != "Bearer "+accessToken || gotAccount != "acct-onboarding" {
+		t.Fatalf("missing Codex OAuth headers: Authorization=%q account=%q", gotAuth, gotAccount)
+	}
+}
+
 func TestProviderModelsProbeBadRequest(t *testing.T) {
 	ts := newProviderModelsServer(t, &config.Config{})
 
 	for name, payload := range map[string]string{
-		"invalid json":     `{`,
-		"missing type":     `{"api_base":"http://127.0.0.1:1","api_key":"x"}`,
-		"unsupported type": `{"type":"grpc","api_key":"x"}`,
+		"invalid json":       `{`,
+		"missing type":       `{"api_base":"http://127.0.0.1:1","api_key":"x"}`,
+		"unsupported type":   `{"type":"grpc","api_key":"x"}`,
+		"codex without name": `{"type":"codex"}`,
+		"invalid codex name": `{"type":"codex","provider_name":"../escape"}`,
 	} {
 		res, err := http.Post(
 			ts.URL+"/foxxycode/providers/models-probe",

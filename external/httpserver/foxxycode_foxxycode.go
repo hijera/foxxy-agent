@@ -149,6 +149,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
+	s.registerMCPManagementRoutes()
 }
 
 func (s *Server) foxxycodeSessionCancelGeneration(w http.ResponseWriter, r *http.Request) {

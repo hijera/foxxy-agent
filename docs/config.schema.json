@@ -22,12 +22,12 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for any OpenAI-compatible endpoint (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio). \"neuraldeep\" is OpenAI-compatible with a fixed endpoint.",
-            "enum": ["openai", "anthropic", "neuraldeep"]
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints, \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's fixed endpoint, or \"codex\" for ChatGPT OAuth against the official Codex backend.",
+            "enum": ["openai", "anthropic", "neuraldeep", "codex"]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\", which always uses https://api.neuraldeep.ru/v1."
+            "description": "Optional base URL override. For type \"openai\" include /v1; for type \"anthropic\" use an Anthropic-compatible gateway. Ignored for type \"neuraldeep\" and type \"codex\", which use fixed official endpoints."
           },
           "api_key": {
             "type": "string",
@@ -60,7 +60,7 @@
           },
           "max_tokens": {
             "type": "integer",
-            "description": "Upper bound on completion tokens per assistant message."
+            "description": "Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens."
           },
           "temperature": {
             "type": "number",
@@ -262,8 +262,12 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
-            "enum": ["stdio", "http"]
+            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
+            "enum": [
+              "stdio",
+              "http",
+              "sse"
+            ]
           },
           "name": {
             "type": "string",
@@ -307,6 +311,17 @@
                 "value": { "type": "string", "description": "HTTP header value." }
               }
             }
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Skip connecting this server without removing its definition."
+          },
+          "disabled_tools": {
+            "type": "array",
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -342,6 +357,23 @@
           "type": "boolean",
           "description": "When true, Ask mode hides read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools, leaving only the basic repository-reading surface. Defaults to false.",
           "default": false
+        },
+        "output_limits": {
+          "type": "object",
+          "title": "Tool output limits",
+          "description": "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB byte ceiling. 0 disables both limits; unset uses the built-in default.",
+          "additionalProperties": false,
+          "properties": {
+            "read": { "type": "integer", "default": 1000, "minimum": 0 },
+            "grep": { "type": "integer", "default": 200, "minimum": 0 },
+            "glob": { "type": "integer", "default": 300, "minimum": 0 },
+            "print_tree": { "type": "integer", "default": 400, "minimum": 0 },
+            "run_command": { "type": "integer", "default": 500, "minimum": 0 },
+            "ssh_run_command": { "type": "integer", "default": 500, "minimum": 0 },
+            "webfetch": { "type": "integer", "default": 800, "minimum": 0 },
+            "websearch": { "type": "integer", "default": 200, "minimum": 0 },
+            "default": { "type": "integer", "default": 1000, "minimum": 0 }
+          }
         }
       }
     },
@@ -489,6 +521,31 @@
           "type": "integer",
           "description": "Completion token cap for the summary generation (opencode engine only).",
           "default": 4096
+        },
+        "result_eviction": {
+          "type": "object",
+          "title": "Read/grep result eviction",
+          "description": "Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for result eviction.",
+              "default": true
+            },
+            "keep_recent": {
+              "type": "integer",
+              "description": "Most recent evictable results kept as a working window.",
+              "default": 2,
+              "minimum": 0
+            },
+            "min_result_bytes": {
+              "type": "integer",
+              "description": "Results at or below this size are never evicted.",
+              "default": 2000,
+              "minimum": 0
+            }
+          }
         }
       }
     },

@@ -18,8 +18,7 @@ export const messagesRu: Record<string, string> = {
   "nav.settings": "Настройки",
 
   "composer.messageLabel": "Сообщение",
-  "composer.placeholderEmpty":
-    "План, сборка, / для навыков, @ для файлов",
+  "composer.placeholderEmpty": "План, сборка, / для навыков, @ для файлов",
   "composer.placeholderFollowUp": "Добавить уточнение",
   "composer.attachedFilesAriaLabel": "Прикреплённые файлы",
   "composer.removeAttachment": "Удалить {fileName}",
@@ -231,7 +230,8 @@ export const messagesRu: Record<string, string> = {
   "settings.statusLine.on": "Показывать",
   "settings.statusLine.off": "Скрывать",
   "onboarding.provider.neuraldeep.label": "NeuralDeep",
-  "onboarding.provider.neuraldeep.description": "Российский AI-хаб — модели через api.neuraldeep.ru",
+  "onboarding.provider.neuraldeep.description":
+    "Российский AI-хаб — модели через api.neuraldeep.ru",
   "onboarding.openHub": "Открыть hub.neuraldeep.ru",
   "onboarding.title": "Выберите провайдера",
   "onboarding.lead":
@@ -267,6 +267,8 @@ export const messagesRu: Record<string, string> = {
   "onboarding.provider.compatible.label": "OpenAI-совместимый",
   "onboarding.provider.compatible.description":
     "DeepSeek, Groq, Together, свой api_base",
+  "onboarding.provider.codex.description":
+    "Используйте подписку ChatGPT через OAuth",
 
   "settings.restartOnboarding": "Перезапустить онбординг",
   "settings.restartOnboardingDesc":
@@ -326,6 +328,113 @@ export const messagesRu: Record<string, string> = {
     "Не удалось получить модели: {error}. Введите идентификатор модели вручную ниже.",
   "settings.modelsFetchEmpty":
     "Модели не найдены. Введите идентификатор модели вручную ниже.",
+  "settings.codexAuth.signInFailed": "Не удалось войти через ChatGPT.",
+  "settings.codexAuth.incompleteResponse":
+    "OAuth-сервер вернул неполный ответ для входа.",
+  "settings.codexAuth.connectedCli":
+    "Подключено через вход Codex CLI на этом сервере.",
+  "settings.codexAuth.connectedChatGPT": "Подключено к ChatGPT.",
+  "settings.codexAuth.accountLabel": "Аккаунт ChatGPT",
+  "settings.codexAuth.description":
+    "Codex использует вашу подписку ChatGPT через OAuth. Учётные данные хранятся на сервере FoxxyCode и никогда не добавляются в config.yaml.",
+  "settings.codexAuth.enterCode":
+    "Введите этот одноразовый код на странице ChatGPT:",
+  "settings.codexAuth.openSignIn": "Открыть страницу входа",
+  "settings.codexAuth.waitingConfirmation": "Ожидание подтверждения…",
+  "settings.codexAuth.signingOut": "Выход…",
+  "settings.codexAuth.signOut": "Выйти",
+  "settings.codexAuth.waitingChatGPT": "Ожидание ChatGPT…",
+  "settings.codexAuth.signIn": "Войти через ChatGPT",
+  "settings.codexAuth.providerNameRequired":
+    "Перед входом укажите имя провайдера.",
+  "settings.mcp.legend": "Серверы MCP",
+  "settings.mcp.description.start":
+    "Серверы Model Context Protocol из трёх уровней:",
+  "settings.mcp.description.global": "глобальный файл",
+  "settings.mcp.description.local": "и локальный файл проекта",
+  "settings.mcp.description.end":
+    "(совместимый с Cursor; более поздние уровни переопределяют серверы с теми же именами). Можно отключить весь сервер или отдельные инструменты — переключатели сохраняются в определяющем сервер файле и применяются к запущенным сессиям со следующего хода.",
+  "settings.mcp.addServer": "Добавить сервер",
+  "settings.mcp.refreshTitle": "Повторно проверить все серверы",
+  "settings.mcp.refreshAriaLabel": "Обновить серверы MCP",
+  "settings.mcp.loading": "Загрузка…",
+  "settings.mcp.empty.start":
+    "Серверы MCP не настроены. Добавьте сервер здесь и сохраните его в",
+  "settings.mcp.empty.orGlobal": "или",
+  "settings.mcp.empty.orConfig": "также его можно объявить в разделе",
+  "settings.mcp.empty.inConfig": "файла",
+  "settings.mcp.status.connected": "Подключён — инструментов: {count}",
+  "settings.mcp.status.probeFailed": "Проверка не прошла",
+  "settings.mcp.status.disabled": "Отключён",
+  "settings.mcp.status.unsupported": "Транспорт не поддерживается",
+  "settings.mcp.error.disableServer": "Не удалось отключить сервер MCP {name}.",
+  "settings.mcp.error.enableServer": "Не удалось включить сервер MCP {name}.",
+  "settings.mcp.error.disableTool": "Не удалось отключить инструмент {tool}.",
+  "settings.mcp.error.enableTool": "Не удалось включить инструмент {tool}.",
+  "settings.mcp.error.deleteServer": "Не удалось удалить сервер MCP {name}.",
+  "settings.mcp.error.saveServer": "Не удалось сохранить сервер MCP.",
+  "settings.mcp.collapseTools": "Свернуть инструменты",
+  "settings.mcp.expandTools": "Развернуть инструменты",
+  "settings.mcp.collapseToolsAriaLabel": "Свернуть инструменты сервера {name}",
+  "settings.mcp.expandToolsAriaLabel": "Развернуть инструменты сервера {name}",
+  "settings.mcp.definedIn": "Определён в {origin}",
+  "settings.mcp.scope.local": "локальный",
+  "settings.mcp.scope.global": "глобальный",
+  "settings.mcp.enabledClickToDisable": "Включён — нажмите, чтобы отключить",
+  "settings.mcp.disabledClickToEnable": "Отключён — нажмите, чтобы включить",
+  "settings.mcp.disableServerAriaLabel": "Отключить сервер MCP {name}",
+  "settings.mcp.enableServerAriaLabel": "Включить сервер MCP {name}",
+  "settings.mcp.editEntry": "Изменить запись ({origin})",
+  "settings.mcp.editConfigHint":
+    "Определён в config.yaml — измените его в разделах конфигурации",
+  "settings.mcp.editAriaLabel": "Изменить {name}",
+  "settings.mcp.deleteFrom": "Удалить из {origin}",
+  "settings.mcp.deleteConfigHint":
+    "Определён в config.yaml — удалить здесь нельзя",
+  "settings.mcp.deleteAriaLabel": "Удалить {name}",
+  "settings.mcp.noTools": "Этот сервер не предоставляет инструментов.",
+  "settings.mcp.noToolsUnreachable":
+    "Список инструментов недоступен — нет связи с сервером.",
+  "settings.mcp.serverDisabled": "Сервер отключён",
+  "settings.mcp.disableToolAriaLabel":
+    "Отключить инструмент {tool} сервера {server}",
+  "settings.mcp.enableToolAriaLabel":
+    "Включить инструмент {tool} сервера {server}",
+  "settings.mcp.editor.namePlaceholder": "имя-сервера",
+  "settings.mcp.editor.nameAriaLabel": "Имя сервера",
+  "settings.mcp.editor.scopeAriaLabel": "Область сервера",
+  "settings.mcp.editor.scopeLocal": "Локальный",
+  "settings.mcp.editor.scopeGlobal": "Глобальный",
+  "settings.mcp.editor.jsonAriaLabel": "JSON записи сервера",
+  "settings.mcp.editor.descriptionStart": "Одна",
+  "settings.mcp.editor.descriptionEntry": "запись в формате Cursor:",
+  "settings.mcp.editor.descriptionOptions": "(объект), необязательные поля",
+  "settings.mcp.editor.descriptionAnd": "и",
+  "settings.mcp.editor.savedTo": "Сохраняется в",
+  "settings.mcp.editor.save": "Сохранить",
+  "settings.mcp.editor.cancel": "Отмена",
+  "settings.mcp.validation.nameRequired": "Требуется имя сервера.",
+  "settings.mcp.validation.nameNamespace":
+    'Имя сервера не должно содержать "__".',
+  "settings.mcp.validation.namePath":
+    "Имя сервера не должно содержать пробелы или разделители пути.",
+  "settings.mcp.validation.invalidJson": "Некорректный JSON.",
+  "settings.mcp.validation.objectRequired": "Запись должна быть объектом JSON.",
+  "settings.mcp.validation.typeString": '"type" должен быть строкой.',
+  "settings.mcp.validation.commandString": '"command" должен быть строкой.',
+  "settings.mcp.validation.urlString": '"url" должен быть строкой.',
+  "settings.mcp.validation.commandOrUrl": 'Требуется "command" или "url".',
+  "settings.mcp.validation.argsStringArray":
+    '"args" должен быть массивом строк.',
+  "settings.mcp.validation.envStringMap":
+    '"env" должен быть объектом со строковыми значениями.',
+  "settings.mcp.validation.headersStringMap":
+    '"headers" должен быть объектом со строковыми значениями.',
+  "settings.mcp.validation.disabledBoolean":
+    '"disabled" должен быть логическим значением.',
+  "settings.mcp.validation.disabledToolsStringArray":
+    '"disabledTools" должен быть массивом строк.',
+  "settings.mcp.validation.invalidEntry": "Некорректная запись.",
   "settings.skills.installedLabel": "Установленные навыки",
   "settings.skills.installHintBefore": "Также можно устанавливать навыки через",
   "settings.skills.installHintOr": "или",
@@ -338,10 +447,13 @@ export const messagesRu: Record<string, string> = {
   "settings.skills.enableFailed": "Не удалось включить навык",
   "settings.skills.disableFailed": "Не удалось отключить навык",
   "settings.skills.sourcesLegend": "Удалённые источники навыков",
-  "settings.skills.sourcesDescBefore": "GitHub-репозитории (owner/repo[@ref]), git-URL или",
+  "settings.skills.sourcesDescBefore":
+    "GitHub-репозитории (owner/repo[@ref]), git-URL или",
   "settings.skills.sourcesDescStandard": "agents-standard",
-  "settings.skills.sourcesDescAfter": "ссылка на marketplace.json. Сохраняется в skills.sources; загружается только при синхронизации.",
-  "settings.skills.sourcePlaceholder": "owner/repo  ·  https://…/marketplace.json",
+  "settings.skills.sourcesDescAfter":
+    "ссылка на marketplace.json. Сохраняется в skills.sources; загружается только при синхронизации.",
+  "settings.skills.sourcePlaceholder":
+    "owner/repo  ·  https://…/marketplace.json",
   "settings.skills.synced": "Синхронизировано",
   "settings.skills.syncSource": "Синхронизировать {source}",
   "settings.skills.thisMarketplace": "этот маркетплейс",
@@ -356,7 +468,8 @@ export const messagesRu: Record<string, string> = {
   "settings.skills.updateFailed": "Не удалось обновить",
   "settings.skills.syncFailed": "Не удалось синхронизировать",
   "settings.skills.autoDiscoveryLegend": "Авто-обнаружение навыков",
-  "settings.skills.autoDiscoveryDesc": "Позволяет агенту самому подтягивать полные инструкции подходящего навыка (инструмент load_skill), а не только когда вы вводите /имя.",
+  "settings.skills.autoDiscoveryDesc":
+    "Позволяет агенту самому подтягивать полные инструкции подходящего навыка (инструмент load_skill), а не только когда вы вводите /имя.",
   "settings.skills.stateEnabled": "Включено",
   "settings.skills.stateDisabled": "Отключено",
   "settings.skills.searchPlaceholder": "Поиск навыков для установки…",
@@ -386,8 +499,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.title": "Планировщик",
   "scheduler.close": "Закрыть планировщик",
   "scheduler.searchPlaceholder": "Поиск по описанию или id задачи",
-  "scheduler.searchAriaLabel":
-    "Поиск задач планировщика по описанию или id",
+  "scheduler.searchAriaLabel": "Поиск задач планировщика по описанию или id",
   "scheduler.clearSearch": "Очистить поиск",
   "scheduler.empty": "Задач пока нет",
   "scheduler.loading": "Загрузка…",
@@ -427,7 +539,7 @@ export const messagesRu: Record<string, string> = {
     "Только буквы, цифры и дефисы (пример: daily-report)",
   "scheduler.cron.empty": "Введите cron-выражение (5 полей, UTC).",
   "scheduler.cron.invalid": "Некорректное cron-выражение",
-  "scheduler.confirmDelete": 'Удалить задачу планировщика «{jobId}»?',
+  "scheduler.confirmDelete": "Удалить задачу планировщика «{jobId}»?",
   "scheduler.pause": "Пауза",
   "scheduler.resume": "Возобновить",
   "scheduler.delete": "Удалить",
@@ -558,7 +670,8 @@ export const messagesRu: Record<string, string> = {
   "prompts.permissionMeta.depth": "глубина {depth}",
   "prompts.permissionMeta.createParents": "создать родительские",
   "prompts.permissionMeta.directParentOnly": "только прямой родитель",
-  "prompts.permissionMeta.existingParentsOnly": "только существующие родительские",
+  "prompts.permissionMeta.existingParentsOnly":
+    "только существующие родительские",
   "prompts.permissionMeta.recursive": "рекурсивно",
   "prompts.permissionMeta.emptyDirectoryOnly": "только пустой каталог",
   "prompts.permissionMeta.replaceAll": "заменить все",
@@ -597,6 +710,5 @@ export const messagesRu: Record<string, string> = {
   "app.requestFailedWithStatus": "Ошибка запроса ({status})",
   "app.branchCreationFailed": "Не удалось создать ветку ({status})",
   "app.branchCreationError": "Ошибка создания ветки: {error}",
-  "app.branchCreationNoSessionId":
-    "Создание ветки не вернуло ID сессии",
+  "app.branchCreationNoSessionId": "Создание ветки не вернуло ID сессии",
 };

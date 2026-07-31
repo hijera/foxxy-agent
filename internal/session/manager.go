@@ -152,7 +152,8 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 			EmbeddedContext: true,
 		},
 		MCPCapabilities: &acp.MCPCapabilities{
-			HTTP: false,
+			HTTP: true,
+			SSE:  true,
 		},
 	}
 	if m.store != nil {
@@ -272,23 +273,10 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 
 	state.SetPersistHook(m.makePersist(state))
 
-	for _, srv := range m.activeCfg().MCPServers {
-		if err := m.connectMCPServer(ctx, state, srv); err != nil {
-			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
-		}
-	}
+	m.connectConfiguredMCPServers(ctx, state)
 
 	for _, srv := range mcpServers {
-		cfgSrv := config.MCPServerConfig{
-			Type:    srv.Type,
-			Name:    srv.Name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			URL:     srv.URL,
-		}
-		for _, e := range srv.Env {
-			cfgSrv.Env = append(cfgSrv.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
-		}
+		cfgSrv := acpMCPServerToConfig(srv)
 		if err := m.connectMCPServer(ctx, state, cfgSrv); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
@@ -356,23 +344,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	st.SetPersistHook(m.makePersist(st))
 
-	for _, srv := range m.activeCfg().MCPServers {
-		if err := m.connectMCPServer(ctx, st, srv); err != nil {
-			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
-		}
-	}
+	m.connectConfiguredMCPServers(ctx, st)
 
 	for _, srv := range params.MCPServers {
-		cfgSrv := config.MCPServerConfig{
-			Type:    srv.Type,
-			Name:    srv.Name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			URL:     srv.URL,
-		}
-		for _, e := range srv.Env {
-			cfgSrv.Env = append(cfgSrv.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
-		}
+		cfgSrv := acpMCPServerToConfig(srv)
 		if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
@@ -741,29 +716,106 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 	})
 }
 
+// mcpJSONLoadErrors remembers the last load failure reported per mcp.json path,
+// so a file that stays broken is reported once instead of on every turn. A
+// successful load clears the entry, so a file that breaks again is reported
+// again.
+var mcpJSONLoadErrors sync.Map // path -> last error string
+
+// EffectiveMCPServers merges config.yaml servers with the global
+// <home>/mcp.json and the project-local <cwd>/.foxxycode/mcp.json (later files
+// override earlier ones by name). A broken mcp.json is logged and skipped so
+// the session still starts.
+//
+// This runs on every turn and on every MCP tool call (the tool filter is rebuilt
+// from it so enable/disable toggles reach live sessions), hence the deduplicated
+// warning: a single malformed file would otherwise fill the log.
+func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []config.MCPServerConfig {
+	loadJSON := func(path string) []config.MCPServerConfig {
+		servers, err := config.LoadMCPJSONServers(path)
+		if err != nil {
+			if prev, seen := mcpJSONLoadErrors.Load(path); !seen || prev != err.Error() {
+				mcpJSONLoadErrors.Store(path, err.Error())
+				if log != nil {
+					log.Warn("failed to load mcp.json", "path", path, "error", err)
+				}
+			}
+			return nil
+		}
+		mcpJSONLoadErrors.Delete(path)
+		return servers
+	}
+	global := loadJSON(config.GlobalMCPJSONPath(cfg.Paths.Home))
+	project := loadJSON(config.MCPJSONPath(cwd))
+	return config.MergeMCPServers(config.MergeMCPServers(cfg.MCPServers, global), project)
+}
+
+// connectConfiguredMCPServers connects every enabled configured server
+// (config.yaml merged with .foxxycode/mcp.json) and installs the per-turn tool
+// filter factory so disable toggles reach live sessions.
+func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State) {
+	state.replaceConfiguredMCPClients(m.configuredMCPClients(ctx, state.GetCWD()))
+	state.setMCPFilterFactory(func() func(server, tool string) bool {
+		return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), state.GetCWD(), m.log))
+	})
+}
+
+func (m *Manager) configuredMCPClients(ctx context.Context, cwd string) []*mcp.Client {
+	clients := make([]*mcp.Client, 0)
+	for _, srv := range EffectiveMCPServers(m.activeCfg(), cwd, m.log) {
+		if srv.Disabled {
+			continue
+		}
+		client, err := m.connectMCPClient(ctx, cwd, srv)
+		if err != nil {
+			m.log.Warn("failed to connect MCP server", "server", srv.Name, "error", err)
+			continue
+		}
+		clients = append(clients, client)
+	}
+	return clients
+}
+
+// acpMCPServerToConfig converts an ACP client-supplied MCP server definition
+// to the config shape used by the connector (all transports, incl. headers).
+func acpMCPServerToConfig(srv acp.MCPServer) config.MCPServerConfig {
+	out := config.MCPServerConfig{
+		Type:    srv.Type,
+		Name:    srv.Name,
+		Command: srv.Command,
+		Args:    srv.Args,
+		URL:     srv.URL,
+	}
+	for _, e := range srv.Env {
+		out.Env = append(out.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
+	}
+	for _, h := range srv.Headers {
+		out.Headers = append(out.Headers, config.HTTPHeaderConfig{Name: h.Name, Value: h.Value})
+	}
+	return out
+}
+
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {
-	if srv.Type != "" && srv.Type != "stdio" {
-		return fmt.Errorf("unsupported MCP transport: %s", srv.Type)
-	}
-
-	cwd := state.GetCWD()
-	args := make([]string, len(srv.Args))
-	for i, a := range srv.Args {
-		args[i] = config.ExpandCWD(a, cwd)
-	}
-	env := make([]string, len(srv.Env))
-	for i, e := range srv.Env {
-		env[i] = e.Name + "=" + config.ExpandCWD(e.Value, cwd)
-	}
-
-	client, err := mcp.NewStdioClient(ctx, srv.Name, srv.Command, args, env, m.log)
+	client, err := m.connectMCPClient(ctx, state.GetCWD(), srv)
 	if err != nil {
 		return err
 	}
 
-	state.MCPClients = append(state.MCPClients, client)
-	m.log.Info("connected MCP server", "name", srv.Name, "tools", len(client.Tools()))
+	state.addMCPClient(client)
 	return nil
+}
+
+func (m *Manager) connectMCPClient(ctx context.Context, cwd string, srv config.MCPServerConfig) (*mcp.Client, error) {
+	client, err := mcp.Connect(ctx, srv, cwd, m.log)
+	if err != nil {
+		return nil, err
+	}
+	m.log.Info("connected MCP server",
+		"name", srv.Name,
+		"transport", mcp.EffectiveTransport(srv),
+		"tools", len(client.Tools()),
+	)
+	return client, nil
 }
 
 func newSessionID() string {

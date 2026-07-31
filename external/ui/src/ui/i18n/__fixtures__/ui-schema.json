@@ -155,6 +155,34 @@
           "title": "Compaction model",
           "type": "string"
         },
+        "result_eviction": {
+          "additionalProperties": false,
+          "description": "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
+          "properties": {
+            "enabled": {
+              "description": "Master switch for result eviction. Defaults to true.",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "keep_recent": {
+              "description": "Most recent evictable results kept as a working window (default 2).",
+              "title": "Keep recent results",
+              "type": "integer"
+            },
+            "min_result_bytes": {
+              "description": "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
+              "title": "Min result bytes",
+              "type": "integer"
+            }
+          },
+          "title": "Read/grep result eviction",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled",
+            "keep_recent",
+            "min_result_bytes"
+          ]
+        },
         "threshold_percent": {
           "default": 80,
           "description": "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).",
@@ -170,7 +198,8 @@
         "model",
         "threshold_percent",
         "keep_recent_turns",
-        "max_tokens"
+        "max_tokens",
+        "result_eviction"
       ]
     },
     "gateways": {
@@ -445,6 +474,19 @@
             "title": "Command",
             "type": "string"
           },
+          "disabled": {
+            "description": "Skip connecting this server without removing its definition.",
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "disabled_tools": {
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabled tools",
+            "type": "array"
+          },
           "env": {
             "description": "Extra environment variables for the stdio child process.",
             "items": {
@@ -501,7 +543,7 @@
             "type": "string"
           },
           "type": {
-            "description": "stdio runs a local command; http connects to a remote MCP endpoint.",
+            "description": "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport.",
             "title": "Server type",
             "type": "string"
           },
@@ -522,7 +564,9 @@
           "args",
           "env",
           "url",
-          "headers"
+          "headers",
+          "disabled",
+          "disabled_tools"
         ]
       },
       "title": "MCP servers",
@@ -603,7 +647,7 @@
           },
           "max_tokens": {
             "default": 4096,
-            "description": "Upper bound on completion tokens the model may emit for one assistant message.",
+            "description": "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.",
             "title": "Max tokens",
             "type": "integer"
           },
@@ -715,7 +759,7 @@
         "additionalProperties": false,
         "properties": {
           "api_base": {
-            "description": "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.",
+            "description": "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.",
             "title": "API base URL",
             "type": "string"
           },
@@ -749,7 +793,8 @@
             "enum": [
               "openai",
               "anthropic",
-              "neuraldeep"
+              "neuraldeep",
+              "codex"
             ],
             "title": "Provider type",
             "type": "string"
@@ -921,6 +966,70 @@
           "title": "Command allowlist",
           "type": "array"
         },
+        "output_limits": {
+          "additionalProperties": false,
+          "description": "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB per-call byte ceiling. 0 disables both limits; unset uses the built-in default.",
+          "properties": {
+            "default": {
+              "description": "Limit for unlisted and MCP tools (default 1000; 0 is unlimited).",
+              "title": "default",
+              "type": "integer"
+            },
+            "glob": {
+              "description": "Max paths from glob (default 300).",
+              "title": "glob",
+              "type": "integer"
+            },
+            "grep": {
+              "description": "Max grep records (default 200).",
+              "title": "grep",
+              "type": "integer"
+            },
+            "print_tree": {
+              "description": "Max directory-tree lines (default 400).",
+              "title": "print_tree",
+              "type": "integer"
+            },
+            "read": {
+              "description": "Max lines for a read page or directory listing (default 1000).",
+              "title": "read",
+              "type": "integer"
+            },
+            "run_command": {
+              "description": "Max stdout and stderr lines (default 500).",
+              "title": "run_command",
+              "type": "integer"
+            },
+            "ssh_run_command": {
+              "description": "Max remote command output lines (default 500).",
+              "title": "ssh_run_command",
+              "type": "integer"
+            },
+            "webfetch": {
+              "description": "Max fetched page lines (default 800).",
+              "title": "webfetch",
+              "type": "integer"
+            },
+            "websearch": {
+              "description": "Max search result lines (default 200).",
+              "title": "websearch",
+              "type": "integer"
+            }
+          },
+          "title": "Tool output limits",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "read",
+            "grep",
+            "glob",
+            "print_tree",
+            "run_command",
+            "ssh_run_command",
+            "webfetch",
+            "websearch",
+            "default"
+          ]
+        },
         "permission_mode": {
           "default": "ask",
           "description": "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
@@ -945,7 +1054,8 @@
         "permission_mode",
         "command_allowlist",
         "plan_no_self_run",
-        "ask_disable_extended_tools"
+        "ask_disable_extended_tools",
+        "output_limits"
       ]
     },
     "ui": {

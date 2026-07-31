@@ -179,6 +179,29 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 	return nil
 }
 
+// SendError emits an OpenAI-shaped SSE error through the same writer as normal stream events.
+// In particular, this keeps the live composer relay informed when the original POST reconnects.
+func (s *Sender) SendError(streamErr error) error {
+	if !s.stream || s.w == nil || streamErr == nil {
+		return nil
+	}
+	line, err := json.Marshal(map[string]interface{}{
+		"error": map[string]string{"message": streamErr.Error()},
+	})
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", line); err != nil {
+		return err
+	}
+	if s.flusher != nil {
+		s.flusher.Flush()
+	}
+	return nil
+}
+
 // RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /foxxycode/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	if s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {

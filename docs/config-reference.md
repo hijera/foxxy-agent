@@ -42,8 +42,8 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
-| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, or `neuraldeep`. Use `openai` for any OpenAI-compatible endpoint (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` is OpenAI-compatible with a fixed endpoint. |
-| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep`, which always uses `https://api.neuraldeep.ru/v1`. |
+| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints; `neuraldeep` uses its fixed endpoint; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
+| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep` and `type: codex`, which use fixed official endpoints. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | environment proxy | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Overrides a proxy inherited from the environment (`HTTP_PROXY`/`HTTPS_PROXY` — the IDE plugin forwards the editor's proxy this way); `NO_PROXY` is still honored and local addresses always connect directly. When empty, the environment proxy is used, or a direct connection when there is none. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
@@ -59,7 +59,23 @@ providers:
     type: openai
     api_base: "http://localhost:11434/v1"
     api_key: "~"
+  - name: codex
+    type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
+
+For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or use the terminal flow:
+
+```bash
+foxxycode codex login    # prints a URL and one-time code, then waits
+foxxycode codex status   # reports credential availability and source
+foxxycode codex logout   # removes only the FoxxyCode-managed credential
+```
+
+`--provider NAME` targets a particular Codex provider. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
+
+Codex is only a model backend: FoxxyCode keeps its own system prompt, tools, permissions, and ReAct loop. Access tokens are refreshed shortly before expiry and written back to their source file. When a Codex provider is configured, `foxxycode acp` and `foxxycode http` log a non-secret credential status line at startup.
+
+Codex reasoning supports `none`, `low`, `medium`, `high`, and `xhigh`; `minimal` is mapped to `none`. FoxxyCode requests reasoning summaries and encrypted reasoning content so the model can replay its own opaque reasoning item across tool calls. The opaque value is persisted as `reasoning_signature` but is not exposed by the session messages HTTP endpoint.
 
 ## `models`
 
@@ -68,7 +84,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `model` | string | **yes** | — | `"provider_name/api_model_id"`. First segment must match a `providers[].name`; the remainder is sent to the API verbatim (may contain slashes). |
-| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. |
+| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. Ignored by `codex`, whose backend rejects `max_output_tokens`. |
 | `temperature` | float | no | `0` | Sampling temperature. |
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
@@ -148,20 +164,32 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | no | `stdio` | Transport: `stdio` (local command) or `http` (remote endpoint). |
+| `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
 | `command` | string | stdio only | — | Executable for stdio transport. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
-| `url` | string | http only | — | HTTP(S) endpoint for `type: http`. |
+| `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
+| `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
 ```yaml
 mcp_servers:
   - name: filesystem
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    disabled_tools: ["write_file"]
 ```
+
+Servers can also be declared in Cursor-compatible mcp.json files: the user-global
+`~/.foxxycode/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
+`mcp_servers` list it forms the "global" scope) and the project-local
+`<workspace>/.foxxycode/mcp.json` ("local" scope). Each file holds a single
+`mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
+per-tool switches use `disabledTools`). Later levels override earlier ones by
+name: `mcp_servers` < `~/.foxxycode/mcp.json` < `./.foxxycode/mcp.json`. See
+`docs/mcp-integration.md`.
 
 ## `tools`
 
@@ -174,6 +202,23 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
 | `plan_no_self_run` | bool | no | `false` | Forbid the model from starting to execute a plan itself. In plan mode `plan_exit` is not offered and any tool outside the plan allowlist is refused instead of run, so only **Run plan** starts the implementation. The `-plan-no-self-run` flag on `foxxycode acp` / `foxxycode http` overrides this value; the IntelliJ and VS Code plugins pass it, so their panels are guarded by default. |
 | `ask_disable_extended_tools` | bool | no | `false` | Hide Ask mode's read-only shell, web, annotated MCP, and scheduler inspection tools. Basic repository read/search/tree, question, and skill tools remain available. |
+| `output_limits` | object | no | — | Per-tool line and byte ceilings for results and errors. |
+
+### `tools.output_limits`
+
+Every positive line limit also applies a hard **64 KiB per-call byte ceiling**. `0` disables both limits for that tool; an unset field uses the default. Truncated output ends with a recovery hint.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `read` | int | no | `1000` | File-page or directory-listing lines. |
+| `grep` | int | no | `200` | `path:line:content` records. |
+| `glob` | int | no | `300` | Returned paths. |
+| `print_tree` | int | no | `400` | Directory-tree lines. |
+| `run_command` | int | no | `500` | Combined stdout and stderr lines. |
+| `ssh_run_command` | int | no | `500` | Remote command output lines. |
+| `webfetch` | int | no | `800` | Fetched page lines. |
+| `websearch` | int | no | `200` | Search-result lines. |
+| `default` | int | no | `1000` | Unlisted and MCP tools; `0` is unlimited. |
 
 ## `logger`
 
@@ -228,6 +273,17 @@ reports the compacted window rather than its pre-compaction size.
 | `threshold_percent` | int | no | `80` (coddy) / `85` (opencode) | Trigger when context usage exceeds this percent of the model context window. The opencode engine clamps to 50..99. |
 | `keep_recent_turns` | int | no | `2` | Most recent user turns preserved verbatim (never summarized). |
 | `max_tokens` | int | no | `4096` | Completion token cap for the summary generation (opencode engine only). |
+| `result_eviction` | object | no | — | Prunes superseded `read`/`grep` results from the LLM projection while keeping persisted messages complete. |
+
+### `compaction.result_eviction`
+
+Unmarked large `read` and `grep` results collapse to short placeholders in later LLM requests. A result survives when the model calls `keep_result`, sets `keep: true`, or it remains in the recent working window. Successful filesystem and Subversion mutations invalidate earlier observations of workspace content.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Master switch. |
+| `keep_recent` | int | no | `2` | Recent evictable results kept intact; `0` keeps none. |
+| `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted; `0` makes all results candidates. |
 
 ## `title`
 

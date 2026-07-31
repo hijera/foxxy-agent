@@ -6,7 +6,7 @@ Short map for automation-friendly contributors.
 
 | Area | Responsibility |
 |------|------------------|
-| `cmd/foxxycode` | CLI entry (`acp`, `http`, `sessions`, `skills`, `rules list`, `update`). |
+| `cmd/foxxycode` | CLI entry (`acp`, `http`, `sessions`, `skills`, `codex login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`foxxycode http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/foxxycode` REST,ServeMux wiring). |

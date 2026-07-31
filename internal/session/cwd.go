@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,7 +66,18 @@ func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
 	if err != nil || !fi.IsDir() {
 		return fmt.Errorf("workspace folder not found: %s", abs)
 	}
-	st.SetCWD(abs)
+
+	if m.SessionTurnActiveInProcess(st.GetID()) {
+		return ErrSessionTurnBusy
+	}
+	unlock, err := m.acquirePromptTurnLock(st.GetID(), st)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	configuredMCPClients := m.configuredMCPClients(context.Background(), abs)
+	st.setCWDAndConfiguredMCPClients(abs, configuredMCPClients)
 
 	cfg := m.activeCfg()
 	loadedSkills, err := m.skillsLoad.LoadAll(abs, cfg.Paths.Home, cfg.Skills.ManagedDir(cfg.Paths.Home))
