@@ -191,6 +191,16 @@ type ToolsJSON struct {
 	AskDisableExtendedTools bool                 `json:"ask_disable_extended_tools,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
+	Background   ToolBackgroundJSON   `json:"background"`
+}
+
+// ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
+type ToolBackgroundJSON struct {
+	Enabled               *bool `json:"enabled,omitempty"`
+	MaxConcurrent         int   `json:"max_concurrent,omitempty"`
+	DefaultTimeoutSeconds int   `json:"default_timeout_seconds,omitempty"`
+	MaxTimeoutSeconds     int   `json:"max_timeout_seconds,omitempty"`
+	OutputBufferBytes     int   `json:"output_buffer_bytes,omitempty"`
 }
 
 type ToolOutputLimitsJSON struct {
@@ -361,6 +371,13 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 			WebFetch: c.Tools.OutputLimits.WebFetch, WebSearch: c.Tools.OutputLimits.WebSearch,
 			Default: c.Tools.OutputLimits.Default,
 		},
+		Background: ToolBackgroundJSON{
+			Enabled:               c.Tools.Background.Enabled,
+			MaxConcurrent:         c.Tools.Background.MaxConcurrent,
+			DefaultTimeoutSeconds: c.Tools.Background.DefaultTimeoutSeconds,
+			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
+			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
+		},
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -499,6 +516,13 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			RunCommand: j.Tools.OutputLimits.RunCommand, SSHRunCommand: j.Tools.OutputLimits.SSHRunCommand,
 			WebFetch: j.Tools.OutputLimits.WebFetch, WebSearch: j.Tools.OutputLimits.WebSearch,
 			Default: j.Tools.OutputLimits.Default,
+		},
+		Background: ToolBackground{
+			Enabled:               j.Tools.Background.Enabled,
+			MaxConcurrent:         j.Tools.Background.MaxConcurrent,
+			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
+			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
+			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
 		},
 	}
 	cfg.Logger = Logger{

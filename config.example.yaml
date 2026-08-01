@@ -193,6 +193,19 @@ tools:
   #   websearch: 200
   #   default: 1000         # unlisted and MCP tools; 0 = unlimited
 
+  # Commands the agent runs detached in the session background task pool instead
+  # of blocking a turn. run_command gains "background" and "expected_seconds";
+  # background_list / background_output / background_wait / background_stop
+  # collect the result later. The pool dies with the foxxycode process: metadata
+  # and captured output stay in the session bundle, and a task interrupted by a
+  # restart is reported as orphaned. 0 = use the built-in default.
+  # background:
+  #   enabled: true
+  #   max_concurrent: 5             # concurrent background tasks per session
+  #   default_timeout_seconds: 900  # hard limit without a timeout or an estimate
+  #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
+  #   output_buffer_bytes: 262144   # in-memory output window; full log goes to disk
+
   # Forbid the model from starting to execute a plan on its own (default: false).
   # When true, plan mode does not offer plan_exit and refuses any tool outside the
   # plan allowlist, so only Run plan starts the implementation. The IntelliJ and

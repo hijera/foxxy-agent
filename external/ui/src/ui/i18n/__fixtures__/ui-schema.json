@@ -957,6 +957,46 @@
           "title": "Disable extended Ask tools",
           "type": "boolean"
         },
+        "background": {
+          "additionalProperties": false,
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn.",
+          "properties": {
+            "default_timeout_seconds": {
+              "description": "Hard limit for a task started without a timeout or a duration estimate (default 900).",
+              "title": "Default timeout (s)",
+              "type": "integer"
+            },
+            "enabled": {
+              "description": "Offer the background option on run_command and the background task tools (default true).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "max_concurrent": {
+              "description": "How many background tasks one session may run at once (default 5).",
+              "title": "Max concurrent",
+              "type": "integer"
+            },
+            "max_timeout_seconds": {
+              "description": "Ceiling applied to any requested or estimated timeout (default 3600).",
+              "title": "Max timeout (s)",
+              "type": "integer"
+            },
+            "output_buffer_bytes": {
+              "description": "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).",
+              "title": "Output buffer (bytes)",
+              "type": "integer"
+            }
+          },
+          "title": "Background tasks",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled",
+            "max_concurrent",
+            "default_timeout_seconds",
+            "max_timeout_seconds",
+            "output_buffer_bytes"
+          ]
+        },
         "command_allowlist": {
           "default": [],
           "description": "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -1055,7 +1095,8 @@
         "command_allowlist",
         "plan_no_self_run",
         "ask_disable_extended_tools",
-        "output_limits"
+        "output_limits",
+        "background"
       ]
     },
     "ui": {
