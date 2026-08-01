@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import sys
 import time
 import urllib.error
@@ -56,6 +57,21 @@ def foxxycode_base(base: str) -> str:
     return base[: -len("/v1")] if base.endswith("/v1") else base
 
 
+def counting_command(marker: str, count: int) -> str:
+    """A command printing `count` marked lines, a second apart.
+
+    Upstream hardcodes a POSIX `for` loop, which PowerShell rejects, so on
+    Windows the task fails before the harness can check anything. Same shape as
+    `bddSleepCommand` in the Go harnesses.
+    """
+    if platform.system() == "Windows":
+        return (
+            f'1..{count} | ForEach-Object {{ Write-Output "{marker} $_"; '
+            "Start-Sleep -Seconds 1 }"
+        )
+    return f"for i in $(seq 1 {count}); do echo {marker} $i; sleep 1; done"
+
+
 def main() -> int:
     base = os.environ.get("BASE_URL", "http://127.0.0.1:19876/v1").rstrip("/")
     foxxycode = foxxycode_base(base)
@@ -67,7 +83,7 @@ def main() -> int:
     prompt = (
         "Start ONE background task now and nothing else.\n"
         "Call run_command with background:true, expected_seconds:20, and this command:\n"
-        f"  for i in 1 2 3 4 5 6 7 8; do echo {marker} $i; sleep 1; done\n"
+        f"  {counting_command(marker, 8)}\n"
         "As soon as the tool returns a task id, reply with that id and stop. "
         "Do NOT call background_wait and do NOT call background_stop."
     )

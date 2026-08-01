@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,21 @@ def default_foxxycode_bin() -> str:
 
 def default_config() -> str:
     return str(Path(__file__).resolve().parent.parent / "config.demo.yaml")
+
+
+def counting_command(marker: str, count: int) -> str:
+    """A command printing `count` marked lines, a second apart.
+
+    Upstream hardcodes a POSIX `for` loop, which PowerShell rejects, so on
+    Windows the task fails before the harness can check anything. Same shape as
+    `bddSleepCommand` in the Go harnesses.
+    """
+    if platform.system() == "Windows":
+        return (
+            f'1..{count} | ForEach-Object {{ Write-Output "{marker} $_"; '
+            "Start-Sleep -Seconds 1 }"
+        )
+    return f"for i in $(seq 1 {count}); do echo {marker} $i; sleep 1; done"
 
 
 def rpc_call(
@@ -212,7 +228,7 @@ def main() -> None:
 Do exactly this, autonomously and without asking questions:
 
 1. Start ONE background task: call run_command with background:true, expected_seconds:20, and this command:
-   for i in 1 2 3 4 5 6 7 8; do echo {MARKER} $i; sleep 1; done
+   {counting_command(MARKER, 8)}
 2. Do not block on it immediately. Call background_list once to see its status.
 3. Call background_output once to look at what it has printed so far.
 4. Reply with the task id and its status in one short sentence, then stop.
