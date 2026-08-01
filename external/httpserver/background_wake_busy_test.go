@@ -137,8 +137,15 @@ func TestWakeTurnRetriesWhileTheSessionIsBusy(t *testing.T) {
 // A wake retrying against a session that never frees up must not pin a
 // goroutine, and bgWG with it, past shutdown.
 func TestWakeTurnStopsRetryingOnceDraining(t *testing.T) {
-	srv, mgr, sessionID, _ := wakeBusySession(t)
-	occupySession(t, mgr, sessionID)
+	srv, mgr, sessionID, release := wakeBusySession(t)
+	userTurnDone := occupySession(t, mgr, sessionID)
+	// The occupying turn keeps writing into the session bundle, and on Windows a
+	// still-open handle makes t.TempDir's cleanup fail with "directory is not
+	// empty". Registered after t.TempDir, so it runs before it.
+	t.Cleanup(func() {
+		release()
+		<-userTurnDone
+	})
 
 	wakeErr := make(chan error, 1)
 	go func() {
