@@ -174,11 +174,21 @@ import {
   setSchedulerCreateHash,
   setSchedulerJobHash,
   setSchedulerListHash,
+  setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
+import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
+import {
+  clearFinishedBackgroundTasks,
+  getBackgroundTask,
+  listBackgroundTasks,
+  stopBackgroundTask,
+} from "./tasks/api";
+import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import { t } from "./i18n/i18n";
@@ -1002,6 +1012,17 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const [backgroundRunning, setBackgroundRunning] = useState(0);
+  const [backgroundOutput, setBackgroundOutput] = useState("");
+  const [backgroundListError, setBackgroundListError] = useState<string | null>(
+    null,
+  );
+  const [backgroundListLoading, setBackgroundListLoading] = useState(false);
+  /** Ticks once a second so elapsed times advance between polls. */
+  const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
   const [schedulerInfo, setSchedulerInfo] = useState<SchedulerInfo | null>(
     null,
@@ -1489,6 +1510,76 @@ export function App() {
     }
   }
 
+  const refreshBackgroundTasks = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        setBackgroundTasks([]);
+        setBackgroundRunning(0);
+        return;
+      }
+      const silent = !!opts?.silent;
+      if (!silent) {
+        setBackgroundListLoading(true);
+        setBackgroundListError(null);
+      }
+      const res = await listBackgroundTasks(sid);
+      if (!silent) {
+        setBackgroundListLoading(false);
+      }
+      if (!res.ok) {
+        if (!silent) {
+          setBackgroundListError(res.message);
+          setBackgroundTasks([]);
+          setBackgroundRunning(0);
+        }
+        return;
+      }
+      setBackgroundListError(null);
+      setBackgroundTasks(res.data.data || []);
+      setBackgroundRunning(res.data.running || 0);
+    },
+    [sessionId],
+  );
+
+  const refreshBackgroundTaskOutput = useCallback(
+    async (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        setBackgroundOutput("");
+        return;
+      }
+      const res = await getBackgroundTask(sid, taskId);
+      setBackgroundOutput(res.ok ? res.data.output || "" : "");
+    },
+    [sessionId],
+  );
+
+  const stopBackgroundTaskById = useCallback(
+    async (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        return;
+      }
+      const res = await stopBackgroundTask(sid, taskId);
+      if (res.ok) {
+        setBackgroundOutput(res.data.output || "");
+      }
+      void refreshBackgroundTasks({ silent: true });
+    },
+    [sessionId, refreshBackgroundTasks],
+  );
+
+  const clearFinishedTasks = useCallback(async () => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    await clearFinishedBackgroundTasks(sid);
+    setTasksSelectedId(null);
+    void refreshBackgroundTasks({ silent: true });
+  }, [sessionId, refreshBackgroundTasks]);
+
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = !!opts?.silent;
@@ -1555,6 +1646,8 @@ export function App() {
       void markFoxxyCodeSessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(p.tasksOpen);
+      setTasksSelectedId(p.taskId);
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -1562,6 +1655,8 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -1578,6 +1673,8 @@ export function App() {
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       return;
     }
     if (p.branch === "settings") {
@@ -1585,6 +1682,8 @@ export function App() {
       setSettingsSection(p.section);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSessionsOpen(false);
       return;
     }
@@ -1610,6 +1709,8 @@ export function App() {
       }
       setSchedulerOpen(true);
       setSessionsOpen(false);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -1619,6 +1720,8 @@ export function App() {
     setSettingsRoute(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSessionsOpen(!!p.historyOpen);
   }, [schedulerHttpLinked]);
 
@@ -1627,6 +1730,8 @@ export function App() {
       setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
@@ -1638,6 +1743,8 @@ export function App() {
   const clearSessionRoute = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
@@ -1647,6 +1754,8 @@ export function App() {
   const closeSchedulerDrawer = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -1667,6 +1776,8 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (parseAppHash().branch === "settings") {
       const sid = sessionId.trim();
       if (sid) {
@@ -1790,6 +1901,60 @@ export function App() {
       }
     })();
   }, []);
+
+  // Background tasks outlive the SSE stream of the turn that started them, so
+  // the drawer and the nav badge are kept honest by polling rather than by the
+  // composer stream. The cadence drops to a slow heartbeat when nothing runs.
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      setBackgroundTasks([]);
+      setBackgroundRunning(0);
+      setBackgroundOutput("");
+      return;
+    }
+    void refreshBackgroundTasks({ silent: !tasksOpen });
+  }, [sessionId, tasksOpen, refreshBackgroundTasks]);
+
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      return;
+    }
+    const id = window.setInterval(
+      () => {
+        void refreshBackgroundTasks({ silent: true });
+        if (tasksOpen && tasksSelectedId) {
+          void refreshBackgroundTaskOutput(tasksSelectedId);
+        }
+      },
+      tasksPollIntervalMs(backgroundRunning),
+    );
+    return () => window.clearInterval(id);
+  }, [
+    sessionId,
+    tasksOpen,
+    tasksSelectedId,
+    backgroundRunning,
+    refreshBackgroundTasks,
+    refreshBackgroundTaskOutput,
+  ]);
+
+  useEffect(() => {
+    if (!tasksOpen || !tasksSelectedId) {
+      setBackgroundOutput("");
+      return;
+    }
+    void refreshBackgroundTaskOutput(tasksSelectedId);
+  }, [tasksOpen, tasksSelectedId, refreshBackgroundTaskOutput]);
+
+  // Elapsed labels must advance between polls, so the clock ticks on its own
+  // while something is actually running.
+  useEffect(() => {
+    if (backgroundRunning <= 0) {
+      return;
+    }
+    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [backgroundRunning]);
 
   useEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked === false) {
@@ -2634,6 +2799,8 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -3980,14 +4147,72 @@ export function App() {
       return;
     }
     setSessionsOpen(false);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
   }, [schedulerHttpLinked]);
 
+  const openTasksFromNav = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setTasksOpen(true);
+    setTasksSelectedId(null);
+    setSessionTasksHash(sid);
+  }, [sessionId]);
+
+  const closeTasksDrawer = useCallback(() => {
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    if (sessionsOpen) {
+      setHistoryHash();
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId, sessionsOpen]);
+
+  const openBackgroundTask = useCallback(
+    (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      setTasksOpen(true);
+      setTasksSelectedId(taskId);
+      setSessionTasksHash(sid, taskId);
+    },
+    [sessionId],
+  );
+
+  const backToBackgroundTaskList = useCallback(() => {
+    const sid = sessionId.trim();
+    setTasksSelectedId(null);
+    if (sid) {
+      setSessionTasksHash(sid);
+    }
+  }, [sessionId]);
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
@@ -4021,10 +4246,29 @@ export function App() {
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+
     setSettingsRoute(false);
     setSessionsOpen(true);
     setHistoryHash();
   }, []);
+
+  /** Background tasks indexed by the tool call that started them, so a
+   *  transcript row can keep ticking after the tool itself returned. */
+  const backgroundTasksByToolCallId = useMemo(() => {
+    const byToolCall = new Map<string, BackgroundTask>();
+    for (const t of backgroundTasks) {
+      const tc = (t.tool_call_id || "").trim();
+      if (tc) {
+        byToolCall.set(tc, t);
+      }
+    }
+    return byToolCall;
+  }, [backgroundTasks]);
+
+  // The panel belongs to a chat, so it only exists when one is open.
+  const tasksPanelOpen = tasksOpen && !!sessionId.trim();
 
   const shellBackdropOpen =
     sessionsOpen ||
@@ -4118,7 +4362,11 @@ export function App() {
       />
 
       <div
-        className={["shell-main", sessionsOpen ? "shell-history-open" : ""]
+        className={[
+          "shell-main",
+          sessionsOpen ? "shell-history-open" : "",
+          tasksPanelOpen ? "shell-tasks-open" : "",
+        ]
           .filter(Boolean)
           .join(" ")}
         style={
@@ -4220,9 +4468,37 @@ export function App() {
             />
           </div>
         ) : null}
+        {tasksPanelOpen ? (
+          <BackgroundTasksPanel
+            open
+            selectedTaskId={tasksSelectedId}
+            tasks={backgroundTasks}
+            selectedOutput={backgroundOutput}
+            listError={backgroundListError}
+            loading={backgroundListLoading}
+            nowMs={backgroundNowMs}
+            onClose={closeTasksDrawer}
+            onOpenTask={openBackgroundTask}
+            onBackToList={backToBackgroundTaskList}
+            onStopTask={(id) => {
+              void stopBackgroundTaskById(id);
+            }}
+            onClearFinished={() => {
+              void clearFinishedTasks();
+            }}
+          />
+        ) : null}
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          backgroundTasks={backgroundTasks}
+          onOpenBackgroundTasks={openTasksFromNav}
+          backgroundTasksByToolCallId={backgroundTasksByToolCallId}
+          backgroundNowMs={backgroundNowMs}
+          onOpenBackgroundTask={openBackgroundTask}
+          onStopBackgroundTask={(id: string) => {
+            void stopBackgroundTaskById(id);
+          }}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           svnFolderPref={svnFolderPref}

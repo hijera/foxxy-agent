@@ -1,0 +1,55 @@
+import { useT } from "../i18n/I18nProvider";
+import type { BackgroundTask } from "./types";
+
+/**
+ * The opener for the background tasks panel, sitting under the last message the
+ * way a task line does in Claude Code.
+ *
+ * It belongs at the bottom of the transcript rather than in the nav rail
+ * because the tasks belong to this chat: the thing that started them is right
+ * above it.
+ */
+export function BackgroundTasksChip(props: {
+  tasks: BackgroundTask[];
+  onOpen: () => void;
+}) {
+  const { t } = useT();
+  const running = props.tasks.filter((task) => task.running).length;
+  const total = props.tasks.length;
+
+  // Nothing has ever run in this chat, so there is nothing to open.
+  if (total === 0) {
+    return null;
+  }
+
+  const live = running > 0;
+  // Plural forms differ per language (Russian has three), so the count picks
+  // the key instead of an "s" being appended to a translated noun.
+  const label = live
+    ? t(running === 1 ? "tasks.chip.runningOne" : "tasks.chip.runningMany", {
+        count: running,
+      })
+    : t(total === 1 ? "tasks.chip.totalOne" : "tasks.chip.totalMany", {
+        count: total,
+      });
+
+  return (
+    <div className="bgtask-chip-row">
+      <button
+        type="button"
+        className={["bgtask-chip", live ? "is-running" : ""]
+          .filter(Boolean)
+          .join(" ")}
+        data-testid="bgtask-chip"
+        aria-label={t("tasks.chip.ariaLabel", { label })}
+        onClick={props.onOpen}
+      >
+        <span
+          className={`bgtask-dot ${live ? "bgtask-dot--running" : "bgtask-dot--muted"}`}
+          aria-hidden="true"
+        />
+        <span className="bgtask-chip-text">{label}</span>
+      </button>
+    </div>
+  );
+}
