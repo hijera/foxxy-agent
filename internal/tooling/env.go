@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/plans"
 )
 
@@ -76,6 +77,16 @@ type Env struct {
 	// name, plus the list of available command names, backing the model-driven
 	// load_skill tool. Optional; nil when skills auto-discovery is disabled.
 	LoadSkillBody func(name string) (body string, available []string, found bool)
+
+	// Background is the session's background task pool, backing run_command's
+	// background option and the background_* tools. Optional; nil when the
+	// runner did not wire one, and tools must nil-check before use.
+	Background *bgtask.Pool
+
+	// BackgroundEnabled mirrors tools.background.enabled. A wired pool with this
+	// off means background execution is configured away rather than missing, so
+	// the tools can say which of the two it is.
+	BackgroundEnabled bool
 
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key
