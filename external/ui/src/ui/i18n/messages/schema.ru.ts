@@ -181,6 +181,23 @@ export const schemaTextRu: Record<string, string> = {
   default: "По умолчанию",
   "Limit for unlisted and MCP tools (default 1000; 0 is unlimited).":
     "Лимит для остальных инструментов и MCP (по умолчанию 1000; 0 — без ограничений).",
+  "Background tasks": "Фоновые задачи",
+  "Commands the agent runs detached in the session task pool instead of blocking a turn.":
+    "Команды, которые агент запускает отдельно в пуле задач сессии, вместо того чтобы занимать ход.",
+  "Offer the background option on run_command and the background task tools (default true).":
+    "Предлагать флаг background у run_command и инструменты фоновых задач (по умолчанию включено).",
+  "Max concurrent": "Максимум одновременно",
+  "How many background tasks one session may run at once (default 5).":
+    "Сколько фоновых задач сессия может выполнять одновременно (по умолчанию 5).",
+  "Default timeout (s)": "Таймаут по умолчанию (с)",
+  "Hard limit for a task started without a timeout or a duration estimate (default 900).":
+    "Жёсткий предел для задачи, запущенной без таймаута и без оценки длительности (по умолчанию 900).",
+  "Max timeout (s)": "Максимальный таймаут (с)",
+  "Ceiling applied to any requested or estimated timeout (default 3600).":
+    "Потолок для любого запрошенного или рассчитанного таймаута (по умолчанию 3600).",
+  "Output buffer (bytes)": "Буфер вывода (байты)",
+  "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).":
+    "Сколько вывода каждой задачи хранится в памяти для индикатора; полный лог всё равно пишется в бандл сессии (по умолчанию 262144).",
   "Permission mode": "Режим разрешений",
   'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts.':
     "Определяет, когда агент запрашивает подтверждение перед запуском инструментов. «ask»: подтверждать команды и запись. «accept_edits»: автоматически подтверждать запись, спрашивать про команды. «bypass»: пропускать все запросы.",

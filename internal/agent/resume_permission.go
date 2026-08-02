@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/permission"
 	"github.com/hijera/foxxycode-agent/internal/plans"
@@ -119,10 +121,38 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		OutputLineLimits: a.cfg.Tools.OutputLimits.AsMap(),
+		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
+		Background:        a.backgroundPool(sessionDir),
+		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
 	a.wireFileEditHook(env)
 	return env
+}
+
+// backgroundPool returns the process-wide task pool, telling it where this
+// session persists so a task started from here mirrors its output into the
+// session bundle.
+func (a *Agent) backgroundPool(sessionDir string) *bgtask.Pool {
+	pool := bgtask.Default()
+	pool.SetConfig(backgroundConfig(a.cfg))
+	if strings.TrimSpace(sessionDir) != "" {
+		pool.SetSessionDir(a.state.GetID(), sessionDir)
+	}
+	return pool
+}
+
+// backgroundConfig translates the operator's YAML into the pool's bounds.
+func backgroundConfig(cfg *config.Config) bgtask.Config {
+	if cfg == nil {
+		return bgtask.Config{}
+	}
+	resolved := cfg.Tools.Background.Resolved()
+	return bgtask.Config{
+		MaxConcurrent:         resolved.MaxConcurrent,
+		DefaultTimeoutSeconds: resolved.DefaultTimeoutSeconds,
+		MaxTimeoutSeconds:     resolved.MaxTimeoutSeconds,
+		OutputBufferBytes:     resolved.OutputBufferBytes,
+	}
 }
 
 // continueReAct runs the ReAct loop using messages already on the session (no new user turn).

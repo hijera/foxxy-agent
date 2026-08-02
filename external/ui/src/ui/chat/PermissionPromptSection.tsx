@@ -6,6 +6,7 @@ import {
   type PermissionToolCallContext,
 } from "./permissionToolPreview";
 import { submitPermissionChoice } from "./permissionSubmit";
+import { permissionOptionLabel } from "./permissionOptionLabel";
 import type {
   FoxxyCodePermissionPayload,
   PermissionResolvedState,
@@ -79,6 +80,7 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
         <div className="permission-prompt-actions">
           {payload.options.map((opt) => {
             const isReject = opt.optionId === "reject";
+            const label = permissionOptionLabel(opt);
             return (
               <button
                 key={opt.optionId}
@@ -89,9 +91,9 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
                     : "permission-prompt-btn permission-prompt-btn--allow"
                 }
                 disabled={submitting}
-                onClick={() => void choose(opt.optionId, opt.name)}
+                onClick={() => void choose(opt.optionId, label)}
               >
-                {opt.name}
+                {label}
               </button>
             );
           })}

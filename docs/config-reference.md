@@ -203,6 +203,7 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `plan_no_self_run` | bool | no | `false` | Forbid the model from starting to execute a plan itself. In plan mode `plan_exit` is not offered and any tool outside the plan allowlist is refused instead of run, so only **Run plan** starts the implementation. The `-plan-no-self-run` flag on `foxxycode acp` / `foxxycode http` overrides this value; the IntelliJ and VS Code plugins pass it, so their panels are guarded by default. |
 | `ask_disable_extended_tools` | bool | no | `false` | Hide Ask mode's read-only shell, web, annotated MCP, and scheduler inspection tools. Basic repository read/search/tree, question, and skill tools remain available. |
 | `output_limits` | object | no | — | Per-tool line and byte ceilings for results and errors. |
+| `background` | object | no | — | Bounds for commands the agent runs detached in the session background task pool. See below. |
 
 ### `tools.output_limits`
 
@@ -219,6 +220,18 @@ Every positive line limit also applies a hard **64 KiB per-call byte ceiling**. 
 | `webfetch` | int | no | `800` | Fetched page lines. |
 | `websearch` | int | no | `200` | Search-result lines. |
 | `default` | int | no | `1000` | Unlisted and MCP tools; `0` is unlimited. |
+
+### `tools.background`
+
+Bounds for background execution (`config.ToolBackground`). A backgrounded `run_command` returns a task id instead of output; `background_list`, `background_output`, `background_wait`, and `background_stop` collect the result later. The pool lives inside the running `foxxycode` process: each task mirrors its metadata and captured output into the session bundle under `background/<task_id>/`, and a task interrupted by a restart is reported as `orphaned` rather than as still running. `0` on any integer field means "use the default". See `docs/background-tasks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Offer the `background` option on `run_command` and expose the background task tools. |
+| `max_concurrent` | int | no | `5` | Background tasks one session may run at once. Starting past the limit is refused, not queued. |
+| `default_timeout_seconds` | int | no | `900` | Hard limit for a task started without an explicit `timeout_seconds` and without `expected_seconds`. |
+| `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
+| `output_buffer_bytes` | int | no | `262144` | In-memory output window per task, used by the status ticker and `background_output`. The full log still goes to the session bundle. |
 
 ## `logger`
 

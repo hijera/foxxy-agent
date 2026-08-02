@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
@@ -146,6 +147,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/plan/archive", s.foxxycodePlanArchivePost)
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
+	s.registerBackgroundRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
@@ -1018,6 +1020,9 @@ func (s *Server) foxxycodeSessionDelete(w http.ResponseWriter, r *http.Request) 
 	if fs == nil {
 		return
 	}
+	// Terminate anything this session left running before its bundle (and the
+	// task logs inside it) go away.
+	bgtask.Default().StopSession(id)
 	s.mgr.ForgetLiveSession(id)
 	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
 		if !os.IsNotExist(err) {

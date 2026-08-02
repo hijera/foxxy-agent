@@ -28,6 +28,15 @@ var planToolNames = []string{
 	"websearch",
 	"webfetch",
 	"run_command",
+	// Background execution is available in plan mode for the same reason
+	// run_command is: a planner investigating a repo should not have to sit
+	// through a slow read-only command, and the pool tools only observe and
+	// terminate work the planner started itself. background_reap is left out:
+	// it kills process groups this session never started.
+	"background_list",
+	"background_output",
+	"background_wait",
+	"background_stop",
 	"question",
 	"plan_write",
 	"plan_list",
@@ -73,6 +82,12 @@ var askBasicToolNames = []string{
 
 var askExtendedToolNames = []string{
 	"run_command",
+	// Ask already grants run_command here, so a backgrounded one is reachable
+	// and has to stay observable. Same omission as plan mode: no background_reap.
+	"background_list",
+	"background_output",
+	"background_wait",
+	"background_stop",
 	"websearch",
 	"webfetch",
 	"foxxycode_scheduler_jobs_list",
