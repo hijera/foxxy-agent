@@ -225,6 +225,10 @@ Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, `.cursor/rules`, `.claud
 
 Activation uses globs, **`alwaysApply`**, **`@mention`**, and sticky auto rules (see **`docs/rules.md`**).
 
+### IntelliJ IDEA project context (`internal/session`)
+
+When the session CWD contains `.idea/`, readable UTF-8 files below that directory are added recursively to every ReAct model request as project metadata, including module and required-plugin declarations. The files are explicitly marked as data rather than instructions, binary and unreadable files are skipped, individual files are capped at 256 KB, and the combined metadata body is capped at 512 KB.
+
 ### Config (`internal/config`)
 
 YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.foxxycode`**), **`FOXXYCODE_CWD`**, **`FOXXYCODE_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$FOXXYCODE_HOME/config.yaml`** is absent, and CLI flags (see **`docs/config.md`** and **`README.md`**).
