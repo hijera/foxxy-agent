@@ -11,6 +11,7 @@ require (
 	github.com/cucumber/godog v0.15.1
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/jedib0t/go-pretty/v6 v6.5.9
 	github.com/kuhahalong/ddgsearch v0.0.0-20241205095054-d297f4189b6e
@@ -40,7 +41,6 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/gofrs/uuid v4.3.1+incompatible // indirect
-	github.com/gogs/chardet v0.0.0-20211120154057-b7413eaefb8f // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-memdb v1.3.4 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect

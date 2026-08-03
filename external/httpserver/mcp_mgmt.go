@@ -30,6 +30,9 @@ func (s *Server) registerMCPManagementRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/mcp", s.foxxycodeMCPGet)
 	s.mux.HandleFunc("POST /foxxycode/mcp/{name}/enable", s.foxxycodeMCPServerToggle(false))
 	s.mux.HandleFunc("POST /foxxycode/mcp/{name}/disable", s.foxxycodeMCPServerToggle(true))
+	s.mux.HandleFunc("POST /foxxycode/mcp/{name}/trust", s.foxxycodeMCPServerTrust)
+	s.mux.HandleFunc("POST /foxxycode/mcp/{name}/untrust", s.foxxycodeMCPServerUntrust)
+	s.mux.HandleFunc("POST /foxxycode/mcp/project-trust", s.foxxycodeMCPProjectTrust)
 	s.mux.HandleFunc("POST /foxxycode/mcp/{name}/tools/{tool}/enable", s.foxxycodeMCPToolToggle(false))
 	s.mux.HandleFunc("POST /foxxycode/mcp/{name}/tools/{tool}/disable", s.foxxycodeMCPToolToggle(true))
 	s.mux.HandleFunc("PUT /foxxycode/mcp/{name}", s.foxxycodeMCPServerPut)
@@ -55,9 +58,13 @@ type mcpServerRow struct {
 	URL           string            `json:"url,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty"`
+	SourcePath    string            `json:"source_path,omitempty"` // file that defines the entry
 	Enabled       bool              `json:"enabled"`
-	Status        string            `json:"status"` // connected | error | disabled | unsupported
+	Status        string            `json:"status"` // connected | error | disabled | unsupported | needs_approval | denied
 	Error         string            `json:"error,omitempty"`
+	Trusted       bool              `json:"trusted"`               // false only for a gated project entry
+	Gated         bool              `json:"gated"`                 // the workspace trust gate applies to this entry
+	Fingerprint   string            `json:"fingerprint,omitempty"` // digest an approval binds to
 	Tools         []mcpToolRow      `json:"tools"`
 	DisabledTools []string          `json:"disabled_tools,omitempty"`
 }
@@ -79,14 +86,16 @@ func mcpFingerprint(srv config.MCPServerConfig, cwd string) string {
 }
 
 // probeMCPServer returns the cached tool list for srv, probing on fingerprint
-// change or when refresh is forced.
-func (s *Server) probeMCPServer(ctx context.Context, srv config.MCPServerConfig, cwd string, refresh bool) ([]mcp.ToolInfo, string) {
-	fp := mcpFingerprint(srv, cwd)
+// change or when refresh is forced. The probe runs through the trust gate, so
+// listing servers never starts a project command the operator has not
+// approved.
+func (s *Server) probeMCPServer(ctx context.Context, gate *mcp.TrustGate, srv mcp.ManagedServer, cwd string, refresh bool) ([]mcp.ToolInfo, string) {
+	fp := mcpFingerprint(srv.Config, cwd)
 	s.mcpProbeMu.Lock()
 	if s.mcpProbeCache == nil {
 		s.mcpProbeCache = make(map[string]mcpProbeEntry)
 	}
-	entry, ok := s.mcpProbeCache[srv.Name]
+	entry, ok := s.mcpProbeCache[srv.Config.Name]
 	s.mcpProbeMu.Unlock()
 	if ok && !refresh && entry.fingerprint == fp {
 		return entry.tools, entry.err
@@ -94,13 +103,13 @@ func (s *Server) probeMCPServer(ctx context.Context, srv config.MCPServerConfig,
 
 	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 	defer cancel()
-	tools, err := mcp.Probe(probeCtx, srv, cwd, s.log)
+	tools, err := gate.Probe(probeCtx, srv, cwd, s.log)
 	entry = mcpProbeEntry{fingerprint: fp, tools: tools}
 	if err != nil {
 		entry.err = err.Error()
 	}
 	s.mcpProbeMu.Lock()
-	s.mcpProbeCache[srv.Name] = entry
+	s.mcpProbeCache[srv.Config.Name] = entry
 	s.mcpProbeMu.Unlock()
 	return entry.tools, entry.err
 }
@@ -121,11 +130,13 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	refresh := r.URL.Query().Get("refresh") == "1"
+	gate := mcp.NewTrustGate(s.activeCfg())
 
 	rows := make([]mcpServerRow, len(servers))
 	var wg sync.WaitGroup
 	for i, srv := range servers {
 		transport := mcp.EffectiveTransport(srv.Config)
+		trust := gate.Evaluate(cwd, srv)
 		row := mcpServerRow{
 			Name:          srv.Config.Name,
 			Source:        srv.Scope,
@@ -135,7 +146,11 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 			Command:       srv.Config.Command,
 			Args:          srv.Config.Args,
 			URL:           srv.Config.URL,
+			SourcePath:    mcpSourcePath(s.activeCfg(), cwd, srv.Origin),
 			Enabled:       !srv.Config.Disabled,
+			Trusted:       trust == mcp.TrustStateAllowed,
+			Gated:         srv.Origin == mcp.OriginProject,
+			Fingerprint:   mcp.Fingerprint(srv.Config),
 			Tools:         []mcpToolRow{},
 			DisabledTools: srv.Config.DisabledTools,
 		}
@@ -162,11 +177,20 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 			rows[i] = row
 			continue
 		}
+		// A gated project entry is reported, never probed: probing it would
+		// start exactly the command the approval is about.
+		if trust != mcp.TrustStateAllowed {
+			row.Status = string(trust)
+			row.Error = gate.Check(cwd, srv).Error()
+			rows[i] = row
+			continue
+		}
 		rows[i] = row
 		wg.Add(1)
-		go func(i int, cfgSrv config.MCPServerConfig) {
+		go func(i int, managed mcp.ManagedServer) {
 			defer wg.Done()
-			tools, probeErr := s.probeMCPServer(r.Context(), cfgSrv, cwd, refresh)
+			cfgSrv := managed.Config
+			tools, probeErr := s.probeMCPServer(r.Context(), gate, managed, cwd, refresh)
 			disabled := make(map[string]bool, len(cfgSrv.DisabledTools))
 			for _, t := range cfgSrv.DisabledTools {
 				disabled[t] = true
@@ -183,14 +207,101 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 			} else {
 				rows[i].Status = "connected"
 			}
-		}(i, srv.Config)
+		}(i, srv)
 	}
 	wg.Wait()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "foxxycode.mcp_list",
-		"items":  rows,
+		"object":        "foxxycode.mcp_list",
+		"workspace":     cwd,
+		"project_trust": gate.Policy(),
+		"items":         rows,
+	})
+}
+
+// mcpSourcePath names the file a merged entry comes from, so an approval
+// dialog can show where the declaration was read.
+func mcpSourcePath(cfg *config.Config, cwd, origin string) string {
+	switch origin {
+	case mcp.OriginProject:
+		return config.MCPJSONPath(cwd)
+	case mcp.OriginHome:
+		return config.GlobalMCPJSONPath(cfg.Paths.Home)
+	default:
+		return cfg.Paths.ConfigPath
+	}
+}
+
+// foxxycodeMCPServerTrust approves the current declaration of a project-local
+// server for this workspace, so sessions may start it.
+func (s *Server) foxxycodeMCPServerTrust(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	cwd := s.sessionDefaultCWD()
+	servers, err := mcp.ListManagedServers(s.activeCfg(), cwd)
+	if err != nil {
+		writeFoxxyCodeMCPErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	gate := mcp.NewTrustGate(s.activeCfg())
+	for _, srv := range servers {
+		if srv.Config.Name != name {
+			continue
+		}
+		if err := gate.Approve(cwd, srv); err != nil {
+			writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.invalidateMCPProbe(name)
+		slog.Info("mcp server approved for workspace",
+			"name", name, "workspace", cwd, "digest", mcp.Fingerprint(srv.Config))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":          true,
+			"fingerprint": mcp.Fingerprint(srv.Config),
+		})
+		return
+	}
+	writeFoxxyCodeMCPErr(w, http.StatusBadRequest, fmt.Sprintf("mcp server %q not found", name))
+}
+
+// foxxycodeMCPServerUntrust withdraws an approval; running sessions keep their
+// already connected clients, new sessions do not start the server again.
+func (s *Server) foxxycodeMCPServerUntrust(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	cwd := s.sessionDefaultCWD()
+	removed, err := mcp.NewTrustGate(s.activeCfg()).Revoke(cwd, name)
+	if err != nil {
+		writeFoxxyCodeMCPErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.invalidateMCPProbe(name)
+	slog.Info("mcp server approval revoked", "name", name, "workspace", cwd, "removed", removed)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
+}
+
+// foxxycodeMCPProjectTrust persists the mcp.project_trust policy, so the MCP
+// tab owns the whole policy rather than sending operators to another settings
+// tab.
+func (s *Server) foxxycodeMCPProjectTrust(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Policy string `json:"policy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := mcp.SetProjectTrust(s.activeCfg(), body.Policy); err != nil {
+		writeFoxxyCodeMCPErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.reloadConfigFromDisk()
+	slog.Info("mcp project trust policy set", "policy", body.Policy)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":            true,
+		"project_trust": s.activeCfg().MCP.ResolvedProjectTrust(),
 	})
 }
 

@@ -131,8 +131,22 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **Windows-1251** sources as well as UTF-8 ones. System **`rg`** matches raw bytes and would
   silently miss them. ASCII patterns still go to **`rg`** (faster, honors **`.gitignore`**);
   files above **`maxDecodedSearchFileBytes`** (8 MiB) stream as UTF-8 without the decode step.
+  Note that **`rg`** also cannot answer an ASCII pattern against **UTF-16**, whose ASCII
+  characters are not single bytes on disk; such files are reached through the built-in engine.
+- **`internal/textenc`** - the one place a file's encoding is decided, shared by prompt
+  attachments (**`internal/session/promptfiles.go`**) and every file tool. Tiers: byte-order
+  marks (**UTF-8/16/32**), a UTF-8 fast path, a binary guard, **chardet** detection run twice
+  (whole input, then only the lines carrying non-ASCII bytes, so a mostly-ASCII source with
+  Russian comments is not dragged onto ISO-8859-1), and finally the system **ANSI code page**
+  (**`platform.DecodeANSI`**, Windows only). **`Decode`** also reports the **`Encoding`** so
+  **`write`** / **`edit`** / **`apply_patch`** put a file back byte for byte, mark included.
+  **Fork-specific:** **`internal/tools/fs`** adds one last rung after all of those,
+  **Windows-1251**, so a legacy file the detector cannot name still reads as text - which is
+  what this layer always did unconditionally. Prompt attachments do **not** get that rung: an
+  undecodable attachment is refused with **`ErrNotDecodableText`** rather than inlined as noise.
 - **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
 - **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
+  A **foreground** command that outlives its timeout is **not** killed: **`foreground.go`** starts it in a detached process group with its own **`cmd.Wait`**, and at the deadline **`bgtask.Pool.Adopt`** takes it over, **`switchwriter.go`** redirects its output into the task sink with everything captured so far flushed in first, and the tool answers with the task id followed by that output. Killing was wrong twice over: a dev server is doing exactly what was asked, and a grandchild holding the output pipe kept **`cmd.Wait`** from ever returning. The result is **`(string, nil)`**, not an error, because the agent loop discards the result string when a tool errors - which is what used to throw the captured output away.
 - **`internal/tools/svn`** - Subversion working copy tools (**`svn_info`**, **`svn_status`**, **`svn_diff`**,
   **`svn_log`**, **`svn_list`**, **`svn_add`**, **`svn_revert`**, **`svn_resolve`**, **`svn_update`**,
   **`svn_commit`**, **`svn_switch`**, **`svn_merge`**, **`svn_checkout`**) over **`internal/svnws`**.

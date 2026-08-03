@@ -30,6 +30,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/mcp"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -232,6 +233,17 @@ func (s *mcpE2EState) startServer() error {
 				},
 			},
 		},
+	}
+
+	// This scenario is about tool routing, not workspace trust: stand in for
+	// the operator having approved the project-local "beta" declaration
+	// (features/mcp_project_trust.feature owns the gate itself).
+	betaManaged, err := managedMCPServer(cfg, s.cwd, "beta")
+	if err != nil {
+		return err
+	}
+	if err := mcp.NewTrustGate(cfg).Approve(s.cwd, *betaManaged); err != nil {
+		return err
 	}
 
 	log := slog.Default()

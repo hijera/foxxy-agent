@@ -59,6 +59,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			AutoDiscovery: &skillsAutoDiscovery,
 		},
 		MCPServers: []MCPServerJSON{},
+		MCP:        MCPJSON{ProjectTrust: ProjectTrustAsk},
 		Tools: ToolsJSON{
 			PermissionMode:          PermModeAsk,
 			CommandAllowlist:        nil,

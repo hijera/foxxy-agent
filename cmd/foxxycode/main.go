@@ -108,6 +108,8 @@ func main() {
 		err = runCodex(args[1:])
 	case "rules":
 		err = runRules(args[1:])
+	case "mcp":
+		err = runMCP(args[1:])
 	case "update":
 		err = runUpdate(args[1:])
 	default:
@@ -142,6 +144,9 @@ func printUsage(w *os.File) {
   %[1]s plugin enable <name> | disable <name>
   %[1]s codex login | status | logout [--provider NAME] [--home DIR]
   %[1]s rules list [--cwd DIR]
+  %[1]s mcp list [--cwd DIR]
+  %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
+  %[1]s mcp untrust <name> [--cwd DIR]
   %[1]s update [flags]
 `, os.Args[0])
 }
@@ -161,6 +166,7 @@ func runACP(args []string) error {
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
+	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -194,6 +200,9 @@ func runACP(args []string) error {
 	}
 	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
 	config.ApplyPlanNoSelfRunFlag(fs, cfg, planNoSelfRun)
+	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+		return err
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}

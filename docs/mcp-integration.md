@@ -39,6 +39,57 @@ per-tool switches use `disabledTools`:
 
 A broken `mcp.json` is logged and skipped; the session still starts with the remaining levels.
 
+## Workspace trust for project-local servers
+
+`<workspace>/.foxxycode/mcp.json` travels with the checkout, so the **repository** — not the
+operator — picks the command, arguments, and environment of a process FoxxyCode would start
+while bootstrapping a session. Nothing on the path to that spawn can make a trust decision:
+it happens before the first turn exists, so there is no model request, no permission prompt,
+and no `tools.permission_mode` to consult. Opening someone else's repository would otherwise
+mean running whatever it declared.
+
+Project-origin declarations therefore pass a trust gate before any spawn or connect.
+`config.yaml` and `<home>/mcp.json` are operator-authored and stay ungated.
+
+`mcp.project_trust` in `config.yaml` chooses the policy:
+
+| Value | Behaviour |
+|---|---|
+| `ask` (default) | A project server stays cold until the operator approves **that exact declaration** for **that workspace**. |
+| `allow` | Project servers start automatically. Use only for workspaces you already trust. |
+| `deny` | Project servers are never loaded and there is no approval path. |
+
+Override it for one process with `foxxycode acp --mcp-project-trust <value>` or
+`foxxycode http --mcp-project-trust <value>`, which is what CI jobs and container entrypoints
+use instead of editing the config file. An unknown value fails the launch rather than falling
+back to the default.
+
+### Approving
+
+Three surfaces make the same decision, and all of them print the effective declaration first —
+transport, the command with its arguments (or the URL), the **names** of the environment
+variables and headers it carries, the workspace, and the source file:
+
+- `foxxycode mcp list` — every merged server with its trust state; `foxxycode mcp trust <name>`
+  and `foxxycode mcp untrust <name>` decide. `--cwd DIR` picks the workspace.
+- `POST /foxxycode/mcp/{name}/trust` and `/untrust` over the HTTP API.
+- The shield button in **Settings → MCP servers**, which renders only under `ask` (the other
+  two policies leave no per-server decision to make).
+
+Writing an entry through the management API or the UI editor approves it: the operator typed
+the command themselves.
+
+Approvals live in `<home>/mcp-trust.json`, keyed by canonical workspace path and bound to a
+SHA-256 digest of the command-bearing declaration (transport, command, args, env, url,
+headers). Operational switches — `disabled`, `disabledTools` — are deliberately **outside**
+the digest, so toggling a tool off does not withdraw an approval, while editing the command
+line does. Records are receipts of what was approved and store env and header **names** only:
+their values routinely hold secrets, and the decision rests on which variables travel to the
+child, not on what is in them.
+
+Listing servers is gated too: probing an unapproved entry would start exactly the command the
+approval is about, so `GET /foxxycode/mcp` reports it (`status: needs_approval`) instead.
+
 ## Enable / disable switches
 
 Every config level supports switching off a whole server or individual tools without
@@ -62,6 +113,11 @@ bundled web UI shows them under **Settings -> MCP servers**: status dot per serv
 Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
 `~/.foxxycode/mcp.json`, local writes `./.foxxycode/mcp.json`). Toggles persist into the file that
 defines the server; `config.yaml` entries are toggle-only here and edited in Settings.
+
+Above the list sits an **MCP discovery** fieldset carrying `mcp.project_trust`
+(`POST /foxxycode/mcp/project-trust`). It lives in this tab rather than in a settings section
+of its own because it governs exactly the servers listed below it, and it persists straight
+into `config.yaml` instead of joining the settings-document save flow.
 
 ## Supported Transports
 

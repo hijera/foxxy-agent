@@ -21,6 +21,20 @@ export type MCPToolRow = {
 
 export type MCPScope = "global" | "local";
 
+/** mcp.project_trust: policy for the project-local ./.foxxycode/mcp.json. */
+export type ProjectTrust = "ask" | "allow" | "deny";
+
+/**
+ * Wording for the project-trust picker. Like MCPValidationKey below, these are
+ * i18n keys rather than finished text: this module stays free of React and of
+ * the translator, and the component resolves them.
+ */
+export const PROJECT_TRUST_OPTIONS: Array<{ value: ProjectTrust; labelKey: string }> = [
+  { value: "ask", labelKey: "settings.mcp.trust.option.ask" },
+  { value: "allow", labelKey: "settings.mcp.trust.option.allow" },
+  { value: "deny", labelKey: "settings.mcp.trust.option.deny" },
+];
+
 export type MCPValidationKey =
   | "settings.mcp.validation.nameRequired"
   | "settings.mcp.validation.nameNamespace"
@@ -51,12 +65,69 @@ export type MCPServerRow = {
   url?: string;
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  /** File the declaration was read from. */
+  source_path?: string;
   enabled: boolean;
-  status: "connected" | "error" | "disabled" | "unsupported";
+  status: "connected" | "error" | "disabled" | "unsupported" | "needs_approval" | "denied";
   error?: string;
+  /** False only for a project entry the workspace trust gate holds back. */
+  trusted?: boolean;
+  /** True for project-local entries, the ones the trust gate applies to. */
+  gated?: boolean;
+  /** Digest of the command-bearing declaration an approval binds to. */
+  fingerprint?: string;
   tools: MCPToolRow[];
   disabled_tools?: string[];
 };
+
+/**
+ * showsTrustControl reports whether a row gets the per-server shield.
+ *
+ * Only project-local rows are gated at all, and only the `ask` policy leaves a
+ * decision to make: under `allow` every project server starts anyway, under
+ * `deny` none of them ever does. Rendering an inert shield in those two cases
+ * would suggest a per-server choice that the policy has already taken away.
+ */
+export function showsTrustControl(row: MCPServerRow, policy: ProjectTrust): boolean {
+  return !!row.gated && policy === "ask";
+}
+
+/**
+ * declarationFacts renders everything a workspace-trust decision rests on: the
+ * effective transport, what would be executed or contacted, and the names
+ * (never the values) of the environment variables and headers it carries.
+ * Approving is a decision about these lines, so they are shown before it.
+ *
+ * labelKey is an i18n key for the same reason PROJECT_TRUST_OPTIONS carries one.
+ */
+export function declarationFacts(row: MCPServerRow): Array<{ labelKey: string; value: string }> {
+  const out: Array<{ labelKey: string; value: string }> = [
+    { labelKey: "settings.mcp.trust.fact.transport", value: row.transport },
+  ];
+  // stdio starts a process; the remote transports open a connection.
+  if (row.command) {
+    out.push({
+      labelKey: "settings.mcp.trust.fact.runs",
+      value: [row.command, ...(row.args ?? [])].join(" "),
+    });
+  }
+  if (row.url) out.push({ labelKey: "settings.mcp.trust.fact.contacts", value: row.url });
+  const envKeys = Object.keys(row.env ?? {}).sort();
+  if (envKeys.length > 0) {
+    out.push({ labelKey: "settings.mcp.trust.fact.env", value: envKeys.join(", ") });
+  }
+  const headerKeys = Object.keys(row.headers ?? {}).sort();
+  if (headerKeys.length > 0) {
+    out.push({ labelKey: "settings.mcp.trust.fact.headers", value: headerKeys.join(", ") });
+  }
+  return out;
+}
+
+/** What a server would run or contact, as one line. */
+export function targetLine(row: MCPServerRow): string {
+  if (row.command) return [row.command, ...(row.args ?? [])].join(" ");
+  return row.url ?? "";
+}
 
 /** Human name of the file that owns a row's definition (badge tooltips). */
 export function originLabel(origin: MCPServerRow["origin"]): string {

@@ -1,7 +1,7 @@
 ---
 description: BDD-style workflow, HTTP OpenAPI and config schema sync before lint, final checks
 globs: **/*.go, docs/**/*.md, README.md
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Workflow (features, bugs, finish)
@@ -36,7 +36,8 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - OpenAPI and HTTP docs updated when the HTTP API changed.
 - **`docs/config.schema.json`** and **`docs/config-reference.md`** updated when `internal/config` yaml fields changed.
 - **`make lint`** clean.
-- **Rules sync** — if any `.cursor/rules/*.mdc` file was added or changed, propagate to `.claude/rules/`: copy the content body, replace `globs:`/`alwaysApply:` with Claude-compatible `paths:` (list form), rename to `.md`. Files with `alwaysApply: true` keep `paths:` matching the globs.
+- **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`. Refresh the index in **`.codex/rules.md`** when a rule file is added, renamed, or removed.
+- **Changelog** — if the change is something a user of the plugin can observe, work out the version the merge will produce and add a Russian entry to **`editors/intellij/CHANGELOG.md`** before opening the PR. Merging releases immediately, so the notes are part of the PR, not a later step. See **`.claude/rules/release-changelog.md`**.
 
 ## BDD specs (Gherkin)
 
@@ -45,18 +46,3 @@ file in the **repo-root `features/`** directory. The godog step definitions stay
 package under test (e.g. `external/httpserver/bdd_*_test.go`, `internal/agent/bdd_*_test.go`)
 and point `Options.Paths` at `../../features/<name>.feature`. **Edge and error cases go in
 ordinary unit tests**, not in `features/`.
-
-## References
-
-@testing.mdc
-@code-style.mdc
-@architecture.mdc
-@api-layer.mdc
-@implementation-order.mdc
-@Makefile
-@docs/http-api.md
-@external/httpserver/server.go
-@external/httpserver/openapi.go
-@docs/config.schema.json
-@docs/config-reference.md
-@internal/config/docs_schema_test.go

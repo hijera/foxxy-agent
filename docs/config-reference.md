@@ -24,6 +24,7 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`skills`](#skills) | object | Skill discovery directories | — |
 | [`rules`](#rules) | object | Project rules discovery | — |
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
+| [`mcp`](#mcp) | object | Trust policy for project-local MCP discovery | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
@@ -190,6 +191,18 @@ Servers can also be declared in Cursor-compatible mcp.json files: the user-globa
 per-tool switches use `disabledTools`). Later levels override earlier ones by
 name: `mcp_servers` < `~/.foxxycode/mcp.json` < `./.foxxycode/mcp.json`. See
 `docs/mcp-integration.md`.
+
+## `mcp`
+
+MCP settings that are not tied to a single server entry (`config.MCP`, `internal/config/mcp.go`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_trust` | string | no | `ask` | Trust policy for the project-local `<workspace>/.foxxycode/mcp.json`, which travels with the checkout: `ask` keeps its servers cold until the operator approves that exact declaration for that workspace (`foxxycode mcp trust <name>`, or the shield in Settings → MCP servers); `allow` starts them automatically; `deny` never loads them. The `-mcp-project-trust` flag on `foxxycode acp` / `foxxycode http` overrides this value for one process; an unknown value fails the launch. |
+
+Approvals live in `<home>/mcp-trust.json`, keyed by canonical workspace and bound to a digest of the
+command-bearing declaration, so editing an approved entry asks again. Entries from `config.yaml` and
+`~/.foxxycode/mcp.json` are operator-authored and are never gated.
 
 ## `tools`
 

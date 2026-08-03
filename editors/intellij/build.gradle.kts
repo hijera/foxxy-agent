@@ -154,11 +154,92 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+// ----------------------------------------------------------------------------------
+// Change notes: CHANGELOG.md is the single source for the "Change Notes" tab the IDE
+// shows in Settings | Plugins. It is written in Russian for a human reader, not as a
+// commit list, and its sections are versioned `## X.Y.Z — YYYY-MM-DD`, newest first.
+//
+// The markdown is rendered here rather than through the org.jetbrains.changelog plugin
+// so the build needs no extra dependency. Only the subset the file actually uses is
+// supported: level-2 version headings, paragraphs, `**bold**`, and `code`.
+// ----------------------------------------------------------------------------------
+val changelogFile = layout.projectDirectory.file("CHANGELOG.md").asFile
+val changeNotesSections = 3
+
+/** One `## X.Y.Z — date` section with its body lines. */
+data class ChangelogEntry(val version: String, val heading: String, val body: List<String>)
+
+fun parseChangelog(text: String): List<ChangelogEntry> {
+    val headingRe = Regex("""^##\s+(\d+\.\d+\.\d+)\s*[—-]\s*(.+)$""")
+    val entries = mutableListOf<ChangelogEntry>()
+    var current: ChangelogEntry? = null
+    for (line in text.lines()) {
+        val m = headingRe.find(line.trim())
+        if (m != null) {
+            current?.let { entries += it }
+            current = ChangelogEntry(m.groupValues[1], line.trim().removePrefix("##").trim(), mutableListOf())
+        } else if (current != null) {
+            (current.body as MutableList<String>) += line
+        }
+    }
+    current?.let { entries += it }
+    return entries
+}
+
+fun escapeHtml(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+/** Inline markdown -> HTML for the small subset the changelog uses. */
+fun inlineHtml(s: String): String =
+    Regex("""\*\*(.+?)\*\*""").replace(
+        Regex("""`([^`]+)`""").replace(escapeHtml(s)) { "<code>${it.groupValues[1]}</code>" },
+    ) { "<b>${it.groupValues[1]}</b>" }
+
+fun renderChangeNotes(entries: List<ChangelogEntry>): String = buildString {
+    for (entry in entries) {
+        append("<h3>").append(escapeHtml(entry.heading)).append("</h3>\n")
+        val paragraph = StringBuilder()
+        fun flush() {
+            if (paragraph.isNotBlank()) append("<p>").append(inlineHtml(paragraph.toString().trim())).append("</p>\n")
+            paragraph.setLength(0)
+        }
+        for (line in entry.body) {
+            if (line.isBlank()) flush() else paragraph.append(line.trim()).append(' ')
+        }
+        flush()
+    }
+}
+
+/**
+ * changeNotesHtml renders the newest sections, putting the version being built first when
+ * the changelog knows it. A dev build (`0.0.0-dev-<sha>`) has no section of its own, so it
+ * simply shows the latest released ones; a missing or unreadable file leaves the notes
+ * empty rather than failing the build.
+ */
+val changeNotesHtml: String by lazy {
+    if (!changelogFile.isFile) {
+        logger.warn("CHANGELOG.md not found at ${changelogFile.path}; the plugin ships without change notes.")
+        return@lazy ""
+    }
+    val entries = parseChangelog(changelogFile.readText(Charsets.UTF_8))
+    if (entries.isEmpty()) {
+        logger.warn("CHANGELOG.md has no `## X.Y.Z — date` sections; the plugin ships without change notes.")
+        return@lazy ""
+    }
+    val built = version.toString()
+    if (entries.none { it.version == built } && !built.contains("dev")) {
+        logger.warn("CHANGELOG.md has no section for version $built — the IDE will show older notes instead.")
+    }
+    val ordered = entries.sortedByDescending { it.version == built }
+    renderChangeNotes(ordered.take(changeNotesSections))
+}
+
 tasks {
     patchPluginXml {
         sinceBuild.set("222")
         // Empty upper bound: keep the plugin compatible with newer IDE builds.
         untilBuild.set("")
+        changeNotes.set(provider { changeNotesHtml })
     }
 
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {

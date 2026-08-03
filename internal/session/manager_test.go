@@ -832,6 +832,14 @@ func TestSetSessionWorkspaceReconnectsProjectMCPAndPreservesClientServers(t *tes
 
 	cfg := testConfig()
 	cfg.Paths.Home = home
+	// Both declarations are project-local, so the workspace trust gate holds
+	// them until the operator approves each one for its own folder. This test
+	// is about what a workspace switch reconnects, not about the gate, so both
+	// are approved up front; the gate itself is covered by
+	// features/mcp_project_trust.feature.
+	approveProjectMCP(t, cfg, alpha, "alpha-project")
+	approveProjectMCP(t, cfg, beta, "beta-project")
+
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), alpha, nil)
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{
 		CWD: alpha,
@@ -908,4 +916,23 @@ func assertMCPClientNames(t *testing.T, st *session.State, want ...string) {
 			t.Fatalf("MCP clients = %v, want %v", got, want)
 		}
 	}
+}
+
+// approveProjectMCP records the operator's approval of a project-local server
+// for one workspace, the way `foxxycode mcp trust` and the Settings shield do.
+func approveProjectMCP(t *testing.T, cfg *config.Config, workspace, name string) {
+	t.Helper()
+	servers, err := mcp.ListManagedServers(cfg, workspace)
+	if err != nil {
+		t.Fatalf("list managed MCP servers for %s: %v", workspace, err)
+	}
+	for i := range servers {
+		if servers[i].Config.Name == name {
+			if err := mcp.NewTrustGate(cfg).Approve(workspace, servers[i]); err != nil {
+				t.Fatalf("approve %q for %s: %v", name, workspace, err)
+			}
+			return
+		}
+	}
+	t.Fatalf("mcp server %q not declared in %s", name, workspace)
 }

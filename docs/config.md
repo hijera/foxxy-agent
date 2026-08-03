@@ -271,6 +271,15 @@ The tool requires user permission (same as `run_command`) and returns combined s
 
 The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`foxxycode http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
 
+### MCP project trust
+
+The **`mcp.project_trust`** key decides whether the project-local **`<workspace>/.foxxycode/mcp.json`** may start
+its servers: **`ask`** (default) holds them until the operator approves each declaration for that workspace,
+**`allow`** starts them automatically, **`deny`** never loads them. Pass **`foxxycode acp --mcp-project-trust <value>`**
+or **`foxxycode http --mcp-project-trust <value>`** to override it for one process, which is what CI jobs and
+container entrypoints use instead of editing the config file. An unknown value fails the launch.
+Full guide in [docs/mcp-integration.md](mcp-integration.md).
+
 ## Scheduler (optional build)
 
 The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`foxxycode acp -scheduler-enabled`** / **`foxxycode http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.

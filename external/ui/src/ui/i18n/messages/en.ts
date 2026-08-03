@@ -365,6 +365,47 @@ export const messagesEn: Record<string, string> = {
   "settings.mcp.status.probeFailed": "Probe failed",
   "settings.mcp.status.disabled": "Disabled",
   "settings.mcp.status.unsupported": "Transport not supported",
+  "settings.mcp.status.needsApproval":
+    "Waiting for your approval — not started, not contacted",
+  "settings.mcp.status.denied":
+    "Project MCP servers are switched off by mcp.project_trust: deny",
+  "settings.mcp.discovery.legend": "MCP discovery",
+  "settings.mcp.discovery.desc.start": "The project-local",
+  "settings.mcp.discovery.desc.mid":
+    "arrives with the checkout, so the repository — not you — picks the command a session would start. On",
+  "settings.mcp.discovery.desc.ask": "Ask",
+  "settings.mcp.discovery.desc.afterAsk":
+    "its servers are neither started nor contacted until you approve that exact declaration for this workspace (shield button in the list below); rewriting an approved entry asks again. Servers you add here are approved by the act of writing them. Entries from",
+  "settings.mcp.discovery.desc.and": "and",
+  "settings.mcp.discovery.desc.end": "are yours and are never gated.",
+  "settings.mcp.discovery.label": "Project servers",
+  "settings.mcp.trust.option.ask": "Ask — approve each project server once",
+  "settings.mcp.trust.option.allow": "Allow — start project servers automatically",
+  "settings.mcp.trust.option.deny": "Deny — never load project servers",
+  "settings.mcp.trust.approveTitle": 'Approve running "{target}" in this workspace',
+  "settings.mcp.trust.approvedTitle":
+    "Approved for this workspace ({digest}) — click to withdraw",
+  "settings.mcp.trust.approveAria": "Approve MCP server {name}",
+  "settings.mcp.trust.withdrawAria": "Withdraw approval of MCP server {name}",
+  "settings.mcp.trust.note.deniedStart":
+    "Project MCP servers are switched off by",
+  "settings.mcp.trust.note.deniedEnd": ". This entry is never started.",
+  "settings.mcp.trust.note.declaredBy": "Declared by",
+  "settings.mcp.trust.note.travels":
+    ", which travels with the checkout, so it is neither started nor contacted yet. Approving covers exactly this declaration:",
+  "settings.mcp.trust.note.in": "in",
+  "settings.mcp.trust.note.workspaceFallback": "the session workspace",
+  "settings.mcp.trust.note.namesOnly":
+    "Environment and header names are listed, never their values. Editing the entry asks again.",
+  "settings.mcp.trust.fact.transport": "transport",
+  "settings.mcp.trust.fact.runs": "runs",
+  "settings.mcp.trust.fact.contacts": "contacts",
+  "settings.mcp.trust.fact.env": "env",
+  "settings.mcp.trust.fact.headers": "headers",
+  "settings.mcp.error.projectTrust": "Failed to change the project trust policy.",
+  "settings.mcp.error.trust": "Couldn't approve MCP server {name}.",
+  "settings.mcp.error.untrust":
+    "Couldn't withdraw the approval of MCP server {name}.",
   "settings.mcp.error.disableServer": "Couldn't disable MCP server {name}.",
   "settings.mcp.error.enableServer": "Couldn't enable MCP server {name}.",
   "settings.mcp.error.disableTool": "Couldn't disable tool {tool}.",
