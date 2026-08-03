@@ -367,6 +367,52 @@ export const messagesRu: Record<string, string> = {
   "settings.mcp.status.probeFailed": "Проверка не прошла",
   "settings.mcp.status.disabled": "Отключён",
   "settings.mcp.status.unsupported": "Транспорт не поддерживается",
+  "settings.mcp.status.needsApproval":
+    "Ожидает вашего одобрения — не запущен, обращений не было",
+  "settings.mcp.status.denied":
+    "Серверы MCP из проекта отключены настройкой mcp.project_trust: deny",
+  "settings.mcp.discovery.legend": "Обнаружение MCP",
+  "settings.mcp.discovery.desc.start": "Локальный файл проекта",
+  "settings.mcp.discovery.desc.mid":
+    "приходит вместе с чекаутом, поэтому команду, которую запустит сессия, выбирает репозиторий, а не вы. В режиме",
+  "settings.mcp.discovery.desc.ask": "Спрашивать",
+  "settings.mcp.discovery.desc.afterAsk":
+    "его серверы не запускаются и к ним не обращаются, пока вы не одобрите именно это объявление для этой рабочей папки (кнопка-щит в списке ниже); правка одобренной записи спрашивает заново. Серверы, добавленные здесь, одобрены самим фактом ввода. Записи из",
+  "settings.mcp.discovery.desc.and": "и",
+  "settings.mcp.discovery.desc.end": "принадлежат вам и через гейт не проходят.",
+  "settings.mcp.discovery.label": "Серверы проекта",
+  "settings.mcp.trust.option.ask":
+    "Спрашивать — одобрять каждый серверный проект один раз",
+  "settings.mcp.trust.option.allow":
+    "Разрешить — запускать серверы проекта автоматически",
+  "settings.mcp.trust.option.deny":
+    "Запретить — никогда не загружать серверы проекта",
+  "settings.mcp.trust.approveTitle":
+    "Одобрить запуск «{target}» в этой рабочей папке",
+  "settings.mcp.trust.approvedTitle":
+    "Одобрено для этой рабочей папки ({digest}) — нажмите, чтобы отозвать",
+  "settings.mcp.trust.approveAria": "Одобрить MCP-сервер {name}",
+  "settings.mcp.trust.withdrawAria": "Отозвать одобрение MCP-сервера {name}",
+  "settings.mcp.trust.note.deniedStart":
+    "Серверы MCP из проекта отключены настройкой",
+  "settings.mcp.trust.note.deniedEnd": ". Эта запись никогда не запускается.",
+  "settings.mcp.trust.note.declaredBy": "Объявлен в",
+  "settings.mcp.trust.note.travels":
+    " — этот файл приходит вместе с чекаутом, поэтому сервер пока не запущен и обращений к нему не было. Одобрение относится ровно к этому объявлению:",
+  "settings.mcp.trust.note.in": "в",
+  "settings.mcp.trust.note.workspaceFallback": "рабочая папка сессии",
+  "settings.mcp.trust.note.namesOnly":
+    "Перечислены имена переменных окружения и заголовков, но никогда их значения. Правка записи спрашивает заново.",
+  "settings.mcp.trust.fact.transport": "транспорт",
+  "settings.mcp.trust.fact.runs": "запускает",
+  "settings.mcp.trust.fact.contacts": "обращается к",
+  "settings.mcp.trust.fact.env": "окружение",
+  "settings.mcp.trust.fact.headers": "заголовки",
+  "settings.mcp.error.projectTrust":
+    "Не удалось изменить политику доверия к проекту.",
+  "settings.mcp.error.trust": "Не удалось одобрить MCP-сервер {name}.",
+  "settings.mcp.error.untrust":
+    "Не удалось отозвать одобрение MCP-сервера {name}.",
   "settings.mcp.error.disableServer": "Не удалось отключить сервер MCP {name}.",
   "settings.mcp.error.enableServer": "Не удалось включить сервер MCP {name}.",
   "settings.mcp.error.disableTool": "Не удалось отключить инструмент {tool}.",

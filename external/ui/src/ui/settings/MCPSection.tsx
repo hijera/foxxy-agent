@@ -5,19 +5,40 @@ import { IconTrash } from "./SchemaForm";
 import { Switch } from "./Switch";
 import {
   MCP_SERVER_TEMPLATE,
+  PROJECT_TRUST_OPTIONS,
+  declarationFacts,
   originLabel,
   parseServerEntryJson,
   serverRowToEntryJson,
+  showsTrustControl,
+  targetLine,
   validateMCPServerName,
   type MCPScope,
   type MCPServerRow,
+  type ProjectTrust,
 } from "./mcpServerJson";
 
-async function fetchServers(refresh = false): Promise<MCPServerRow[]> {
+type MCPList = {
+  items: MCPServerRow[];
+  /** Effective mcp.project_trust policy for the server's workspace. */
+  projectTrust: ProjectTrust;
+  /** Workspace the rows were merged for; approvals are recorded against it. */
+  workspace: string;
+};
+
+async function fetchServers(refresh = false): Promise<MCPList> {
   const res = await fetch(`/foxxycode/mcp${refresh ? "?refresh=1" : ""}`);
-  if (!res.ok) return [];
-  const data = (await res.json()) as { items?: MCPServerRow[] };
-  return data.items ?? [];
+  if (!res.ok) return { items: [], projectTrust: "ask", workspace: "" };
+  const data = (await res.json()) as {
+    items?: MCPServerRow[];
+    project_trust?: ProjectTrust;
+    workspace?: string;
+  };
+  return {
+    items: data.items ?? [],
+    projectTrust: data.project_trust ?? "ask",
+    workspace: data.workspace ?? "",
+  };
 }
 
 async function apiSend(
@@ -85,6 +106,26 @@ function IconSync() {
   );
 }
 
+// Shield glyph for the workspace trust control on project-local rows.
+function IconShield() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 3l7 3v6c0 4.4-3 8.2-7 9-4-.8-7-4.6-7-9V6Z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
 function IconPencil() {
   return (
     <svg
@@ -132,6 +173,10 @@ function statusTitle(row: MCPServerRow, t: Translate): string {
       return row.error || t("settings.mcp.status.probeFailed");
     case "disabled":
       return t("settings.mcp.status.disabled");
+    case "needs_approval":
+      return t("settings.mcp.status.needsApproval");
+    case "denied":
+      return t("settings.mcp.status.denied");
     default:
       return row.error || t("settings.mcp.status.unsupported");
   }
@@ -156,6 +201,8 @@ type EditorState = {
 export function MCPSection() {
   const { t } = useT();
   const [servers, setServers] = useState<MCPServerRow[]>([]);
+  const [projectTrust, setProjectTrust] = useState<ProjectTrust>("ask");
+  const [workspace, setWorkspace] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -171,7 +218,10 @@ export function MCPSection() {
     async (firstLoad = false, refresh = false) => {
       if (firstLoad) setLoading(true);
       if (refresh) setRefreshing(true);
-      setServers(await fetchServers(refresh));
+      const list = await fetchServers(refresh);
+      setServers(list.items);
+      setProjectTrust(list.projectTrust);
+      setWorkspace(list.workspace);
       if (firstLoad) setLoading(false);
       if (refresh) setRefreshing(false);
     },
@@ -189,6 +239,39 @@ export function MCPSection() {
       await fn();
       setBusy((p) => ({ ...p, [key]: false }));
     })();
+  };
+
+  // The policy lives here, not in a settings section of its own: it governs
+  // exactly the servers listed below. It persists into config.yaml through the
+  // MCP API, so it never joins the settings document Save all flow.
+  const onProjectTrustChange = (next: ProjectTrust) => {
+    withBusy("project-trust", async () => {
+      const res = await apiSend("/foxxycode/mcp/project-trust", "POST", { policy: next });
+      if (!res.ok) setError(res.error || t("settings.mcp.error.projectTrust"));
+      else await loadServers();
+    });
+  };
+
+  // Approving binds to the declaration shown in this row; withdrawing takes
+  // effect for the next session, not for clients already connected.
+  const onToggleTrust = (row: MCPServerRow) => {
+    withBusy(row.name, async () => {
+      const action = row.trusted ? "untrust" : "trust";
+      const res = await apiSend(
+        `/foxxycode/mcp/${encodeURIComponent(row.name)}/${action}`,
+        "POST",
+      );
+      if (!res.ok) {
+        setError(
+          res.error ||
+            t(row.trusted ? "settings.mcp.error.untrust" : "settings.mcp.error.trust", {
+              name: row.name,
+            }),
+        );
+      } else {
+        await loadServers();
+      }
+    });
   };
 
   const onToggleServer = (row: MCPServerRow) => {
@@ -303,6 +386,35 @@ export function MCPSection() {
 
   return (
     <div className="settings-mcp-section">
+      <fieldset className="settings-fieldset mcp-discovery-box">
+        <legend>{t("settings.mcp.discovery.legend")}</legend>
+        <p className="settings-field-desc">
+          {t("settings.mcp.discovery.desc.start")} <code>./.foxxycode/mcp.json</code>{" "}
+          {t("settings.mcp.discovery.desc.mid")}{" "}
+          <code>{t("settings.mcp.discovery.desc.ask")}</code>{" "}
+          {t("settings.mcp.discovery.desc.afterAsk")} <code>config.yaml</code>{" "}
+          {t("settings.mcp.discovery.desc.and")} <code>~/.foxxycode/mcp.json</code>{" "}
+          {t("settings.mcp.discovery.desc.end")}
+        </p>
+        <label className="settings-label" htmlFor="mcp-project-trust">
+          {t("settings.mcp.discovery.label")}
+        </label>
+        <select
+          id="mcp-project-trust"
+          className="settings-input"
+          value={projectTrust}
+          disabled={!!busy["project-trust"]}
+          onChange={(e) => onProjectTrustChange(e.target.value as ProjectTrust)}
+          data-testid="mcp-project-trust"
+        >
+          {PROJECT_TRUST_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {t(opt.labelKey)}
+            </option>
+          ))}
+        </select>
+      </fieldset>
+
       <fieldset className="settings-fieldset mcp-servers-box">
         <legend>{t("settings.mcp.legend")}</legend>
         <p className="settings-field-desc">
@@ -423,11 +535,35 @@ export function MCPSection() {
                       <div className="skills-list-item-desc mcp-command">
                         {row.status === "error" || row.status === "unsupported"
                           ? row.error
-                          : row.command
-                            ? [row.command, ...(row.args ?? [])].join(" ")
-                            : row.url}
+                          : targetLine(row)}
                       </div>
                     </div>
+                    {showsTrustControl(row, projectTrust) ? (
+                      <button
+                        type="button"
+                        className={`settings-btn settings-btn-icon${row.trusted ? "" : " settings-btn-approve"}`}
+                        disabled={!!busy[row.name]}
+                        onClick={() => onToggleTrust(row)}
+                        title={
+                          row.trusted
+                            ? t("settings.mcp.trust.approvedTitle", {
+                                digest: row.fingerprint ?? "",
+                              })
+                            : t("settings.mcp.trust.approveTitle", {
+                                target: targetLine(row),
+                              })
+                        }
+                        aria-label={t(
+                          row.trusted
+                            ? "settings.mcp.trust.withdrawAria"
+                            : "settings.mcp.trust.approveAria",
+                          { name: row.name },
+                        )}
+                        data-testid={`mcp-trust-${row.name}`}
+                      >
+                        <IconShield />
+                      </button>
+                    ) : null}
                     <Switch
                       checked={row.enabled}
                       disabled={!!busy[row.name]}
@@ -484,6 +620,49 @@ export function MCPSection() {
                       <IconTrash />
                     </button>
                   </div>
+
+                  {row.status === "needs_approval" || row.status === "denied" ? (
+                    <div
+                      className="mcp-trust-note"
+                      data-testid={`mcp-trust-note-${row.name}`}
+                    >
+                      {row.status === "denied" ? (
+                        <p>
+                          {t("settings.mcp.trust.note.deniedStart")}{" "}
+                          <code>mcp.project_trust: deny</code>
+                          {t("settings.mcp.trust.note.deniedEnd")}
+                        </p>
+                      ) : (
+                        <>
+                          <p>
+                            {t("settings.mcp.trust.note.declaredBy")}{" "}
+                            <code>{row.source_path ?? "./.foxxycode/mcp.json"}</code>
+                            {t("settings.mcp.trust.note.travels")}
+                          </p>
+                          <dl className="mcp-trust-facts">
+                            {declarationFacts(row).map((fact) => (
+                              <div key={fact.labelKey}>
+                                <dt>{t(fact.labelKey)}</dt>
+                                <dd>
+                                  <code>{fact.value}</code>
+                                </dd>
+                              </div>
+                            ))}
+                            <div>
+                              <dt>{t("settings.mcp.trust.note.in")}</dt>
+                              <dd>
+                                <code>
+                                  {workspace ||
+                                    t("settings.mcp.trust.note.workspaceFallback")}
+                                </code>
+                              </dd>
+                            </div>
+                          </dl>
+                          <p>{t("settings.mcp.trust.note.namesOnly")}</p>
+                        </>
+                      )}
+                    </div>
+                  ) : null}
 
                   {editor && !editor.isNew && editor.name === row.name ? (
                     <MCPEditorCard

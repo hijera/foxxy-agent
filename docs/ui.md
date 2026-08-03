@@ -478,6 +478,18 @@ section kind `mcp`; visual contract in `DESIGN.md`):
   (`mcpServerJson.ts`: JSON object, `command` or `url` required, name without
   `__`, spaces, or path separators).
 - Refresh re-probes all servers via `GET /foxxycode/mcp?refresh=1`.
+- An **MCP discovery** fieldset above the list carries `mcp.project_trust`
+  (`POST /foxxycode/mcp/project-trust`, values `ask` / `allow` / `deny`). It never
+  joins the settings-document Save all flow.
+- A project-local server the workspace trust gate holds back shows `status`
+  `needs_approval` (amber dot), exposes **no tools** — it is reported, not probed —
+  and opens a note listing the declaration an approval would cover: transport,
+  the command with arguments or the URL, env and header **names** (never their
+  values), and the workspace. `denied` renders the same place with the policy
+  explanation instead.
+- The per-server **shield** toggles `POST /foxxycode/mcp/{name}/trust|untrust`.
+  It renders only under the `ask` policy, since `allow` and `deny` leave no
+  per-server decision to make.
 - List refreshes never unmount the list (initial-load-only placeholder), so the
   drawer scroll position is preserved.
 - The tab does not participate in the settings document Save all flow.

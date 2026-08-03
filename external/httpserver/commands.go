@@ -46,6 +46,10 @@ type StartParams struct {
 	// -plan-no-self-run flag was passed). Editor plugins set it so their panels
 	// forbid the model from leaving plan mode by itself.
 	PlanNoSelfRun *bool
+	// ProjectTrust overrides mcp.project_trust when non-empty (the
+	// -mcp-project-trust flag was passed). CI jobs and container entrypoints
+	// use it to opt a trusted checkout in without editing config.yaml.
+	ProjectTrust string
 	// AuthToken is the optional bearer token from --auth-token; empty falls back to
 	// FOXXYCODE_HTTP_TOKEN and then httpserver.auth_token.
 	AuthToken string
@@ -106,6 +110,13 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	if params.PlanNoSelfRun != nil {
 		v := *params.PlanNoSelfRun
 		cfg.Tools.PlanNoSelfRun = &v
+	}
+	if strings.TrimSpace(params.ProjectTrust) != "" {
+		next := config.MCP{ProjectTrust: params.ProjectTrust}
+		if err := next.Validate(); err != nil {
+			return nil, fmt.Errorf("-%s: %w", config.ProjectTrustFlagName, err)
+		}
+		cfg.MCP = next
 	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return nil, fmt.Errorf("scheduler: %w", err)
@@ -289,6 +300,7 @@ func Run(args []string, deps CommandDeps) error {
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
+	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -320,6 +332,7 @@ func Run(args []string, deps CommandDeps) error {
 		SchedulerEnabled: *schedulerEnabled,
 		AuthToken:        strings.TrimSpace(*authToken),
 		PlanNoSelfRun:    boolFlagIfPassed(fs, config.PlanNoSelfRunFlagName, planNoSelfRun),
+		ProjectTrust:     strings.TrimSpace(*projectTrust),
 	})
 	if err != nil {
 		return err

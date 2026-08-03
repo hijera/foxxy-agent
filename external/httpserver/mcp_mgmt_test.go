@@ -111,10 +111,18 @@ func TestMCPManagementUsesCurrentProjectWorkspace(t *testing.T) {
 	srv := New(cfg, mgr, slog.Default(), alpha)
 	srv.AttachProjectStore(ps)
 
+	// A project declaration is gated per workspace, so each one is approved
+	// separately: alpha's approval must not carry over to beta, even though
+	// both files declare the same server name.
+	assertMCPAwaitingApproval(t, srv)
+	approveMCPServer(t, srv, "current-project")
 	assertMCPManagementWorkspace(t, srv, alpha)
+
 	if err := ps.SetCurrent(beta); err != nil {
 		t.Fatal(err)
 	}
+	assertMCPAwaitingApproval(t, srv)
+	approveMCPServer(t, srv, "current-project")
 	assertMCPManagementWorkspace(t, srv, beta)
 
 	putBody, _ := json.Marshal(config.MCPJSONServer{Command: "not-run", Disabled: true})
@@ -153,6 +161,49 @@ func TestMCPManagementUsesCurrentProjectWorkspace(t *testing.T) {
 		t.Fatalf("DELETE local MCP status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	assertMCPJSONContains(t, config.MCPJSONPath(beta), "created", false)
+}
+
+// assertMCPAwaitingApproval pins that an unapproved project declaration is
+// reported rather than probed: the whole point of the gate is that listing the
+// servers must not start the checkout's command.
+func assertMCPAwaitingApproval(t *testing.T, srv *Server) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/foxxycode/mcp", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /foxxycode/mcp status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Items []struct {
+			Name    string       `json:"name"`
+			Status  string       `json:"status"`
+			Trusted bool         `json:"trusted"`
+			Gated   bool         `json:"gated"`
+			Tools   []mcpToolRow `json:"tools"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("MCP rows = %+v, want current project only", list.Items)
+	}
+	row := list.Items[0]
+	if row.Status != "needs_approval" || row.Trusted || !row.Gated {
+		t.Fatalf("unapproved project row = %+v", row)
+	}
+	if len(row.Tools) != 0 {
+		t.Fatalf("unapproved server was probed: tools = %+v", row.Tools)
+	}
+}
+
+func approveMCPServer(t *testing.T, srv *Server, name string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/foxxycode/mcp/"+name+"/trust", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST trust %s status = %d, body = %s", name, rec.Code, rec.Body.String())
+	}
 }
 
 func assertMCPManagementWorkspace(t *testing.T, srv *Server, workspace string) {

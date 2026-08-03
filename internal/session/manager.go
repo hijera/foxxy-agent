@@ -716,43 +716,27 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 	})
 }
 
-// mcpJSONLoadErrors remembers the last load failure reported per mcp.json path,
-// so a file that stays broken is reported once instead of on every turn. A
-// successful load clears the entry, so a file that breaks again is reported
-// again.
-var mcpJSONLoadErrors sync.Map // path -> last error string
-
 // EffectiveMCPServers merges config.yaml servers with the global
 // <home>/mcp.json and the project-local <cwd>/.foxxycode/mcp.json (later files
 // override earlier ones by name). A broken mcp.json is logged and skipped so
 // the session still starts.
 //
-// This runs on every turn and on every MCP tool call (the tool filter is rebuilt
-// from it so enable/disable toggles reach live sessions), hence the deduplicated
-// warning: a single malformed file would otherwise fill the log.
+// It answers "which servers are declared", not "which may run": the trust gate
+// decides the latter. The per-turn tool filter is built from this list, so a
+// gated server's tools stay filtered exactly like a disabled one's.
 func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []config.MCPServerConfig {
-	loadJSON := func(path string) []config.MCPServerConfig {
-		servers, err := config.LoadMCPJSONServers(path)
-		if err != nil {
-			if prev, seen := mcpJSONLoadErrors.Load(path); !seen || prev != err.Error() {
-				mcpJSONLoadErrors.Store(path, err.Error())
-				if log != nil {
-					log.Warn("failed to load mcp.json", "path", path, "error", err)
-				}
-			}
-			return nil
-		}
-		mcpJSONLoadErrors.Delete(path)
-		return servers
+	managed := mcp.ListManagedServersTolerant(cfg, cwd, log)
+	out := make([]config.MCPServerConfig, 0, len(managed))
+	for _, srv := range managed {
+		out = append(out, srv.Config)
 	}
-	global := loadJSON(config.GlobalMCPJSONPath(cfg.Paths.Home))
-	project := loadJSON(config.MCPJSONPath(cwd))
-	return config.MergeMCPServers(config.MergeMCPServers(cfg.MCPServers, global), project)
+	return out
 }
 
 // connectConfiguredMCPServers connects every enabled configured server
-// (config.yaml merged with .foxxycode/mcp.json) and installs the per-turn tool
-// filter factory so disable toggles reach live sessions.
+// (config.yaml merged with the two mcp.json levels) that the workspace trust
+// gate admits, and installs the per-turn tool filter factory so disable
+// toggles reach live sessions.
 func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State) {
 	state.replaceConfiguredMCPClients(m.configuredMCPClients(ctx, state.GetCWD()))
 	state.setMCPFilterFactory(func() func(server, tool string) bool {
@@ -760,15 +744,34 @@ func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State)
 	})
 }
 
+// configuredMCPClients connects the servers declared for cwd. This is the only
+// path configuration-derived servers reach a transport by, and it runs both at
+// session bootstrap and on a workspace switch (see cwd.go), so the trust gate
+// sitting here covers both: a project-local .foxxycode/mcp.json arrives with
+// the checkout, and starting it would be arbitrary process execution decided by
+// whoever wrote the repository.
+//
+// Servers supplied by an ACP client go through connectMCPServer instead and are
+// deliberately not gated: they come from the editor the operator is running,
+// not from the workspace.
 func (m *Manager) configuredMCPClients(ctx context.Context, cwd string) []*mcp.Client {
 	clients := make([]*mcp.Client, 0)
-	for _, srv := range EffectiveMCPServers(m.activeCfg(), cwd, m.log) {
-		if srv.Disabled {
+	cfg := m.activeCfg()
+	gate := mcp.NewTrustGate(cfg)
+	for _, srv := range mcp.ListManagedServersTolerant(cfg, cwd, m.log) {
+		if srv.Config.Disabled {
 			continue
 		}
-		client, err := m.connectMCPClient(ctx, cwd, srv)
+		client, err := gate.Connect(ctx, srv, cwd, m.log)
 		if err != nil {
-			m.log.Warn("failed to connect MCP server", "server", srv.Name, "error", err)
+			var blocked *mcp.BlockedError
+			if errors.As(err, &blocked) {
+				m.log.Warn("MCP server not started: project declaration is not approved for this workspace",
+					"server", srv.Config.Name, "workspace", cwd, "state", string(blocked.State),
+					"digest", blocked.Digest, "approve_with", "foxxycode mcp trust "+srv.Config.Name)
+				continue
+			}
+			m.log.Warn("failed to connect MCP server", "server", srv.Config.Name, "error", err)
 			continue
 		}
 		clients = append(clients, client)
