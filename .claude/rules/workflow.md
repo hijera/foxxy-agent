@@ -38,7 +38,8 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - OpenAPI and HTTP docs updated when the HTTP API changed.
 - **`docs/config.schema.json`** and **`docs/config-reference.md`** updated when `internal/config` yaml fields changed.
 - **`make lint`** clean.
-- **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`.
+- **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`. Refresh the index in **`.codex/rules.md`** when a rule file is added, renamed, or removed.
+- **Changelog** — if the change is something a user of the plugin can observe, work out the version the merge will produce and add a Russian entry to **`editors/intellij/CHANGELOG.md`** before opening the PR. Merging releases immediately, so the notes are part of the PR, not a later step. See **`.claude/rules/release-changelog.md`**.
 
 ## BDD specs (Gherkin)
 

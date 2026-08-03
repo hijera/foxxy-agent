@@ -1,0 +1,63 @@
+---
+description: Predict the post-merge version and write the user-facing changelog before opening a PR
+globs: editors/**, CHANGELOG.md
+alwaysApply: false
+---
+
+# Release version and changelog (before every PR)
+
+Merging a PR into `main` releases immediately: `.github/workflows/tag-on-merge.yaml` tags the
+merge commit and the plugin/binary workflows publish from that tag. There is no separate
+release step where someone writes release notes afterwards — so the notes are part of the PR.
+
+## 1. Work out the version the merge will produce
+
+CI takes the **highest SemVer tag on `origin`** and bumps the **patch**. Upstream tags
+(`0.9.x`, fetched from the `upstream` remote) are irrelevant: the workflow runs
+`git fetch --tags origin`, so only the fork's own tags count.
+
+```bash
+git ls-remote --tags origin | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1
+```
+
+Bump the last component of that. If the merge commit already carries a tag, the workflow
+skips the bump and no new version is produced.
+
+## 2. Add a changelog entry for that version
+
+**`editors/intellij/CHANGELOG.md`** is the source of the **Change Notes** tab the IDE shows
+in `Settings | Plugins`. `build.gradle.kts` parses it and renders the newest sections into
+`plugin.xml`; the version being built is put first.
+
+Section format, newest first:
+
+```markdown
+## 0.2.23 — 2026-08-03
+
+**Короткий заголовок изменения.**
+Что именно изменилось для того, кто пользуется плагином, и почему это заметно.
+```
+
+Rules for the text, enforced by `editors/intellij/changelog_test.go` (runs in `make test`):
+
+- **In Russian.** This file is read by users, not by CI. An entry with no Cyrillic fails.
+- **In human terms, not commits.** Describe the behaviour that changed and what the user
+  will notice. Not "port upstream d00bcd7", not a bullet list of commit subjects.
+- **Not a stub.** `TBD` or an empty section fails.
+- **Versions strictly descending**, one section per released version.
+
+Everything else in the repository — commit messages, `UPSTREAM_SYNC.md`, `docs/` — stays in
+English per `AGENTS.md`. This file is the deliberate exception, because it is product copy
+shown inside the IDE.
+
+## 3. When a PR needs no entry
+
+A change that a user cannot observe — refactoring, tests, CI, internal docs — still produces
+a version bump on merge, but does not need its own section. Fold it into the next entry that
+does have something to say, or leave the changelog alone. Do **not** invent a user-facing
+line for work that has none.
+
+## References
+
+@AGENTS.md
+@editors/intellij/CHANGELOG.md

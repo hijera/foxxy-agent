@@ -40,6 +40,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"comman
 | [implementation-order.mdc](../.cursor/rules/implementation-order.mdc) | Layered implementation order for new behavior | `cmd`, `internal`, `external`, `lib`, `tools` |
 | [ui-spa.mdc](../.cursor/rules/ui-spa.mdc) | Embedded UI source and SPA behavior | `external/ui/**/*` |
 | [ui-verification.mdc](../.cursor/rules/ui-verification.mdc) | UI verification and screenshots | `external/ui/**/*` |
+| [release-changelog.mdc](../.cursor/rules/release-changelog.mdc) | Post-merge version and the user-facing changelog | `editors/**`, `CHANGELOG.md` |
 
 ## Operating rule
 
