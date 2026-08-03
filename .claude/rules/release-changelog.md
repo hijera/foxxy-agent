@@ -2,7 +2,7 @@
 description: Predict the post-merge version and write the user-facing changelog before opening a PR
 paths:
   - "editors/**"
-  - "CHANGELOG.md"
+  - "**/CHANGELOG.md"
 ---
 
 # Release version and changelog (before every PR)

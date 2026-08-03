@@ -1,6 +1,6 @@
 ---
 description: Predict the post-merge version and write the user-facing changelog before opening a PR
-globs: editors/**, CHANGELOG.md
+globs: editors/**, **/CHANGELOG.md
 alwaysApply: false
 ---
 
