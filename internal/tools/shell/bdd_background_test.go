@@ -63,16 +63,22 @@ func (s *backgroundTasksState) emptyPool() error {
 }
 
 // sleepCommand and printCommandForShell keep the scenarios shell-neutral: the
-// feature talks about sleeping and printing, not about POSIX syntax.
-func (s *backgroundTasksState) sleepCommand(seconds int) (string, error) {
-	switch s.shell.Kind {
+// feature talks about sleeping and printing, not about POSIX syntax. The
+// foreground-adoption harness reaches for the same forms, hence the
+// package-level function next to the method.
+func sleepCommand(kind platform.ShellKind, seconds int) (string, error) {
+	switch kind {
 	case platform.ShellPwsh, platform.ShellPowerShell:
 		return fmt.Sprintf("Start-Sleep -Seconds %d", seconds), nil
 	case platform.ShellBash, platform.ShellSh:
 		return fmt.Sprintf("sleep %d", seconds), nil
 	default:
-		return "", fmt.Errorf("sleeping is not supported for shell %q", s.shell.Kind)
+		return "", fmt.Errorf("sleeping is not supported for shell %q", kind)
 	}
+}
+
+func (s *backgroundTasksState) sleepCommand(seconds int) (string, error) {
+	return sleepCommand(s.shell.Kind, seconds)
 }
 
 func (s *backgroundTasksState) start(command string, expectedSeconds, timeoutSeconds int) error {
