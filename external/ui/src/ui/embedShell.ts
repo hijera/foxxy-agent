@@ -42,6 +42,43 @@ export function bootstrapEmbedFlag(): boolean {
   return isEditorEmbed();
 }
 
+/** The latched embed id (`"intellij"`, `"vscode"`, …), or "" outside an editor. */
+export function editorEmbedId(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const fromUrl = readEmbedFromUrl();
+  if (fromUrl) {
+    return fromUrl;
+  }
+  try {
+    const stored = window.sessionStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      return stored;
+    }
+  } catch {
+    // Ignore storage failures; fall through to the DOM marker.
+  }
+  try {
+    return document.documentElement.dataset.embed || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Whether the host plugin resolves dropped files itself.
+ *
+ * In the IntelliJ panel a dropped file arrives from the OS: `DataTransfer.files` exposes only
+ * a base name and Chromium leaves `text/uri-list` empty, so the page cannot tell *which* file
+ * it was. The plugin can — CEF hands it the absolute paths — and it inserts the mention over
+ * the JS bridge. The page must still claim the drop (otherwise the webview navigates to the
+ * file) but must not insert a second mention for it.
+ */
+export function hostResolvesFileDrops(): boolean {
+  return editorEmbedId() === "intellij";
+}
+
 /** Whether the SPA is running inside an editor-plugin webview (latched flag). */
 export function isEditorEmbed(): boolean {
   if (typeof window === "undefined") {

@@ -679,6 +679,7 @@ export const messagesRu: Record<string, string> = {
   "status.waitingSlow": "Модель отвечает дольше обычного",
   "status.waitingStuck": "Ответа от сервера всё ещё нет",
   "status.reconnecting": "Переподключаюсь к серверу",
+  "status.connectingMcp": "Подключаю MCP-серверы",
 
   "chat.branchPrev": "Предыдущая ветка",
   "chat.branchNext": "Следующая ветка",

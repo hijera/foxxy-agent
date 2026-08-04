@@ -368,3 +368,19 @@ describe("formatElapsedSeconds", () => {
     expect(formatElapsedSeconds(NaN)).toBe("");
   });
 });
+
+describe("waiting for MCP servers", () => {
+  it("outranks the plain waiting phrase", () => {
+    const status = deriveLiveStatus([], { mcpConnecting: true });
+    expect(status.kind).toBe("mcp");
+    expect(status.key).toBe("status.connectingMcp");
+  });
+
+  it("still loses to a dropped stream", () => {
+    const status = deriveLiveStatus([], {
+      reconnecting: true,
+      mcpConnecting: true,
+    });
+    expect(status.kind).toBe("reconnecting");
+  });
+});

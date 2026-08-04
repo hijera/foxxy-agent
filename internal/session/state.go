@@ -71,6 +71,12 @@ type State struct {
 	// mcp.json. They are replaced when the session workspace changes.
 	configuredMCPClients []*mcp.Client
 
+	// mcpReady is the gate for a configured-MCP connect running in the background;
+	// nil when nothing is in flight. mcpClosed marks the session as gone so a late
+	// connect neither publishes into it nor holds a waiter (state_mcp_ready.go).
+	mcpReady  *mcpGate
+	mcpClosed bool
+
 	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
 	// Manager; may be nil = allow all). Re-reading config and .foxxycode/mcp.json
 	// on every build lets enable/disable toggles apply to live sessions.
@@ -254,28 +260,20 @@ func (s *State) setMCPFilterFactory(factory func() func(server, tool string) boo
 
 // replaceConfiguredMCPClients atomically swaps only the clients derived from
 // FoxxyCode configuration. Session-client supplied connections remain live.
+// A connect that lands after the session was closed hands its clients straight
+// to Close instead of attaching them to dead state.
 func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
 	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		for _, client := range clients {
+			_ = client.Close()
+		}
+		return
+	}
 	old := s.configuredMCPClients
 	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
 	s.mu.Unlock()
-	for _, client := range old {
-		_ = client.Close()
-	}
-}
-
-// setCWDAndConfiguredMCPClients commits a workspace switch as one state
-// transition, then closes the configured clients from the previous workspace.
-func (s *State) setCWDAndConfiguredMCPClients(dir string, clients []*mcp.Client) {
-	s.mu.Lock()
-	old := s.configuredMCPClients
-	s.CWD = dir
-	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
-	persist := s.persist
-	s.mu.Unlock()
-	if persist != nil {
-		persist()
-	}
 	for _, client := range old {
 		_ = client.Close()
 	}
@@ -819,8 +817,11 @@ func (s *State) Cancel() {
 	}
 }
 
-// CloseAll closes all MCP clients.
+// CloseAll closes all MCP clients. The session does not come back after this — both callers
+// either drop it or replace it with a freshly loaded State — so the readiness gate is settled
+// permanently, releasing anyone waiting on a connect that is now pointless.
 func (s *State) CloseAll() {
+	s.markMCPClosed()
 	s.mu.Lock()
 	clients := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.MCPClients))
 	clients = append(clients, s.configuredMCPClients...)

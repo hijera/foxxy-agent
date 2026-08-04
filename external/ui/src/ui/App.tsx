@@ -11,6 +11,7 @@ import { ChatScreen } from "./chat/ChatScreen";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
+import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import {
@@ -852,6 +853,7 @@ export function App() {
     if (!k) return;
     // Backstop for the live-status label: every turn ends through here, however it ended.
     markConnected(k);
+    setMcpConnecting(k, false);
     if (!activeComposerSidRef.current.delete(k)) return;
     bumpComposerActivity();
   }
@@ -2436,9 +2438,28 @@ export function App() {
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
     let pendingAssistant = emptyDeferredAssistant();
+    let assistantInTurn = 0;
+    /**
+     * Emits whatever assistant text has accumulated so far.
+     *
+     * Assistant text is buffered rather than pushed on sight so that a reply split across
+     * several messages reads as one bubble. It therefore has to be flushed before anything
+     * that comes *after* it chronologically — the tool calls of the same step, and the
+     * reasoning of the next one. Without that, a turn that spoke before calling a tool
+     * renders as "user, every tool call, then all the text at the bottom": invisible while a
+     * model only talks at the end, glaring the moment a turn is stopped mid-flight and its
+     * partial answer is persisted ahead of the tools.
+     */
     const flushAssistantForTurn = () => {
-      const row = deferredAssistantItem(pendingAssistant, userTurnIdx);
-      if (row) next.push(row);
+      const row = deferredAssistantItem(
+        pendingAssistant,
+        userTurnIdx,
+        assistantInTurn,
+      );
+      if (row) {
+        next.push(row);
+        assistantInTurn++;
+      }
       pendingAssistant = emptyDeferredAssistant();
     };
     for (const m of res.data.messages || []) {
@@ -2463,6 +2484,7 @@ export function App() {
         }
         userTurnIdx++;
         thinkingInTurn = 0;
+        assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
         const parsedAssets = parseSessionAssetFiles(rawContent);
@@ -2502,6 +2524,8 @@ export function App() {
         }
         const reasoning = (m.reasoning || "").trim();
         if (reasoning) {
+          // Reasoning opens a new step, so anything said in the previous one closes here.
+          flushAssistantForTurn();
           const dk = reasoningDurationCacheKey(reasoning);
           const cachedMs = dk
             ? reasoningDurationMsByContentRef.current.get(dk)
@@ -2543,6 +2567,10 @@ export function App() {
           );
         }
         const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
+        // Whatever the model said before reaching for a tool belongs above that tool.
+        if (tcs.length > 0) {
+          flushAssistantForTurn();
+        }
         for (const tc of tcs) {
           const id = tc?.id || "";
           const fn = tc?.function || {};
@@ -3419,6 +3447,8 @@ export function App() {
         onPermission: handleComposerSsePermission,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
+        onMcpConnecting: (connecting: boolean) =>
+          setMcpConnecting(key, connecting),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
       });
@@ -3840,6 +3870,8 @@ export function App() {
         onPermission: handleComposerSsePermission,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
+        onMcpConnecting: (connecting: boolean) =>
+          setMcpConnecting(streamKey, connecting),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
       });

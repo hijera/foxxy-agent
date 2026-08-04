@@ -264,14 +264,22 @@ mcp_servers:
 
 ## MCP Server Lifecycle
 
-1. On `session/new`, the agent connects every enabled server from the merged
-   config.yaml + `~/.foxxycode/mcp.json` + `./.foxxycode/mcp.json` list, then any ACP
-   client-supplied servers
-2. The agent calls `tools/list` on each server and registers the tools
-3. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+1. On `session/new` (and on `session/load`, and on a workspace switch), the agent starts
+   connecting every enabled server from the merged config.yaml + `~/.foxxycode/mcp.json` +
+   `./.foxxycode/mcp.json` list, then any ACP client-supplied servers. Configured servers
+   connect **in the background and in parallel**, so creating or loading a session never waits
+   on them — over HTTP that call sits on a request an editor panel is blocked on, and a cold
+   `npx` server that downloads its package on first run used to hold it for minutes. Each
+   handshake (transport setup + `initialize` + `tools/list`) is bounded at **30 s**.
+2. A prompt turn — the only thing that needs the tools — waits for that connect to settle
+   before it builds its tool set. While it waits, HTTP clients get `event: mcp_phase`
+   (`connecting`, then `ready`) so the panel can say what is holding the turn up; a session
+   whose servers are already connected sends nothing and starts immediately.
+3. The agent calls `tools/list` on each server and registers the tools
+4. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
    (unless the tool or its server has been disabled since)
-4. Results are returned to the LLM as tool observations
-5. On session end or `session/cancel`, MCP server connections are cleaned up
+5. Results are returned to the LLM as tool observations
+6. On session end or `session/cancel`, MCP server connections are cleaned up
 
 ## Error Handling
 
