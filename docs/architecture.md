@@ -100,7 +100,7 @@ The core reasoning engine (**`react.go`**):
 
 ### Prompt templates (`internal/prompts`)
 
-Built-in system prompts are assembled from reusable Markdown section fragments — there are no monolithic per-mode prompt files and **no provider or model names are hardcoded** in Go. Adding or tuning a provider/model family is a drop-in file change.
+Built-in system prompts are assembled from reusable Markdown section fragments, with no monolithic per-mode prompt files. The assembler does not enumerate variants; it resolves keys supplied by the caller through file conventions. Tuning an already-classified provider/model family is therefore a drop-in file change. Classifying a genuinely new family still requires updating **`family.go`**.
 
 **Layout and naming conventions** (paths are relative to **`internal/prompts/sections/`**):
 
@@ -111,19 +111,21 @@ Built-in system prompts are assembled from reusable Markdown section fragments �
 | **`<mode>/<id>.md`** | Shared fragment for section **`<id>`**. |
 | **`<mode>/<id>_<variant>.md`** | Optional variant-specific fragment override. |
 
-**`<mode>`** is one of the four fixed session modes (**`agent`**, **`plan`**, **`docs`**, **`ask`**). **`<variant>`** is any provider family or per-model slug resolved by the caller (for example **`anthropic`**, **`openai`**, **`gpt-oss`**, or a model slug). No variant name is enumerated in code, so a new provider family needs no Go change.
+**`<mode>`** is one of the four fixed session modes (**`agent`**, **`plan`**, **`docs`**, **`ask`**). **`<variant>`** is any provider family or per-model slug resolved by the caller (for example **`anthropic`**, **`openai`**, **`gpt-oss`**, or a model slug). The assembler does not enumerate variant names; family detection remains in **`family.go`**.
 
-**Resolution** for a render with variants most-specific-first (for example `[model-slug, family]`):
+**Resolution** for a render with variants most-specific-first (for example `[model-reference-slug, API-model-slug, family]`):
 
 1. **Structure** — the first variant that has a **`<mode>/manifest.<variant>`** file supplies the section ID list; otherwise **`<mode>/manifest`** (the base) is used. Unknown modes fall back to the **`agent`** manifest.
 2. **Content** — for each section ID, the first existing fragment wins, trying **`<mode>/<id>_<variant>.md`** across variants in order, then the shared **`<mode>/<id>.md`**. A section ID that resolves to no file is silently skipped, so the base manifest can list an optional **`notes`** slot that is only rendered when a variant supplies **`notes_<variant>`** (provider guidance spliced in right after the header).
 
-**Adding a new provider family** (no Go change):
+**Tuning a classified provider family** (fragment-only change):
 
 - *Agent* (same body, family-specific guidance): drop **`sections/agent/notes_<family>.md`**. The base manifest already lists the **`notes`** slot.
 - *Plan* (override some sections): drop **`sections/plan/<id>_<family>.md`** for each section you want to override (for example **`howto_<family>`**), plus optional **`notes_<family>`**. The base plan manifest is reused.
 - *Ask* (restructure the body): drop **`sections/ask/manifest.<family>`** with the reordered/new section IDs, then the **`<id>_<family>.md`** fragments for each ID.
-- *Per-model* overrides work the same way — a model slug variant resolves before the family, so **`<id>_<model-slug>.md`** or **`manifest.<model-slug>`** overrides the family for that one model.
+- *Per-model* overrides work the same way. The configured model-reference slug resolves first, followed by the resolved API-model slug and then the family. This lets a provider-neutral file such as **`model_notes_gpt-oss-20b.md`** work for both **`ollama/gpt-oss-20b`** and **`neuraldeep/gpt-oss-20b`**. A **`<id>_<model-slug>.md`** or **`manifest.<model-slug>`** fragment overrides less-specific content for that model.
+
+The built-in gpt-oss prompts use a shared Harmony-aware family fragment plus separate **`gpt-oss-20b`** and **`gpt-oss-120b`** profiles in all four modes. The 20B profiles favor short, explicit, independently verifiable steps; the 120B profiles use broader cross-file synthesis while keeping visible output concise.
 
 The shared footer fragment (tools, skills, rules, instructions, memory, UTC) and the agent body sections are single-sourced this way, which is what prevents the per-family drift that previously dropped the read/search and background guidance from every agent family fork.
 

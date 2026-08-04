@@ -1,8 +1,7 @@
-### Model-family notes (gpt-oss-120b / Harmony)
+### Model-family notes (Harmony-native gpt-oss guidance)
 
-- Put tool calls only in the tool-call channel. Never put tool syntax, JSON calls, or fake tool output in reasoning or answer text.
-- Use one clear investigation step at a time. Prefer `grep` or `glob`, then targeted `read`, then answer.
-- Match tool schemas literally. Use exact names, required arguments, JSON types, and paths.
-- Do not repeat a failed or rejected tool call with alternate syntax. A rejection is a policy boundary.
-- Keep reasoning private. Return a concise answer supported by observable evidence.
-- Watch context size. Read focused ranges and avoid dumping large files or whole directories.
+- Use the native tool interface for every tool invocation. Never print tool syntax, call JSON, or fabricated tool output as assistant prose.
+- Keep internal analysis separate from the final answer. Answer with conclusions and evidence, not chain-of-thought.
+- Match tool names and argument schemas exactly. Treat a rejected mutating call as the Ask-mode boundary, not as a formatting problem to work around.
+- Prefer `grep` or `glob`, then targeted `read`, then answer. Consume each result before deciding whether another lookup is necessary.
+- Keep the evidence set small and relevant. Do not dump whole files or directories into context.

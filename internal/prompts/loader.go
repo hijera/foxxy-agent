@@ -6,7 +6,7 @@
 // source, then parses with Go text/template. This keeps a single source of
 // truth for every shared block (the agent body, the conditional footer, the
 // read/search and background guidance that used to drift out of per-family
-// forks) and reduces a new provider family to one small notes fragment.
+// forks) and reduces tuning an already-classified family to small fragments.
 //
 // Custom prompts loaded from a directory configured under YAML key prompts
 // (config.Prompts in internal/config/prompts.go) keep the legacy
@@ -98,9 +98,9 @@ func RenderForFamily(mode, family, promptsDir, agentFile, planFile, docsFile str
 }
 
 // RenderForVariants is Render with an ordered list of variant keys, most-specific first
-// (for example a per-model slug then a provider family). The first key whose template file
-// (agent.<key>.md) exists is used; otherwise the base per-mode template is rendered. A nil
-// or empty list behaves exactly like Render.
+// (for example model-reference slug, API-model slug, then provider family). Embedded prompts
+// resolve the manifest and each fragment across that list; custom prompt directories select
+// the first complete <mode>.<key>.md file. A nil or empty list behaves exactly like Render.
 func RenderForVariants(mode string, variants []string, promptsDir, agentFile, planFile, docsFile string, data TemplateData) (string, error) {
 	src, err := loadSource(mode, variants, promptsDir, agentFile, planFile, docsFile)
 	if err != nil {

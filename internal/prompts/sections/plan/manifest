@@ -3,6 +3,7 @@
 # at the top of the howto fragment so it stays adjacent to the heading.
 header
 notes
+model_notes
 can
 cannot
 howto

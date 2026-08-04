@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-// Prompt section fragments (data-driven, no provider/model names in Go).
+// Prompt section fragments (data-driven variant assembly).
 //
 // The built-in prompt for each mode is assembled from small Markdown section
-// fragments stored under sections/. Adding or changing a provider/model family
-// never requires editing Go code: everything is resolved by file convention.
+// fragments stored under sections/. Once the caller supplies variant keys, the
+// assembler resolves their manifests and fragments without enumerating them.
 //
 // Layout and naming conventions (path prefixes are relative to sections/):
 //
@@ -20,11 +20,11 @@ import (
 //
 // <mode> is one of the fixed session modes: agent, plan, docs, ask.
 // <variant> is any provider family or per-model slug resolved by the caller
-// (for example "anthropic", "openai", "gpt-oss", or a model slug like
-// "openai/gpt-4o"). No variant name is enumerated here.
+// (for example "anthropic", "openai", "gpt-oss", or a filename-safe model
+// slug like "openai-gpt-4o"). No variant name is enumerated here.
 //
 // Resolution for a (mode, variants) render, where variants is most-specific
-// first (e.g. [model-slug, family]):
+// first (e.g. [model-reference-slug, API-model-slug, family]):
 //
 //  1. Structure: the first variant that has a <mode>/manifest.<variant> file
 //     supplies the section ID list; otherwise <mode>/manifest (the base) is used.

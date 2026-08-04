@@ -153,7 +153,7 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 		want   []string
 	}{
 		{family: "openai", want: []string{"Mode: Ask", "GPT", "tool-call interface"}},
-		{family: "gpt-oss", want: []string{"Mode: Ask", "gpt-oss-120b", "tool-call channel"}},
+		{family: "gpt-oss", want: []string{"Mode: Ask", "Harmony-native gpt-oss guidance", "native tool interface"}},
 	} {
 		t.Run(tc.family, func(t *testing.T) {
 			got, err := prompts.RenderForFamily(
@@ -538,6 +538,46 @@ func TestEmbeddedOpenAIPlanVariantRender(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("OpenAI plan prompt should contain %q", want)
+		}
+	}
+}
+
+func TestEmbeddedGPTOSSModelVariantsAcrossModes(t *testing.T) {
+	models := []struct {
+		slug   string
+		marker string
+	}{
+		{slug: "gpt-oss-20b", marker: "### gpt-oss-20b profile"},
+		{slug: "gpt-oss-120b", marker: "### gpt-oss-120b profile"},
+	}
+	modes := []string{"agent", "plan", "ask", "docs"}
+
+	for _, model := range models {
+		for _, mode := range modes {
+			t.Run(model.slug+"/"+mode, func(t *testing.T) {
+				got, err := prompts.RenderForVariants(
+					mode,
+					[]string{model.slug, "gpt-oss"},
+					"",
+					defaultAgentTplFile,
+					defaultPlanTplFile,
+					defaultDocsTplFile,
+					prompts.TemplateData{CWD: "/home/user/project", UTCNow: fixtureUTC},
+				)
+				if err != nil {
+					t.Fatalf("render %s %s prompt: %v", model.slug, mode, err)
+				}
+				for _, want := range []string{"Harmony-native gpt-oss guidance", model.marker} {
+					if !strings.Contains(got, want) {
+						t.Errorf("%s %s prompt should contain %q", model.slug, mode, want)
+					}
+				}
+				for _, other := range models {
+					if other.slug != model.slug && strings.Contains(got, other.marker) {
+						t.Errorf("%s %s prompt should not contain %q", model.slug, mode, other.marker)
+					}
+				}
+			})
 		}
 	}
 }

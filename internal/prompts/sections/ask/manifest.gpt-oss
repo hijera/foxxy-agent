@@ -3,6 +3,7 @@
 # evidence-and-answer section. Section IDs render in this order.
 header
 notes
+model_notes
 allowed
 evidence
 footer
