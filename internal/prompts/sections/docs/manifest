@@ -1,0 +1,9 @@
+# Docs mode prompt structure. Section IDs render in this order.
+header
+intent
+facts
+editing
+writing
+verification
+final
+footer

@@ -1,0 +1,11 @@
+# Ask mode base structure. Section IDs render in this order.
+# "notes" is optional (variant-supplied). Variants that restructure the body
+# ship their own manifest.<variant> (see manifest.openai, manifest.gpt-oss).
+header
+notes
+interpret
+facts
+tools_policy
+injection
+response
+footer

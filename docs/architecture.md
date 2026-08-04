@@ -90,13 +90,44 @@ Maintains the state for each conversation session:
 The core reasoning engine (**`react.go`**):
 
 1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`** and **`plan`**. Ask receives only MCP tools annotated with **`readOnlyHint: true`**, unless **`tools.ask_disable_extended_tools`** is enabled. Docs has a closed tool surface with no MCP.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`**. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`**. Model-specific and family-specific variants use **`<mode>.<model-slug>.md`** and **`<mode>.<family>.md`**. The built-ins include **`ask.openai.md`** for GPT/OpenAI models and **`ask.gpt-oss.md`** for gpt-oss-120b. Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+2. Builds the system prompt from **`internal/prompts.Render`**. The built-in defaults are assembled from reusable section fragments under **`internal/prompts/sections/`** (one ordered manifest per mode and provider family; see **`sections.go`**), so shared blocks like the agent body, the conditional footer, and the read/search and background guidance stay in one place instead of being forked per family. Custom files under **`prompts.dir`** keep the legacy one-file-per-mode shape and bypass section assembly. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`**. Model-specific and family-specific built-ins resolve to a notes fragment spliced into the mode manifest (for example the **`openai`** family adds **`agent/notes_openai`**; ask ships **`openai`** and **`gpt-oss`** alternate manifests). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
 6. Loops until there are no tool calls, **`max_turns`** is exceeded, the loop guard stops a runaway turn, or cancellation.
 6a. Loop guard (**`agent.loop_guard`**, on by default, **`internal/agent/loopguard.go`**): a streamed channel that degenerates into repeating the same passage has its stream cancelled and the repeated run stripped from the stored message, and a tool call repeated with identical canonical arguments stops being executed. The model is nudged to change course up to **`agent.loop_nudge_max`** times, after which the turn ends with **`StopReasonRefused`** and a UI notice.
 7. On **`session/cancel`** (or HTTP **`POST /foxxycode/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /foxxycode/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
+
+### Prompt templates (`internal/prompts`)
+
+Built-in system prompts are assembled from reusable Markdown section fragments — there are no monolithic per-mode prompt files and **no provider or model names are hardcoded** in Go. Adding or tuning a provider/model family is a drop-in file change.
+
+**Layout and naming conventions** (paths are relative to **`internal/prompts/sections/`**):
+
+| File | Purpose |
+|------|---------|
+| **`<mode>/manifest`** | Base structure: section IDs, one per line, in render order. |
+| **`<mode>/manifest.<variant>`** | Optional per-variant structure override (replaces the base ID list). |
+| **`<mode>/<id>.md`** | Shared fragment for section **`<id>`**. |
+| **`<mode>/<id>_<variant>.md`** | Optional variant-specific fragment override. |
+
+**`<mode>`** is one of the four fixed session modes (**`agent`**, **`plan`**, **`docs`**, **`ask`**). **`<variant>`** is any provider family or per-model slug resolved by the caller (for example **`anthropic`**, **`openai`**, **`gpt-oss`**, or a model slug). No variant name is enumerated in code, so a new provider family needs no Go change.
+
+**Resolution** for a render with variants most-specific-first (for example `[model-slug, family]`):
+
+1. **Structure** — the first variant that has a **`<mode>/manifest.<variant>`** file supplies the section ID list; otherwise **`<mode>/manifest`** (the base) is used. Unknown modes fall back to the **`agent`** manifest.
+2. **Content** — for each section ID, the first existing fragment wins, trying **`<mode>/<id>_<variant>.md`** across variants in order, then the shared **`<mode>/<id>.md`**. A section ID that resolves to no file is silently skipped, so the base manifest can list an optional **`notes`** slot that is only rendered when a variant supplies **`notes_<variant>`** (provider guidance spliced in right after the header).
+
+**Adding a new provider family** (no Go change):
+
+- *Agent* (same body, family-specific guidance): drop **`sections/agent/notes_<family>.md`**. The base manifest already lists the **`notes`** slot.
+- *Plan* (override some sections): drop **`sections/plan/<id>_<family>.md`** for each section you want to override (for example **`howto_<family>`**), plus optional **`notes_<family>`**. The base plan manifest is reused.
+- *Ask* (restructure the body): drop **`sections/ask/manifest.<family>`** with the reordered/new section IDs, then the **`<id>_<family>.md`** fragments for each ID.
+- *Per-model* overrides work the same way — a model slug variant resolves before the family, so **`<id>_<model-slug>.md`** or **`manifest.<model-slug>`** overrides the family for that one model.
+
+The shared footer fragment (tools, skills, rules, instructions, memory, UTC) and the agent body sections are single-sourced this way, which is what prevents the per-family drift that previously dropped the read/search and background guidance from every agent family fork.
+
+Each fragment may use Go **`text/template`** with the **`TemplateData`** fields documented in **`loader.go`** (**`{{.CWD}}`**, **`{{.Tools}}`**, **`{{.Skills}}`**, **`{{.Rules}}`**, **`{{.Memory}}`**, **`{{.TodoList}}`**, **`{{.PlanContext}}`**, **`{{.DiscardedPlans}}`**, **`{{.Instructions}}`**, **`{{.UTCNow}}`**); use **`{{if .X}}...{{end}}`** for sections that must be omitted when empty. Custom on-disk prompts configured under YAML **`prompts.dir`** keep the legacy one-file-per-mode shape (default file names **`agent.md`** / **`plan.md`** / **`docs.md`** / **`ask.md`**, overridable via **`prompts.agent_prompt`** / **`plan_prompt`** / **`docs_prompt`**) and bypass section assembly entirely.
 
 ### LLM Provider (`internal/llm`)
 

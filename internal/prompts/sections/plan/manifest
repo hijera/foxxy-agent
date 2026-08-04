@@ -1,0 +1,10 @@
+# Plan mode prompt structure. Section IDs render in this order.
+# "notes" is optional (variant-supplied). The DiscardedPlans conditional lives
+# at the top of the howto fragment so it stays adjacent to the heading.
+header
+notes
+can
+cannot
+howto
+output
+footer

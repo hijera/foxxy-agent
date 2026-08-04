@@ -462,6 +462,34 @@ func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 	}
 }
 
+func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
+	// Regression: the per-family agent prompts used to be copy-pasted forks of
+	// agent.md and silently dropped the "Reading and searching" and
+	// "Background commands" sections. After the section-assembly refactor every
+	// family variant must render those shared sections, because they come from a
+	// single shared fragment.
+	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
+	for _, fam := range families {
+		t.Run(fam, func(t *testing.T) {
+			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+				CWD:    "/home/user/project",
+				UTCNow: fixtureUTC,
+			})
+			if err != nil {
+				t.Fatalf("render family %q: %v", fam, err)
+			}
+			for _, want := range []string{
+				"Reading and searching (context is limited)",
+				"Background commands (`run_command` with `background: true`)",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("family %q agent prompt dropped shared section %q", fam, want)
+				}
+			}
+		})
+	}
+}
+
 func TestEmbeddedOpenAIAgentPromptOptimizedForOpenAIAPI(t *testing.T) {
 	got, err := prompts.RenderForFamily("agent", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
