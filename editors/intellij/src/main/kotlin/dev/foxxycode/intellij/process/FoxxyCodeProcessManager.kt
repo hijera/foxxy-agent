@@ -12,6 +12,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
+import com.intellij.util.io.BaseOutputReader
 import com.intellij.util.execution.ParametersListUtil
 import com.google.gson.JsonParser
 import dev.foxxycode.intellij.FoxxyCodeBundle
@@ -76,6 +77,14 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
 
         val host = settings.host.ifBlank { "127.0.0.1" }
         val port = PortUtil.pick(settings.fixedPort)
+        // A fixed port can simply be taken - by another IDE window (the port setting is
+        // application-wide while this service is per project) or by the previous backend that
+        // a plugin update is still shutting down. Waiting covers the second case; the first
+        // one has to be told to the user, because the process would otherwise die on bind and
+        // surface as the generic "exited before becoming ready".
+        if (settings.fixedPort in 1..65535 && !PortUtil.awaitAvailable(port, host)) {
+            throw IllegalStateException(FoxxyCodeBundle.message("process.error.portInUse", port.toString()))
+        }
 
         val cmd = GeneralCommandLine(binary.absolutePath)
             .withParameters("http", "-H", host, "-P", port.toString())
@@ -90,10 +99,20 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         cmd.withWorkDirectory(project.basePath ?: System.getProperty("user.home"))
 
         indicator.text = FoxxyCodeBundle.message("process.indicator.launching", host, port.toString())
-        val h = OSProcessHandler(cmd)
+        recentOutput.clear()
+        // The backend is a long-running server that prints almost nothing after startup. The
+        // default reader polls it as if output were imminent, which the IDE itself warns about
+        // ("Process hasn't generated any output for a long time") and which costs CPU for
+        // nothing.
+        val h = object : OSProcessHandler(cmd) {
+            override fun readerOptions(): BaseOutputReader.Options =
+                BaseOutputReader.Options.forMostlySilentProcess()
+        }
         h.addProcessListener(object : ProcessAdapter() {
             override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
-                log.info("[foxxycode] " + event.text.trimEnd())
+                val line = event.text.trimEnd()
+                log.info("[foxxycode] " + line)
+                rememberOutput(line)
             }
 
             override fun processTerminated(event: ProcessEvent) {
@@ -147,13 +166,31 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
         }
     }
 
+    /** Last lines the backend printed, kept so a startup failure can quote them to the user. */
+    private val recentOutput = ArrayDeque<String>()
+
+    private fun rememberOutput(line: String) {
+        if (line.isBlank()) return
+        synchronized(recentOutput) {
+            recentOutput.addLast(line)
+            while (recentOutput.size > MAX_REMEMBERED_OUTPUT) recentOutput.removeFirst()
+        }
+    }
+
+    /** The remembered backend output as one block, or "" when it printed nothing. */
+    private fun recentOutputText(): String = synchronized(recentOutput) { recentOutput.joinToString("\n") }
+
     private fun waitForReady(url: String, indicator: ProgressIndicator) {
         val probe = url + "v1/models"
         val deadline = System.currentTimeMillis() + 30_000
         var lastError = "timeout"
         while (System.currentTimeMillis() < deadline) {
             if (!isRunning) {
-                throw IllegalStateException(FoxxyCodeBundle.message("process.error.exitedBeforeReady"))
+                // The backend already said why it died - "bind: address already in use", a bad
+                // config key, a missing provider. Quoting it beats the generic guess.
+                val detail = recentOutputText()
+                val base = FoxxyCodeBundle.message("process.error.exitedBeforeReady")
+                throw IllegalStateException(if (detail.isEmpty()) base else "$base\n\n$detail")
             }
             indicator.checkCanceled()
             try {
@@ -193,6 +230,9 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
     override fun dispose() = stopInternal()
 
     companion object {
+        /** Enough backend output to carry a stack-free error message, not enough to flood a balloon. */
+        private const val MAX_REMEMBERED_OUTPUT = 20
+
         fun getInstance(project: Project): FoxxyCodeProcessManager =
             project.getService(FoxxyCodeProcessManager::class.java)
     }

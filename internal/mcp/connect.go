@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
@@ -32,12 +33,25 @@ func SupportedTransport(typ string) bool {
 	}
 }
 
+// connectTimeout bounds one Connect: transport setup plus the initialize / tools-list
+// handshake. A cold npx or uvx server downloads its package on first run, so this is generous
+// compared with the probe timeout used by the management UI — it exists so that a server which
+// never answers cannot hold a session (and with it, a whole panel) hostage forever. A caller
+// with a tighter deadline still wins. Variable so tests can shorten it.
+var connectTimeout = 30 * time.Second
+
 // Connect establishes a client for one configured MCP server, dispatching on
 // its transport type: "stdio" (default) runs a local command, "http" (also
 // accepted: "streamable-http", "streamable_http") speaks streamable HTTP with
 // a legacy-SSE fallback, "sse" forces the legacy HTTP+SSE transport. ${CWD}
 // placeholders in args, env, headers, and url resolve against cwd.
+//
+// The bound applies to the handshake only. A stdio server's *process* is deliberately
+// detached from ctx (see newStdioTransport), and a handshake that times out closes the client,
+// which kills and reaps that process.
 func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *slog.Logger) (*Client, error) {
+	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
 	switch EffectiveTransport(srv) {
 	case "stdio":
 		if strings.TrimSpace(srv.Command) == "" {

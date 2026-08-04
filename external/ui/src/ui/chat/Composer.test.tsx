@@ -10,6 +10,7 @@ import {
 import { expect, test } from "vitest";
 import { Composer } from "./Composer";
 import { setSendMode, DEFAULT_SEND_MODE } from "../i18n/sendModeConfig";
+import { emitFileMention } from "../skills/fileMentionBus";
 
 afterEach(() => {
   cleanup();
@@ -1073,4 +1074,148 @@ test("enhance button is disabled when draft is empty", () => {
     />,
   );
   expect(screen.getByTestId("composer-enhance-btn")).toBeDisabled();
+});
+
+test("a dropped file lands in the draft as its full relative path and is sent verbatim", async () => {
+  const onSend = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={onSend}
+      />
+    );
+  }
+  render(<Harness />);
+
+  emitFileMention("external/ui/src/ui/chat/Composer.tsx");
+
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(ta.value).toBe("@external/ui/src/ui/chat/Composer.tsx ");
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith("@external/ui/src/ui/chat/Composer.tsx");
+});
+
+test("a second dropped file keeps the first mention's full path", async () => {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+  render(<Harness />);
+
+  emitFileMention("a/foo.ts");
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => expect(ta.value).toBe("@a/foo.ts "));
+  emitFileMention("b/foo.ts");
+  await waitFor(() => expect(ta.value).toBe("@a/foo.ts @b/foo.ts "));
+});
+
+/** Minimal DataTransfer stand-in: jsdom has no constructor for it. */
+function fileDropTransfer(uriList: string): DataTransfer {
+  const data: Record<string, string> = { "text/uri-list": uriList };
+  return {
+    types: ["Files", "text/uri-list"],
+    dropEffect: "none",
+    getData: (type: string) => data[type] ?? "",
+  } as unknown as DataTransfer;
+}
+
+function dispatchDrop(uriList: string): { defaultPrevented: boolean } {
+  const ev = new Event("drop", { bubbles: true, cancelable: true }) as Event & {
+    dataTransfer: DataTransfer;
+  };
+  Object.defineProperty(ev, "dataTransfer", { value: fileDropTransfer(uriList) });
+  document.dispatchEvent(ev);
+  return { defaultPrevented: ev.defaultPrevented };
+}
+
+function renderDropComposer() {
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        sessionId="sess_1"
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+  return render(<Harness />);
+}
+
+// A file dropped anywhere in the panel — not only on the composer field — has to be claimed.
+// Leaving it to the browser means the embedded webview navigates to the dropped file and the
+// whole UI is replaced by its contents, which is what "the first drag does nothing" was.
+test("a file dropped outside the composer is claimed and becomes a mention", async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ items: [{ path_rel: "src/app/main.ts", ok: true }] }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderDropComposer();
+
+  const { defaultPrevented } = dispatchDrop("file:///C:/project/src/app/main.ts");
+
+  expect(defaultPrevented).toBe(true);
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(ta.value).toBe("@src/app/main.ts ");
+  });
+  vi.unstubAllGlobals();
+});
+
+test("a drag that carries no files is left alone", () => {
+  renderDropComposer();
+  const ev = new Event("drop", { bubbles: true, cancelable: true }) as Event & {
+    dataTransfer: DataTransfer;
+  };
+  Object.defineProperty(ev, "dataTransfer", {
+    value: { types: ["text/plain"], getData: () => "hello" } as unknown as DataTransfer,
+  });
+  document.dispatchEvent(ev);
+  expect(ev.defaultPrevented).toBe(false);
+});
+
+// In the IntelliJ panel the plugin owns the drop: it is the only side that knows the file's
+// path. The page must still claim the event so the webview does not navigate to the file,
+// but a second mention from here would double every drag.
+test("in the IntelliJ embed the drop is claimed but left to the host", async () => {
+  document.documentElement.dataset.embed = "intellij";
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  renderDropComposer();
+
+  const { defaultPrevented } = dispatchDrop("file:///C:/project/src/app/main.ts");
+
+  expect(defaultPrevented).toBe(true);
+  await waitFor(() => {
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  expect(ta.value).toBe("");
+  vi.unstubAllGlobals();
 });

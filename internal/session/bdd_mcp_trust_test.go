@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -194,6 +195,23 @@ func (s *mcpTrustState) createSession() error {
 	// The workspace-switch scenarios keep the session live; the rest do not
 	// care, and close() forgets whatever is left over.
 	s.sessionID = res.SessionID
+	return s.awaitMCP()
+}
+
+// awaitMCP waits for the session's configured MCP servers to settle, the way a prompt turn
+// does before it builds its tool set. Session creation no longer blocks on the connect, so
+// without this a scenario would look at the marker file before the server had a chance to
+// touch it — and "has not run" would pass for the wrong reason.
+func (s *mcpTrustState) awaitMCP() error {
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q is not live", s.sessionID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := st.WaitMCPReady(ctx); err != nil {
+		return fmt.Errorf("waiting for configured MCP servers: %w", err)
+	}
 	return nil
 }
 
@@ -229,7 +247,10 @@ func (s *mcpTrustState) switchWorkspace() error {
 	if st == nil {
 		return fmt.Errorf("session %q is not live", s.sessionID)
 	}
-	return s.mgr.SetSessionWorkspace(st, s.secondCWD)
+	if err := s.mgr.SetSessionWorkspace(st, s.secondCWD); err != nil {
+		return err
+	}
+	return s.awaitMCP()
 }
 
 func (s *mcpTrustState) secondMarkerHasRun() error {

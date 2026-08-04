@@ -102,6 +102,8 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("memory_chunk", u)
 	case acp.CompactionUpdate:
 		return s.writeNamedEventJSON("compaction", u)
+	case acp.MCPPhaseUpdate:
+		return s.writeNamedEventJSON("mcp_phase", u)
 	case acp.AvailableCommandsUpdate:
 		return s.writeNamedEventJSON("available_commands", u)
 	default:

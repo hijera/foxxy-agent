@@ -320,6 +320,13 @@ const (
 	UpdateTypeFileEdit                = "file_edit"
 	UpdateTypeCompaction              = "compaction"
 	UpdateTypeSessionTitle            = "session_title"
+	UpdateTypeMCPPhase                = "mcp_phase"
+)
+
+// MCP phase values for MCPPhaseUpdate.Phase.
+const (
+	MCPPhaseConnecting = "connecting"
+	MCPPhaseReady      = "ready"
 )
 
 // Compaction phase values for CompactionUpdate.Phase.
@@ -437,6 +444,17 @@ type CompactionUpdate struct {
 	RemovedMessages int    `json:"removedMessages,omitempty"`
 	TokensBefore    int    `json:"tokensBefore,omitempty"`
 	TokensAfter     int    `json:"tokensAfter,omitempty"`
+}
+
+// MCPPhaseUpdate tells the client that a turn is held up waiting for the session's configured
+// MCP servers to finish connecting, and when they are done. Emitted only when the turn actually
+// has to wait — a warm session goes straight to the model and sends nothing.
+//
+// Transient by design: it drives the live status line next to the typing dots, and is not part
+// of the transcript.
+type MCPPhaseUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "mcp_phase"
+	Phase         string `json:"phase"`         // "connecting" | "ready"
 }
 
 // SessionTitleUpdate carries a newly generated session title (from the hidden "title" agent) so

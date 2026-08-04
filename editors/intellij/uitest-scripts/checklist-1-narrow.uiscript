@@ -1,0 +1,16 @@
+# Checklist item 1: at ~320 px nothing may scroll horizontally — long assistant messages
+# and tool output must wrap. Look at the screenshots for a horizontal scrollbar or clipped
+# text; that is the failure mode of the chat panes.
+#
+# The chat is inside JCEF, so there is nothing to assert on here: read the PNGs.
+toolwindow FoxxyCode
+# The backend has to start and the SPA has to paint before a width says anything.
+sleep 8
+width 320
+sleep 2
+screenshot narrow-320px
+width 550
+sleep 2
+screenshot narrow-550px
+# Put the tool window back to a comfortable width for whatever runs next.
+width 700
