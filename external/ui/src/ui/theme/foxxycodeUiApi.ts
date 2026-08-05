@@ -33,9 +33,10 @@ export type FoxxyCodeUiApi = {
   /** Fires on every locale change regardless of source. Returns unsubscribe. */
   onLocaleChange(cb: (locale: UiLocale) => void): () => void;
   /**
-   * Inserts a workspace-relative file path into the composer as a short **`@`**-mention
-   * chip (host drag-and-drop entry point; used by the IntelliJ plugin). Returns false
-   * (and does nothing) for an empty/whitespace path.
+   * Inserts a workspace-relative file path into the composer as an **`@`**-mention (host
+   * drag-and-drop entry point; used by the IntelliJ plugin). Returns false (and does
+   * nothing) for an empty/whitespace path. Calls that arrive before the composer has
+   * mounted are queued by the file-mention bus, not dropped.
    */
   insertFileMention(pathRel: string): boolean;
 };

@@ -20,12 +20,7 @@ import {
   draftExtendsFailedAtPrefix,
   atMenuDraftAtCaret,
 } from "../skills/draftAt";
-import {
-  uniqueMentionLabel,
-  normalizeRelPath,
-  type MentionEntry,
-} from "../skills/uniqueMentionLabel";
-import { expandDroppedMentions } from "../skills/expandDroppedMentions";
+import { normalizeRelPath } from "../skills/normalizeRelPath";
 import { parseDroppedPaths } from "../skills/parseDroppedPaths";
 import { subscribeFileMention } from "../skills/fileMentionBus";
 import {
@@ -50,7 +45,7 @@ import {
   snapshotShellStack,
   serverSnapshotShellStack,
 } from "../shellBreakpoint";
-import { isEditorEmbed } from "../embedShell";
+import { hostResolvesFileDrops, isEditorEmbed } from "../embedShell";
 import { contextUsagePercent } from "./contextUsage";
 import {
   filterLlmModels,
@@ -226,25 +221,6 @@ export function Composer(props: {
   const contextHostRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  /**
-   * Short-label → full-relative-path map for files dropped onto the composer.
-   * The textarea shows the short **`@label`** chip; **`handleSend`** expands each
-   * mapped label back to its full **`@path`** before sending. A ref mirrors the
-   * state so external drops (the file-mention bus) read the latest map without a
-   * stale closure.
-   */
-  const [droppedMentions, setDroppedMentions] = useState<MentionEntry[]>([]);
-  const droppedMentionsRef = useRef<MentionEntry[]>([]);
-  useEffect(() => {
-    droppedMentionsRef.current = droppedMentions;
-  }, [droppedMentions]);
-  // Drop map is per-draft: forget it once the composer is cleared (sent / reset).
-  useEffect(() => {
-    if (props.value === "" && droppedMentionsRef.current.length > 0) {
-      droppedMentionsRef.current = [];
-      setDroppedMentions([]);
-    }
-  }, [props.value]);
   /** True while a file drag hovers the composer field (drop-target highlight). */
   const [dropActive, setDropActive] = useState(false);
   const [composerScrollTop, setComposerScrollTop] = useState(0);
@@ -1063,10 +1039,14 @@ export function Composer(props: {
   };
 
   /**
-   * Inserts a workspace-relative file path at the caret as a short **`@label`** chip
-   * and records the label → path mapping. Shared by native drops (VS Code) and the
-   * file-mention bus (IntelliJ push). Reads the live textarea value/caret so it works
-   * when invoked from outside a React event.
+   * Inserts a workspace-relative file path at the caret as a full **`@path`** mention.
+   * Shared by native drops (VS Code) and the file-mention bus (IntelliJ push). Reads the
+   * live textarea value/caret so it works when invoked from outside a React event.
+   *
+   * The full path goes into the draft verbatim rather than a short chip expanded at send
+   * time: the draft outlives no session boundary, so a label → path map kept beside it is
+   * lost whenever the composer is cleared, and the bare basename then resolves against the
+   * session cwd and misses.
    */
   const insertFileMention = useCallback(
     (pathRel: string) => {
@@ -1077,19 +1057,12 @@ export function Composer(props: {
       const el = taRef.current;
       const value = el ? el.value : props.value;
       const caret = el ? el.selectionStart ?? value.length : value.length;
-      const existing = droppedMentionsRef.current;
-      const label = uniqueMentionLabel(rel, existing);
       const before = value.slice(0, caret);
       const after = value.slice(caret);
       const lead = before !== "" && !/\s$/.test(before) ? " " : "";
-      const insert = `${lead}@${label} `;
+      const insert = `${lead}@${rel} `;
       const next = before + insert + after;
 
-      if (!existing.some((e) => normalizeRelPath(e.pathRel) === rel)) {
-        const nextMap = [...existing, { label, pathRel: rel }];
-        droppedMentionsRef.current = nextMap;
-        setDroppedMentions(nextMap);
-      }
       props.onChange(next);
       const pos = caret + insert.length;
       requestAnimationFrame(() => {
@@ -1156,55 +1129,92 @@ export function Composer(props: {
     });
   };
 
-  const handleComposerDragOver = (ev: React.DragEvent<HTMLDivElement>) => {
-    if (!dragHasFiles(ev.dataTransfer)) {
-      return;
-    }
-    // Claim the drop so the host (VS Code) does not open the file in an editor.
-    ev.preventDefault();
-    ev.dataTransfer.dropEffect = "copy";
-    if (!dropActive) {
-      setDropActive(true);
-    }
-  };
-
-  const handleComposerDrop = (ev: React.DragEvent<HTMLDivElement>) => {
-    const dt = ev.dataTransfer;
-    if (!dragHasFiles(dt)) {
-      return;
-    }
-    ev.preventDefault();
-    setDropActive(false);
-    const paths = parseDroppedPaths({
-      uriList: dt.getData("text/uri-list"),
-      resourceUrls: dt.getData("ResourceURLs"),
-      plain: dt.getData("text/plain"),
-    });
-    if (paths.length === 0) {
-      return;
-    }
-    void (async () => {
-      try {
-        const rels = await relativizePaths(paths);
-        for (const r of rels) {
-          insertFileMention(r);
-        }
-      } catch {
-        // Best-effort: a failed relativize just inserts nothing.
+  /** Turns a dropped payload into `@`-mentions. Shared by every drop target below. */
+  const acceptDroppedFiles = useCallback(
+    (dt: DataTransfer) => {
+      const paths = parseDroppedPaths({
+        uriList: dt.getData("text/uri-list"),
+        resourceUrls: dt.getData("ResourceURLs"),
+        plain: dt.getData("text/plain"),
+      });
+      if (paths.length === 0) {
+        return;
       }
-    })();
-  };
+      void (async () => {
+        try {
+          const rels = await relativizePaths(paths);
+          for (const r of rels) {
+            insertFileMention(r);
+          }
+        } catch {
+          // Best-effort: a failed relativize just inserts nothing.
+        }
+      })();
+    },
+    [relativizePaths, insertFileMention],
+  );
 
-  /** Trims, expands dropped short-labels to full paths, then sends. */
+  /**
+   * The drop target is the whole page, not just the composer field.
+   *
+   * Two reasons, both learned the hard way in the IntelliJ panel. First, the embedded browser
+   * owns the drop: JCEF renders into a native child window, so a drag from the IDE never
+   * reaches any Swing drop target the plugin registers — it arrives here as an ordinary HTML5
+   * drop, and if nothing calls `preventDefault()` the browser performs its **default action
+   * for a dropped file: navigating to it**, which replaces the whole SPA with the file's
+   * contents. Second, aiming for the composer field in a narrow panel is fiddly; a miss used
+   * to mean the panel silently blew itself away, and the next attempt "worked" only because
+   * the user aimed better.
+   */
+  useEffect(() => {
+    const onDragOver = (ev: DragEvent) => {
+      if (!dragHasFiles(ev.dataTransfer)) {
+        return;
+      }
+      ev.preventDefault();
+      if (ev.dataTransfer) {
+        ev.dataTransfer.dropEffect = "copy";
+      }
+      setDropActive(true);
+    };
+    const onDragLeave = (ev: DragEvent) => {
+      // relatedTarget is null exactly when the pointer leaves the window.
+      if (ev.relatedTarget === null) {
+        setDropActive(false);
+      }
+    };
+    const onDrop = (ev: DragEvent) => {
+      if (!ev.dataTransfer || !dragHasFiles(ev.dataTransfer)) {
+        return;
+      }
+      // Claim it either way — that is what stops the webview from navigating to the file —
+      // but leave the insert to the host when the host is the one that knows the path.
+      ev.preventDefault();
+      setDropActive(false);
+      if (hostResolvesFileDrops()) {
+        return;
+      }
+      acceptDroppedFiles(ev.dataTransfer);
+    };
+    document.addEventListener("dragover", onDragOver);
+    document.addEventListener("dragleave", onDragLeave);
+    document.addEventListener("drop", onDrop);
+    return () => {
+      document.removeEventListener("dragover", onDragOver);
+      document.removeEventListener("dragleave", onDragLeave);
+      document.removeEventListener("drop", onDrop);
+    };
+  }, [acceptDroppedFiles]);
+
+  /** Trims and sends. Dropped files already carry their full path in the draft. */
   const handleSend = useCallback(() => {
     if (props.generating) {
       return;
     }
-    const raw = props.value.trim();
-    if (raw === "") {
+    const txt = props.value.trim();
+    if (txt === "") {
       return;
     }
-    const txt = expandDroppedMentions(raw, droppedMentionsRef.current);
     if (attachedFiles.length > 0) {
       const files = [...attachedFiles];
       setAttachedFiles([]);
@@ -1571,9 +1581,6 @@ export function Composer(props: {
                 : "composer-field-wrap"
             }
             ref={composerFieldWrapRef}
-            onDragOver={handleComposerDragOver}
-            onDragLeave={() => setDropActive(false)}
-            onDrop={handleComposerDrop}
           >
             <div className="composer-stack">
               {maskComposerText ? (

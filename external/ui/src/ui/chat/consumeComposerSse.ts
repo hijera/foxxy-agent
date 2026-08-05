@@ -136,6 +136,12 @@ export type ConsumeComposerSseParams = {
   onCompaction?: (payload: Record<string, unknown>) => void;
   /** FoxxyCode extension. Fired with the plan slug when plan_write publishes a design plan. */
   onDesignPlan?: (slug: string) => void;
+  /**
+   * FoxxyCode extension. Fired when a turn is held up waiting for the session's configured
+   * MCP servers (**`true`**) and when they are up (**`false`**). Transient status only — the
+   * backend sends nothing at all once the servers are connected.
+   */
+  onMcpConnecting?: (connecting: boolean) => void;
 };
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
@@ -202,6 +208,7 @@ export async function consumeComposerSseReader(
     onQuestion,
     onPermission,
     onCompaction,
+    onMcpConnecting,
     onDesignPlan,
   } = p;
 
@@ -520,6 +527,16 @@ export async function consumeComposerSseReader(
               ) {
                 setContextUsage({ used, size });
               }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "mcp_phase") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              onMcpConnecting?.(payload.phase === "connecting");
             } catch {
               // ignore
             }

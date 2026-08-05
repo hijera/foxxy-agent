@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -902,6 +903,13 @@ func mcpClientByName(t *testing.T, st *session.State, name string) *mcp.Client {
 
 func assertMCPClientNames(t *testing.T, st *session.State, want ...string) {
 	t.Helper()
+	// Configured servers connect in the background so a session load never blocks a request;
+	// a turn waits through this same gate before it builds its tool set.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := st.WaitMCPReady(ctx); err != nil {
+		t.Fatalf("waiting for configured MCP servers: %v", err)
+	}
 	got := make([]string, 0, len(st.GetMCPClients()))
 	for _, client := range st.GetMCPClients() {
 		got = append(got, client.Name())

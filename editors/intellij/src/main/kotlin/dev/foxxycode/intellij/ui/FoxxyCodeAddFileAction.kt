@@ -11,12 +11,14 @@ import com.intellij.openapi.wm.ToolWindowManager
 import dev.foxxycode.intellij.FoxxyCodeBundle
 
 /**
- * "Add to FoxxyCode": inserts the selected file(s) into the composer as short `@`-mentions.
+ * "Add to FoxxyCode": inserts the selected file(s) into the composer as `@`-mentions carrying
+ * their full project-relative path.
  *
- * This is the reliable way to reference an open file, offered from the editor tab context menu,
- * the editor context menu, and the Project view — dragging onto the tool window does not work
- * because the composer lives in a heavyweight JCEF surface that swallows IntelliJ's intra-IDE
- * drag tracking. The action activates the FoxxyCode tool window (creating the panel if needed)
+ * This is the keyboard/menu-driven way to reference an open file, offered from the editor tab
+ * context menu, the editor context menu, and the Project view. Dragging onto the tool window is
+ * also supported, but it has to go through the IntelliJ DnD framework because the composer lives
+ * in a heavyweight JCEF surface that swallows plain AWT drag tracking. The action activates the
+ * FoxxyCode tool window (creating the panel if needed)
  * and hands the project-relative paths to [FoxxyCodeBrowserPanel.requestInsertFileMentions],
  * which queues them if the web page has not finished loading yet.
  */

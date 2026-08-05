@@ -109,8 +109,8 @@ the view name in the sidebar header (and in the editor tab title when opened via
 
 ### Attaching files by drag and drop
 
-Drag a file from the **Explorer**, or an open **editor tab**, onto the composer to insert it as a
-short `@`-mention; the full workspace-relative path is sent with the prompt. **Hold `Shift` while
+Drag a file from the **Explorer**, or an open **editor tab**, onto the composer to insert it as an
+`@`-mention carrying its full workspace-relative path. **Hold `Shift` while
 dragging** — VS Code disables pointer events over webviews during a workbench drag unless `Shift`
 is held, so without it the drop lands on the editor group behind the panel. This is a VS Code
 platform behaviour, not a FoxxyCode setting.

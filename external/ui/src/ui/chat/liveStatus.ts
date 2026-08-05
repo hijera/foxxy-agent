@@ -13,6 +13,7 @@ import type { TranscriptItem } from "./types";
 
 export type LiveStatusKind =
   | "reconnecting"
+  | "mcp"
   | "permission"
   | "question"
   | "tool"
@@ -219,11 +220,18 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
  */
 export function deriveLiveStatus(
   items: readonly TranscriptItem[],
-  opts?: { reconnecting?: boolean },
+  opts?: { reconnecting?: boolean; mcpConnecting?: boolean },
 ): LiveStatus {
   if (opts?.reconnecting) {
     // Events are not arriving at all, so any tool row is stale by construction.
     return { kind: "reconnecting", key: "status.reconnecting", target: "" };
+  }
+
+  // The backend told us the turn is parked before the model call, waiting for the session's
+  // MCP servers. Nothing in the transcript can express that, and without it the row reads
+  // "waiting for the model" — which is exactly the wrong thing to be looking at.
+  if (opts?.mcpConnecting) {
+    return { kind: "mcp", key: "status.connectingMcp", target: "" };
   }
 
   let permissionPending = false;
