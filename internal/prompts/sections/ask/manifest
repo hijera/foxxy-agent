@@ -1,6 +1,8 @@
 # Ask mode base structure. Section IDs render in this order.
-# "notes" is optional (variant-supplied). Variants that restructure the body
-# ship their own manifest.<variant> (see manifest.openai, manifest.gpt-oss).
+# "notes" and "model_notes" are optional (variant-supplied). Variants that
+# restructure the body ship their own manifest.<variant> (see manifest.openai,
+# manifest.gpt-oss); model_notes_<variant> carries per-model guidance such as
+# the gpt-oss-20b/gpt-oss-120b profiles.
 header
 notes
 model_notes

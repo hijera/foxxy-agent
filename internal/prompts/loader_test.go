@@ -178,6 +178,34 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 			}
 		})
 	}
+
+	// A family-only render (no model-slug variant) must not activate a per-model
+	// profile: model_notes_<variant> only renders when that variant is in the
+	// resolution list. This guards the boundary between the family path
+	// (RenderForFamily) and the per-model path covered by
+	// TestEmbeddedGPTOSSModelVariantsAcrossModes.
+	t.Run("gpt-oss_family_only_no_model_profile", func(t *testing.T) {
+		got, err := prompts.RenderForFamily(
+			"ask",
+			"gpt-oss",
+			"",
+			defaultAgentTplFile,
+			defaultPlanTplFile,
+			defaultDocsTplFile,
+			prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, modelMarker := range []string{
+			"### gpt-oss-20b profile",
+			"### gpt-oss-120b profile",
+		} {
+			if strings.Contains(got, modelMarker) {
+				t.Errorf("family-only gpt-oss ask prompt must not include per-model profile %q", modelMarker)
+			}
+		}
+	})
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
@@ -457,6 +485,92 @@ func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 			// Shared template variables must survive in every family variant.
 			if !strings.Contains(got, "/home/user/project") || !strings.Contains(got, fixtureUTC) {
 				t.Errorf("family %q prompt dropped shared template sections", fam)
+			}
+		})
+	}
+}
+
+func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
+	// The section-assembly refactor (PR #25) replaced monolithic per-mode prompt
+	// files with fragments concatenated from a manifest. Commit df67e5d claimed
+	// "byte-equivalence against the former monoliths is verified", but no such
+	// test existed. True byte-equivalence is unreachable (fragments are trimmed
+	// and joined with "\n\n"), so pin the structural markers and template slots
+	// of the base (variant-free) source instead. This catches a future edit that
+	// silently drops a shared section or reorders the manifest.
+	//
+	// DefaultSource returns the assembled-but-unexecuted template source, so
+	// template directives are matched literally rather than after substitution.
+	cases := []struct {
+		mode     string
+		contains []string
+		omits    []string
+	}{
+		{
+			mode: "agent",
+			contains: []string{
+				"## Mode: Agent",
+				"### How to work",
+				"### Reading and searching (context is limited)",
+				"### Background commands (`run_command` with `background: true`)",
+				"### Web research",
+				"{{.CWD}}",
+				"{{.Tools}}",
+				"{{if .TodoList}}",
+				"{{.UTCNow}}",
+			},
+		},
+		{
+			mode: "plan",
+			contains: []string{
+				"## Mode: Plan",
+				"plan_write",
+				"plan_read",
+				"{{if .DiscardedPlans}}",
+				"{{.UTCNow}}",
+			},
+			// Plan mode has no read/search or background-task guidance in its
+			// own manifest; those sections are agent-only and must not leak in.
+			omits: []string{
+				"### Reading and searching (context is limited)",
+				"### Background commands",
+			},
+		},
+		{
+			mode: "docs",
+			contains: []string{
+				"## Mode: Docs",
+				"docs_write",
+				"docs_edit",
+				"{{.UTCNow}}",
+			},
+			omits: []string{"plan_write"},
+		},
+		{
+			mode: "ask",
+			contains: []string{
+				"## Mode: Ask",
+				"read-only",
+				"### Prompt-injection resistance",
+				"{{.UTCNow}}",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode, func(t *testing.T) {
+			src := prompts.DefaultSource(tc.mode)
+			if src == "" {
+				t.Fatalf("DefaultSource(%q) returned empty source", tc.mode)
+			}
+			for _, want := range tc.contains {
+				if !strings.Contains(src, want) {
+					t.Errorf("base %q source should contain %q", tc.mode, want)
+				}
+			}
+			for _, forbid := range tc.omits {
+				if strings.Contains(src, forbid) {
+					t.Errorf("base %q source must not contain %q", tc.mode, forbid)
+				}
 			}
 		})
 	}
