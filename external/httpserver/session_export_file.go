@@ -4,6 +4,8 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -50,6 +52,12 @@ func (s *Server) foxxycodeSessionExportFilePost(w http.ResponseWriter, r *http.R
 
 	path, err := writeExportTempFile(id, rendered)
 	if err != nil {
+		if errors.Is(err, errExportNameUnavailable) {
+			// Separate status so the panel can name the cause: on Windows an open
+			// Word document holds its file, and every fallback name was held too.
+			http.Error(w, `{"error":{"message":"cannot create a file under that name; close the exported document and try again"}}`, http.StatusConflict)
+			return
+		}
 		http.Error(w, `{"error":{"message":"could not write the export file"}}`, http.StatusInternalServerError)
 		return
 	}
@@ -64,20 +72,48 @@ func (s *Server) foxxycodeSessionExportFilePost(w http.ResponseWriter, r *http.R
 	})
 }
 
+// exportFileNameMaxAttempts bounds the search for a usable file name when the
+// preferred one cannot be written.
+const exportFileNameMaxAttempts = 20
+
+// errExportNameUnavailable reports that every candidate name was occupied by
+// something that could not be replaced. Distinguished from an ordinary I/O
+// failure so the panel can tell the user to close the open document.
+var errExportNameUnavailable = errors.New("no free export file name")
+
 // writeExportTempFile stores a rendered document at
 // <temp>/foxxycode/exports/<sessionId>/<title>.<ext> and returns its absolute
-// path. The file is rewritten on every export of the same chat and format.
+// path. Re-exporting the same chat and format overwrites that file.
+//
+// When the preferred name cannot be written it falls back to <title>_1,
+// <title>_2 and so on: Windows locks a .docx that is still open in Word, and a
+// user who exports, opens the document and exports again should get the fresh
+// copy rather than an error. Only an occupied path is retried — if a name
+// nothing holds still fails, the directory or the disk is at fault and another
+// name would not help.
 func writeExportTempFile(sessionID string, rendered exportRendered) (string, error) {
 	dir := filepath.Join(os.TempDir(), exportTempSubdir, "exports", exportBaseName(sessionID, "session"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	name := truncateRunes(exportBaseName(rendered.title, sessionID), exportFileNameMaxRunes) + "." + rendered.ext
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, rendered.body, 0o600); err != nil {
-		return "", err
+	stem := truncateRunes(exportBaseName(rendered.title, sessionID), exportFileNameMaxRunes)
+	for attempt := 0; attempt < exportFileNameMaxAttempts; attempt++ {
+		name := stem
+		if attempt > 0 {
+			name = fmt.Sprintf("%s_%d", stem, attempt)
+		}
+		path := filepath.Join(dir, name+"."+rendered.ext)
+		err := os.WriteFile(path, rendered.body, 0o600)
+		if err == nil {
+			return path, nil
+		}
+		if _, statErr := os.Stat(path); statErr != nil {
+			// Nothing occupies this path, so the write failed for a reason a
+			// different name cannot fix.
+			return "", err
+		}
 	}
-	return path, nil
+	return "", errExportNameUnavailable
 }
 
 // truncateRunes shortens s to at most n runes, never splitting one in half.

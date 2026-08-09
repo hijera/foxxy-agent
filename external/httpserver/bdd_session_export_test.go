@@ -742,6 +742,31 @@ func (s *sessionExportFeatureState) exportToFile(format string) error {
 	return nil
 }
 
+// blockPreviousExport stands in for a document the user still has open: a
+// directory where the file goes cannot be written either, which is the same
+// condition the writer sees when Windows locks an open .docx.
+func (s *sessionExportFeatureState) blockPreviousExport() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	title := strings.TrimSpace(st.GetTitlePinned())
+	if title == "" {
+		title = s.sessionID
+	}
+	dir := filepath.Join(os.TempDir(), exportTempSubdir, "exports", exportBaseName(s.sessionID, "session"))
+	s.exportDir = dir
+	return os.MkdirAll(filepath.Join(dir, exportBaseName(title, s.sessionID)+".docx"), 0o700)
+}
+
+func (s *sessionExportFeatureState) fileNameHasNumericSuffix() error {
+	stem := strings.TrimSuffix(filepath.Base(s.exportPath), filepath.Ext(s.exportPath))
+	if !regexp.MustCompile(`_\d+$`).MatchString(stem) {
+		return fmt.Errorf("file %q carries no numeric suffix; the blocked name was reused", stem)
+	}
+	return nil
+}
+
 func (s *sessionExportFeatureState) exportedFileReadable(format string) error {
 	if s.respStatus != http.StatusOK {
 		return fmt.Errorf("expected 200, got %d (%s)", s.respStatus, s.respBody)
@@ -874,6 +899,7 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a chat whose question carries injected IDE and terminal context$`, s.seedInjectedContext)
 
 	sc.Step(`^an editor plugin listening for IDE events$`, s.listenAsPlugin)
+	sc.Step(`^the previously exported document cannot be replaced$`, s.blockPreviousExport)
 
 	sc.Step(`^the panel exports the chat as (\w+)$`, s.exportChat)
 	sc.Step(`^the panel exports a non-existent chat as (\w+)$`, s.exportMissingChat)
@@ -903,6 +929,7 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^the response carries the absolute path of a readable (\w+) file$`, s.exportedFileReadable)
 	sc.Step(`^the file is named after the chat title$`, s.fileNamedAfterTitle)
+	sc.Step(`^the file name carries a numeric suffix$`, s.fileNameHasNumericSuffix)
 	sc.Step(`^the IDE is asked to reveal the exported file$`, s.ideAskedToReveal)
 	sc.Step(`^the export directory holds exactly one (\w+) file$`, s.dirHoldsOneFile)
 }

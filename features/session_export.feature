@@ -116,6 +116,15 @@ Feature: A chat can be exported to different document formats
     And the editor panel exports the chat to a file as json
     Then the export directory holds exactly one json file
 
+  # Windows locks a .docx that is still open in Word, so overwriting the previous
+  # export fails. Exporting again should still hand the user a document.
+  Scenario: Exporting again while the previous document is open picks a new name
+    Given a chat with a user question and an assistant answer
+    And the previously exported document cannot be replaced
+    When the editor panel exports the chat to a file as docx
+    Then the response carries the absolute path of a readable docx file
+    And the file name carries a numeric suffix
+
   Scenario: The file route refuses a chat the panel would not offer to export
     Given a chat with only a user question
     When the editor panel exports the chat to a file as json

@@ -1092,7 +1092,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/export/file": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Render the session transcript to a file on disk",
-					"description": "Same document as `GET .../export`, written under the OS temp directory instead of returned as an attachment, and announced to connected editor plugins as a `reveal_file` event on `/foxxycode/ide/events`. This exists for editor panels, which cannot save a download: IntelliJ's JCEF drops downloads no handler claims, and the VS Code panel hosts the SPA in a cross-origin iframe with no download permission. The path is derived from the session and its title — it is never taken from the caller — and re-exporting the same session and format overwrites the same file.",
+					"description": "Same document as `GET .../export`, written under the OS temp directory instead of returned as an attachment, and announced to connected editor plugins as a `reveal_file` event on `/foxxycode/ide/events`. This exists for editor panels, which cannot save a download: IntelliJ's JCEF drops downloads no handler claims, and the VS Code panel hosts the SPA in a cross-origin iframe with no download permission. The path is derived from the session and its title — it is never taken from the caller — and re-exporting the same session and format overwrites the same file, falling back to `<title>_1`, `<title>_2`, … when the previous export is still held open (Windows locks a `.docx` open in Word).",
 					"operationId": "exportSessionToFile",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
@@ -1127,6 +1127,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},

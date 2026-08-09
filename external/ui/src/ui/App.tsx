@@ -1425,7 +1425,14 @@ export function App() {
           { method: "POST", headers: { [HDR]: sid } },
         );
         if (!res.ok) {
-          fail();
+          // 409: every candidate name was held by something the server could not
+          // replace — on Windows that is the exported document still open.
+          notice(
+            "error",
+            res.status === 409
+              ? t("chat.exportNameTaken")
+              : t("chat.exportFailed"),
+          );
           return;
         }
         const saved = (await res.json()) as { path?: string };

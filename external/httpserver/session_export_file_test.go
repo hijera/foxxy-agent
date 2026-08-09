@@ -3,6 +3,8 @@
 package httpserver
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +73,102 @@ func TestWriteExportTempFileOverwritesTheSameExport(t *testing.T) {
 	}
 	if string(body) != "{\"v\":2}" {
 		t.Errorf("content = %q, want the newer render", body)
+	}
+}
+
+// blockPath makes one candidate path impossible to write while leaving the
+// directory usable. A directory standing where the file goes reproduces exactly
+// the production condition — the path exists and cannot be opened for writing —
+// without depending on Windows share modes, which Go's os package does not take.
+func blockPath(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatalf("blockPath %s: %v", path, err)
+	}
+}
+
+// A .docx the user still has open in Word cannot be replaced on Windows. Rather
+// than failing the export, the next free name is used.
+func TestWriteExportTempFileFallsBackToANumberedName(t *testing.T) {
+	first := writeProbe(t, "sess_lock", "Chat", "docx", []byte("one"))
+	dir := filepath.Dir(first)
+	if err := os.Remove(first); err != nil {
+		t.Fatal(err)
+	}
+	blockPath(t, first)
+
+	path, err := writeExportTempFile("sess_lock", exportRendered{
+		body: []byte("two"), ext: "docx", title: "Chat",
+	})
+	if err != nil {
+		t.Fatalf("writeExportTempFile: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	if got := filepath.Base(path); got != "Chat_1.docx" {
+		t.Fatalf("file name = %q, want %q", got, "Chat_1.docx")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "two" {
+		t.Errorf("content = %q, want the new render", body)
+	}
+}
+
+func TestWriteExportTempFileKeepsCountingUp(t *testing.T) {
+	seed := writeProbe(t, "sess_lock2", "Chat", "docx", []byte("x"))
+	dir := filepath.Dir(seed)
+	if err := os.Remove(seed); err != nil {
+		t.Fatal(err)
+	}
+	blockPath(t, seed)
+	blockPath(t, filepath.Join(dir, "Chat_1.docx"))
+
+	path, err := writeExportTempFile("sess_lock2", exportRendered{
+		body: []byte("y"), ext: "docx", title: "Chat",
+	})
+	if err != nil {
+		t.Fatalf("writeExportTempFile: %v", err)
+	}
+	if got := filepath.Base(path); got != "Chat_2.docx" {
+		t.Fatalf("file name = %q, want %q", got, "Chat_2.docx")
+	}
+}
+
+// With every candidate blocked the caller must be able to tell this apart from a
+// broken disk, so the panel can say the name is in use.
+func TestWriteExportTempFileReportsWhenEveryNameIsTaken(t *testing.T) {
+	seed := writeProbe(t, "sess_lock3", "Chat", "docx", []byte("x"))
+	dir := filepath.Dir(seed)
+	if err := os.Remove(seed); err != nil {
+		t.Fatal(err)
+	}
+	blockPath(t, seed)
+	for i := 1; i < exportFileNameMaxAttempts; i++ {
+		blockPath(t, filepath.Join(dir, fmt.Sprintf("Chat_%d.docx", i)))
+	}
+
+	_, err := writeExportTempFile("sess_lock3", exportRendered{
+		body: []byte("y"), ext: "docx", title: "Chat",
+	})
+	if !errors.Is(err, errExportNameUnavailable) {
+		t.Fatalf("error = %v, want errExportNameUnavailable", err)
+	}
+}
+
+// A free base name must still be reused rather than incremented, so repeated
+// exports of one chat do not drift to Chat_1, Chat_2 on their own.
+func TestWriteExportTempFileDoesNotNumberAFreeName(t *testing.T) {
+	first := writeProbe(t, "sess_free", "Chat", "html", []byte("a"))
+	second := writeProbe(t, "sess_free", "Chat", "html", []byte("b"))
+
+	if first != second {
+		t.Fatalf("a writable name was incremented: %q then %q", first, second)
+	}
+	if strings.Contains(filepath.Base(first), "_1") {
+		t.Fatalf("unexpected numeric suffix on a free name: %q", first)
 	}
 }
 

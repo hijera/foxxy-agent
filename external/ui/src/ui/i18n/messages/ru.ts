@@ -146,6 +146,8 @@ export const messagesRu: Record<string, string> = {
   "chat.exportJson": "Данные JSON",
   "chat.exportFailed": "Не удалось экспортировать эту сессию.",
   "chat.exportSaved": "Файл сохранён: {path}",
+  "chat.exportNameTaken":
+    "Невозможно создать файл с таким именем — экспортированный документ ещё открыт. Закройте его и попробуйте снова.",
   "chat.contextTitle": "Контекст",
   "chat.contextClose": "Закрыть",
   "chat.contextCloseBreakdown": "Закрыть разбор контекста",

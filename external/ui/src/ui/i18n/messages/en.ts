@@ -148,6 +148,8 @@ export const messagesEn: Record<string, string> = {
   "chat.exportJson": "JSON data",
   "chat.exportFailed": "Could not export this session.",
   "chat.exportSaved": "Saved to {path}",
+  "chat.exportNameTaken":
+    "Cannot create a file under that name — the exported document is still open. Close it and try again.",
   "chat.contextTitle": "Context",
   "chat.contextClose": "Close",
   "chat.contextCloseBreakdown": "Close context breakdown",
