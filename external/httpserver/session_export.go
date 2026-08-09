@@ -3,8 +3,8 @@
 package httpserver
 
 import (
+	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -41,15 +41,16 @@ func (s *Server) foxxycodeSessionExportGet(w http.ResponseWriter, r *http.Reques
 	if title == "" {
 		title = strings.TrimSpace(st.GetTitleAuto())
 	}
-	doc := buildExportDocument(id, title, st.GetMessages())
+	msgs := st.GetMessages()
 
-	// A title with no real assistant content still exports, but the UI hides the
-	// action in that case; the server only guards against an entirely empty doc
-	// to avoid shipping a blank file.
-	if len(doc.Messages) == 0 {
+	// There is nothing worth downloading before the assistant has answered, and
+	// the panel hides the action until then. Enforcing the same rule here keeps a
+	// direct request from producing a document that holds only the question.
+	if !hasExportableAssistantAnswer(msgs) {
 		http.Error(w, `{"error":{"message":"session has no exportable messages"}}`, http.StatusNotFound)
 		return
 	}
+	doc := buildExportDocument(id, title, msgs)
 
 	body, contentType, ext, err := renderExport(doc, format)
 	if err != nil {
@@ -58,7 +59,7 @@ func (s *Server) foxxycodeSessionExportGet(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+exportFileName(doc.Title, id, ext)+"\"")
+	w.Header().Set("Content-Disposition", exportContentDisposition(doc.Title, id, ext))
 	w.Header().Set("Cache-Control", "private, max-age=0")
 	_, _ = w.Write(body)
 }
@@ -92,17 +93,18 @@ func renderExport(doc exportDocument, format exportFormat) ([]byte, string, stri
 	return nil, "", "", nil
 }
 
-// exportFileName sanitizes the session title into a safe file name and falls
-// back to the session id. Non-ASCII titles are percent-encoded for the
-// filename* fallback so browsers preserve them.
-func exportFileName(title, id, ext string) string {
+// exportBaseName sanitizes the session title into a safe file name stem and
+// falls back to the session id. The result still carries the original
+// characters — narrowing to ASCII happens only for the compatibility fallback
+// in exportContentDisposition.
+func exportBaseName(title, id string) string {
 	base := strings.TrimSpace(title)
 	if base == "" {
 		base = id
 	}
 	// Strip path separators and control chars, collapse to a readable base.
 	base = strings.Map(func(r rune) rune {
-		if r < 32 || r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+		if r < 32 || r == 127 || strings.ContainsRune(`/\:*?"<>|`, r) {
 			return -1
 		}
 		if r == ' ' {
@@ -110,16 +112,102 @@ func exportFileName(title, id, ext string) string {
 		}
 		return r
 	}, base)
+	base = strings.Trim(base, "._")
 	if base == "" {
 		base = id
 	}
-	return url.PathEscape(base) + "." + ext
+	return base
+}
+
+// exportContentDisposition builds the attachment header. RFC 6266 wants a plain
+// ASCII `filename` every client understands plus an RFC 8187 `filename*` that
+// carries the real title; percent-encoding the plain parameter instead (as an
+// earlier version did) makes a Cyrillic title arrive as literal %D0%9E… in every
+// client that does not decode it.
+func exportContentDisposition(title, id, ext string) string {
+	base := exportBaseName(title, id)
+	ascii := exportASCIIName(base, id) + "." + ext
+	return fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", ascii, rfc5987Encode(base+"."+ext))
+}
+
+// exportASCIIName degrades a file stem to the ASCII subset the plain `filename`
+// parameter can carry. A stem that keeps no letters or digits carries no
+// information, so it falls back to the session id — folded the same way, because
+// the id arrives from the request path and must not reach the header unchecked.
+func exportASCIIName(base, id string) string {
+	if out := asciiFoldFilename(base); out != "" {
+		return out
+	}
+	if out := asciiFoldFilename(id); out != "" {
+		return out
+	}
+	return "session"
+}
+
+// asciiFoldFilename collapses each run of characters unusable in a plain
+// `filename` into one underscore, and returns "" when nothing informative is
+// left. Header separators are folded too: inside a quoted string they stay
+// legal, but a lenient client parsing the header by hand would read them as the
+// start of another parameter.
+func asciiFoldFilename(s string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range s {
+		if r == '_' || r > 127 || !isSafeFilenameASCII(r) {
+			if !lastUnderscore {
+				b.WriteRune('_')
+				lastUnderscore = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		lastUnderscore = false
+	}
+	out := strings.Trim(b.String(), "._")
+	hasAlnum := strings.ContainsFunc(out, func(r rune) bool {
+		return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+	})
+	if !hasAlnum {
+		return ""
+	}
+	return out
+}
+
+// isSafeFilenameASCII reports whether a rune may appear verbatim in the plain
+// `filename` parameter.
+func isSafeFilenameASCII(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("-_.()[]+", r)
+}
+
+// rfc5987Encode percent-encodes a file name for the `filename*` parameter.
+// Everything outside RFC 8187's attr-char set is escaped, so header separators
+// such as ';' inside a session title cannot split the header into extra
+// parameters.
+func rfc5987Encode(s string) string {
+	const hexDigits = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			strings.IndexByte("!#$&+-.^_`|~", c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('%')
+		b.WriteByte(hexDigits[c>>4])
+		b.WriteByte(hexDigits[c&0x0f])
+	}
+	return b.String()
 }
 
 // hasExportableAssistantAnswer reports whether the transcript contains at least
-// one assistant turn with non-empty content. The UI mirrors this guard to show
-// the export action only once an answer exists; the server keeps it as a shared
-// helper so the rule lives in one place.
+// one assistant turn with non-empty content. The handler refuses to export
+// anything else and the UI mirrors the same guard to hide the action, so the
+// rule lives in one place.
 func hasExportableAssistantAnswer(msgs []llm.Message) bool {
 	for _, m := range msgs {
 		if m.Role == llm.RoleAssistant && strings.TrimSpace(m.Content) != "" {

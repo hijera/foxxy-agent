@@ -144,6 +144,7 @@ export const messagesRu: Record<string, string> = {
   "chat.exportDocx": "Документ Word",
   "chat.exportHtml": "HTML-страница",
   "chat.exportJson": "Данные JSON",
+  "chat.exportFailed": "Не удалось экспортировать эту сессию.",
   "chat.contextTitle": "Контекст",
   "chat.contextClose": "Закрыть",
   "chat.contextCloseBreakdown": "Закрыть разбор контекста",

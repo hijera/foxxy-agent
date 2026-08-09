@@ -1045,7 +1045,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/export": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Export the session transcript as a downloadable document",
-					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool/system rows are omitted — into the requested **format** and returns it as a `Content-Disposition: attachment` download. Markdown in message content (headings, lists, code, emphasis) is preserved across formats. The bundled UI only exposes this action once at least one assistant answer exists; the server returns **404** for a session with no exportable messages.",
+					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool/system rows are omitted — into the requested **format** and returns it as a `Content-Disposition: attachment` download. Markdown in message content (headings, lists, code, emphasis) is preserved across formats. The disposition carries an ASCII `filename` plus an RFC 8187 `filename*=UTF-8''…` so non-Latin titles survive. The bundled UI only exposes this action once at least one assistant answer exists; the server applies the same guard and returns **404** for a session that has none.",
 					"operationId": "exportSession",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},

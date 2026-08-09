@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-pdf/fpdf"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -52,6 +53,7 @@ type exportBlock struct {
 	runs    []exportRun
 	text    string // raw text for code blocks
 	ordered bool   // list item ordered vs bullet
+	number  int    // 1-based ordinal of an ordered list item
 }
 
 // exportMessage is one turn in the exported dialogue.
@@ -139,14 +141,23 @@ func markdownToBlocks(md string) []exportBlock {
 			})
 			return gast.WalkSkipChildren, nil
 		case *gast.ListItem:
-			// The parent *List holds the ordered/bullet flag.
-			ordered := false
+			// The parent *List holds the ordered/bullet flag and, for ordered
+			// lists, the first ordinal; the item's position supplies the rest.
+			ordered, number := false, 0
 			if lst, ok := v.Parent().(*gast.List); ok && lst.IsOrdered() {
 				ordered = true
+				number = lst.Start
+				if number == 0 {
+					number = 1
+				}
+				for prev := v.PreviousSibling(); prev != nil; prev = prev.PreviousSibling() {
+					number++
+				}
 			}
 			blocks = append(blocks, exportBlock{
 				kind:    "list_item",
 				ordered: ordered,
+				number:  number,
 				runs:    collectInline(v, source),
 			})
 			return gast.WalkSkipChildren, nil
@@ -336,9 +347,16 @@ func markdownToHTML(md goldmark.Markdown, source string) string {
 
 // --- PDF ------------------------------------------------------------------
 
-func renderPDFExport(doc exportDocument) ([]byte, error) {
+// exportPDFFont is the single family the PDF export draws with; all four style
+// slots are registered so fpdf never falls back to a core Latin-1 font.
+const exportPDFFont = "DejaVu"
+
+// newExportPDF builds the page geometry and registers the embedded font cuts.
+// Extracted so layout tests can exercise the block writers on the exact same
+// document setup the real export uses.
+func newExportPDF(title string) *fpdf.Fpdf {
 	pdf := fpdf.New("P", "mm", "A4", "")
-	pdf.SetTitle(doc.Title, true)
+	pdf.SetTitle(title, true)
 	pdf.SetAuthor("FoxxyCode", true)
 	pdf.SetAutoPageBreak(true, 18)
 	pdf.SetMargins(18, 18, 18)
@@ -346,17 +364,22 @@ func renderPDFExport(doc exportDocument) ([]byte, error) {
 	// non-Latin-1 code point) renders instead of panicking in fpdf's width
 	// table. Bold maps to the bold cut; italic styles fall back to the regular
 	// cut because we deliberately ship only regular + bold to bound size.
-	pdf.AddUTF8FontFromBytes("DejaVu", "", dejavuSansRegular)
-	pdf.AddUTF8FontFromBytes("DejaVu", "B", dejavuSansBold)
-	pdf.AddUTF8FontFromBytes("DejaVu", "I", dejavuSansRegular)
-	pdf.AddUTF8FontFromBytes("DejaVu", "BI", dejavuSansBold)
+	pdf.AddUTF8FontFromBytes(exportPDFFont, "", dejavuSansRegular)
+	pdf.AddUTF8FontFromBytes(exportPDFFont, "B", dejavuSansBold)
+	pdf.AddUTF8FontFromBytes(exportPDFFont, "I", dejavuSansRegular)
+	pdf.AddUTF8FontFromBytes(exportPDFFont, "BI", dejavuSansBold)
+	return pdf
+}
+
+func renderPDFExport(doc exportDocument) ([]byte, error) {
+	pdf := newExportPDF(doc.Title)
 	pdf.AddPage()
 
 	// Document title.
-	pdf.SetFont("DejaVu", "B", 18)
+	pdf.SetFont(exportPDFFont, "B", 18)
 	pdf.MultiCell(174, 9, doc.Title, "", "L", false)
 	pdf.Ln(2)
-	pdf.SetFont("DejaVu", "", 8)
+	pdf.SetFont(exportPDFFont, "", 8)
 	pdf.SetTextColor(120, 120, 120)
 	pdf.MultiCell(174, 4, "Exported "+doc.ExportedAt, "", "L", false)
 	pdf.SetTextColor(0, 0, 0)
@@ -388,7 +411,7 @@ func renderPDFExport(doc exportDocument) ([]byte, error) {
 
 func writeRoleLabel(pdf *fpdf.Fpdf, label string, r, g, b int) {
 	pdf.Ln(1)
-	pdf.SetFont("DejaVu", "B", 12)
+	pdf.SetFont(exportPDFFont, "B", 12)
 	pdf.SetTextColor(r, g, b)
 	display := label
 	if label != "" {
@@ -398,54 +421,97 @@ func writeRoleLabel(pdf *fpdf.Fpdf, label string, r, g, b int) {
 	pdf.SetTextColor(0, 0, 0)
 }
 
-// writeReasoningPDF renders reasoning in a tinted, italic block.
+// writeReasoningPDF renders reasoning in a tinted, italic block. It goes
+// through the same markdown pipeline as the answer so a multi-paragraph thought
+// keeps its structure instead of being poured out as raw lines.
 func writeReasoningPDF(pdf *fpdf.Fpdf, md string) {
-	pdf.SetFont("DejaVu", "I", 10)
+	const size = 10.0
 	pdf.SetTextColor(90, 90, 90)
-	for _, line := range strings.Split(md, "\n") {
-		if strings.TrimSpace(line) == "" {
-			pdf.Ln(2)
-			continue
+	for _, b := range markdownToBlocks(md) {
+		runs := b.runs
+		switch b.kind {
+		case "code_block":
+			runs = []exportRun{{text: b.text, code: true}}
+		case "list_item":
+			runs = prependRun(runs, exportRun{text: listMarker(b)})
 		}
-		writeWrapped(pdf, "DejaVu", "I", 10, line)
+		writeRunsPDF(pdf, runs, "I", size)
+		pdf.Ln(size * paragraphGap)
 	}
 	pdf.SetTextColor(0, 0, 0)
 }
 
+// exportBodySize is the base point size for paragraph text; headings and code
+// scale relative to it.
+const exportBodySize = 11.0
+
+// paragraphGap is the vertical breathing room left after a block, expressed as
+// a fraction of the block's font size. It has to stay clearly below a full line
+// advance so a gap never reads as an empty line.
+const paragraphGap = 0.45
+
 func writeBlocksPDF(pdf *fpdf.Fpdf, blocks []exportBlock) {
-	for _, b := range blocks {
+	for i, b := range blocks {
 		switch b.kind {
 		case "heading":
-			size := 16 - float64(b.level)*1.5
+			size := 16 - float64(headingLevel(b.level))*1.5
 			if size < 10 {
 				size = 10
 			}
-			writeRunsPDF(pdf, b.runs, "DejaVu", "B", size)
-			pdf.Ln(1)
+			writeRunsPDF(pdf, b.runs, "B", size)
+			pdf.Ln(size * paragraphGap)
 		case "code_block":
 			// DejaVu Sans is proportional, not monospace, but it carries the
 			// full code-point range so code containing non-Latin comments or
 			// strings still exports instead of crashing.
-			pdf.SetFont("DejaVu", "", 9)
 			pdf.SetFillColor(246, 248, 250)
 			for _, line := range strings.Split(b.text, "\n") {
-				writeWrappedFill(pdf, "DejaVu", "", 9, line)
+				writeWrappedFill(pdf, exportPDFFont, "", 9, line)
 			}
-			pdf.Ln(1)
+			pdf.Ln(9 * paragraphGap)
 		case "list_item":
-			marker := "•  "
-			if b.ordered {
-				marker = "–  "
+			// List items stay tight against each other; the marker is part of
+			// the flowed text because PDF has no list construct of its own. Only
+			// the item that closes the list gets the block gap, so the list does
+			// not run into the paragraph below it.
+			writeRunsPDF(pdf, prependRun(b.runs, exportRun{text: listMarker(b)}), "", exportBodySize)
+			if i+1 >= len(blocks) || blocks[i+1].kind != "list_item" {
+				pdf.Ln(exportBodySize * paragraphGap)
 			}
-			writeRunsPDF(pdf, prependRun(b.runs, exportRun{text: marker}), "DejaVu", "", 11)
 		case "quote":
 			pdf.SetTextColor(110, 119, 129)
-			writeRunsPDF(pdf, b.runs, "DejaVu", "I", 11)
+			writeRunsPDF(pdf, b.runs, "I", exportBodySize)
 			pdf.SetTextColor(0, 0, 0)
+			pdf.Ln(exportBodySize * paragraphGap)
 		default: // paragraph / text
-			writeRunsPDF(pdf, b.runs, "DejaVu", "", 11)
+			writeRunsPDF(pdf, b.runs, "", exportBodySize)
+			pdf.Ln(exportBodySize * paragraphGap)
 		}
 	}
+}
+
+// headingLevel clamps a markdown heading level into the 1..6 range the
+// renderers have styles for.
+func headingLevel(level int) int {
+	if level < 1 {
+		return 1
+	}
+	if level > 6 {
+		return 6
+	}
+	return level
+}
+
+// listMarker is the glyph the PDF prints in front of a list item. Ordered items
+// print their real ordinal; DOCX leaves this to the document numbering instead.
+func listMarker(b exportBlock) string {
+	if b.ordered && b.number > 0 {
+		return fmt.Sprintf("%d.  ", b.number)
+	}
+	if b.ordered {
+		return "1.  "
+	}
+	return "•  "
 }
 
 func prependRun(runs []exportRun, r exportRun) []exportRun {
@@ -454,44 +520,51 @@ func prependRun(runs []exportRun, r exportRun) []exportRun {
 	return append(out, runs...)
 }
 
-// writeRunsPDF emits a single paragraph made of formatted runs, wrapping at
-// the right margin. fpdf has no rich-text MultiCell, so we segment by run and
-// rely on word wrapping for the common case.
-func writeRunsPDF(pdf *fpdf.Fpdf, runs []exportRun, family, style string, size float64) {
-	x0 := pdf.GetX()
+// writeRunsPDF emits one paragraph built from formatted runs. fpdf has no
+// rich-text cell, but Write flows text from the current position and wraps at
+// the right margin, so switching the font between Write calls keeps every run
+// on the same line instead of starting a new one per run (which MultiCell would
+// do, shattering a formatted sentence across several lines).
+func writeRunsPDF(pdf *fpdf.Fpdf, runs []exportRun, style string, size float64) {
+	lineHeight := size * lineHeightRatio
+	wrote := false
 	for _, r := range runs {
 		if r.text == "" {
 			continue
 		}
-		f := family
-		s := style
 		fs := size
-		if r.bold {
-			s = "B"
-		} else if r.italic {
-			s = "I"
-		}
 		if r.code {
 			// Inline code stays on the proportional DejaVu family (see the note
 			// in writeBlocksPDF on why we do not switch to a core mono font).
 			fs = size - 1
 		}
-		writeWrapped(pdf, f, s, fs, r.text)
+		pdf.SetFont(exportPDFFont, runStyle(style, r), fs)
+		pdf.Write(lineHeight, r.text)
+		wrote = true
 	}
-	// New line after the paragraph unless MultiCell already advanced.
-	if pdf.GetX() > x0 {
-		pdf.Ln(size * 0.5)
+	if wrote {
+		// Close the flowed line; the caller adds any inter-block spacing.
+		pdf.Ln(lineHeight)
 	}
 }
 
-func writeWrapped(pdf *fpdf.Fpdf, family, style string, size float64, text string) {
-	pdf.SetFont(family, style, size)
-	width, _ := pdf.GetPageSize()
-	left, _, right, _ := pdf.GetMargins()
-	avail := width - left - right
-	for _, line := range pdf.SplitText(text, avail) {
-		pdf.MultiCell(avail, size*0.42, line, "", "L", false)
+// lineHeightRatio converts a point size into the millimetre line advance used
+// throughout the PDF body.
+const lineHeightRatio = 0.42
+
+// runStyle merges the block's base style with the run's own emphasis so a bold
+// heading keeps its weight and an italic quote keeps its slant.
+func runStyle(base string, r exportRun) string {
+	bold := strings.Contains(base, "B") || r.bold
+	italic := strings.Contains(base, "I") || r.italic
+	style := ""
+	if bold {
+		style += "B"
 	}
+	if italic {
+		style += "I"
+	}
+	return style
 }
 
 func writeWrappedFill(pdf *fpdf.Fpdf, family, style string, size float64, text string) {
@@ -563,7 +636,7 @@ func renderDOCXExport(doc exportDocument) ([]byte, error) {
 func docxBlockXML(b exportBlock, reasoning bool) string {
 	switch b.kind {
 	case "heading":
-		return docxParagraph(docxRuns(b.runs, reasoning), "Heading"+itoa(b.level))
+		return docxParagraph(docxRuns(b.runs, reasoning), "Heading"+itoa(headingLevel(b.level)))
 	case "code_block":
 		var sb strings.Builder
 		for _, line := range strings.Split(b.text, "\n") {
@@ -571,8 +644,9 @@ func docxBlockXML(b exportBlock, reasoning bool) string {
 		}
 		return sb.String()
 	case "list_item":
-		runs := append([]exportRun{{text: "•  "}}, b.runs...)
-		return docxListParagraph(docxRuns(runs, reasoning))
+		// Word draws the bullet or the number from numbering.xml; adding a
+		// literal marker to the text would print it twice.
+		return docxListParagraph(docxRuns(b.runs, reasoning), b.ordered)
 	case "quote":
 		quoted := append([]exportRun{{text: "“"}}, b.runs...)
 		quoted = append(quoted, exportRun{text: "”"})
@@ -614,18 +688,55 @@ func docxParagraph(runsXML, style string) string {
 	return fmt.Sprintf("<w:p>%s%s</w:p>", pPr, runsXML)
 }
 
-func docxListParagraph(runsXML string) string {
-	return fmt.Sprintf(`<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>%s</w:p>`, runsXML)
+// docxNumIDBullet and docxNumIDOrdered select the list definition from
+// numbering.xml: an unordered bullet or a decimal sequence.
+const (
+	docxNumIDBullet  = 1
+	docxNumIDOrdered = 2
+)
+
+func docxListParagraph(runsXML string, ordered bool) string {
+	numID := docxNumIDBullet
+	if ordered {
+		numID = docxNumIDOrdered
+	}
+	return fmt.Sprintf(`<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="%d"/></w:numPr></w:pPr>%s</w:p>`, numID, runsXML)
 }
 
+var docxEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+)
+
+// docxEscape prepares message text for an XML text node. Every run in the
+// package goes through here, so this is also where characters XML 1.0 forbids
+// are dropped: a pasted terminal snippet carries ANSI escapes and the odd NUL,
+// and leaving them in word/document.xml yields a package Word and LibreOffice
+// refuse to open.
 func docxEscape(s string) string {
-	r := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-	)
-	return r.Replace(s)
+	return docxEscaper.Replace(sanitizeXMLText(s))
+}
+
+// sanitizeXMLText removes the code points that are illegal in XML 1.0 character
+// data, keeping the three whitespace controls the spec allows.
+func sanitizeXMLText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r':
+			return r
+		case r < 0x20:
+			return -1
+		case r >= 0xD800 && r <= 0xDFFF, r == 0xFFFE, r == 0xFFFF:
+			return -1
+		case r == utf8.RuneError:
+			// strings.Map reports malformed input as RuneError; dropping it keeps
+			// the document well-formed at the cost of a replacement glyph.
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func itoa(i int) string { return fmt.Sprintf("%d", i) }
@@ -653,7 +764,9 @@ const docRelsXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </Relationships>`
 
 // stylesXML defines the named paragraph styles referenced from the document
-// body (Title, Heading1-4, Code, Quote, ListParagraph). Each carries concrete
+// body (Title, Heading1-6, Code, Quote, ListParagraph). Markdown reaches down to
+// six heading levels, so all six are defined here; a body that names a style the
+// sheet omits silently falls back to Normal in Word.  Each carries concrete
 // formatting so Word/LibreOffice render the export close to the HTML version
 // without relying on built-in defaults that differ per application.
 const stylesXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -665,18 +778,25 @@ const stylesXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="200" w:after="60"/></w:pPr><w:rPr><w:b/><w:sz w:val="28"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="40"/></w:pPr><w:rPr><w:b/><w:color w:val="1A7F37"/><w:sz w:val="25"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading4"><w:name w:val="heading 4"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="120" w:after="40"/></w:pPr><w:rPr><w:i/><w:color w:val="6E7781"/><w:sz w:val="23"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading5"><w:name w:val="heading 5"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="120" w:after="40"/></w:pPr><w:rPr><w:b/><w:sz w:val="22"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading6"><w:name w:val="heading 6"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="120" w:after="40"/></w:pPr><w:rPr><w:b/><w:i/><w:sz w:val="22"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="F6F8FA"/><w:spacing w:after="0"/></w:pPr><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="19"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="80" w:after="80"/><w:ind w:left="360"/></w:pPr><w:rPr><w:i/><w:color w:val="6E7781"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="360"/></w:pPr></w:style>
 </w:styles>`
 
-// numberingXML defines the bullet list (numId=1) used by ListParagraph items.
-// A single abstractNum with a bullet mapping covers all list items the export
-// emits; ordered lists currently reuse the same bullet glyph.
+// numberingXML defines the two list definitions ListParagraph items point at:
+// numId=1 draws a bullet, numId=2 an incrementing decimal. Word renders the
+// marker itself from here, so the document body must not repeat it in the run
+// text — see docxBlockXML.
 const numberingXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
 <w:abstractNum w:abstractNumId="0">
 <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:lvl>
 </w:abstractNum>
+<w:abstractNum w:abstractNumId="1">
+<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:lvl>
+</w:abstractNum>
 <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+<w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
 </w:numbering>`

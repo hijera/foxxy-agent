@@ -326,16 +326,20 @@ export function ChatScreen(props: {
                   title={props.title}
                   editable={true}
                   onTitleSave={props.onTitleSave}
+                  {...(props.onExportSession &&
+                  hasExportableAssistant(props.items)
+                    ? {
+                        actions: (
+                          <SessionExportMenu
+                            onExport={props.onExportSession}
+                            {...(props.exportBusy !== undefined
+                              ? { busy: props.exportBusy }
+                              : {})}
+                          />
+                        ),
+                      }
+                    : {})}
                 />
-                {props.onExportSession &&
-                hasExportableAssistant(props.items) ? (
-                  <SessionExportMenu
-                    onExport={props.onExportSession}
-                    {...(props.exportBusy !== undefined
-                      ? { busy: props.exportBusy }
-                      : {})}
-                  />
-                ) : null}
               </div>
             </div>
             <div className="messages-inner">
@@ -479,4 +483,3 @@ function hasExportableAssistant(items: TranscriptItem[]): boolean {
     (it) => it.type === "assistant_message" && it.content.trim() !== "",
   );
 }
-

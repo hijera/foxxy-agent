@@ -1395,20 +1395,40 @@ export function App() {
     if (!sessionId || exportBusy) {
       return;
     }
+    const sid = sessionId;
+    // A failed export must say so: the spinner stopping on its own reads as a
+    // finished download that never arrived. Network errors are caught here too,
+    // otherwise the rejected promise escapes the `void exportSession(...)` call
+    // site as an unhandled rejection.
+    const fail = () => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level: "error" as const,
+          message: t("chat.exportFailed"),
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    };
     setExportBusy(true);
     try {
       const res = await fetch(
-        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/export?format=${format}`,
-        { headers: { [HDR]: sessionId } },
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/export?format=${format}`,
+        { headers: { [HDR]: sid } },
       );
       if (!res.ok) {
+        fail();
         return;
       }
       const blob = await res.blob();
-      const filename = filenameFromDisposition(
-        res.headers.get("Content-Disposition"),
-      ) ?? `session.${format}`;
+      const filename =
+        filenameFromDisposition(res.headers.get("Content-Disposition")) ??
+        `session.${format}`;
       downloadBlob(filename, blob);
+    } catch {
+      fail();
     } finally {
       setExportBusy(false);
     }

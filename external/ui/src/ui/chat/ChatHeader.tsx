@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n/I18nProvider";
 
 export function ChatHeader(props: {
   title: string;
   editable?: boolean;
   onTitleSave?: (title: string) => void;
+  /**
+   * Per-session actions rendered at the right edge of the header row. They live
+   * inside the header element so the flex row aligns them with the title
+   * instead of pushing them onto a line of their own below the card.
+   */
+  actions?: ReactNode;
 }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
@@ -67,6 +73,7 @@ export function ChatHeader(props: {
           </button>
         )}
       </div>
+      {props.actions ?? null}
     </header>
   );
 }

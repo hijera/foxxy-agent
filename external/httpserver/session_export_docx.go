@@ -11,12 +11,11 @@ import (
 // into an io.Writer. DOCX is a zip of well-known XML parts, so this is the only
 // machinery the export needs beyond the document XML produced by the renderers.
 type docxWriter struct {
-	w  *zip.Writer
-	wc io.Writer
+	w *zip.Writer
 }
 
 func newDocxWriter(w io.Writer) *docxWriter {
-	return &docxWriter{w: zip.NewWriter(w), wc: w}
+	return &docxWriter{w: zip.NewWriter(w)}
 }
 
 func (d *docxWriter) write(name, content string) error {

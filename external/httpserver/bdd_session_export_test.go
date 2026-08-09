@@ -7,12 +7,19 @@ package httpserver
 // and asserts the response carries the right content type, disposition, and
 // payload markers. Mirrors the server setup in bdd_chat_load_test.go without
 // the concurrent-turn machinery, since export only reads persisted messages.
+//
+// Several scenarios inspect the rendered document itself rather than just its
+// envelope: the PDF content stream is inflated and its text-showing operators
+// are read back so paragraph layout can be asserted, and the DOCX parts are
+// unzipped so the XML is checked for well-formedness and style resolution.
 
 import (
 	"archive/zip"
 	"bytes"
+	"compress/zlib"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,8 +28,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/cucumber/godog"
 
@@ -33,9 +42,16 @@ import (
 )
 
 const (
-	exportUserQuestion = "How do I export a session?"
+	exportUserQuestion    = "How do I export a session?"
 	exportAssistantAnswer = "Use the download button in the chat header."
 	exportReasoning       = "Considering the available formats."
+
+	// The inline-formatting scenario asserts that these two fragments of one
+	// sentence land on the same PDF baseline, and that the paragraph starting
+	// with exportSecondParaLead is pushed further down than a mere line break.
+	exportSentenceHead = "Some"
+	exportSentenceTail = "in one sentence."
+	exportSecondPara   = "Alpha"
 )
 
 type sessionExportFeatureState struct {
@@ -105,12 +121,21 @@ func (s *sessionExportFeatureState) startServer() error {
 	return nil
 }
 
+// liveState returns the in-memory session the scenario seeds messages onto.
+func (s *sessionExportFeatureState) liveState() (*session.State, error) {
+	st := s.srv.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return nil, fmt.Errorf("session %q is not live", s.sessionID)
+	}
+	return st, nil
+}
+
 // seedChat persists a user/assistant exchange (with reasoning) onto the live
 // session state, mirroring what a real turn leaves behind.
 func (s *sessionExportFeatureState) seedChat() error {
-	st := s.srv.mgr.SessionByID(s.sessionID)
-	if st == nil {
-		return fmt.Errorf("session %q is not live", s.sessionID)
+	st, err := s.liveState()
+	if err != nil {
+		return err
 	}
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
 	st.AddMessage(llm.Message{
@@ -119,6 +144,86 @@ func (s *sessionExportFeatureState) seedChat() error {
 		Reasoning: exportReasoning,
 	})
 	return nil
+}
+
+// seedUserOnly leaves the transcript without any assistant answer, which is the
+// state in which the panel hides the export action.
+func (s *sessionExportFeatureState) seedUserOnly() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
+	return nil
+}
+
+// seedInlineFormatting produces one sentence carrying bold and inline code plus
+// a following paragraph long enough to wrap, so the PDF steps can compare the
+// gap between paragraphs against the advance between wrapped lines.
+func (s *sessionExportFeatureState) seedInlineFormatting() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	second := exportSecondPara + " " + strings.Repeat("filler words to force wrapping ", 6)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
+	st.AddMessage(llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: exportSentenceHead + " **bold** and `code` " + exportSentenceTail + "\n\n" + second,
+	})
+	return nil
+}
+
+// seedEscapeCodes plants the kind of terminal output a user pastes into the
+// composer: ANSI colour escapes plus a stray NUL, neither of which is legal in
+// XML 1.0 character data.
+func (s *sessionExportFeatureState) seedEscapeCodes() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	st.AddMessage(llm.Message{
+		Role:    llm.RoleUser,
+		Content: "log line \x1b[31mred\x1b[0m and a NUL:\x00 tail",
+	})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: exportAssistantAnswer})
+	return nil
+}
+
+func (s *sessionExportFeatureState) seedDeepHeadings() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	var md strings.Builder
+	for level := 1; level <= 6; level++ {
+		md.WriteString(strings.Repeat("#", level) + " Level " + fmt.Sprint(level) + "\n\n")
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: md.String()})
+	return nil
+}
+
+func (s *sessionExportFeatureState) seedLists() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
+	st.AddMessage(llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: "- first bullet\n- second bullet\n\n1. first step\n2. second step",
+	})
+	return nil
+}
+
+func (s *sessionExportFeatureState) seedTitled(title string) error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	st.SetTitlePinned(title)
+	return s.seedChat()
 }
 
 // requestExport issues GET .../export?format=<f> and records the response.
@@ -159,7 +264,8 @@ func (s *sessionExportFeatureState) jsonAttachment() error {
 	if ct := s.respHeaders.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		return fmt.Errorf("expected application/json content type, got %q", ct)
 	}
-	if cd := s.respHeaders.Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment;") || !strings.HasSuffix(cd, ".json\"") {
+	cd := s.respHeaders.Get("Content-Disposition")
+	if !strings.HasPrefix(cd, "attachment;") || !strings.Contains(cd, ".json") {
 		return fmt.Errorf("unexpected content-disposition: %q", cd)
 	}
 	return nil
@@ -238,6 +344,303 @@ func (s *sessionExportFeatureState) rejectedWithStatus(code int) error {
 	return nil
 }
 
+// --- PDF layout steps -----------------------------------------------------
+
+// pdfTextOp is one text-showing operation lifted out of the PDF content stream,
+// carrying the absolute baseline position the text was drawn at.
+type pdfTextOp struct {
+	X, Y float64
+	Text string
+}
+
+var (
+	pdfStreamRe = regexp.MustCompile(`(?s)stream\r?\n(.*?)endstream`)
+	pdfTextRe   = regexp.MustCompile(`(?s)BT ([0-9.]+) ([0-9.]+) Td \(((?:\\.|[^\\)])*)\)Tj ET`)
+)
+
+// pdfTextOps inflates every FlateDecode content stream in the document and
+// returns the drawn text runs in document order. fpdf writes UTF-8 font text as
+// UTF-16BE inside a literal PDF string, so the payload is unescaped and decoded
+// back into a Go string.
+func pdfTextOps(pdfBytes []byte) []pdfTextOp {
+	var ops []pdfTextOp
+	for _, m := range pdfStreamRe.FindAllSubmatch(pdfBytes, -1) {
+		zr, err := zlib.NewReader(bytes.NewReader(m[1]))
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(zr)
+		_ = zr.Close()
+		if err != nil {
+			continue
+		}
+		for _, t := range pdfTextRe.FindAllSubmatch(content, -1) {
+			var x, y float64
+			if _, err := fmt.Sscanf(string(t[1])+" "+string(t[2]), "%f %f", &x, &y); err != nil {
+				continue
+			}
+			ops = append(ops, pdfTextOp{X: x, Y: y, Text: decodePDFString(t[3])})
+		}
+	}
+	return ops
+}
+
+// decodePDFString undoes PDF literal-string escaping and decodes the UTF-16BE
+// payload fpdf emits for embedded UTF-8 fonts.
+func decodePDFString(raw []byte) string {
+	var b []byte
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' || i+1 >= len(raw) {
+			b = append(b, raw[i])
+			continue
+		}
+		i++
+		switch c := raw[i]; c {
+		case 'n':
+			b = append(b, '\n')
+		case 'r':
+			b = append(b, '\r')
+		case 't':
+			b = append(b, '\t')
+		case '(', ')', '\\':
+			b = append(b, c)
+		default:
+			if c >= '0' && c <= '7' {
+				v, n := 0, 0
+				for i < len(raw) && n < 3 && raw[i] >= '0' && raw[i] <= '7' {
+					v = v*8 + int(raw[i]-'0')
+					i++
+					n++
+				}
+				i--
+				b = append(b, byte(v))
+				continue
+			}
+			b = append(b, c)
+		}
+	}
+	units := make([]uint16, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		units = append(units, uint16(b[i])<<8|uint16(b[i+1]))
+	}
+	return string(utf16.Decode(units))
+}
+
+// findPDFOp returns the index of the first drawn run containing needle.
+func findPDFOp(ops []pdfTextOp, needle string) int {
+	for i, op := range ops {
+		if strings.Contains(op.Text, needle) {
+			return i
+		}
+	}
+	return -1
+}
+
+// pdfSentenceSingleLine asserts the head and tail of one sentence share a
+// baseline, i.e. the inline bold/code runs did not each start a new line.
+func (s *sessionExportFeatureState) pdfSentenceSingleLine() error {
+	ops := pdfTextOps(s.respBody)
+	head := findPDFOp(ops, exportSentenceHead)
+	tail := findPDFOp(ops, exportSentenceTail)
+	if head < 0 || tail < 0 {
+		return fmt.Errorf("sentence fragments not found in PDF text (head=%d tail=%d, ops=%d)", head, tail, len(ops))
+	}
+	if ops[head].Y != ops[tail].Y {
+		return fmt.Errorf("sentence split across lines: %q at y=%.2f, %q at y=%.2f",
+			exportSentenceHead, ops[head].Y, exportSentenceTail, ops[tail].Y)
+	}
+	if ops[tail].X <= ops[head].X {
+		return fmt.Errorf("sentence tail does not continue to the right of the head (x %.2f -> %.2f)",
+			ops[head].X, ops[tail].X)
+	}
+	return nil
+}
+
+// pdfParagraphsSpaced asserts the step down to the next paragraph is larger
+// than the step between two wrapped lines inside a paragraph. The wrapped-line
+// advance is measured from the document itself so the check stays independent
+// of the chosen font size.
+func (s *sessionExportFeatureState) pdfParagraphsSpaced() error {
+	ops := pdfTextOps(s.respBody)
+	sentence := findPDFOp(ops, exportSentenceTail)
+	second := findPDFOp(ops, exportSecondPara)
+	if sentence < 0 || second < 0 {
+		return fmt.Errorf("paragraphs not found in PDF text (sentence=%d second=%d)", sentence, second)
+	}
+	if second+1 >= len(ops) {
+		return fmt.Errorf("second paragraph did not wrap, cannot measure the line advance")
+	}
+	lineAdvance := ops[second].Y - ops[second+1].Y
+	if lineAdvance <= 0 {
+		return fmt.Errorf("unexpected line advance %.2f inside the wrapped paragraph", lineAdvance)
+	}
+	gap := ops[sentence].Y - ops[second].Y
+	if gap <= lineAdvance {
+		return fmt.Errorf("no space between paragraphs: gap %.2f is not larger than the line advance %.2f", gap, lineAdvance)
+	}
+	return nil
+}
+
+// --- DOCX steps -----------------------------------------------------------
+
+func (s *sessionExportFeatureState) docxPart(name string) (string, error) {
+	zr, err := zip.NewReader(bytes.NewReader(s.respBody), int64(len(s.respBody)))
+	if err != nil {
+		return "", fmt.Errorf("DOCX is not a valid zip: %w", err)
+	}
+	for _, f := range zr.File {
+		if f.Name != name {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		buf, err := io.ReadAll(rc)
+		closeErr := rc.Close()
+		if err != nil {
+			return "", err
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		return string(buf), nil
+	}
+	return "", fmt.Errorf("DOCX part %q not found", name)
+}
+
+func (s *sessionExportFeatureState) docxWellFormed() error {
+	body, err := s.docxPart("word/document.xml")
+	if err != nil {
+		return err
+	}
+	dec := xml.NewDecoder(strings.NewReader(body))
+	for {
+		_, err := dec.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("word/document.xml is not well-formed XML: %w", err)
+		}
+	}
+}
+
+func (s *sessionExportFeatureState) docxSnippetTextSurvives() error {
+	body, err := s.docxPart("word/document.xml")
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"log line", "red", "tail"} {
+		if !strings.Contains(body, want) {
+			return fmt.Errorf("word/document.xml lost the text %q around the escape codes", want)
+		}
+	}
+	return nil
+}
+
+var (
+	docxUsedStyleRe    = regexp.MustCompile(`<w:pStyle w:val="([^"]+)"/>`)
+	docxDefinedStyleRe = regexp.MustCompile(`w:styleId="([^"]+)"`)
+)
+
+func (s *sessionExportFeatureState) docxStylesResolved() error {
+	body, err := s.docxPart("word/document.xml")
+	if err != nil {
+		return err
+	}
+	styles, err := s.docxPart("word/styles.xml")
+	if err != nil {
+		return err
+	}
+	defined := map[string]bool{}
+	for _, m := range docxDefinedStyleRe.FindAllStringSubmatch(styles, -1) {
+		defined[m[1]] = true
+	}
+	for _, m := range docxUsedStyleRe.FindAllStringSubmatch(body, -1) {
+		if !defined[m[1]] {
+			return fmt.Errorf("document uses paragraph style %q which styles.xml does not define", m[1])
+		}
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) docxNoLiteralMarker() error {
+	body, err := s.docxPart("word/document.xml")
+	if err != nil {
+		return err
+	}
+	for _, glyph := range []string{"•", "–  "} {
+		if strings.Contains(body, glyph) {
+			return fmt.Errorf("document.xml carries the literal list marker %q on top of the numbering definition", glyph)
+		}
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) docxOrderedNumbering() error {
+	body, err := s.docxPart("word/document.xml")
+	if err != nil {
+		return err
+	}
+	numbering, err := s.docxPart("word/numbering.xml")
+	if err != nil {
+		return err
+	}
+	used := regexp.MustCompile(`<w:numId w:val="([0-9]+)"/>`).FindAllStringSubmatch(body, -1)
+	seen := map[string]bool{}
+	for _, m := range used {
+		seen[m[1]] = true
+	}
+	if len(seen) < 2 {
+		return fmt.Errorf("bullet and numbered lists share the same numbering id %v", seen)
+	}
+	if !strings.Contains(numbering, `w:numFmt w:val="decimal"`) {
+		return fmt.Errorf("numbering.xml defines no decimal list format")
+	}
+	return nil
+}
+
+// --- Content-Disposition steps --------------------------------------------
+
+func (s *sessionExportFeatureState) dispositionUTF8Name(want string) error {
+	cd := s.respHeaders.Get("Content-Disposition")
+	marker := "filename*=UTF-8''"
+	idx := strings.Index(cd, marker)
+	if idx < 0 {
+		return fmt.Errorf("Content-Disposition carries no RFC 5987 filename*: %q", cd)
+	}
+	got, err := url.PathUnescape(strings.TrimSpace(cd[idx+len(marker):]))
+	if err != nil {
+		return fmt.Errorf("filename* is not valid percent-encoding: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("filename* decodes to %q, want %q", got, want)
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) dispositionASCIIFallback() error {
+	cd := s.respHeaders.Get("Content-Disposition")
+	m := regexp.MustCompile(`filename="([^"]*)"`).FindStringSubmatch(cd)
+	if m == nil {
+		return fmt.Errorf("Content-Disposition carries no plain filename fallback: %q", cd)
+	}
+	name := m[1]
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("plain filename fallback is empty: %q", cd)
+	}
+	for _, r := range name {
+		if r > 127 {
+			return fmt.Errorf("plain filename fallback %q is not ASCII (clients cannot read it)", name)
+		}
+	}
+	if !strings.HasSuffix(name, ".pdf") {
+		return fmt.Errorf("plain filename fallback %q lost its extension", name)
+	}
+	return nil
+}
+
 func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	s := &sessionExportFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -250,6 +653,12 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a running foxxycode HTTP server$`, s.startServer)
 	sc.Step(`^a chat with a user question and an assistant answer$`, s.seedChat)
+	sc.Step(`^a chat with only a user question$`, s.seedUserOnly)
+	sc.Step(`^a chat whose answer mixes bold and inline code inside one sentence$`, s.seedInlineFormatting)
+	sc.Step(`^a chat whose question carries terminal escape codes$`, s.seedEscapeCodes)
+	sc.Step(`^a chat whose answer uses headings from level one to level six$`, s.seedDeepHeadings)
+	sc.Step(`^a chat whose answer contains a bullet list and a numbered list$`, s.seedLists)
+	sc.Step(`^a chat titled "([^"]*)" with an assistant answer$`, s.seedTitled)
 
 	sc.Step(`^the panel exports the chat as (\w+)$`, s.exportChat)
 	sc.Step(`^the panel exports a non-existent chat as (\w+)$`, s.exportMissingChat)
@@ -261,6 +670,16 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the PDF payload begins with the PDF header$`, s.pdfHeader)
 	sc.Step(`^the DOCX payload is a valid Office Open XML package$`, s.validDocx)
 	sc.Step(`^the export request is rejected with status (\d+)$`, s.rejectedWithStatus)
+
+	sc.Step(`^the sentence is laid out on a single line of the PDF$`, s.pdfSentenceSingleLine)
+	sc.Step(`^consecutive paragraphs are separated by vertical space$`, s.pdfParagraphsSpaced)
+	sc.Step(`^the DOCX document part is well-formed XML$`, s.docxWellFormed)
+	sc.Step(`^the surrounding text of the snippet survives$`, s.docxSnippetTextSurvives)
+	sc.Step(`^every paragraph style used by the document is defined in the style sheet$`, s.docxStylesResolved)
+	sc.Step(`^no list item repeats the marker glyph in its own text$`, s.docxNoLiteralMarker)
+	sc.Step(`^the numbered list is numbered by the document rather than bulleted$`, s.docxOrderedNumbering)
+	sc.Step(`^the attachment offers the UTF-8 filename "([^"]*)"$`, s.dispositionUTF8Name)
+	sc.Step(`^the attachment keeps an ASCII filename fallback$`, s.dispositionASCIIFallback)
 }
 
 func TestSessionExportFeature(t *testing.T) {

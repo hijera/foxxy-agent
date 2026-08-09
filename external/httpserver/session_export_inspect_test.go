@@ -118,4 +118,3 @@ func exportViaHTTP(t *testing.T, base, sid, format string) ([]byte, error) {
 	}
 	return io.ReadAll(res.Body)
 }
-

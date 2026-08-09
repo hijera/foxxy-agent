@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -210,18 +211,224 @@ func TestHasExportableAssistantAnswer(t *testing.T) {
 	}
 }
 
-func TestExportFileName(t *testing.T) {
+func TestExportBaseName(t *testing.T) {
 	cases := map[string]string{
-		"My Chat":          "My_Chat.json",
-		"a/b:c":            "abc.json",
-		"":                 "sess_x.json",
-		"Привет":           "%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82.json",
+		"My Chat": "My_Chat",
+		"a/b:c":   "abc",
+		"":        "sess_x",
+		`x"y|z`:   "xyz",
+		"Привет":  "Привет",
 	}
 	for in, want := range cases {
-		if got := exportFileName(in, "sess_x", "json"); got != want {
-			t.Errorf("exportFileName(%q) = %q, want %q", in, got, want)
+		if got := exportBaseName(in, "sess_x"); got != want {
+			t.Errorf("exportBaseName(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// TestExportContentDisposition pins the RFC 6266 shape: an ASCII-only plain
+// filename any client can read, plus an RFC 8187 filename* carrying the real
+// (possibly non-Latin) title. A title made only of non-ASCII characters has no
+// meaningful ASCII form, so the fallback degrades to the session id.
+func TestExportContentDisposition(t *testing.T) {
+	cases := []struct {
+		title      string
+		wantPlain  string
+		wantEncSub string
+	}{
+		{"My Chat", `filename="My_Chat.pdf"`, "filename*=UTF-8''My_Chat.pdf"},
+		{"", `filename="sess_x.pdf"`, "filename*=UTF-8''sess_x.pdf"},
+		{"Отчёт по задаче", `filename="sess_x.pdf"`, "filename*=UTF-8''%D0%9E%D1%82%D1%87%D1%91%D1%82_%D0%BF%D0%BE_%D0%B7%D0%B0%D0%B4%D0%B0%D1%87%D0%B5.pdf"},
+		{"Sprint 3 — обзор", `filename="Sprint_3.pdf"`, ""},
+	}
+	for _, tc := range cases {
+		got := exportContentDisposition(tc.title, "sess_x", "pdf")
+		if !strings.HasPrefix(got, "attachment; ") {
+			t.Errorf("exportContentDisposition(%q) = %q, missing attachment prefix", tc.title, got)
+		}
+		if !strings.Contains(got, tc.wantPlain) {
+			t.Errorf("exportContentDisposition(%q) = %q, want plain %s", tc.title, got, tc.wantPlain)
+		}
+		if tc.wantEncSub != "" && !strings.Contains(got, tc.wantEncSub) {
+			t.Errorf("exportContentDisposition(%q) = %q, want %s", tc.title, got, tc.wantEncSub)
+		}
+	}
+}
+
+// TestExportContentDispositionCannotBreakTheHeader guards the encoding: a title
+// carrying header separators must not introduce new parameters, and control
+// characters must never reach the wire.
+func TestExportContentDispositionCannotBreakTheHeader(t *testing.T) {
+	got := exportContentDisposition("evil; name=oops\r\nX-Injected: 1", "sess_x", "json")
+	if strings.Contains(got, "\r") || strings.Contains(got, "\n") {
+		t.Fatalf("header value carries a line break: %q", got)
+	}
+	if strings.Count(got, ";") != 2 {
+		t.Fatalf("header gained extra parameters: %q", got)
+	}
+	marker := "filename*=UTF-8''"
+	encoded := got[strings.Index(got, marker)+len(marker):]
+	if strings.ContainsAny(encoded, `;,="' `) {
+		t.Fatalf("filename* carries raw header separators: %q", encoded)
+	}
+}
+
+// TestExportContentDispositionFoldsTheIDFallback covers the path where the title
+// has no ASCII form and the session id supplies the plain filename: the id comes
+// off the request path, so it must be folded rather than trusted.
+func TestExportContentDispositionFoldsTheIDFallback(t *testing.T) {
+	got := exportContentDisposition("Отчёт", `sess"; evil=1`, "json")
+	m := regexp.MustCompile(`filename="([^"]*)"`).FindStringSubmatch(got)
+	if m == nil {
+		t.Fatalf("no plain filename in %q", got)
+	}
+	if strings.ContainsAny(m[1], `";=`) {
+		t.Fatalf("session id reached the header unchecked: %q", m[1])
+	}
+	if strings.Count(got, ";") != 2 {
+		t.Fatalf("header gained extra parameters: %q", got)
+	}
+}
+
+// TestSanitizeXMLText covers the characters that make a DOCX unopenable: the
+// C0 control range (ANSI escapes, NUL) has to go, while the three whitespace
+// controls XML does allow must survive.
+func TestSanitizeXMLText(t *testing.T) {
+	got := sanitizeXMLText("log \x1b[31mred\x1b[0m\ttab\nline\r\n\x00 end")
+	for _, bad := range []string{"\x1b", "\x00"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("sanitizeXMLText kept %q: %q", bad, got)
+		}
+	}
+	for _, keep := range []string{"\t", "\n", "\r", "log ", "red", "end"} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("sanitizeXMLText dropped %q: %q", keep, got)
+		}
+	}
+}
+
+// TestDocxEscapeSanitizes makes sure the escaping helper every run goes through
+// is the place the sanitising happens, so no renderer can bypass it.
+func TestDocxEscapeSanitizes(t *testing.T) {
+	if got := docxEscape("a\x1bb<c"); got != "ab&lt;c" {
+		t.Fatalf("docxEscape = %q, want %q", got, "ab&lt;c")
+	}
+}
+
+// TestDocxHeadingStylesAreDefined walks every heading level markdown can
+// produce and asserts the style it names exists in the style sheet.
+func TestDocxHeadingStylesAreDefined(t *testing.T) {
+	for level := 1; level <= 6; level++ {
+		md := strings.Repeat("#", level) + " Title"
+		blocks := markdownToBlocks(md)
+		if len(blocks) != 1 {
+			t.Fatalf("level %d: expected one block, got %d", level, len(blocks))
+		}
+		x := docxBlockXML(blocks[0], false)
+		m := regexp.MustCompile(`<w:pStyle w:val="([^"]+)"/>`).FindStringSubmatch(x)
+		if m == nil {
+			t.Fatalf("level %d: heading emitted no paragraph style: %s", level, x)
+		}
+		if !strings.Contains(stylesXML, `w:styleId="`+m[1]+`"`) {
+			t.Errorf("level %d uses undefined style %q", level, m[1])
+		}
+	}
+}
+
+// TestMarkdownToBlocksNumbersOrderedItems checks list items carry their ordinal
+// so the PDF can print real numbers instead of a dash.
+func TestMarkdownToBlocksNumbersOrderedItems(t *testing.T) {
+	blocks := markdownToBlocks("3. three\n4. four")
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 list items, got %d", len(blocks))
+	}
+	for i, want := range []int{3, 4} {
+		if !blocks[i].ordered {
+			t.Errorf("item %d not marked ordered", i)
+		}
+		if blocks[i].number != want {
+			t.Errorf("item %d numbered %d, want %d", i, blocks[i].number, want)
+		}
+	}
+	bullets := markdownToBlocks("- a\n- b")
+	for i := range bullets {
+		if bullets[i].ordered {
+			t.Errorf("bullet %d marked ordered", i)
+		}
+	}
+}
+
+// TestDocxListsUseDocumentNumbering asserts list text carries no marker glyph of
+// its own (Word draws it from numbering.xml) and that ordered and bullet items
+// point at different numbering definitions.
+func TestDocxListsUseDocumentNumbering(t *testing.T) {
+	numIDs := map[string]bool{}
+	for _, b := range markdownToBlocks("- bullet\n\n1. step") {
+		x := docxBlockXML(b, false)
+		if strings.Contains(x, "•") || strings.Contains(x, "–") {
+			t.Errorf("list item repeats its marker in the text: %s", x)
+		}
+		m := regexp.MustCompile(`<w:numId w:val="([0-9]+)"/>`).FindStringSubmatch(x)
+		if m == nil {
+			t.Fatalf("list item carries no numbering reference: %s", x)
+		}
+		numIDs[m[1]] = true
+	}
+	if len(numIDs) != 2 {
+		t.Fatalf("bullet and ordered items share a numbering id: %v", numIDs)
+	}
+	if !strings.Contains(numberingXML, `w:numFmt w:val="decimal"`) {
+		t.Error("numbering.xml defines no decimal format for ordered lists")
+	}
+}
+
+// TestWriteRunsPDFKeepsOneParagraphOnOneLine is the unit-level counterpart of
+// the PDF feature scenario: a short sentence must occupy a single line no matter
+// how many formatted runs it is built from.
+func TestWriteRunsPDFKeepsOneParagraphOnOneLine(t *testing.T) {
+	plainHeight := pdfBlockHeight(t, "Some bold and code in one sentence.")
+	richHeight := pdfBlockHeight(t, "Some **bold** and `code` in one sentence.")
+	if richHeight > plainHeight {
+		t.Fatalf("inline formatting grew the paragraph from %.2fmm to %.2fmm", plainHeight, richHeight)
+	}
+}
+
+// TestWriteBlocksPDFSeparatesParagraphs asserts a block boundary pushes the
+// text further down than a plain line wrap does. The wrapping paragraph supplies
+// the line advance to compare against, so the check does not depend on the
+// chosen font size.
+func TestWriteBlocksPDFSeparatesParagraphs(t *testing.T) {
+	pdf := newExportPDF("probe")
+	pdf.AddPage()
+	writeBlocksPDF(pdf, markdownToBlocks(strings.Repeat("alpha ", 40)+"\n\nBeta paragraph."))
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		t.Fatalf("pdf output: %v", err)
+	}
+	ops := pdfTextOps(buf.Bytes())
+	if len(ops) < 3 {
+		t.Fatalf("expected the first paragraph to wrap, got %d drawn lines", len(ops))
+	}
+	lineAdvance := ops[0].Y - ops[1].Y
+	last := len(ops) - 1
+	gap := ops[last-1].Y - ops[last].Y
+	if gap <= lineAdvance {
+		t.Fatalf("paragraph gap %.2f is not larger than the line advance %.2f", gap, lineAdvance)
+	}
+}
+
+// pdfBlockHeight renders markdown through the PDF block writer and reports how
+// far down the page the cursor moved, in millimetres.
+func pdfBlockHeight(t *testing.T, md string) float64 {
+	t.Helper()
+	pdf := newExportPDF("probe")
+	pdf.AddPage()
+	before := pdf.GetY()
+	writeBlocksPDF(pdf, markdownToBlocks(md))
+	if err := pdf.Error(); err != nil {
+		t.Fatalf("fpdf error: %v", err)
+	}
+	return pdf.GetY() - before
 }
 
 func TestIsValidExportFormat(t *testing.T) {
