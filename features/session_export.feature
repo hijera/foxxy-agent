@@ -75,6 +75,27 @@ Feature: A chat can be exported to different document formats
     Then the attachment offers the UTF-8 filename "Отчёт_по_задаче.pdf"
     And the attachment keeps an ASCII filename fallback
 
+  # The agent appends the editor's ambient state to every user turn. Nobody typed
+  # it, so a document meant to be read drops it; the JSON export keeps it, being
+  # the machine-readable one.
+  Scenario Outline: A readable export drops the ambient IDE and terminal context
+    Given a chat whose question carries injected IDE and terminal context
+    When the panel exports the chat as <format>
+    Then the document still carries the question the user typed
+    And the document shows no active file, open tabs or terminal section
+
+    Examples:
+      | format |
+      | html   |
+      | pdf    |
+      | docx   |
+
+  Scenario: The JSON export keeps the injected context
+    Given a chat whose question carries injected IDE and terminal context
+    When the panel exports the chat as json
+    Then the document still carries the question the user typed
+    And the JSON still carries the injected context blocks
+
   # An editor webview cannot save a blob, so the panel asks the server to write
   # the document out and lets the plugin reveal it in the OS file manager.
   Scenario: An editor panel receives the export as a file on disk

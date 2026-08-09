@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -302,6 +303,37 @@ func TestStripInjectedContextBlocks(t *testing.T) {
 				t.Fatalf("StripInjectedContextBlocks(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// A transcript rendered for a human drops the ambient editor state but keeps the
+// blocks that record something the user did, so the stripper has to be able to
+// remove a subset rather than all wrappers.
+func TestStripContextBlocksRemovesOnlyTheNamedTags(t *testing.T) {
+	in := "вопрос" +
+		"\n<foxxycode_ide_context>\n# Active File\nfoo.go\n</foxxycode_ide_context>" +
+		"\n<foxxycode_terminal_context>\n# Active Terminal: zsh\n</foxxycode_terminal_context>" +
+		"\n<foxxycode_session_assets>\n- /tmp/a.png (a.png)\n</foxxycode_session_assets>" +
+		"\n<foxxycode_terminal_output name=\"zsh\">$ ls\n</foxxycode_terminal_output>"
+
+	got := StripContextBlocks(in, TagIDEContext, TagTerminalContext)
+
+	for _, gone := range []string{"Active File", "Active Terminal", TagIDEContext, TagTerminalContext} {
+		if strings.Contains(got, gone) {
+			t.Errorf("StripContextBlocks kept %q: %q", gone, got)
+		}
+	}
+	for _, kept := range []string{"вопрос", TagSessionAssets, "a.png", TagTerminalOutput, "$ ls"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("StripContextBlocks dropped %q: %q", kept, got)
+		}
+	}
+}
+
+func TestStripContextBlocksWithNoTagsIsIdentity(t *testing.T) {
+	in := "text <foxxycode_ide_context>x</foxxycode_ide_context>"
+	if got := StripContextBlocks(in); got != in {
+		t.Fatalf("StripContextBlocks(%q) = %q, want it unchanged", in, got)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-pdf/fpdf"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/yuin/goldmark"
 	gast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -107,6 +108,32 @@ func buildExportDocument(sessionID, title string, msgs []llm.Message) exportDocu
 		default:
 			// system / tool rows are not part of the exported conversation.
 		}
+	}
+	return out
+}
+
+// readableExportDocument returns a copy of doc with the editor's ambient context
+// stripped from every turn. The agent appends an IDE block (active file, open
+// tabs) and a terminal summary to each user message, so they show up in the
+// transcript even though nobody typed them — in a document meant to be read they
+// are noise. Blocks that record something the user did (uploaded assets, an
+// @terminal expansion they asked for) stay.
+//
+// The JSON export deliberately does not go through here: it is the
+// machine-readable one, and a re-import wants what the model actually saw.
+func readableExportDocument(doc exportDocument) exportDocument {
+	out := doc
+	out.Messages = make([]exportMessage, 0, len(doc.Messages))
+	for _, m := range doc.Messages {
+		m.Content = strings.TrimSpace(session.StripContextBlocks(
+			m.Content,
+			session.TagIDEContext,
+			session.TagTerminalContext,
+		))
+		if m.Content == "" && strings.TrimSpace(m.Reasoning) == "" {
+			continue // the turn held nothing but ambient context
+		}
+		out.Messages = append(out.Messages, m)
 	}
 	return out
 }

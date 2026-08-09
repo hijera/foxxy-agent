@@ -98,6 +98,11 @@ func isValidExportFormat(f exportFormat) bool {
 // renderExport dispatches to the format renderer and returns the body plus the
 // response content type and file extension.
 func renderExport(doc exportDocument, format exportFormat) ([]byte, string, string, error) {
+	// Everything but JSON is meant to be read, so it drops the editor's ambient
+	// context; JSON stays verbatim for re-import. See readableExportDocument.
+	if format != exportJSON {
+		doc = readableExportDocument(doc)
+	}
 	switch format {
 	case exportJSON:
 		b, err := renderJSONExport(doc)

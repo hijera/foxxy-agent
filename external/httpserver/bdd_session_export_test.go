@@ -52,6 +52,13 @@ const (
 	exportSentenceHead = "Some"
 	exportSentenceTail = "in one sentence."
 	exportSecondPara   = "Alpha"
+
+	// Ambient editor state the agent appends to a user turn. A readable export
+	// must keep the typed question and drop everything else here.
+	exportTypedQuestion     = "Why does the build fail?"
+	exportAmbientActiveFile = "src/broken_main.go"
+	exportAmbientOpenTab    = "src/untouched_util.go"
+	exportAmbientTerminal   = "zsh-build-shell"
 )
 
 type sessionExportFeatureState struct {
@@ -229,6 +236,82 @@ func (s *sessionExportFeatureState) seedLists() error {
 		Role:    llm.RoleAssistant,
 		Content: "- first bullet\n- second bullet\n\n1. first step\n2. second step",
 	})
+	return nil
+}
+
+// seedInjectedContext reproduces what the agent appends to a user turn each
+// time: the editor's ambient IDE state and a summary of the open terminals.
+// Shapes mirror internal/agent/react.go.
+func (s *sessionExportFeatureState) seedInjectedContext() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	content := exportTypedQuestion +
+		"\n\n<foxxycode_ide_context>\n# Active File\n" + exportAmbientActiveFile +
+		"\n\n# Open Tabs\n" + exportAmbientActiveFile + "\n" + exportAmbientOpenTab +
+		"\n</foxxycode_ide_context>" +
+		"\n\n<foxxycode_terminal_context>\n# Active Terminal: " + exportAmbientTerminal +
+		"\n$ go build ./...\nok\n</foxxycode_terminal_context>"
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: content})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: exportAssistantAnswer})
+	return nil
+}
+
+// exportedText renders the response back into the text a reader would see, so
+// one step can assert on any format.
+func (s *sessionExportFeatureState) exportedText() (string, error) {
+	ct := s.respHeaders.Get("Content-Type")
+	switch {
+	case strings.HasPrefix(ct, "application/pdf"):
+		var b strings.Builder
+		for _, op := range pdfTextOps(s.respBody) {
+			b.WriteString(op.Text)
+			b.WriteByte('\n')
+		}
+		return b.String(), nil
+	case strings.HasPrefix(ct, "application/vnd.openxmlformats"):
+		return s.docxPart("word/document.xml")
+	default:
+		return string(s.respBody), nil
+	}
+}
+
+func (s *sessionExportFeatureState) documentKeepsTypedQuestion() error {
+	text, err := s.exportedText()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(text, exportTypedQuestion) {
+		return fmt.Errorf("the exported document lost the question the user typed")
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) documentHidesAmbientContext() error {
+	text, err := s.exportedText()
+	if err != nil {
+		return err
+	}
+	for _, leak := range []string{
+		"Active File", "Open Tabs", "Active Terminal",
+		exportAmbientActiveFile, exportAmbientOpenTab, exportAmbientTerminal,
+		"foxxycode_ide_context", "foxxycode_terminal_context",
+	} {
+		if strings.Contains(text, leak) {
+			return fmt.Errorf("the exported document still shows the ambient context %q", leak)
+		}
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) jsonKeepsInjectedContext() error {
+	body := string(s.respBody)
+	for _, want := range []string{"foxxycode_ide_context", "foxxycode_terminal_context", exportAmbientActiveFile} {
+		if !strings.Contains(body, want) {
+			return fmt.Errorf("the JSON export dropped %q, which re-import needs", want)
+		}
+	}
 	return nil
 }
 
@@ -788,6 +871,7 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a chat whose answer uses headings from level one to level six$`, s.seedDeepHeadings)
 	sc.Step(`^a chat whose answer contains a bullet list and a numbered list$`, s.seedLists)
 	sc.Step(`^a chat titled "([^"]*)" with an assistant answer$`, s.seedTitled)
+	sc.Step(`^a chat whose question carries injected IDE and terminal context$`, s.seedInjectedContext)
 
 	sc.Step(`^an editor plugin listening for IDE events$`, s.listenAsPlugin)
 
@@ -812,6 +896,10 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the numbered list is numbered by the document rather than bulleted$`, s.docxOrderedNumbering)
 	sc.Step(`^the attachment offers the UTF-8 filename "([^"]*)"$`, s.dispositionUTF8Name)
 	sc.Step(`^the attachment keeps an ASCII filename fallback$`, s.dispositionASCIIFallback)
+
+	sc.Step(`^the document still carries the question the user typed$`, s.documentKeepsTypedQuestion)
+	sc.Step(`^the document shows no active file, open tabs or terminal section$`, s.documentHidesAmbientContext)
+	sc.Step(`^the JSON still carries the injected context blocks$`, s.jsonKeepsInjectedContext)
 
 	sc.Step(`^the response carries the absolute path of a readable (\w+) file$`, s.exportedFileReadable)
 	sc.Step(`^the file is named after the chat title$`, s.fileNamedAfterTitle)

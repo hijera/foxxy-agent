@@ -46,6 +46,94 @@ func TestBuildExportDocumentSkipsToolRows(t *testing.T) {
 	}
 }
 
+// ambientDoc carries the wrappers the agent appends to a user turn: editor state
+// nobody typed, plus the two blocks that do record a user action.
+func ambientDoc() exportDocument {
+	return buildExportDocument("sess_amb", "Ambient", []llm.Message{
+		{Role: llm.RoleUser, Content: "Why does it fail?" +
+			"\n\n<foxxycode_ide_context>\n# Active File\nmain.go\n\n# Open Tabs\nmain.go\nutil.go\n</foxxycode_ide_context>" +
+			"\n\n<foxxycode_terminal_context>\n# Active Terminal: zsh\n$ go build\n</foxxycode_terminal_context>" +
+			"\n\n<foxxycode_session_assets>\n- /tmp/shot.png (shot.png)\n</foxxycode_session_assets>" +
+			"\n\n<foxxycode_terminal_output name=\"zsh\">$ go test\nFAIL\n</foxxycode_terminal_output>"},
+		{Role: llm.RoleAssistant, Content: "Because of a typo.", Reasoning: "Reading the build output."},
+	})
+}
+
+func TestReadableExportDocumentDropsAmbientContext(t *testing.T) {
+	readable := readableExportDocument(ambientDoc())
+
+	if len(readable.Messages) != 2 {
+		t.Fatalf("expected both turns to survive, got %d", len(readable.Messages))
+	}
+	user := readable.Messages[0].Content
+	for _, gone := range []string{"Active File", "Open Tabs", "Active Terminal", "main.go", "util.go"} {
+		if strings.Contains(user, gone) {
+			t.Errorf("readable export still shows %q", gone)
+		}
+	}
+	// What the user typed, uploaded, or explicitly pulled in with @terminal stays.
+	for _, kept := range []string{"Why does it fail?", "shot.png", "FAIL"} {
+		if !strings.Contains(user, kept) {
+			t.Errorf("readable export dropped %q", kept)
+		}
+	}
+	if readable.Messages[1].Content != "Because of a typo." {
+		t.Errorf("assistant turn was altered: %q", readable.Messages[1].Content)
+	}
+}
+
+// The source document must not be modified: the JSON renderer reads it after the
+// readable copy has been taken.
+func TestReadableExportDocumentLeavesTheOriginalIntact(t *testing.T) {
+	doc := ambientDoc()
+	_ = readableExportDocument(doc)
+
+	if !strings.Contains(doc.Messages[0].Content, "Active File") {
+		t.Fatal("readableExportDocument mutated the document it was given")
+	}
+}
+
+// A turn that was nothing but ambient context would render as an empty heading.
+func TestReadableExportDocumentDropsTurnsLeftEmpty(t *testing.T) {
+	doc := buildExportDocument("s", "T", []llm.Message{
+		{Role: llm.RoleUser, Content: "<foxxycode_ide_context>\n# Active File\nx.go\n</foxxycode_ide_context>"},
+		{Role: llm.RoleAssistant, Content: "Answer."},
+	})
+
+	readable := readableExportDocument(doc)
+
+	if len(readable.Messages) != 1 || readable.Messages[0].Role != "assistant" {
+		t.Fatalf("expected only the assistant turn, got %+v", readable.Messages)
+	}
+}
+
+// The JSON export is the machine-readable one: a re-import wants what the model
+// actually saw, so it keeps every wrapper.
+func TestRenderExportKeepsAmbientContextInJSONOnly(t *testing.T) {
+	doc := ambientDoc()
+
+	jsonBody, _, _, err := renderExport(doc, exportJSON)
+	if err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if !bytes.Contains(jsonBody, []byte("foxxycode_ide_context")) {
+		t.Error("the JSON export dropped the injected context")
+	}
+
+	for _, format := range []exportFormat{exportHTML, exportPDF, exportDOCX} {
+		body, _, _, err := renderExport(doc, format)
+		if err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		if format == exportPDF {
+			continue // PDF text is glyph-encoded; the feature suite reads it back
+		}
+		if bytes.Contains(body, []byte("Active File")) {
+			t.Errorf("the %s export still shows the ambient IDE context", format)
+		}
+	}
+}
+
 func TestRenderJSONExport(t *testing.T) {
 	b, err := renderJSONExport(sampleExportDoc())
 	if err != nil {
