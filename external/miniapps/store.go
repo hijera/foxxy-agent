@@ -24,6 +24,7 @@ var (
 	ErrVersionExists     = errors.New("mini app version already exists")
 	ErrInvalidIdentifier = errors.New("invalid mini app identifier")
 	ErrModelExecution    = errors.New("mini app model execution failed")
+	jsonPersistenceMu    sync.RWMutex
 )
 
 type Store struct {
@@ -402,6 +403,8 @@ func validVersion(version string) bool {
 }
 
 func writeJSONAtomic(path string, value any, mode os.FileMode) error {
+	jsonPersistenceMu.Lock()
+	defer jsonPersistenceMu.Unlock()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -439,6 +442,8 @@ func writeJSONAtomic(path string, value any, mode os.FileMode) error {
 }
 
 func readJSON(path string, value any) error {
+	jsonPersistenceMu.RLock()
+	defer jsonPersistenceMu.RUnlock()
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return err

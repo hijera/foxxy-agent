@@ -29,6 +29,8 @@ func (s *Server) registerMiniAppRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/miniapps/{id}/draft", s.foxxycodeMiniAppDraftGet)
 	s.mux.HandleFunc("PUT /foxxycode/miniapps/{id}/draft", s.foxxycodeMiniAppDraftPut)
 	s.mux.HandleFunc("GET /foxxycode/miniapps/{id}/authoring/source", s.foxxycodeMiniAppSourceGet)
+	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/model-binding", s.foxxycodeMiniAppModelBindingPost)
+	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/authoring/chat", s.foxxycodeMiniAppAuthoringChatPost)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/expected-result", s.foxxycodeMiniAppExpectedResultPost)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/validate", s.foxxycodeMiniAppValidatePost)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/sanitize", s.foxxycodeMiniAppSanitizePost)
@@ -236,6 +238,119 @@ func (s *Server) foxxycodeMiniAppDraftPut(w http.ResponseWriter, r *http.Request
 	writeMiniAppJSON(w, http.StatusOK, app)
 }
 
+func (s *Server) foxxycodeMiniAppModelBindingPost(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	var request struct {
+		ModelRef string            `json:"model_ref"`
+		Draft    *miniapps.MiniApp `json:"draft,omitempty"`
+	}
+	if err := decodeMiniAppJSON(r, &request); err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	app, err := s.miniAppDraftFromRequest(id, request.Draft)
+	if err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	binding, err := miniapps.BindingForConfiguredModel(s.activeCfg(), request.ModelRef, "primary")
+	if err != nil {
+		s.miniAppWriteError(w, fmt.Errorf("%w: %v", miniapps.ErrInvalid, err))
+		return
+	}
+	app = miniapps.ApplyPrimaryModelBinding(app, *binding)
+	if err := s.miniAppStore().PutDraft(id, app); err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	stored, err := s.miniAppStore().GetDraft(id)
+	if err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	writeMiniAppJSON(w, http.StatusOK, stored)
+}
+
+func (s *Server) foxxycodeMiniAppAuthoringChatPost(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	var request struct {
+		Message string                   `json:"message"`
+		History []miniapps.AuthoringTurn `json:"history,omitempty"`
+		Draft   *miniapps.MiniApp        `json:"draft,omitempty"`
+	}
+	if err := decodeMiniAppJSON(r, &request); err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	app, err := s.miniAppDraftFromRequest(id, request.Draft)
+	if err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	binding, found := primaryMiniAppModelBinding(app)
+	if !found {
+		if len(app.Requirements.ModelBindings) > 0 {
+			binding = app.Requirements.ModelBindings[0]
+		} else {
+			configured, bindErr := miniapps.BindingForConfiguredModel(s.activeCfg(), "", "primary")
+			if bindErr != nil {
+				s.miniAppWriteError(w, fmt.Errorf("%w: %v", miniapps.ErrInvalid, bindErr))
+				return
+			}
+			binding = *configured
+			app = miniapps.ApplyPrimaryModelBinding(app, binding)
+		}
+	}
+	executor := miniapps.NewConfigModelExecutor(
+		s.activeCfg(),
+		miniapps.ProviderFactory(s.agentProviderFactory),
+	)
+	result, err := miniapps.EditDraftWithAssistant(
+		r.Context(),
+		app,
+		miniapps.AuthoringRequest{Message: request.Message, History: request.History},
+		binding,
+		executor,
+	)
+	if err != nil {
+		if errors.Is(err, miniapps.ErrInvalid) {
+			s.miniAppWriteError(w, err)
+		} else {
+			s.miniAppWriteError(w, fmt.Errorf("%w: %v", miniapps.ErrModelExecution, err))
+		}
+		return
+	}
+	if err := s.miniAppStore().PutDraft(id, result.App); err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	result.App, err = s.miniAppStore().GetDraft(id)
+	if err != nil {
+		s.miniAppWriteError(w, err)
+		return
+	}
+	writeMiniAppJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) miniAppDraftFromRequest(id string, supplied *miniapps.MiniApp) (miniapps.MiniApp, error) {
+	if supplied == nil {
+		return s.miniAppStore().GetDraft(id)
+	}
+	if supplied.ID != id {
+		return miniapps.MiniApp{}, fmt.Errorf("%w: path id and document id differ", miniapps.ErrInvalid)
+	}
+	return *supplied, nil
+}
+
+func primaryMiniAppModelBinding(app miniapps.MiniApp) (miniapps.ModelBinding, bool) {
+	for _, binding := range app.Requirements.ModelBindings {
+		if binding.ID == "primary" {
+			return binding, true
+		}
+	}
+	return miniapps.ModelBinding{}, false
+}
+
 func (s *Server) foxxycodeMiniAppExpectedResultPost(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	var request struct {
@@ -302,6 +417,9 @@ func (s *Server) foxxycodeMiniAppExpectedResultPost(w http.ResponseWriter, r *ht
 }
 
 func (s *Server) miniAppExpectedResultBinding(app miniapps.MiniApp) (miniapps.ModelBinding, error) {
+	if binding, found := primaryMiniAppModelBinding(app); found {
+		return binding, nil
+	}
 	for _, step := range app.Workflow {
 		if step.Kind == "agent" && strings.TrimSpace(step.ModelBinding) != "" {
 			for _, binding := range app.Requirements.ModelBindings {

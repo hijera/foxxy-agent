@@ -3,6 +3,7 @@ import { useT } from "../i18n/I18nProvider";
 import {
   createMiniApp,
   distillSession,
+  editMiniAppWithAssistant,
   generateExpectedResult,
   getDistillation,
   getMiniAppDraft,
@@ -11,14 +12,17 @@ import {
   putMiniAppDraft,
   releaseMiniApp,
   runMiniApp,
+  setMiniAppModelBinding,
   testMiniApp,
 } from "./api";
 import type {
+  MiniAppAuthoringTurn,
   MiniAppCatalogEntry,
   MiniAppCondition,
   MiniAppDocument,
   MiniAppInput,
   MiniAppRun,
+  MiniAppStep,
   SourceEvidence,
 } from "./types";
 
@@ -83,6 +87,80 @@ function blankMiniApp(): MiniAppDocument {
       persist_agent_reasoning: false,
     },
   };
+}
+
+function nextPortableID(prefix: string, existing: string[]) {
+  const used = new Set(existing);
+  let index = existing.length + 1;
+  while (used.has(`${prefix}-${index}`)) {
+    index += 1;
+  }
+  return `${prefix}-${index}`;
+}
+
+function newMiniAppInput(
+  existing: MiniAppInput[],
+  title: string,
+): MiniAppInput {
+  const id = nextPortableID(
+    "input",
+    existing.map((input) => input.id),
+  );
+  return {
+    id,
+    type: "string",
+    title,
+    ui: { control: "text", order: existing.length + 1 },
+  };
+}
+
+function newMiniAppStep(
+  existing: MiniAppStep[],
+  kind = "program",
+  title = "Step",
+): MiniAppStep {
+  const id = nextPortableID(
+    "step",
+    existing.map((step) => step.id),
+  );
+  const base = { id, kind, title };
+  switch (kind) {
+    case "program":
+      return {
+        ...base,
+        language: "foxxy-vm/1",
+        entry: "main",
+        functions: {
+          main: [{ op: "const", arg: "Edit this step." }, { op: "return" }],
+        },
+        limits: { instructions: 100, stack_depth: 16, call_depth: 4 },
+      };
+    case "script":
+      return { ...base, script_language: "python", script: "print('result')" };
+    case "command":
+      return { ...base, command: "echo", args: ["result"] };
+    case "agent":
+      return {
+        ...base,
+        prompt: "Produce the declared result.",
+        model_binding: "primary",
+      };
+    case "api":
+      return {
+        ...base,
+        request: { method: "GET", url: "https://api.example.com" },
+      };
+    case "file":
+      return { ...base, operation: "read", path: { $ref: "inputs.path" } };
+    case "confirm":
+      return { ...base, message: "Allow this operation?" };
+    case "branch":
+      return { ...base, then: [], else: [] };
+    case "miniapp":
+      return { ...base, app_id: "other-app", app_version: "1.0.0" };
+    default:
+      return base;
+  }
 }
 
 function inputValue(
@@ -176,6 +254,7 @@ export function MiniAppsWorkspace(props: {
   open: boolean;
   currentSessionId: string;
   distillRequestEpoch?: number;
+  availableModels?: string[];
   onClose: () => void;
 }) {
   const { t } = useT();
@@ -196,11 +275,40 @@ export function MiniAppsWorkspace(props: {
   const [runResult, setRunResult] = useState<MiniAppRun | null>(null);
   const [releaseVersion, setReleaseVersion] = useState("1.0.0");
   const [source, setSource] = useState<SourceEvidence | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState("");
+  const [stepJSON, setStepJSON] = useState("");
+  const [authoringMessage, setAuthoringMessage] = useState("");
+  const [authoringHistory, setAuthoringHistory] = useState<
+    MiniAppAuthoringTurn[]
+  >([]);
+  const [authoringOperations, setAuthoringOperations] = useState<string[]>([]);
+  const [authoringBusy, setAuthoringBusy] = useState(false);
   const lastDistillRequestRef = useRef(0);
   const selectedEntry = useMemo(
     () => items.find((item) => item.id === selectedId),
     [items, selectedId],
   );
+  const selectedStepIndex = useMemo(
+    () => draft?.workflow.findIndex((step) => step.id === selectedStepId) ?? -1,
+    [draft?.workflow, selectedStepId],
+  );
+  const selectedStep =
+    draft && selectedStepIndex >= 0
+      ? draft.workflow[selectedStepIndex]
+      : undefined;
+  const selectedLogicalModel =
+    draft?.requirements?.model_bindings?.find(
+      (binding) => binding.id === "primary",
+    )?.logical_model ||
+    draft?.requirements?.model_bindings?.[0]?.logical_model ||
+    "";
+  const modelOptions = useMemo(() => {
+    const choices = new Set(props.availableModels || []);
+    if (selectedLogicalModel) {
+      choices.add(selectedLogicalModel);
+    }
+    return [...choices];
+  }, [props.availableModels, selectedLogicalModel]);
 
   const refresh = useCallback(
     async (search = query) => {
@@ -241,6 +349,11 @@ export function MiniAppsWorkspace(props: {
     setConfirmations({});
     setRunResult(null);
     setMode("form");
+    const firstStep = normalized.workflow[0];
+    setSelectedStepId(firstStep?.id || "");
+    setStepJSON(firstStep ? JSON.stringify(firstStep, null, 2) : "");
+    setAuthoringHistory([]);
+    setAuthoringOperations([]);
   }, []);
 
   const save = useCallback(async () => {
@@ -465,6 +578,124 @@ export function MiniAppsWorkspace(props: {
     });
   };
 
+  const addInput = () => {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            inputs: [
+              ...current.inputs,
+              newMiniAppInput(current.inputs, t("miniapps.newInputTitle")),
+            ],
+          }
+        : current,
+    );
+  };
+
+  const removeInputAt = (index: number) => {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            inputs: current.inputs.filter(
+              (_, currentIndex) => currentIndex !== index,
+            ),
+          }
+        : current,
+    );
+  };
+
+  const selectStep = (step: MiniAppStep) => {
+    setSelectedStepId(step.id);
+    setStepJSON(JSON.stringify(step, null, 2));
+  };
+
+  const addStep = () => {
+    if (!draft) {
+      return;
+    }
+    const step = newMiniAppStep(
+      draft.workflow,
+      "program",
+      t("miniapps.newStepTitle"),
+    );
+    setDraft({ ...draft, workflow: [...draft.workflow, step] });
+    selectStep(step);
+  };
+
+  const removeStepAt = (index: number) => {
+    if (!draft || draft.workflow.length <= 1) {
+      return;
+    }
+    const workflow = draft.workflow.filter(
+      (_, currentIndex) => currentIndex !== index,
+    );
+    const fallback = workflow[Math.min(index, workflow.length - 1)];
+    setDraft({ ...draft, workflow });
+    if (draft.workflow[index]?.id === selectedStepId && fallback) {
+      selectStep(fallback);
+    }
+  };
+
+  const updateSelectedStep = (patch: Partial<MiniAppStep>) => {
+    if (!draft || selectedStepIndex < 0) {
+      return;
+    }
+    const current = draft.workflow[selectedStepIndex];
+    const next = { ...current, ...patch };
+    const workflow = draft.workflow.map((step, index) =>
+      index === selectedStepIndex ? next : step,
+    );
+    setDraft({ ...draft, workflow });
+    if (patch.id && patch.id !== selectedStepId) {
+      setSelectedStepId(patch.id);
+    }
+    setStepJSON(JSON.stringify(next, null, 2));
+  };
+
+  const changeSelectedStepKind = (kind: string) => {
+    if (!draft || !selectedStep) {
+      return;
+    }
+    const template = newMiniAppStep(
+      draft.workflow.filter((step) => step.id !== selectedStep.id),
+      kind,
+    );
+    updateSelectedStep({
+      ...template,
+      id: selectedStep.id,
+      title: selectedStep.title,
+    });
+  };
+
+  const applyStepJSON = () => {
+    if (!draft || selectedStepIndex < 0) {
+      return;
+    }
+    try {
+      const next = JSON.parse(stepJSON) as MiniAppStep;
+      if (!next.id || !next.kind || !next.title) {
+        throw new Error(t("miniapps.stepRequiredFields"));
+      }
+      const workflow = draft.workflow.map((step, index) =>
+        index === selectedStepIndex ? next : step,
+      );
+      setDraft({ ...draft, workflow });
+      setSelectedStepId(next.id);
+      setStepJSON(JSON.stringify(next, null, 2));
+      setError("");
+    } catch (parseError) {
+      setError(
+        t("miniapps.invalidJson", {
+          message:
+            parseError instanceof Error
+              ? parseError.message
+              : String(parseError),
+        }),
+      );
+    }
+  };
+
   const updateSuccess = (
     key: "expectations" | "expected_result" | "acceptance_criterion",
     value: string,
@@ -513,6 +744,76 @@ export function MiniAppsWorkspace(props: {
     setNotice(t("miniapps.expectedResultGenerated"));
     void refresh();
   }, [draft, refresh, t]);
+
+  const selectLogicalModel = useCallback(
+    async (modelRef: string) => {
+      if (!draft || !modelRef) {
+        return;
+      }
+      setBusy(true);
+      setError("");
+      const result = await setMiniAppModelBinding(draft, modelRef);
+      setBusy(false);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      const normalized = normalizeMiniAppDocument(result.data);
+      setDraft(normalized);
+      setRaw(JSON.stringify(normalized, null, 2));
+      const step = normalized.workflow.find(
+        (candidate) => candidate.id === selectedStepId,
+      );
+      if (step) {
+        setStepJSON(JSON.stringify(step, null, 2));
+      }
+      setNotice(t("miniapps.modelSaved", { model: modelRef }));
+    },
+    [draft, selectedStepId, t],
+  );
+
+  const sendAuthoringMessage = useCallback(async () => {
+    const message = authoringMessage.trim();
+    if (!draft || !message) {
+      return;
+    }
+    setAuthoringBusy(true);
+    setError("");
+    const previousHistory = authoringHistory;
+    setAuthoringHistory((current) => [
+      ...current,
+      { role: "user", content: message },
+    ]);
+    setAuthoringMessage("");
+    const result = await editMiniAppWithAssistant(
+      draft,
+      message,
+      previousHistory,
+    );
+    setAuthoringBusy(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    const normalized = normalizeMiniAppDocument(result.data.app);
+    setDraft(normalized);
+    setRaw(JSON.stringify(normalized, null, 2));
+    setAuthoringHistory((current) => [
+      ...current,
+      { role: "assistant", content: result.data.message },
+    ]);
+    setAuthoringOperations(result.data.operations || []);
+    const step =
+      normalized.workflow.find(
+        (candidate) => candidate.id === selectedStepId,
+      ) || normalized.workflow[0];
+    if (step) {
+      setSelectedStepId(step.id);
+      setStepJSON(JSON.stringify(step, null, 2));
+    }
+    setNotice(t("miniapps.assistantUpdated"));
+    void refresh();
+  }, [authoringHistory, authoringMessage, draft, refresh, selectedStepId, t]);
 
   const filteredItems = useMemo(() => items, [items]);
 
@@ -629,18 +930,74 @@ export function MiniAppsWorkspace(props: {
                   </button>
                 ))}
               </div>
+              <div className="miniapps-model-bar">
+                <label>
+                  {t("miniapps.logicalModel")}
+                  <select
+                    aria-label={t("miniapps.logicalModel")}
+                    value={selectedLogicalModel}
+                    disabled={busy || modelOptions.length === 0}
+                    onChange={(event) =>
+                      void selectLogicalModel(event.target.value)
+                    }
+                  >
+                    {modelOptions.length === 0 ? (
+                      <option value="">{t("miniapps.noModels")}</option>
+                    ) : selectedLogicalModel ? null : (
+                      <option value="">{t("miniapps.chooseModel")}</option>
+                    )}
+                    {modelOptions.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span>{t("miniapps.logicalModelDescription")}</span>
+              </div>
 
               {mode === "form" ? (
                 <div className="miniapps-authoring">
                   <aside className="miniapps-step-nav">
-                    <h3>
-                      {t("miniapps.steps", { count: draft.workflow.length })}
-                    </h3>
+                    <div className="miniapps-section-head">
+                      <h3>
+                        {t("miniapps.steps", { count: draft.workflow.length })}
+                      </h3>
+                      <button
+                        type="button"
+                        className="miniapps-icon-action"
+                        onClick={addStep}
+                      >
+                        {t("miniapps.addStep")}
+                      </button>
+                    </div>
                     {draft.workflow.map((step, index) => (
-                      <div key={step.id}>
-                        <span>{index + 1}</span>
-                        <b>{step.kind}</b>
-                        <small>{step.title}</small>
+                      <div
+                        className={`miniapps-step-row${
+                          selectedStepId === step.id ? " is-active" : ""
+                        }`}
+                        key={step.id}
+                      >
+                        <button
+                          type="button"
+                          className="miniapps-step-select"
+                          onClick={() => selectStep(step)}
+                        >
+                          <span>{index + 1}</span>
+                          <b>{step.kind}</b>
+                          <small>{step.title}</small>
+                        </button>
+                        <button
+                          type="button"
+                          className="miniapps-remove-action"
+                          aria-label={t("miniapps.removeStep", {
+                            title: step.title,
+                          })}
+                          disabled={draft.workflow.length <= 1}
+                          onClick={() => removeStepAt(index)}
+                        >
+                          ×
+                        </button>
                       </div>
                     ))}
                     {source ? (
@@ -694,10 +1051,95 @@ export function MiniAppsWorkspace(props: {
                         }
                       />
                     </label>
+                    {selectedStep ? (
+                      <section className="miniapps-step-editor">
+                        <div className="miniapps-section-head">
+                          <h3>{t("miniapps.editStep")}</h3>
+                          <span>{selectedStep.id}</span>
+                        </div>
+                        <div className="miniapps-step-fields">
+                          <label>
+                            {t("miniapps.stepId")}
+                            <input
+                              value={selectedStep.id}
+                              onChange={(event) =>
+                                updateSelectedStep({ id: event.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            {t("miniapps.stepTitle")}
+                            <input
+                              value={selectedStep.title}
+                              onChange={(event) =>
+                                updateSelectedStep({
+                                  title: event.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          <label>
+                            {t("miniapps.stepKind")}
+                            <select
+                              value={selectedStep.kind}
+                              onChange={(event) =>
+                                changeSelectedStepKind(event.target.value)
+                              }
+                            >
+                              {[
+                                "input",
+                                "program",
+                                "script",
+                                "command",
+                                "agent",
+                                "api",
+                                "mcp",
+                                "skill",
+                                "file",
+                                "confirm",
+                                "branch",
+                                "miniapp",
+                              ].map((kind) => (
+                                <option key={kind} value={kind}>
+                                  {kind}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        <label>
+                          {t("miniapps.stepJson")}
+                          <textarea
+                            className="miniapps-step-json"
+                            value={stepJSON}
+                            spellCheck={false}
+                            onChange={(event) =>
+                              setStepJSON(event.target.value)
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="scheduler-btn"
+                          onClick={applyStepJSON}
+                        >
+                          {t("miniapps.applyStepJson")}
+                        </button>
+                      </section>
+                    ) : null}
                     <section className="miniapps-input-editor">
-                      <h3>
-                        {t("miniapps.inputs", { count: draft.inputs.length })}
-                      </h3>
+                      <div className="miniapps-section-head">
+                        <h3>
+                          {t("miniapps.inputs", { count: draft.inputs.length })}
+                        </h3>
+                        <button
+                          type="button"
+                          className="miniapps-icon-action"
+                          onClick={addInput}
+                        >
+                          {t("miniapps.addInput")}
+                        </button>
+                      </div>
                       {draft.inputs.map((input, index) => (
                         <div
                           className="miniapps-input-row"
@@ -755,6 +1197,16 @@ export function MiniAppsWorkspace(props: {
                             />
                             {t("miniapps.required")}
                           </label>
+                          <button
+                            type="button"
+                            className="miniapps-remove-action"
+                            aria-label={t("miniapps.removeInput", {
+                              title: input.title,
+                            })}
+                            onClick={() => removeInputAt(index)}
+                          >
+                            ×
+                          </button>
                         </div>
                       ))}
                     </section>
@@ -812,6 +1264,77 @@ export function MiniAppsWorkspace(props: {
                       </label>
                     </section>
                   </div>
+                  <aside
+                    className="miniapps-assistant"
+                    aria-label={t("miniapps.assistant")}
+                  >
+                    <header>
+                      <strong>{t("miniapps.assistant")}</strong>
+                      <span>{t("miniapps.assistantDescription")}</span>
+                    </header>
+                    <div
+                      className="miniapps-assistant-history"
+                      aria-live="polite"
+                    >
+                      {authoringHistory.length === 0 ? (
+                        <p>{t("miniapps.assistantEmpty")}</p>
+                      ) : null}
+                      {authoringHistory.map((turn, index) => (
+                        <div
+                          className={`miniapps-assistant-turn is-${turn.role}`}
+                          key={`${turn.role}-${index}`}
+                        >
+                          <small>
+                            {turn.role === "user"
+                              ? t("miniapps.operator")
+                              : t("miniapps.assistant")}
+                          </small>
+                          <p>{turn.content}</p>
+                        </div>
+                      ))}
+                      {authoringOperations.length > 0 ? (
+                        <details>
+                          <summary>
+                            {t("miniapps.operations", {
+                              count: authoringOperations.length,
+                            })}
+                          </summary>
+                          <ul>
+                            {authoringOperations.map((operation) => (
+                              <li key={operation}>{operation}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </div>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void sendAuthoringMessage();
+                      }}
+                    >
+                      <label>
+                        {t("miniapps.assistantMessage")}
+                        <textarea
+                          aria-label={t("miniapps.assistantMessage")}
+                          value={authoringMessage}
+                          placeholder={t("miniapps.assistantPlaceholder")}
+                          onChange={(event) =>
+                            setAuthoringMessage(event.target.value)
+                          }
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        className="scheduler-btn scheduler-btn-primary"
+                        disabled={authoringBusy || !authoringMessage.trim()}
+                      >
+                        {authoringBusy
+                          ? t("miniapps.assistantWorking")
+                          : t("miniapps.send")}
+                      </button>
+                    </form>
+                  </aside>
                 </div>
               ) : null}
 

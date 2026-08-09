@@ -761,6 +761,37 @@ acceptance criterion, fixed model binding, and executable prompt success check
 in canonical JSON. Runtime verification MUST return a structured verdict and
 MUST NOT expose or persist model reasoning.
 
+### FR-EDIT-012 — Logical-model selection
+
+The editor MUST show the configured logical model ids above every editable
+draft. Selecting a model MUST resolve and store its exact fixed provider/model
+binding as `primary`. Every agent step, model-assisted success check,
+expected-result generation, and authoring-assistant request MUST use that
+binding. The runtime MUST NOT silently substitute another logical model.
+
+### FR-EDIT-013 — Manual input and step CRUD
+
+The structured editor MUST provide explicit add and remove actions for
+`inputs[]` and top-level `workflow[]` steps. A selected step MUST expose its
+id, title, kind, and complete editable step JSON. Removing the final workflow
+step MUST be prevented.
+
+### FR-EDIT-014 — Bounded authoring tools
+
+The authoring assistant MUST mutate an in-memory draft only through declared
+mini-app tools for reading the document, changing metadata, adding/replacing or
+removing inputs and steps, and replacing the editable document. Each request
+MUST have finite model-round and operation limits. The complete result MUST
+validate before it is atomically saved. Provider reasoning and raw tool payloads
+MUST NOT be returned to the authoring UI or embedded into the mini app.
+
+### FR-EDIT-015 — Full-surface workspace
+
+In browser and desktop modes the mini-app workspace MUST use the full available
+shell surface rather than a fixed-width sheet. The three authoring regions MAY
+reflow below 1200px but MUST remain accessible without horizontal page
+overflow.
+
 ## 14. Release and versioning
 
 ### FR-RELEASE-001 — Lifecycle

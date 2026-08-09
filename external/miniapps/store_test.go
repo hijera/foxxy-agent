@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -136,5 +137,46 @@ func TestRunnerUsesSelectedLocalRunRoot(t *testing.T) {
 	expected := filepath.Join(workspace, ".foxxycode", "apps", app.ID, "runs", run.ID, "run.json")
 	if _, err := os.Stat(expected); err != nil {
 		t.Fatalf("local run was not persisted at %s: %v", expected, err)
+	}
+}
+
+func TestDistillationStatusSupportsConcurrentReadersAndWriter(t *testing.T) {
+	store := NewStore(t.TempDir())
+	job := DistillationJob{
+		ID: "distill-concurrent", SessionID: "session-concurrent",
+		Status: DistillationAnalyzing, Phase: "analyzing_session",
+	}
+	if err := store.SaveDistillation(job); err != nil {
+		t.Fatal(err)
+	}
+
+	const iterations = 100
+	errs := make(chan error, iterations*5)
+	var wg sync.WaitGroup
+	wg.Add(5)
+	go func() {
+		defer wg.Done()
+		for index := 0; index < iterations; index++ {
+			next := job
+			next.Progress = index
+			if err := store.SaveDistillation(next); err != nil {
+				errs <- err
+			}
+		}
+	}()
+	for reader := 0; reader < 4; reader++ {
+		go func() {
+			defer wg.Done()
+			for index := 0; index < iterations; index++ {
+				if _, err := store.GetDistillation(job.ID); err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent distillation persistence: %v", err)
 	}
 }

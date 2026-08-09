@@ -58,7 +58,7 @@ func BindingForConfiguredModel(cfg *config.Config, modelRef, id string) (*ModelB
 		scope = "local"
 	}
 	return &ModelBinding{
-		ID: id, Selection: "fixed",
+		ID: id, LogicalModel: entry.Model, Selection: "fixed",
 		Provider: ProviderIdentity{
 			Type: provider.Type, BaseURL: canonicalBaseURL(configuredProviderBaseURL(provider)), Scope: scope,
 		},
@@ -67,6 +67,34 @@ func BindingForConfiguredModel(cfg *config.Config, modelRef, id string) (*ModelB
 }
 
 func (e *ConfigModelExecutor) ExecuteModelStep(ctx context.Context, binding ModelBinding, prompt string) (any, error) {
+	provider, err := e.providerForBinding(ctx, binding)
+	if err != nil {
+		return nil, err
+	}
+	response, err := provider.Complete(ctx, []llm.Message{
+		{Role: llm.RoleSystem, Content: "Execute the reviewed mini-app step. Return only the declared operator result; never expose internal reasoning."},
+		{Role: llm.RoleUser, Content: prompt},
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return response.Content, nil
+}
+
+func (e *ConfigModelExecutor) CompleteDraftAuthoring(
+	ctx context.Context,
+	binding ModelBinding,
+	messages []llm.Message,
+	tools []llm.ToolDefinition,
+) (*llm.Response, error) {
+	provider, err := e.providerForBinding(ctx, binding)
+	if err != nil {
+		return nil, err
+	}
+	return provider.Complete(ctx, messages, tools)
+}
+
+func (e *ConfigModelExecutor) providerForBinding(ctx context.Context, binding ModelBinding) (llm.Provider, error) {
 	resolved, err := e.resolve(binding)
 	if err != nil {
 		return nil, err
@@ -82,14 +110,7 @@ func (e *ConfigModelExecutor) ExecuteModelStep(ctx context.Context, binding Mode
 	if err != nil {
 		return nil, err
 	}
-	response, err := provider.Complete(ctx, []llm.Message{
-		{Role: llm.RoleSystem, Content: "Execute the reviewed mini-app step. Return only the declared operator result; never expose internal reasoning."},
-		{Role: llm.RoleUser, Content: prompt},
-	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	return response.Content, nil
+	return provider, nil
 }
 
 func (e *ConfigModelExecutor) ensureLocalModel(ctx context.Context, binding ModelBinding, resolved *config.ResolvedLLM) error {

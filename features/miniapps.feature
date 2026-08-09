@@ -15,3 +15,12 @@ Feature: Distill and run a reusable mini app
     When I release the tested draft
     And I run released version "1.0.0" with the name "Operator"
     Then the released run succeeds with the text "Hello, Operator!"
+
+  Scenario: Select a logical model and edit a draft through authoring tools
+    Given a completed FoxxyCode session about formatting a greeting
+    When I distill the session into a mini app
+    And I replace the draft with a deterministic greeting workflow
+    And I select logical model "fake/reviewed-model" for the mini app
+    Then the draft uses logical model "fake/reviewed-model" for model steps
+    When I ask the mini app authoring assistant to add a style input and decoration step
+    Then the assistant tool edits are saved in the draft

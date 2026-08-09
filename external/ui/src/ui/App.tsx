@@ -4061,6 +4061,7 @@ export function App() {
           open={miniAppsOpen && miniAppsHttpLinked && !isEditorEmbed()}
           currentSessionId={sessionId}
           distillRequestEpoch={miniAppsDistillRequestEpoch}
+          availableModels={llmModelIds}
           onClose={() => setMiniAppsOpen(false)}
         />
 

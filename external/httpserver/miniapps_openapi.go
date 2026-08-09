@@ -30,6 +30,12 @@ func mergeOpenAPIMiniAppsDoc(doc *map[string]interface{}) {
 	paths["/foxxycode/miniapps/{id}/authoring/source"] = map[string]interface{}{
 		"get": miniAppOpenAPIOperation("Read private sanitized source-session evidence", "getMiniAppSourceEvidence", "MiniAppSourceEvidence", httpOK(), miniAppPathParameter("id")),
 	}
+	paths["/foxxycode/miniapps/{id}/model-binding"] = map[string]interface{}{
+		"post": miniAppOpenAPIOperationWithBody("Fix a configured logical model for every model-driven draft operation", "setMiniAppModelBinding", "MiniAppModelBindingRequest", "MiniApp", httpOK(), miniAppPathParameter("id")),
+	}
+	paths["/foxxycode/miniapps/{id}/authoring/chat"] = map[string]interface{}{
+		"post": miniAppOpenAPIOperationWithBody("Edit a draft through the bounded LLM authoring tool loop", "editMiniAppWithAssistant", "MiniAppAuthoringRequest", "MiniAppAuthoringResult", httpOK(), miniAppPathParameter("id")),
+	}
 	paths["/foxxycode/miniapps/{id}/expected-result"] = map[string]interface{}{
 		"post": miniAppOpenAPIOperationWithBody("Generate and store an LLM-authored expected-result contract", "generateMiniAppExpectedResult", "MiniAppExpectedResultRequest", "MiniAppExpectedResultGeneration", httpOK(), miniAppPathParameter("id")),
 	}
@@ -93,6 +99,43 @@ func mergeOpenAPIMiniAppsDoc(doc *map[string]interface{}) {
 			"draft":        map[string]interface{}{"$ref": "#/components/schemas/MiniApp"},
 		},
 		"required": []string{"expectations"},
+	}
+	schemas["MiniAppModelBindingRequest"] = map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"model_ref": map[string]interface{}{"type": "string"},
+			"draft":     map[string]interface{}{"$ref": "#/components/schemas/MiniApp"},
+		},
+		"required": []string{"model_ref"},
+	}
+	schemas["MiniAppAuthoringRequest"] = map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"message": map[string]interface{}{"type": "string"},
+			"history": map[string]interface{}{
+				"type": "array",
+				"items": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"role":    map[string]interface{}{"type": "string", "enum": []string{"user", "assistant"}},
+						"content": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"role", "content"},
+				},
+			},
+			"draft": map[string]interface{}{"$ref": "#/components/schemas/MiniApp"},
+		},
+		"required": []string{"message"},
+	}
+	schemas["MiniAppAuthoringResult"] = map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"app":           map[string]interface{}{"$ref": "#/components/schemas/MiniApp"},
+			"message":       map[string]interface{}{"type": "string"},
+			"operations":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"model_binding": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"app", "message", "operations", "model_binding"},
 	}
 	schemas["MiniAppRun"] = miniAppFreeObjectSchema()
 	schemas["MiniAppRunRequest"] = map[string]interface{}{

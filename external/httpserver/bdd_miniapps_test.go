@@ -39,10 +39,42 @@ type miniAppsFeatureState struct {
 
 type miniAppsBDDProvider struct{}
 
-func (p *miniAppsBDDProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+func (p *miniAppsBDDProvider) Complete(_ context.Context, messages []llm.Message, tools []llm.ToolDefinition) (*llm.Response, error) {
 	prompt := ""
 	if len(messages) > 0 {
 		prompt = messages[len(messages)-1].Content
+	}
+	if len(tools) > 0 {
+		if len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleTool {
+			return &llm.Response{
+				Content:    "Added the style input and decoration step.",
+				StopReason: "end_turn",
+			}, nil
+		}
+		inputJSON, _ := json.Marshal(map[string]any{
+			"input": miniapps.Input{
+				ID: "style", Type: "string", Title: "Style",
+				UI: miniapps.InputUI{Control: "text", Order: 20},
+			},
+		})
+		stepJSON, _ := json.Marshal(map[string]any{
+			"step": miniapps.Step{
+				ID: "decorate", Kind: "program", Title: "Apply style",
+				Language: miniapps.VMVersion, Entry: "main",
+				Functions: map[string][]miniapps.Instruction{"main": {
+					{Op: "ref.get", Arg: "inputs.style"},
+					{Op: "return"},
+				}},
+				Limits: miniapps.ProgramLimits{Instructions: 100, StackDepth: 16, CallDepth: 4},
+			},
+		})
+		return &llm.Response{
+			ToolCalls: []llm.ToolCall{
+				{ID: "tool-input", Name: "miniapp_upsert_input", InputJSON: string(inputJSON)},
+				{ID: "tool-step", Name: "miniapp_upsert_step", InputJSON: string(stepJSON)},
+			},
+			StopReason: "tool_use",
+		}, nil
 	}
 	content := `{"passed":true,"reason":"The supplied name is present."}`
 	if strings.Contains(prompt, "Create a concise, reusable result contract") {
@@ -262,6 +294,75 @@ func (s *miniAppsFeatureState) draftHasExpectedResult() error {
 	return fmt.Errorf("draft has no model-verified prompt check: %#v", app.Success.Checks)
 }
 
+func (s *miniAppsFeatureState) selectLogicalModel(model string) error {
+	if err := s.request(
+		http.MethodPost,
+		"/foxxycode/miniapps/"+s.appID+"/model-binding",
+		map[string]any{"model_ref": model},
+	); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("model-binding status %d: %s", s.status, s.response)
+	}
+	return nil
+}
+
+func (s *miniAppsFeatureState) draftUsesLogicalModel(model string) error {
+	var app miniapps.MiniApp
+	if err := json.Unmarshal(s.response, &app); err != nil {
+		return err
+	}
+	for _, binding := range app.Requirements.ModelBindings {
+		if binding.ID == "primary" && binding.LogicalModel == model {
+			return nil
+		}
+	}
+	return fmt.Errorf("primary logical model %q was not saved: %#v", model, app.Requirements.ModelBindings)
+}
+
+func (s *miniAppsFeatureState) askAuthoringAssistant() error {
+	if err := s.request(
+		http.MethodPost,
+		"/foxxycode/miniapps/"+s.appID+"/authoring/chat",
+		map[string]any{"message": "Add a style input and a decoration step."},
+	); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("authoring chat status %d: %s", s.status, s.response)
+	}
+	return nil
+}
+
+func (s *miniAppsFeatureState) assistantToolEditsSaved() error {
+	var result miniapps.AuthoringResult
+	if err := json.Unmarshal(s.response, &result); err != nil {
+		return err
+	}
+	if result.Message == "" || len(result.Operations) != 2 {
+		return fmt.Errorf("unexpected authoring result: %#v", result)
+	}
+	hasInput, hasStep := false, false
+	for _, input := range result.App.Inputs {
+		hasInput = hasInput || input.ID == "style"
+	}
+	for _, step := range result.App.Workflow {
+		hasStep = hasStep || step.ID == "decorate"
+	}
+	if !hasInput || !hasStep {
+		return fmt.Errorf("assistant edits are missing: inputs=%#v workflow=%#v", result.App.Inputs, result.App.Workflow)
+	}
+	stored, err := s.server.miniAppStore().GetDraft(s.appID)
+	if err != nil {
+		return err
+	}
+	if stored.Revision != result.App.Revision {
+		return fmt.Errorf("assistant result was not saved")
+	}
+	return nil
+}
+
 func (s *miniAppsFeatureState) runHasText(text string) error {
 	if s.status != http.StatusOK {
 		return fmt.Errorf("run status %d: %s", s.status, s.response)
@@ -347,6 +448,10 @@ func initializeMiniAppsScenario(scenario *godog.ScenarioContext) {
 	scenario.Step(`^I replace the draft with a deterministic greeting workflow$`, state.replaceDraft)
 	scenario.Step(`^I generate an expected result for "([^"]+)"$`, state.generateExpectedResult)
 	scenario.Step(`^the draft contains a model-verified expected result$`, state.draftHasExpectedResult)
+	scenario.Step(`^I select logical model "([^"]+)" for the mini app$`, state.selectLogicalModel)
+	scenario.Step(`^the draft uses logical model "([^"]+)" for model steps$`, state.draftUsesLogicalModel)
+	scenario.Step(`^I ask the mini app authoring assistant to add a style input and decoration step$`, state.askAuthoringAssistant)
+	scenario.Step(`^the assistant tool edits are saved in the draft$`, state.assistantToolEditsSaved)
 	scenario.Step(`^I test the draft with the name "([^"]+)"$`, state.testWithName)
 	scenario.Step(`^the test run succeeds with the text "([^"]+)"$`, state.runHasText)
 	scenario.Step(`^I release the tested draft$`, state.releaseDraft)

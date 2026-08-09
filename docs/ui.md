@@ -77,14 +77,17 @@ Narrow-rail tooltips (desktop)
 
 ## Mini apps (**`-tags=http,ui,miniapps`**)
 
-- `MiniAppsWorkspace` owns catalog search, current-session distillation, JSON import/export, structured editing, generated operator controls, test run, release, and exact-version execution.
+- `MiniAppsWorkspace` fills the available shell surface and owns catalog search, current-session distillation, JSON import/export, structured editing, generated operator controls, test run, release, and exact-version execution.
 - A non-empty, idle chat exposes **Create mini app** in `ChatHeader`. It opens the workspace and triggers distillation for the currently selected session without requiring a second toolbar click.
 - Distillation opens an editable draft and shows sanitized source-session evidence beside the generated step list. Source evidence is authoring-only.
 - The acceptance section stores author expectations and can generate a reusable expected result plus LLM acceptance criterion. Generation saves the updated draft; test and released runs evaluate the resulting prompt check without rendering model reasoning.
+- The editor exposes explicit add/remove actions for operator inputs and workflow steps. Selecting a step opens id/title/kind controls and its complete step JSON.
+- The logical-model selector lists configured YAML model ids. Selection stores the exact `primary` provider/model binding and applies it to agent steps, prompt checks, expected-result generation, and authoring chat.
+- The authoring chat uses only bounded mini-app read/update/add/remove/replace tools. A successful tool loop is validated and atomically saved; the UI shows the assistant summary and operation names, never provider reasoning or raw tool payloads.
 - Input controls support the schema v1 types plus enum choices, validation, conditional visibility/enabled/required rules, and explicit operator confirmations.
 - The JSON tab is the escape hatch for every workflow field and `foxxy-vm/1` instruction. Saving replaces the current draft revision and invalidates its prior passing-test gate.
 - The Run tab displays only declared outputs and safe terminal status. Reasoning and raw tool events are never rendered.
-- On viewports below 1200px the catalog and editor stack; narrow phones use a horizontally scrolling catalog strip.
+- Below 1200px the authoring assistant moves under the step navigator and form; below 900px authoring becomes one column; narrow phones stack the catalog above the editor.
 
 ## Sessions
 

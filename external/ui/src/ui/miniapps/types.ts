@@ -41,6 +41,25 @@ export type MiniAppStep = {
   [key: string]: unknown;
 };
 
+export type MiniAppModelBinding = {
+  id: string;
+  logical_model?: string;
+  selection: "fixed" | "capability";
+  provider?: {
+    type?: string;
+    base_url?: string;
+    scope?: string;
+    adapter?: string;
+  };
+  model?: string;
+  [key: string]: unknown;
+};
+
+export type MiniAppRequirements = {
+  model_bindings?: MiniAppModelBinding[];
+  [key: string]: unknown;
+};
+
 export type MiniAppSuccess = {
   mode: "all" | "any";
   expectations?: string;
@@ -69,7 +88,7 @@ export type MiniAppDocument = {
     tags?: string[];
     archived?: boolean;
   };
-  requirements?: Record<string, unknown>;
+  requirements?: MiniAppRequirements;
   permissions?: Record<string, unknown>;
   inputs: MiniAppInput[];
   workflow: MiniAppStep[];
@@ -119,4 +138,16 @@ export type ExpectedResultGeneration = {
     acceptance_criterion: string;
     model_binding: string;
   };
+};
+
+export type MiniAppAuthoringTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type MiniAppAuthoringResult = {
+  app: MiniAppDocument;
+  message: string;
+  operations: string[];
+  model_binding: string;
 };

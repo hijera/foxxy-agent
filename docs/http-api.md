@@ -105,6 +105,8 @@ Mini-app routes and their OpenAPI schemas do not exist in a plain **`http`** bui
 | GET/PATCH | `/foxxycode/miniapps/{id}` | Reads catalog metadata or changes editable metadata/archive state. |
 | GET/PUT | `/foxxycode/miniapps/{id}/draft` | Reads or atomically replaces the current unversioned draft. Any change invalidates its passing-test gate. |
 | GET | `/foxxycode/miniapps/{id}/authoring/source` | Reads sanitized private source-session evidence used by the distillation editor. |
+| POST | `/foxxycode/miniapps/{id}/model-binding` | Accepts **`{"model_ref":"provider/logical-model","draft":{...}}`**, resolves that exact configured logical model into a portable fixed provider/model binding, applies binding **`primary`** to every agent step and prompt check, and saves the draft. |
+| POST | `/foxxycode/miniapps/{id}/authoring/chat` | Accepts **`{"message":"...","history":[...],"draft":{...}}`**, runs the selected primary model through a bounded mini-app authoring tool loop, validates and atomically saves the resulting draft, and returns the safe assistant summary plus applied operation names. Provider reasoning and raw tool payloads are not returned. |
 | POST | `/foxxycode/miniapps/{id}/expected-result` | Accepts **`{"expectations":"...","draft":{...}}`**, asks the draft's fixed model or configured default model for a reusable expected result and acceptance criterion, adds an executable prompt check, saves the draft, and returns **`{"app":...,"suggestion":...}`**. |
 | POST | `/foxxycode/miniapps/{id}/validate` | Runs semantic validation, including the bounded **`foxxy-vm/1`** program verifier. |
 | POST | `/foxxycode/miniapps/{id}/sanitize` | Runs the mandatory release sanitization check. |

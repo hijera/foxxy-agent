@@ -1,6 +1,8 @@
 import type {
   DistillationJob,
   ExpectedResultGeneration,
+  MiniAppAuthoringResult,
+  MiniAppAuthoringTurn,
   MiniAppCatalogEntry,
   MiniAppDocument,
   MiniAppRun,
@@ -114,6 +116,35 @@ export async function generateExpectedResult(
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify({ expectations, draft: app }),
+    },
+  );
+}
+
+export async function setMiniAppModelBinding(
+  app: MiniAppDocument,
+  modelRef: string,
+): Promise<APIResult<MiniAppDocument>> {
+  return request(
+    `/foxxycode/miniapps/${encodeURIComponent(app.id)}/model-binding`,
+    {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ model_ref: modelRef, draft: app }),
+    },
+  );
+}
+
+export async function editMiniAppWithAssistant(
+  app: MiniAppDocument,
+  message: string,
+  history: MiniAppAuthoringTurn[],
+): Promise<APIResult<MiniAppAuthoringResult>> {
+  return request(
+    `/foxxycode/miniapps/${encodeURIComponent(app.id)}/authoring/chat`,
+    {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ message, history, draft: app }),
     },
   );
 }

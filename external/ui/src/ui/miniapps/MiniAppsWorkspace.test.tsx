@@ -90,6 +90,233 @@ test("workspace separates catalog, workflow editor, and generated runner", async
   );
 });
 
+test("author can add and remove inputs and workflow steps", async () => {
+  const app = {
+    schema_version: "1.0.0",
+    kind: "foxxycode.miniapp",
+    id: "greeting-app",
+    state: "draft",
+    metadata: {
+      name: "Greeting app",
+      description: "Formats a greeting.",
+      goal: "Return a greeting.",
+    },
+    inputs: [
+      {
+        id: "name",
+        type: "string",
+        title: "Name",
+        required: true,
+        ui: { control: "text" },
+      },
+    ],
+    workflow: [{ id: "format-step", kind: "program", title: "Format" }],
+    success: { mode: "all", checks: [] },
+    outputs: [],
+    runtime: { persist_agent_reasoning: false },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/foxxycode/miniapps") {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: app.id,
+                name: app.metadata.name,
+                description: app.metadata.description,
+                state: app.state,
+                updated_at: "2026-07-28T00:00:00Z",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (path.endsWith("/greeting-app/draft")) {
+        return new Response(JSON.stringify(app), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }),
+  );
+
+  render(<MiniAppsWorkspace open currentSessionId="" onClose={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Greeting app/ }));
+
+  fireEvent.click(await screen.findByRole("button", { name: "Add input" }));
+  expect(screen.getAllByLabelText("Input id")).toHaveLength(2);
+  fireEvent.click(screen.getByRole("button", { name: "Remove input Name" }));
+  expect(screen.getAllByLabelText("Input id")).toHaveLength(1);
+
+  fireEvent.click(screen.getByRole("button", { name: "Add step" }));
+  expect(screen.getByText("Steps (2)")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Remove step Format" }));
+  expect(screen.getByText("Steps (1)")).toBeTruthy();
+});
+
+test("selected logical model is saved and authoring chat applies tool edits", async () => {
+  let app = {
+    schema_version: "1.0.0",
+    kind: "foxxycode.miniapp",
+    id: "greeting-app",
+    state: "draft",
+    metadata: {
+      name: "Greeting app",
+      description: "Formats a greeting.",
+      goal: "Return a greeting.",
+    },
+    requirements: {
+      model_bindings: [
+        {
+          id: "primary",
+          logical_model: "fake/original-model",
+          selection: "fixed",
+          provider: {
+            type: "openai",
+            base_url: "https://example.invalid/v1",
+          },
+          model: "original-model",
+        },
+      ],
+    },
+    permissions: { models: ["primary"] },
+    inputs: [],
+    workflow: [
+      {
+        id: "agent-step",
+        kind: "agent",
+        title: "Draft response",
+        model_binding: "primary",
+        prompt: "Write a response.",
+      },
+    ],
+    success: { mode: "all", checks: [] },
+    outputs: [],
+    runtime: { persist_agent_reasoning: false },
+  };
+  const requests: Array<{ path: string; body: unknown }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (init?.method === "POST") {
+        requests.push({ path, body });
+      }
+      if (path === "/foxxycode/miniapps" && !init?.method) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: app.id,
+                name: app.metadata.name,
+                description: app.metadata.description,
+                state: app.state,
+                updated_at: "2026-07-28T00:00:00Z",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (path.endsWith("/greeting-app/draft")) {
+        return new Response(JSON.stringify(app), { status: 200 });
+      }
+      if (
+        path.endsWith("/greeting-app/model-binding") &&
+        init?.method === "POST"
+      ) {
+        app = {
+          ...app,
+          requirements: {
+            model_bindings: [
+              {
+                id: "primary",
+                logical_model: "fake/reviewed-model",
+                selection: "fixed",
+                provider: {
+                  type: "openai",
+                  base_url: "https://example.invalid/v1",
+                },
+                model: "reviewed-model",
+              },
+            ],
+          },
+        };
+        return new Response(JSON.stringify(app), { status: 200 });
+      }
+      if (
+        path.endsWith("/greeting-app/authoring/chat") &&
+        init?.method === "POST"
+      ) {
+        app = {
+          ...app,
+          inputs: [
+            {
+              id: "style",
+              type: "string",
+              title: "Style",
+              ui: { control: "text" },
+            },
+          ],
+          workflow: [
+            ...app.workflow,
+            { id: "decorate", kind: "program", title: "Decorate" },
+          ],
+        };
+        return new Response(
+          JSON.stringify({
+            app,
+            message: "Added the Style input and Decorate step.",
+            operations: ["upsert_input:style", "upsert_step:decorate"],
+            model_binding: "primary",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 404 });
+    }),
+  );
+
+  render(
+    <MiniAppsWorkspace
+      open
+      currentSessionId=""
+      availableModels={["fake/original-model", "fake/reviewed-model"]}
+      onClose={() => {}}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: /Greeting app/ }));
+
+  fireEvent.change(await screen.findByLabelText("Logical model"), {
+    target: { value: "fake/reviewed-model" },
+  });
+  await waitFor(() =>
+    expect(requests).toContainEqual({
+      path: "/foxxycode/miniapps/greeting-app/model-binding",
+      body: expect.objectContaining({ model_ref: "fake/reviewed-model" }),
+    }),
+  );
+
+  fireEvent.change(screen.getByLabelText("Authoring assistant message"), {
+    target: { value: "Add a Style input and a Decorate step." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+  await screen.findByText("Added the Style input and Decorate step.");
+  expect(screen.getByDisplayValue("style")).toBeTruthy();
+  expect(screen.getByText("Decorate")).toBeTruthy();
+  expect(requests).toContainEqual({
+    path: "/foxxycode/miniapps/greeting-app/authoring/chat",
+    body: expect.objectContaining({
+      message: "Add a Style input and a Decorate step.",
+      draft: expect.objectContaining({ id: "greeting-app" }),
+    }),
+  });
+});
+
 test("new mini app opens when the API omits empty optional arrays", async () => {
   let created = false;
   let createdID = "";

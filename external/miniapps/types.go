@@ -90,6 +90,7 @@ type AssetBinding struct {
 
 type ModelBinding struct {
 	ID                   string            `json:"id"`
+	LogicalModel         string            `json:"logical_model,omitempty"`
 	Selection            string            `json:"selection"`
 	Provider             ProviderIdentity  `json:"provider,omitempty"`
 	Model                string            `json:"model,omitempty"`

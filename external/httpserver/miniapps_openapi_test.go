@@ -14,6 +14,8 @@ func TestMiniAppsOpenAPIIsLinkedWithTag(t *testing.T) {
 		"/foxxycode/sessions/{id}/miniapps/distill",
 		"/foxxycode/miniapps",
 		"/foxxycode/miniapps/{id}/draft",
+		"/foxxycode/miniapps/{id}/model-binding",
+		"/foxxycode/miniapps/{id}/authoring/chat",
 		"/foxxycode/miniapps/{id}/expected-result",
 		"/foxxycode/miniapps/{id}/versions/{version}/runs",
 	} {

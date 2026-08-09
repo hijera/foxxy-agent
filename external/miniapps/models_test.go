@@ -63,6 +63,9 @@ func TestNeuralDeepBindingUsesPinnedProviderURL(t *testing.T) {
 	if got, want := binding.Provider.BaseURL, "https://api.neuraldeep.ru/v1"; got != want {
 		t.Fatalf("binding base URL = %q, want %q", got, want)
 	}
+	if got, want := binding.LogicalModel, "neuraldeep/gpt-oss-120b"; got != want {
+		t.Fatalf("logical model = %q, want %q", got, want)
+	}
 	if _, err := NewConfigModelExecutor(cfg, nil).resolve(*binding); err != nil {
 		t.Fatalf("resolve pinned NeuralDeep binding: %v", err)
 	}
