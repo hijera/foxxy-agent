@@ -11,6 +11,7 @@ import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { ChatHeader } from "./ChatHeader";
+import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
@@ -32,6 +33,9 @@ export function ChatScreen(props: {
   heroComposerFocusEpoch: number;
   onTitleSave: (title: string) => void;
   items: TranscriptItem[];
+  /** Export the session transcript as a document. Hidden until an assistant answer exists. */
+  onExportSession?: (format: ExportFormat) => void;
+  exportBusy?: boolean;
   draft: string;
   tokenUsage: TokenUsage | null;
   contextPct?: number;
@@ -323,6 +327,15 @@ export function ChatScreen(props: {
                   editable={true}
                   onTitleSave={props.onTitleSave}
                 />
+                {props.onExportSession &&
+                hasExportableAssistant(props.items) ? (
+                  <SessionExportMenu
+                    onExport={props.onExportSession}
+                    {...(props.exportBusy !== undefined
+                      ? { busy: props.exportBusy }
+                      : {})}
+                  />
+                ) : null}
               </div>
             </div>
             <div className="messages-inner">
@@ -454,3 +467,16 @@ export function ChatScreen(props: {
     </main>
   );
 }
+
+/**
+ * True when the transcript holds at least one completed assistant answer. The
+ * export action is gated on this so it only appears once there is something to
+ * download; matches the `type === "assistant_message"` discriminant used by
+ * MessageList and the streaming-sync local check.
+ */
+function hasExportableAssistant(items: TranscriptItem[]): boolean {
+  return items.some(
+    (it) => it.type === "assistant_message" && it.content.trim() !== "",
+  );
+}
+

@@ -262,6 +262,7 @@ Sessions list interactions
 - Session list supports open on row click.
 - Session list shows a small trash icon on hover.
 - Renaming is done only in the chat header.
+- **Session export** is a per-session action in the chat header (**`SessionExportMenu`**, **`external/ui/src/ui/chat/SessionExportMenu.tsx`**), rendered inside **`.chat-title-column`** beside the editable title. It is **hidden** until the transcript holds at least one assistant answer (`items.some(it => it.type === "assistant_message" && it.content.trim() !== "")`), matching the guard the server enforces. The download glyph opens a dropdown listing four document formats — **PDF**, **DOCX**, **HTML**, **JSON** — each labelled through `chat.export{Format}` i18n keys. Selecting a format calls **`GET /foxxycode/sessions/{id}/export?format=…`** and saves the returned attachment via **`downloadBlob`**; while the request is in flight the toggle shows a spinner and is disabled. The dropdown follows the **`ProviderImportMenu`** anchored-menu contract (outside-mousedown + Escape close, `role="menu"`/`role="menuitem"`).
 
 ## Components
 

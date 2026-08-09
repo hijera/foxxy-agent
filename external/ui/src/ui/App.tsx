@@ -191,8 +191,10 @@ import { tasksPollIntervalMs } from "./tasks/taskStatus";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { downloadBlob } from "./settings/transferIO";
 import { t } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
+import type { ExportFormat } from "./chat/SessionExportMenu";
 
 const HDR = "X-FoxxyCode-Session-ID";
 
@@ -662,6 +664,26 @@ function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Parse the filename from a `Content-Disposition: attachment; filename="..."`
+ * header, decoding the percent-encoded form the server uses for non-ASCII
+ * names. Returns null when the header is missing or carries no filename.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const m = /filename="([^"]+)"/i.exec(header);
+  if (!m || !m[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
 export function App() {
   // Only the active locale id is needed here: memoized labels below must recompute when the user
   // switches language. Translations themselves go through the module-level t().
@@ -681,6 +703,7 @@ export function App() {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
@@ -1360,6 +1383,35 @@ export function App() {
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, title: t } : s)),
     );
+  }
+
+  /**
+   * Export the current session transcript as a document. The server renders the
+   * chosen format and returns a binary attachment; we stream it to a Blob and
+   * trigger a browser download, recovering the filename from the
+   * Content-Disposition header when the server supplies one.
+   */
+  async function exportSession(format: ExportFormat) {
+    if (!sessionId || exportBusy) {
+      return;
+    }
+    setExportBusy(true);
+    try {
+      const res = await fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/export?format=${format}`,
+        { headers: { [HDR]: sessionId } },
+      );
+      if (!res.ok) {
+        return;
+      }
+      const blob = await res.blob();
+      const filename = filenameFromDisposition(
+        res.headers.get("Content-Disposition"),
+      ) ?? `session.${format}`;
+      downloadBlob(filename, blob);
+    } finally {
+      setExportBusy(false);
+    }
   }
 
   const headers = useMemo(
@@ -4517,6 +4569,8 @@ export function App() {
           heroAccentVerb={heroAccentVerb}
           heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+          onExportSession={(f: ExportFormat) => void exportSession(f)}
+          exportBusy={exportBusy}
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}

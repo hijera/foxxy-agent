@@ -1042,6 +1042,53 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/export": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Export the session transcript as a downloadable document",
+					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool/system rows are omitted — into the requested **format** and returns it as a `Content-Disposition: attachment` download. Markdown in message content (headings, lists, code, emphasis) is preserved across formats. The bundled UI only exposes this action once at least one assistant answer exists; the server returns **404** for a session with no exportable messages.",
+					"operationId": "exportSession",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{
+							"name":        "format",
+							"in":          "query",
+							"required":    true,
+							"description": "Output format.",
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"json", "html", "pdf", "docx"}},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The exported document, sent as an attachment.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"session_id":  map[string]string{"type": "string"},
+											"title":       map[string]string{"type": "string"},
+											"exported_at": map[string]string{"type": "string"},
+											"messages":    map[string]interface{}{"type": "array", "items": map[string]string{"type": "object"}},
+										},
+									},
+								},
+								"text/html": map[string]interface{}{
+									"schema": map[string]string{"type": "string"},
+								},
+								"application/pdf": map[string]interface{}{
+									"schema": map[string]string{"type": "string", "format": "binary"},
+								},
+								"application/vnd.openxmlformats-officedocument.wordprocessingml.document": map[string]interface{}{
+									"schema": map[string]string{"type": "string", "format": "binary"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
