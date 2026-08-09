@@ -64,6 +64,12 @@ type sessionExportFeatureState struct {
 	respStatus  int
 	respHeaders http.Header
 	respBody    []byte
+
+	// Editor-delivery scenarios: the events a stand-in plugin saw, and the temp
+	// directory the rendered files landed in so the scenario can clean it up.
+	ideCh      chan ideEvent
+	exportPath string
+	exportDir  string
 }
 
 func (s *sessionExportFeatureState) reset() error {
@@ -77,6 +83,15 @@ func (s *sessionExportFeatureState) reset() error {
 }
 
 func (s *sessionExportFeatureState) close() {
+	if s.ideCh != nil {
+		ideEvents.unsubscribe(s.ideCh)
+		s.ideCh = nil
+	}
+	// The file route writes into the real OS temp dir, outside the scenario root.
+	if s.exportDir != "" {
+		_ = os.RemoveAll(s.exportDir)
+		s.exportDir = ""
+	}
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
@@ -601,6 +616,120 @@ func (s *sessionExportFeatureState) docxOrderedNumbering() error {
 	return nil
 }
 
+// --- Editor delivery steps -------------------------------------------------
+
+// listenAsPlugin stands in for a connected IntelliJ / VS Code plugin by
+// subscribing to the same process-global hub the SSE route serves from.
+func (s *sessionExportFeatureState) listenAsPlugin() error {
+	s.ideCh = ideEvents.subscribe()
+	return nil
+}
+
+// exportToFile drives the editor delivery route, which writes the document to
+// disk instead of answering with an attachment.
+func (s *sessionExportFeatureState) exportToFile(format string) error {
+	u := s.ts.URL + "/foxxycode/sessions/" + url.PathEscape(s.sessionID) + "/export/file?format=" + url.QueryEscape(format)
+	req, err := http.NewRequest(http.MethodPost, u, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-FoxxyCode-Session-ID", s.sessionID)
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
+	s.respStatus = res.StatusCode
+	s.respHeaders = res.Header
+	s.respBody = body
+	if res.StatusCode == http.StatusOK {
+		var payload struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return fmt.Errorf("invalid JSON from the file route: %w", err)
+		}
+		s.exportPath = payload.Path
+		s.exportDir = filepath.Dir(payload.Path)
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) exportedFileReadable(format string) error {
+	if s.respStatus != http.StatusOK {
+		return fmt.Errorf("expected 200, got %d (%s)", s.respStatus, s.respBody)
+	}
+	if !filepath.IsAbs(s.exportPath) {
+		return fmt.Errorf("path %q is not absolute; the plugin cannot open it", s.exportPath)
+	}
+	if ext := strings.TrimPrefix(filepath.Ext(s.exportPath), "."); ext != format {
+		return fmt.Errorf("file %q does not carry the %s extension", s.exportPath, format)
+	}
+	body, err := os.ReadFile(s.exportPath)
+	if err != nil {
+		return fmt.Errorf("the exported file is not readable: %w", err)
+	}
+	if len(body) == 0 {
+		return fmt.Errorf("the exported file is empty")
+	}
+	if format == "pdf" && !bytes.HasPrefix(body, []byte("%PDF")) {
+		return fmt.Errorf("the exported file is not a PDF")
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) fileNamedAfterTitle() error {
+	name := filepath.Base(s.exportPath)
+	if !strings.HasPrefix(name, "Отчёт_по_задаче.") {
+		return fmt.Errorf("file %q is not named after the chat title", name)
+	}
+	return nil
+}
+
+func (s *sessionExportFeatureState) ideAskedToReveal() error {
+	if s.ideCh == nil {
+		return fmt.Errorf("no plugin is listening in this scenario")
+	}
+	for {
+		select {
+		case ev := <-s.ideCh:
+			if ev.Type != "reveal_file" {
+				continue // ignore unrelated edit traffic
+			}
+			if ev.Path != s.exportPath {
+				return fmt.Errorf("IDE asked to reveal %q, want %q", ev.Path, s.exportPath)
+			}
+			if ev.SessionID != s.sessionID {
+				return fmt.Errorf("reveal event carries session %q, want %q", ev.SessionID, s.sessionID)
+			}
+			return nil
+		default:
+			return fmt.Errorf("no reveal_file event reached the plugin")
+		}
+	}
+}
+
+func (s *sessionExportFeatureState) dirHoldsOneFile(format string) error {
+	entries, err := os.ReadDir(s.exportDir)
+	if err != nil {
+		return err
+	}
+	var matched []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), "."+format) {
+			matched = append(matched, e.Name())
+		}
+	}
+	if len(matched) != 1 {
+		return fmt.Errorf("expected exactly one %s file, found %v", format, matched)
+	}
+	return nil
+}
+
 // --- Content-Disposition steps --------------------------------------------
 
 func (s *sessionExportFeatureState) dispositionUTF8Name(want string) error {
@@ -660,8 +789,11 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a chat whose answer contains a bullet list and a numbered list$`, s.seedLists)
 	sc.Step(`^a chat titled "([^"]*)" with an assistant answer$`, s.seedTitled)
 
+	sc.Step(`^an editor plugin listening for IDE events$`, s.listenAsPlugin)
+
 	sc.Step(`^the panel exports the chat as (\w+)$`, s.exportChat)
 	sc.Step(`^the panel exports a non-existent chat as (\w+)$`, s.exportMissingChat)
+	sc.Step(`^the editor panel exports the chat to a file as (\w+)$`, s.exportToFile)
 
 	sc.Step(`^the response is a downloadable JSON attachment$`, s.jsonAttachment)
 	sc.Step(`^the response is a downloadable attachment of type (text/html|application/pdf|application/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$`, s.attachmentOfType)
@@ -680,6 +812,11 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the numbered list is numbered by the document rather than bulleted$`, s.docxOrderedNumbering)
 	sc.Step(`^the attachment offers the UTF-8 filename "([^"]*)"$`, s.dispositionUTF8Name)
 	sc.Step(`^the attachment keeps an ASCII filename fallback$`, s.dispositionASCIIFallback)
+
+	sc.Step(`^the response carries the absolute path of a readable (\w+) file$`, s.exportedFileReadable)
+	sc.Step(`^the file is named after the chat title$`, s.fileNamedAfterTitle)
+	sc.Step(`^the IDE is asked to reveal the exported file$`, s.ideAskedToReveal)
+	sc.Step(`^the export directory holds exactly one (\w+) file$`, s.dirHoldsOneFile)
 }
 
 func TestSessionExportFeature(t *testing.T) {

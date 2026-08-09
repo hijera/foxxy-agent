@@ -6,6 +6,7 @@ import com.intellij.diff.DiffManager
 import com.intellij.diff.comparison.ComparisonManager
 import com.intellij.diff.comparison.ComparisonPolicy
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.ide.actions.RevealFileAction
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -31,6 +32,7 @@ import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
 import java.awt.Color
+import java.io.File
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URI
@@ -78,6 +80,16 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             }
             return
         }
+        // Exported transcript written to the OS temp dir. Same reasoning as
+        // open_file — user-initiated and outside the project — but the document
+        // is a download, so it goes to the file manager, not an editor tab.
+        if (ev.isRevealFile) {
+            ApplicationManager.getApplication().invokeLater {
+                if (project.isDisposed) return@invokeLater
+                revealFile(ev.path)
+            }
+            return
+        }
         if (!FoxxyCodeSettings.getInstance().state.nativeDiffs) return
         if (!isInProject(ev.path)) return
         ApplicationManager.getApplication().invokeLater {
@@ -97,6 +109,27 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             null
         } ?: return
         FileEditorManager.getInstance(project).openTextEditor(OpenFileDescriptor(project, vf), true)
+    }
+
+    /**
+     * Selects an exported document in the OS file manager. The IDE cannot show a
+     * PDF or a DOCX usefully, and the panel's own webview cannot save one at all
+     * (JCEF drops downloads no handler claims), so the server writes the file and
+     * this puts the user in front of it.
+     */
+    private fun revealFile(path: String) {
+        val target = path.trim()
+        if (target.isEmpty()) return
+        val file = File(target)
+        if (!file.isFile) {
+            log.debug("reveal_file skipped missing path $target")
+            return
+        }
+        try {
+            RevealFileAction.openFile(file)
+        } catch (e: Exception) {
+            log.debug("reveal_file failed for $target: ${e.message}")
+        }
     }
 
     private fun handle(ev: FoxxyCodeEditEvent) {

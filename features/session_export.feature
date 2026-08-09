@@ -74,3 +74,28 @@ Feature: A chat can be exported to different document formats
     When the panel exports the chat as pdf
     Then the attachment offers the UTF-8 filename "Отчёт_по_задаче.pdf"
     And the attachment keeps an ASCII filename fallback
+
+  # An editor webview cannot save a blob, so the panel asks the server to write
+  # the document out and lets the plugin reveal it in the OS file manager.
+  Scenario: An editor panel receives the export as a file on disk
+    Given a chat titled "Отчёт по задаче" with an assistant answer
+    When the editor panel exports the chat to a file as pdf
+    Then the response carries the absolute path of a readable pdf file
+    And the file is named after the chat title
+
+  Scenario: Revealing the exported file is offered to the connected IDE
+    Given a chat with a user question and an assistant answer
+    And an editor plugin listening for IDE events
+    When the editor panel exports the chat to a file as docx
+    Then the IDE is asked to reveal the exported file
+
+  Scenario: Re-exporting the same chat replaces the file instead of piling up copies
+    Given a chat with a user question and an assistant answer
+    When the editor panel exports the chat to a file as json
+    And the editor panel exports the chat to a file as json
+    Then the export directory holds exactly one json file
+
+  Scenario: The file route refuses a chat the panel would not offer to export
+    Given a chat with only a user question
+    When the editor panel exports the chat to a file as json
+    Then the export request is rejected with status 404

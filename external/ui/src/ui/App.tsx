@@ -1400,20 +1400,43 @@ export function App() {
     // finished download that never arrived. Network errors are caught here too,
     // otherwise the rejected promise escapes the `void exportSession(...)` call
     // site as an unhandled rejection.
-    const fail = () => {
+    const notice = (level: "error" | "info", message: string) => {
       applyStreamItemsForSession(sid, (prev) => [
         ...prev,
         {
           id: newId("s"),
           type: "system_notice" as const,
-          level: "error" as const,
-          message: t("chat.exportFailed"),
+          level,
+          message,
           createdAtUtc: new Date().toISOString(),
         },
       ]);
     };
+    const fail = () => notice("error", t("chat.exportFailed"));
     setExportBusy(true);
     try {
+      if (isEditorEmbed()) {
+        // An editor webview cannot save a blob: IntelliJ's JCEF drops downloads
+        // no CefDownloadHandler claims, and the VS Code panel hosts this SPA in
+        // a cross-origin iframe with no download permission. Have the server
+        // write the document out instead; a connected plugin reveals it.
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/export/file?format=${format}`,
+          { method: "POST", headers: { [HDR]: sid } },
+        );
+        if (!res.ok) {
+          fail();
+          return;
+        }
+        const saved = (await res.json()) as { path?: string };
+        const path = (saved.path ?? "").trim();
+        if (path === "") {
+          fail();
+          return;
+        }
+        notice("info", t("chat.exportSaved", { path }));
+        return;
+      }
       const res = await fetch(
         `/foxxycode/sessions/${encodeURIComponent(sid)}/export?format=${format}`,
         { headers: { [HDR]: sid } },

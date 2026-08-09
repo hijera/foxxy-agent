@@ -25,15 +25,41 @@ func (s *Server) foxxycodeSessionExportGet(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
+	rendered, ok := s.renderSessionExport(w, r, id)
+	if !ok {
+		return
+	}
+
+	w.Header().Set("Content-Type", rendered.contentType)
+	w.Header().Set("Content-Disposition", exportContentDisposition(rendered.title, id, rendered.ext))
+	w.Header().Set("Cache-Control", "private, max-age=0")
+	_, _ = w.Write(rendered.body)
+}
+
+// exportRendered is a rendered transcript plus the metadata both delivery
+// routes need: the browser download names a file from it, and the editor route
+// writes it to disk under the same name.
+type exportRendered struct {
+	body        []byte
+	contentType string
+	ext         string
+	title       string
+}
+
+// renderSessionExport performs the work both export routes share: validate the
+// requested format, load the session, apply the assistant-answer guard, and
+// render the document. It writes the HTTP error itself and reports ok=false
+// when the caller must stop.
+func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id string) (exportRendered, bool) {
 	format := exportFormat(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format"))))
 	if !isValidExportFormat(format) {
 		http.Error(w, `{"error":{"message":"unsupported format; use one of: json, html, pdf, docx"}}`, http.StatusBadRequest)
-		return
+		return exportRendered{}, false
 	}
 
 	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
-		return
+		return exportRendered{}, false
 	}
 
 	// Build the dialogue payload from the persisted transcript.
@@ -48,20 +74,16 @@ func (s *Server) foxxycodeSessionExportGet(w http.ResponseWriter, r *http.Reques
 	// direct request from producing a document that holds only the question.
 	if !hasExportableAssistantAnswer(msgs) {
 		http.Error(w, `{"error":{"message":"session has no exportable messages"}}`, http.StatusNotFound)
-		return
+		return exportRendered{}, false
 	}
 	doc := buildExportDocument(id, title, msgs)
 
 	body, contentType, ext, err := renderExport(doc, format)
 	if err != nil {
 		http.Error(w, `{"error":{"message":"export rendering failed"}}`, http.StatusInternalServerError)
-		return
+		return exportRendered{}, false
 	}
-
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", exportContentDisposition(doc.Title, id, ext))
-	w.Header().Set("Cache-Control", "private, max-age=0")
-	_, _ = w.Write(body)
+	return exportRendered{body: body, contentType: contentType, ext: ext, title: doc.Title}, true
 }
 
 // isValidExportFormat reports whether the requested format is one we render.

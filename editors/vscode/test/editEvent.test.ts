@@ -4,6 +4,7 @@ import {
   isProposed,
   isApplied,
   isOpenFile,
+  isRevealFile,
 } from "../src/diff/editEvent";
 
 describe("parseEditEvent", () => {
@@ -67,5 +68,28 @@ describe("parseEditEvent", () => {
   it("does not treat edit events as open_file", () => {
     const ev = parseEditEvent(`{"type":"edit_applied","path":"p"}`);
     expect(isOpenFile(ev!)).toBe(false);
+  });
+
+  // An exported transcript lands on disk because this panel's webview cannot
+  // save a blob; the plugin only has to put the user in front of the file.
+  it("parses reveal_file and keeps it distinct from open_file", () => {
+    const ev = parseEditEvent(
+      `{"type":"reveal_file","sessionId":"s-1","path":"/tmp/foxxycode/exports/s-1/Chat.pdf"}`,
+    );
+    expect(ev).not.toBeNull();
+    expect(isRevealFile(ev!)).toBe(true);
+    expect(isOpenFile(ev!)).toBe(false);
+    expect(isProposed(ev!)).toBe(false);
+    expect(isApplied(ev!)).toBe(false);
+    expect(ev!.path).toBe("/tmp/foxxycode/exports/s-1/Chat.pdf");
+  });
+
+  it("does not treat open_file or edit events as reveal_file", () => {
+    expect(isRevealFile(parseEditEvent(`{"type":"open_file","path":"p"}`)!)).toBe(
+      false,
+    );
+    expect(
+      isRevealFile(parseEditEvent(`{"type":"edit_applied","path":"p"}`)!),
+    ).toBe(false);
   });
 });

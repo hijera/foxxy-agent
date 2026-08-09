@@ -1089,6 +1089,48 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/export/file": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Render the session transcript to a file on disk",
+					"description": "Same document as `GET .../export`, written under the OS temp directory instead of returned as an attachment, and announced to connected editor plugins as a `reveal_file` event on `/foxxycode/ide/events`. This exists for editor panels, which cannot save a download: IntelliJ's JCEF drops downloads no handler claims, and the VS Code panel hosts the SPA in a cross-origin iframe with no download permission. The path is derived from the session and its title — it is never taken from the caller — and re-exporting the same session and format overwrites the same file.",
+					"operationId": "exportSessionToFile",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{
+							"name":        "format",
+							"in":          "query",
+							"required":    true,
+							"description": "Output format.",
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"json", "html", "pdf", "docx"}},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The document was written; the response carries its absolute path.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"path": map[string]interface{}{
+												"type":        "string",
+												"description": "Absolute path of the rendered document.",
+											},
+											"delivered": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether an editor plugin was connected to receive the reveal request.",
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",

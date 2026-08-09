@@ -147,6 +147,7 @@ export const messagesEn: Record<string, string> = {
   "chat.exportHtml": "HTML page",
   "chat.exportJson": "JSON data",
   "chat.exportFailed": "Could not export this session.",
+  "chat.exportSaved": "Saved to {path}",
   "chat.contextTitle": "Context",
   "chat.contextClose": "Close",
   "chat.contextCloseBreakdown": "Close context breakdown",
