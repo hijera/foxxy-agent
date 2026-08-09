@@ -1,0 +1,15 @@
+# Checklist item 5: dragging a file from the Project view onto the panel.
+#
+# Two identical drags in a row, because the bug being chased is "the first one does nothing,
+# the second works". The composer lives inside JCEF and is invisible to XPath, so the answer
+# is in the screenshots — and, for the Kotlin half of the chain, in the plugin's own log
+# lines (`FoxxyCode DnD drag #N`, `FoxxyCode DnD drop #N`, `FoxxyCode mention:`).
+toolwindow FoxxyCode
+sleep 10
+screenshot before-any-drag
+drag hello.txt
+sleep 2
+screenshot after-first-drag
+drag hello.txt
+sleep 2
+screenshot after-second-drag

@@ -656,23 +656,17 @@ func foxxycodeMustSession(w http.ResponseWriter, s *session.Manager, id string, 
 	return st
 }
 
+// foxxycodeEnsureLoaded resolves the session a per-session route was asked about, loading it
+// from disk when it is not live. Goes through LoadPersistedSession rather than
+// HandleSessionLoad: a panel opens ten of these routes at once, and only one of them may
+// actually read the bundle (see internal/session/manager_load_flight.go).
 func (s *Server) foxxycodeEnsureLoaded(w http.ResponseWriter, r *http.Request, id string) *session.State {
 	fs := s.foxxycodeRequireStore(w)
 	if fs == nil {
 		return nil
 	}
 	load := func() (*session.State, error) {
-		if !fs.HasPersistedSnapshot(id) {
-			return nil, errSessionNotFound
-		}
-		_, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
-			SessionID: id,
-			CWD:       s.sessionDefaultCWD(),
-		})
-		if err != nil {
-			return nil, err
-		}
-		return s.mgr.SessionByID(id), nil
+		return s.mgr.LoadPersistedSession(r.Context(), id, s.sessionDefaultCWD())
 	}
 	return foxxycodeMustSession(w, s.mgr, id, load)
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -38,6 +39,12 @@ type Manager struct {
 
 	// preferredNewSessionID, when non-empty before session/new is handled, selects the id for the next new session (--session-id).
 	preferredNewSessionID string
+	// newSessionMu makes pinning preferredNewSessionID and consuming it in session/new one
+	// step, so two concurrent creates cannot swap ids (see loadOrCreateSession).
+	newSessionMu sync.Mutex
+
+	// loadFlights deduplicates concurrent loads of the same session id (manager_load_flight.go).
+	loadFlights sync.Map // sessionID -> *loadFlight
 
 	sessions map[string]*State
 	mu       sync.RWMutex
@@ -293,6 +300,9 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		return nil, fmt.Errorf("session/load: %w", err)
 	}
 
+	// Timed: a cold panel used to spend minutes here without any way to see it from the log.
+	startedAt := time.Now()
+
 	snap, err := m.store.ReadSnapshot(params.SessionID)
 	if err != nil {
 		return nil, err
@@ -371,7 +381,12 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	m.sendAvailableSlashCommands(params.SessionID, st)
 
-	m.log.Info("session loaded", "id", params.SessionID, "cwd", cwd)
+	m.log.Info("session loaded",
+		"id", params.SessionID,
+		"cwd", cwd,
+		"messages", len(snap.Messages),
+		"ms", time.Since(startedAt).Milliseconds(),
+	)
 
 	return &acp.SessionLoadResult{
 		Modes:         m.sessionResultModes(st),
@@ -379,48 +394,20 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	}, nil
 }
 
+// HandleSessionLoad is the unconditional reload entry (ACP session/load): it drops whatever
+// state the id currently has and replays the bundle from disk. Anything that merely needs the
+// session to be available - every per-session HTTP route - must go through
+// LoadPersistedSession / EnsureHTTPSession instead, so a fan-out of readers cannot turn into
+// a fan-out of reloads that close each other's state.
 func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
 	return m.loadSessionFromDisk(ctx, params)
 }
 
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
 // reuse active session, load from disk if a snapshot exists, or create an empty persisted bundle using the pinned id.
+// Concurrent callers for the same id share one load (see manager_load_flight.go).
 func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*State, error) {
-	if strings.TrimSpace(sessionID) == "" {
-		return nil, fmt.Errorf("empty session id")
-	}
-	if err := ValidateFolderSessionID(sessionID); err != nil {
-		return nil, err
-	}
-	if existing := m.getSession(sessionID); existing != nil {
-		return existing, nil
-	}
-	if m.store != nil && m.store.HasPersistedSnapshot(sessionID) {
-		if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{
-			SessionID: sessionID,
-			CWD:       defaultCWD,
-		}); err != nil {
-			return nil, err
-		}
-		st := m.getSession(sessionID)
-		if st == nil {
-			return nil, fmt.Errorf("session load incomplete: %s", sessionID)
-		}
-		return st, nil
-	}
-	m.SetPreferredSessionID(sessionID)
-	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: defaultCWD})
-	if err != nil {
-		return nil, err
-	}
-	if res.SessionID != sessionID {
-		return nil, fmt.Errorf("session id mismatch creating %s vs %s", sessionID, res.SessionID)
-	}
-	st := m.getSession(sessionID)
-	if st == nil {
-		return nil, fmt.Errorf("internal session missing after new: %s", sessionID)
-	}
-	return st, nil
+	return m.ensureSessionSingleFlight(ctx, sessionID, defaultCWD, true)
 }
 
 // ForgetLiveSession disconnects MCP clients for the id and removes it from the active map (does not touch disk).
@@ -482,6 +469,39 @@ type PromptRunOpts struct {
 	SkipTurnLock bool
 }
 
+// awaitMCPReady holds the turn until the session's configured MCP servers have connected,
+// telling the client what it is waiting for.
+//
+// The fast path costs one mutex read: a session whose servers are already up (every turn after
+// the first) sends nothing and returns immediately. Only a genuinely pending connect produces
+// the "connecting" / "ready" pair, so the panel can say so instead of looking hung.
+func (m *Manager) awaitMCPReady(ctx context.Context, sessionID string, state *State, sender acp.UpdateSender) {
+	if state.MCPReady() {
+		return
+	}
+	if sender != nil {
+		_ = sender.SendSessionUpdate(sessionID, acp.MCPPhaseUpdate{
+			SessionUpdate: acp.UpdateTypeMCPPhase,
+			Phase:         acp.MCPPhaseConnecting,
+		})
+	}
+	started := time.Now()
+	err := state.WaitMCPReady(ctx)
+	if sender != nil {
+		_ = sender.SendSessionUpdate(sessionID, acp.MCPPhaseUpdate{
+			SessionUpdate: acp.UpdateTypeMCPPhase,
+			Phase:         acp.MCPPhaseReady,
+		})
+	}
+	if err != nil {
+		m.log.Warn("starting turn before MCP servers finished connecting",
+			"session", sessionID, "waited_ms", time.Since(started).Milliseconds(), "error", err)
+		return
+	}
+	m.log.Info("waited for MCP servers before starting turn",
+		"session", sessionID, "waited_ms", time.Since(started).Milliseconds())
+}
+
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
 func (m *Manager) AcquireComposerTurnLock(sessionID string, st *State) (unlock func(), err error) {
 	return m.acquirePromptTurnLock(sessionID, st)
@@ -506,6 +526,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
+	// Stage timings for the turn. A panel that sits on "waiting for the model" cannot tell a
+	// slow model from a turn stuck before the model was ever called; these numbers can.
+	turnStart := time.Now()
+	var lockWait, mcpWait time.Duration
+
 	clearActive := m.markTurnActive(params.SessionID)
 	defer clearActive()
 
@@ -514,7 +539,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && opts.SkipTurnLock {
 		unlock = func() {}
 	} else {
+		lockStart := time.Now()
 		unlock, err = m.acquirePromptTurnLock(params.SessionID, state)
+		lockWait = time.Since(lockStart)
 		if err != nil {
 			return nil, err
 		}
@@ -534,6 +561,31 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		_ = ClearCancelRequest(sessionDir)
 		go m.runCrossProcessCancelPoll(turnCtx, state, sessionDir)
 	}
+
+	// The only place that waits for the configured MCP servers. Sitting here rather than in the
+	// HTTP handlers covers every surface at once — both HTTP turn routes, ACP session/prompt,
+	// run-plan and the scheduler — and it runs after the SSE headers are flushed, so the panel
+	// shows a live status instead of an ambiguous pending request. There is no deadline of our
+	// own: mcp.Connect bounds each handshake, and turnCtx carries the user's Stop.
+	mcpStart := time.Now()
+	m.awaitMCPReady(turnCtx, params.SessionID, state, sender)
+	mcpWait = time.Since(mcpStart)
+
+	// One line per turn, always. Turns are rare enough that this cannot flood a log, and it is
+	// the only place that can say whether a "stuck" turn was waiting on the session lock, on
+	// MCP servers, or on the model itself.
+	m.log.Info("turn starting",
+		"session", params.SessionID,
+		"lock_wait_ms", lockWait.Milliseconds(),
+		"mcp_wait_ms", mcpWait.Milliseconds(),
+		"before_model_ms", time.Since(turnStart).Milliseconds(),
+	)
+	defer func() {
+		m.log.Info("turn finished",
+			"session", params.SessionID,
+			"total_ms", time.Since(turnStart).Milliseconds(),
+		)
+	}()
 
 	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" {
 		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
@@ -737,11 +789,28 @@ func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []con
 // (config.yaml merged with the two mcp.json levels) that the workspace trust
 // gate admits, and installs the per-turn tool filter factory so disable
 // toggles reach live sessions.
-func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State) {
-	state.replaceConfiguredMCPClients(m.configuredMCPClients(ctx, state.GetCWD()))
+// connectConfiguredMCPServers installs the tool filter and starts connecting the servers
+// declared for the session's cwd.
+//
+// The connect runs in the background. It used to run inline, on the goroutine that was loading
+// or creating the session — over HTTP that is a request a panel is waiting on, so one slow
+// server (a cold npx downloading its package) stalled the panel for as long as it took. Only a
+// turn actually needs the tools, and it waits through State.WaitMCPReady.
+//
+// The background connect deliberately uses a detached context: an aborted fetch (session
+// switch, reload) must not leave the session without its MCP servers. Bounded by
+// mcp.Connect's own handshake timeout.
+func (m *Manager) connectConfiguredMCPServers(_ context.Context, state *State) {
+	// Pure config reading, no I/O: it must be in place before the session is published, or a
+	// turn could observe a nil factory.
 	state.setMCPFilterFactory(func() func(server, tool string) bool {
 		return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), state.GetCWD(), m.log))
 	})
+	settle := state.beginConfiguredMCPConnect()
+	go func() {
+		defer settle()
+		state.replaceConfiguredMCPClients(m.configuredMCPClients(context.Background(), state.GetCWD()))
+	}()
 }
 
 // configuredMCPClients connects the servers declared for cwd. This is the only
@@ -754,27 +823,45 @@ func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State)
 // Servers supplied by an ACP client go through connectMCPServer instead and are
 // deliberately not gated: they come from the editor the operator is running,
 // not from the workspace.
+// Servers connect in parallel: each handshake is bounded but slow (a cold npx server downloads
+// its package on first run), and serially that bound multiplies by the number of servers.
+// Results are placed by declaration index so the tool order the model sees stays stable.
 func (m *Manager) configuredMCPClients(ctx context.Context, cwd string) []*mcp.Client {
-	clients := make([]*mcp.Client, 0)
 	cfg := m.activeCfg()
 	gate := mcp.NewTrustGate(cfg)
-	for _, srv := range mcp.ListManagedServersTolerant(cfg, cwd, m.log) {
+	declared := mcp.ListManagedServersTolerant(cfg, cwd, m.log)
+
+	connected := make([]*mcp.Client, len(declared))
+	var wg sync.WaitGroup
+	for i, srv := range declared {
 		if srv.Config.Disabled {
 			continue
 		}
-		client, err := gate.Connect(ctx, srv, cwd, m.log)
-		if err != nil {
-			var blocked *mcp.BlockedError
-			if errors.As(err, &blocked) {
-				m.log.Warn("MCP server not started: project declaration is not approved for this workspace",
-					"server", srv.Config.Name, "workspace", cwd, "state", string(blocked.State),
-					"digest", blocked.Digest, "approve_with", "foxxycode mcp trust "+srv.Config.Name)
-				continue
+		wg.Add(1)
+		go func(i int, srv mcp.ManagedServer) {
+			defer wg.Done()
+			client, err := gate.Connect(ctx, srv, cwd, m.log)
+			if err != nil {
+				var blocked *mcp.BlockedError
+				if errors.As(err, &blocked) {
+					m.log.Warn("MCP server not started: project declaration is not approved for this workspace",
+						"server", srv.Config.Name, "workspace", cwd, "state", string(blocked.State),
+						"digest", blocked.Digest, "approve_with", "foxxycode mcp trust "+srv.Config.Name)
+					return
+				}
+				m.log.Warn("failed to connect MCP server", "server", srv.Config.Name, "error", err)
+				return
 			}
-			m.log.Warn("failed to connect MCP server", "server", srv.Config.Name, "error", err)
-			continue
+			connected[i] = client
+		}(i, srv)
+	}
+	wg.Wait()
+
+	clients := make([]*mcp.Client, 0, len(connected))
+	for _, c := range connected {
+		if c != nil {
+			clients = append(clients, c)
 		}
-		clients = append(clients, client)
 	}
 	return clients
 }

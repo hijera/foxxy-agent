@@ -681,6 +681,7 @@ export const messagesEn: Record<string, string> = {
   "status.waitingSlow": "The model is taking longer than usual",
   "status.waitingStuck": "Still no response from the server",
   "status.reconnecting": "Reconnecting to the server",
+  "status.connectingMcp": "Connecting MCP servers",
 
   "chat.branchPrev": "Previous branch",
   "chat.branchNext": "Next branch",

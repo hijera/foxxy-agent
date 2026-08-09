@@ -6,6 +6,12 @@ import {
   snapshotLiveConnection,
   subscribeLiveConnection,
 } from "../chat/liveConnectionState";
+import {
+  isMcpConnecting,
+  serverSnapshotMcpConnecting,
+  snapshotMcpConnecting,
+  subscribeMcpConnecting,
+} from "../chat/mcpConnectingState";
 import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
 import {
   getStatusLineEnabled,
@@ -104,13 +110,21 @@ export function MessageList(props: {
   );
   const reconnecting =
     connectionEpoch >= 0 && !!props.sessionId && isReconnecting(props.sessionId);
+  // A turn can be parked before its first model call, waiting for the session's MCP servers.
+  const mcpEpoch = useSyncExternalStore(
+    subscribeMcpConnecting,
+    snapshotMcpConnecting,
+    serverSnapshotMcpConnecting,
+  );
+  const mcpConnecting =
+    mcpEpoch >= 0 && !!props.sessionId && isMcpConnecting(props.sessionId);
 
   const liveStatus = useMemo(
     () =>
       props.generating === true && statusLineOn
-        ? deriveLiveStatus(props.items, { reconnecting })
+        ? deriveLiveStatus(props.items, { reconnecting, mcpConnecting })
         : null,
-    [props.generating, statusLineOn, props.items, reconnecting],
+    [props.generating, statusLineOn, props.items, reconnecting, mcpConnecting],
   );
 
   const userMsgIndices = useMemo(() => {

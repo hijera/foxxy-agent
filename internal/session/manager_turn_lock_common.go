@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// turnLockFileName is the per-bundle file whose byte range the cross-process turn lock is
+// taken on (see manager_turn_lock_unix.go / manager_turn_lock_windows.go).
+const turnLockFileName = ".foxxycode-turn.lock"
+
 // stubTurnMu serializes prompt turns per session when there is no persisted bundle directory
 // or on platforms without flock (see manager_turn_lock_unix.go / manager_turn_lock_stub.go).
 func (m *Manager) acquireStubTurnLock(sessionID string) (unlock func(), _ error) {

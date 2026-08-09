@@ -228,14 +228,14 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 // ListenAndServe blocks until the HTTP server stops.
 func (st *StartedHTTP) ListenAndServe() error {
 	st.Log.Info("listening", "addr", st.ListenAddr)
-	return st.httpSrv.ListenAndServe()
+	return describeListenError(st.httpSrv.ListenAndServe(), st.ListenAddr)
 }
 
 // Serve starts listening in a background goroutine. Returns when the listener is ready or ctx is done.
 func (st *StartedHTTP) Serve(ctx context.Context) error {
 	ln, err := net.Listen("tcp", st.ListenAddr)
 	if err != nil {
-		return err
+		return describeListenError(err, st.ListenAddr)
 	}
 	st.ListenAddr = ln.Addr().String()
 	errCh := make(chan error, 1)
@@ -264,6 +264,25 @@ func (st *StartedHTTP) Serve(ctx context.Context) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// describeListenError turns a failed bind into a message that names the cause. The OS text
+// differs per platform - Windows says "Only one usage of each socket address ... is normally
+// permitted", not "address already in use" - so the check goes through the errno (see
+// listenErrorIsAddrInUse), and the wording tells the caller what to do about it. Anything
+// else is passed through unchanged.
+func describeListenError(err error, addr string) error {
+	if err == nil {
+		return nil
+	}
+	if listenErrorIsAddrInUse(err) {
+		return fmt.Errorf("cannot listen on %s: the port is already in use by another process "+
+			"(stop it, or start foxxycode on a different port): %w", addr, err)
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("cannot listen on %s: permission denied for this address or port: %w", addr, err)
+	}
+	return err
 }
 
 // Shutdown gracefully stops the HTTP server and drains background work.
