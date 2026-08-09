@@ -192,8 +192,10 @@ import { tasksPollIntervalMs } from "./tasks/taskStatus";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { downloadBlob } from "./settings/transferIO";
 import { t } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
+import type { ExportFormat } from "./chat/SessionExportMenu";
 
 const HDR = "X-FoxxyCode-Session-ID";
 
@@ -663,6 +665,26 @@ function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Parse the filename from a `Content-Disposition: attachment; filename="..."`
+ * header, decoding the percent-encoded form the server uses for non-ASCII
+ * names. Returns null when the header is missing or carries no filename.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const m = /filename="([^"]+)"/i.exec(header);
+  if (!m || !m[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
 export function App() {
   // Only the active locale id is needed here: memoized labels below must recompute when the user
   // switches language. Translations themselves go through the module-level t().
@@ -682,6 +704,7 @@ export function App() {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
@@ -1362,6 +1385,85 @@ export function App() {
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, title: t } : s)),
     );
+  }
+
+  /**
+   * Export the current session transcript as a document. The server renders the
+   * chosen format and returns a binary attachment; we stream it to a Blob and
+   * trigger a browser download, recovering the filename from the
+   * Content-Disposition header when the server supplies one.
+   */
+  async function exportSession(format: ExportFormat) {
+    if (!sessionId || exportBusy) {
+      return;
+    }
+    const sid = sessionId;
+    // A failed export must say so: the spinner stopping on its own reads as a
+    // finished download that never arrived. Network errors are caught here too,
+    // otherwise the rejected promise escapes the `void exportSession(...)` call
+    // site as an unhandled rejection.
+    const notice = (level: "error" | "info", message: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level,
+          message,
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    };
+    const fail = () => notice("error", t("chat.exportFailed"));
+    setExportBusy(true);
+    try {
+      if (isEditorEmbed()) {
+        // An editor webview cannot save a blob: IntelliJ's JCEF drops downloads
+        // no CefDownloadHandler claims, and the VS Code panel hosts this SPA in
+        // a cross-origin iframe with no download permission. Have the server
+        // write the document out instead; a connected plugin reveals it.
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/export/file?format=${format}`,
+          { method: "POST", headers: { [HDR]: sid } },
+        );
+        if (!res.ok) {
+          // 409: every candidate name was held by something the server could not
+          // replace — on Windows that is the exported document still open.
+          notice(
+            "error",
+            res.status === 409
+              ? t("chat.exportNameTaken")
+              : t("chat.exportFailed"),
+          );
+          return;
+        }
+        const saved = (await res.json()) as { path?: string };
+        const path = (saved.path ?? "").trim();
+        if (path === "") {
+          fail();
+          return;
+        }
+        notice("info", t("chat.exportSaved", { path }));
+        return;
+      }
+      const res = await fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/export?format=${format}`,
+        { headers: { [HDR]: sid } },
+      );
+      if (!res.ok) {
+        fail();
+        return;
+      }
+      const blob = await res.blob();
+      const filename =
+        filenameFromDisposition(res.headers.get("Content-Disposition")) ??
+        `session.${format}`;
+      downloadBlob(filename, blob);
+    } catch {
+      fail();
+    } finally {
+      setExportBusy(false);
+    }
   }
 
   const headers = useMemo(
@@ -4549,6 +4651,8 @@ export function App() {
           heroAccentVerb={heroAccentVerb}
           heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+          onExportSession={(f: ExportFormat) => void exportSession(f)}
+          exportBusy={exportBusy}
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}

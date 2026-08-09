@@ -126,6 +126,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/enhance-prompt", s.foxxycodeEnhancePromptPost)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/activity", s.foxxycodeSessionActivityGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", s.foxxycodeSessionMessagesGet)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/export", s.foxxycodeSessionExportGet)
+	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/export/file", s.foxxycodeSessionExportFilePost)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/composer-stream", s.foxxycodeSessionComposerStream)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls", s.foxxycodeToolCallsList)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}", s.foxxycodeToolCallGet)

@@ -522,22 +522,37 @@ func deriveSessionTitle(s *State) string {
 	return ""
 }
 
-// injectedContextTags are the agent-injected <foxxycode_*> environment wrapper tags appended to
-// user messages each turn (see internal/agent/react.go). They carry IDE/terminal/asset context
-// that must be removed before deriving a human-readable session title.
+// The agent-injected <foxxycode_*> environment wrapper tags appended to user messages each turn
+// (see internal/agent/react.go). Exported because callers that render a transcript for a human
+// need to drop the ambient ones — TagIDEContext and TagTerminalContext are editor state nobody
+// typed, while TagSessionAssets and TagTerminalOutput record something the user actually did.
+const (
+	TagSessionAssets   = "foxxycode_session_assets"
+	TagIDEContext      = "foxxycode_ide_context"
+	TagTerminalContext = "foxxycode_terminal_context"
+	TagTerminalOutput  = "foxxycode_terminal_output"
+)
+
+// injectedContextTags carries every wrapper tag, for callers that want the user's bare text.
 var injectedContextTags = []string{
-	"foxxycode_session_assets",
-	"foxxycode_ide_context",
-	"foxxycode_terminal_context",
-	"foxxycode_terminal_output",
+	TagSessionAssets,
+	TagIDEContext,
+	TagTerminalContext,
+	TagTerminalOutput,
 }
 
-// StripInjectedContextBlocks removes agent-injected <foxxycode_*> environment blocks
+// StripInjectedContextBlocks removes every agent-injected <foxxycode_*> environment block
 // (session_assets, ide_context, terminal_context, terminal_output) so a clean title can be
-// derived from the user's actual message text. Matching is case-insensitive and tolerates
-// attributes on the opening tag (e.g. <foxxycode_terminal_output name="...">).
+// derived from the user's actual message text.
 func StripInjectedContextBlocks(s string) string {
-	for _, tag := range injectedContextTags {
+	return StripContextBlocks(s, injectedContextTags...)
+}
+
+// StripContextBlocks removes the named agent-injected <foxxycode_*> blocks from s, leaving any
+// other wrapper in place. Matching is case-insensitive and tolerates attributes on the opening
+// tag (e.g. <foxxycode_terminal_output name="...">).
+func StripContextBlocks(s string, tags ...string) string {
+	for _, tag := range tags {
 		s = stripXMLBlock(s, tag)
 	}
 	return s

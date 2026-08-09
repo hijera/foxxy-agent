@@ -1,7 +1,13 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { IdeEventClient } from "./ideEventClient";
-import { EditEvent, isApplied, isOpenFile, isProposed } from "./editEvent";
+import {
+  EditEvent,
+  isApplied,
+  isOpenFile,
+  isProposed,
+  isRevealFile,
+} from "./editEvent";
 import { httpPost } from "../util/http";
 import { readSettings } from "../settings";
 import { t } from "../i18n/bundle";
@@ -52,6 +58,13 @@ export class IdeDiffService {
       void this.openFile(ev.path);
       return;
     }
+    // Exported transcript written to the OS temp dir. Same reasoning as
+    // open_file — user-initiated and outside the workspace — but the document is
+    // a download, so it goes to the file manager, not an editor tab.
+    if (isRevealFile(ev)) {
+      void this.revealFile(ev.path);
+      return;
+    }
     const s = readSettings();
     if (!s.nativeDiffs) return;
     if (!this.isInProject(ev.path)) return;
@@ -63,6 +76,20 @@ export class IdeDiffService {
       void this.handleProposed(ev);
     } else if (isApplied(ev)) {
       void this.handleApplied(ev);
+    }
+  }
+
+  /** Selects an exported document in the OS file manager. */
+  private async revealFile(path: string): Promise<void> {
+    const target = (path || "").trim();
+    if (target === "") return;
+    try {
+      await vscode.commands.executeCommand(
+        "revealFileInOS",
+        vscode.Uri.file(target),
+      );
+    } catch (e) {
+      this.log?.(`[foxxycode] reveal_file failed for ${target}: ${String(e)}`);
     }
   }
 
