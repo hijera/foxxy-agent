@@ -8,6 +8,7 @@ import { installFoxxyCodeUiApi } from "./ui/theme/foxxycodeUiApi";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
 import { I18nProvider } from "./ui/i18n/I18nProvider";
+import { ConfirmProvider } from "./ui/components/useConfirm";
 import { bootstrapDesktopFlag } from "./ui/desktopShell";
 import { bootstrapEmbedFlag } from "./ui/embedShell";
 import { installEmbedLocaleBridge } from "./ui/embedLocaleBridge";
@@ -30,7 +31,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AppErrorBoundary>
       <I18nProvider>
-        <App />
+        {/* Inside I18nProvider so the dialog resolves in the active locale, and
+            inside AppErrorBoundary so a crash in it is still caught. */}
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
       </I18nProvider>
     </AppErrorBoundary>
   </React.StrictMode>,

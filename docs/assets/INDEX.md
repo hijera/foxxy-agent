@@ -44,6 +44,21 @@ Captured at **1920×1080** via Playwright MCP (`vite` + `foxxycode http`, `FOXXY
 
 - `ref-image-098475fd-f1e8-4722-9975-67890f85a2c8.png` - mobile rail states and expanded menu
 
+## ConfirmDialog (verification)
+
+Captures of the shared confirmation dialog that replaced the native `confirm()`.
+Ported from upstream with the wave `0f2dbf1 → fa7ecf1`, so they show that build's
+English UI rather than a FoxxyCode capture; the fork's own run is the source of
+truth for how the dialog reads in Russian.
+
+- `pw-confirm-delete-chat-1280-{dark,light}.png` - delete a persisted chat
+- `pw-confirm-delete-chat-390-dark.png` - the same at the narrow breakpoint
+- `pw-confirm-delete-draft-1280-dark.png` - delete a client-side draft
+- `pw-confirm-escape-{before,after}-1280-dark.png` - Escape cancels the dialog without collapsing the drawer underneath
+- `pw-confirm-history-before-1280-dark.png` - the sessions list the dialog returns to
+- `pw-confirm-scheduler-before-1280-dark.png` - the scheduler job sheet before deleting
+- `pw-confirm-scheduler-delete-1280-{dark,light}.png` - delete a scheduler job
+
 ## Batch uploads
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.

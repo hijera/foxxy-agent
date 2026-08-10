@@ -587,6 +587,8 @@ export const messagesEn: Record<string, string> = {
   "scheduler.cron.empty": "Enter a cron expression (5 fields, UTC).",
   "scheduler.cron.invalid": "Invalid cron expression",
   "scheduler.confirmDelete": 'Delete scheduler job "{jobId}"?',
+  "scheduler.confirmDeleteBody":
+    "The job and its schedule are removed permanently.",
   "scheduler.pause": "Pause",
   "scheduler.resume": "Resume",
   "scheduler.delete": "Delete",
@@ -748,8 +750,18 @@ export const messagesEn: Record<string, string> = {
   "theme.nord": "Nord",
   "theme.rosePine": "Rosé Pine",
 
-  "app.confirmDeleteDraft": "Delete draft",
-  "app.confirmDeleteChat": "Delete chat",
+  // Shared confirmation dialog (ui/components/ConfirmDialog.tsx)
+  "confirm.cancel": "Cancel",
+  "confirm.confirm": "Confirm",
+  "confirm.ariaLabel": "Confirm action",
+
+  "app.confirmDeleteDraft": "Delete draft?",
+  "app.confirmDeleteDraftBody":
+    "This chat was never sent, so nothing is stored on the server.",
+  "app.confirmDeleteChat": "Delete chat?",
+  "app.confirmDeleteChatBody":
+    "The chat and everything in it are removed permanently.",
+  "app.delete": "Delete",
   "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
   "app.chatBusyReattached":
     "This chat is still working on the previous request — reopening it. Your message is back in the composer; send it when the turn finishes.",
