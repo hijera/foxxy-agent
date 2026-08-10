@@ -73,5 +73,8 @@ python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
 python3 "$HTTP_DIR/http_e2e_background.py"
+# Self-contained: boots its own foxxycode, kills it mid-task, and makes a fresh
+# one reap what the killed run left behind.
+python3 "$HTTP_DIR/http_e2e_background_reap.py"
 
 echo "ok httpserver tests"
