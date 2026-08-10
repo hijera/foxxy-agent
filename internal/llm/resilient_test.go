@@ -46,11 +46,16 @@ func TestIsRetryableLLMError(t *testing.T) {
 	if !isRetryableLLMError(err429Neuraldeep()) {
 		t.Fatal("429 should be retryable")
 	}
-	if isRetryableLLMError(errors.New("openai stream: 400 Bad Request")) {
-		t.Fatal("400 should not be retryable")
-	}
-	if isRetryableLLMError(context.Canceled) {
-		t.Fatal("cancel should not be retryable")
+	for name, err := range map[string]error{
+		"400":      errors.New("openai stream: 400 Bad Request"),
+		"cancel":   context.Canceled,
+		"deadline": context.DeadlineExceeded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if isRetryableLLMError(err) {
+				t.Fatalf("%s should not be retryable", name)
+			}
+		})
 	}
 	if !isRetryableLLMError(timeoutNetError{message: "proxy response headers timed out"}) {
 		t.Fatal("network timeout should be retryable")
