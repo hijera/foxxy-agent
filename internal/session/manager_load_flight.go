@@ -92,6 +92,12 @@ func (m *Manager) ensureSessionSingleFlight(ctx context.Context, sessionID, defa
 
 // loadOrCreateSession is the body of one flight: reopen the persisted bundle, or - only when
 // the caller is a turn rather than a read-only route - create an empty one under the id.
+//
+// Both branches finish with HandleSessionReady, which the ACP server calls after writing the
+// session/new or session/load response. Nothing writes a response here - the session updates
+// go to a separate SSE stream - so there is no ordering to wait for, but the call still has to
+// happen: it is what publishes the slash-command catalogue, and over HTTP no ACP dispatch will
+// ever make it.
 func (m *Manager) loadOrCreateSession(ctx context.Context, id, defaultCWD string, allowCreate bool) (*State, error) {
 	if m.store != nil && m.store.HasPersistedSnapshot(id) {
 		if _, err := m.HandleSessionLoad(ctx, acp.SessionLoadParams{
@@ -104,6 +110,7 @@ func (m *Manager) loadOrCreateSession(ctx context.Context, id, defaultCWD string
 		if st == nil {
 			return nil, fmt.Errorf("session load incomplete: %s", id)
 		}
+		m.HandleSessionReady(id)
 		return st, nil
 	}
 	if !allowCreate {
@@ -127,6 +134,7 @@ func (m *Manager) loadOrCreateSession(ctx context.Context, id, defaultCWD string
 	if st == nil {
 		return nil, fmt.Errorf("internal session missing after new: %s", id)
 	}
+	m.HandleSessionReady(id)
 	return st, nil
 }
 
