@@ -57,7 +57,17 @@ func (m *Manager) ensureSessionSingleFlight(ctx context.Context, sessionID, defa
 		mine := &loadFlight{done: make(chan struct{}), create: allowCreate}
 		actual, joined := m.loadFlights.LoadOrStore(id, mine)
 		if !joined {
-			st, err := m.loadOrCreateSession(context.WithoutCancel(ctx), id, defaultCWD, allowCreate)
+			// Winning the slot is not enough to justify a load. A leader that finished
+			// between the getSession above and this LoadOrStore has already published the
+			// session and removed its flight, so there is nothing left to join - and
+			// loading again would not merely repeat the read: loadSessionFromDisk drops
+			// the live state first, so the second load closes the MCP clients of the
+			// session the first one just brought up. Re-check before committing.
+			st := m.getSession(id)
+			var err error
+			if st == nil {
+				st, err = m.loadOrCreateSession(context.WithoutCancel(ctx), id, defaultCWD, allowCreate)
+			}
 			mine.st, mine.err = st, err
 			m.loadFlights.Delete(id)
 			close(mine.done)
