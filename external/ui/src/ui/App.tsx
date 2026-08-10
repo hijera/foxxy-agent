@@ -120,10 +120,7 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
-import {
-  armSessionDeleteBackdropSuppressUntil,
-  shouldSuppressShellBackdropClose,
-} from "./sessions/sessionDeleteBackdropSuppress";
+import { useConfirm } from "./components/useConfirm";
 import type { SessionRow } from "./sessions/types";
 import {
   isClientDraftSessionId,
@@ -689,6 +686,7 @@ export function App() {
   // Only the active locale id is needed here: memoized labels below must recompute when the user
   // switches language. Translations themselves go through the module-level t().
   const { locale } = useT();
+  const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
@@ -852,8 +850,6 @@ export function App() {
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
-  /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
-  const sessionDeleteBackdropSuppressUntilRef = useRef(0);
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -2961,13 +2957,15 @@ export function App() {
 
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
-      const ok = window.confirm(t("app.confirmDeleteDraft"));
+      const ok = await confirm({
+        title: t("app.confirmDeleteDraft"),
+        message: t("app.confirmDeleteDraftBody"),
+        confirmLabel: t("app.delete"),
+        variant: "danger",
+      });
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(
-        sessionDeleteBackdropSuppressUntilRef,
-      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2976,13 +2974,15 @@ export function App() {
       }
       return;
     }
-    const ok = window.confirm(t("app.confirmDeleteChat"));
+    const ok = await confirm({
+      title: t("app.confirmDeleteChat"),
+      message: t("app.confirmDeleteChatBody"),
+      confirmLabel: t("app.delete"),
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(
-      sessionDeleteBackdropSuppressUntilRef,
-    );
     clearQuestionPromptRecords(id);
     await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -4514,13 +4514,6 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (
-              shouldSuppressShellBackdropClose(
-                sessionDeleteBackdropSuppressUntilRef,
-              )
-            ) {
-              return;
-            }
             if (shellBackdropOpen) {
               closeAllShellDrawers();
             }

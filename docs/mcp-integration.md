@@ -276,10 +276,21 @@ mcp_servers:
    (`connecting`, then `ready`) so the panel can say what is holding the turn up; a session
    whose servers are already connected sends nothing and starts immediately.
 3. The agent calls `tools/list` on each server and registers the tools
-4. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+4. Saving settings with a changed `mcp_servers` list reconnects the configured
+   servers for every active session; ACP client-supplied per-session servers
+   stay connected. The reconnect is a **fresh trust evaluation**, not a replay of
+   what the session started with: an unapproved project declaration stays cold,
+   and one whose approval was withdrawn in the meantime does not come back. A
+   session with a **turn in flight** is not swapped mid-turn — that turn already
+   handed the model a tool list, so the reload is parked and applied the moment
+   the turn releases its lock. All sessions share one deadline per save, and a
+   dial it cuts short is discarded rather than installed: a server hanging in
+   the session reconnected first must not strip the others of their tools. Those
+   sessions keep the servers they have and retry on their next turn
+5. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
    (unless the tool or its server has been disabled since)
-5. Results are returned to the LLM as tool observations
-6. On session end or `session/cancel`, MCP server connections are cleaned up
+6. Results are returned to the LLM as tool observations
+7. On session end or `session/cancel`, MCP server connections are cleaned up
 
 ## Error Handling
 

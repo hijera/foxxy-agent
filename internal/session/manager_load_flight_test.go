@@ -95,6 +95,36 @@ func TestConcurrentEnsureLoadsTheSessionOnce(t *testing.T) {
 	}
 }
 
+// A session/new that reopens a persisted bundle parks its replay until the ACP client has
+// the response naming the id. Nothing on the HTTP path ever writes that response, so the
+// flight layer has to publish the parked work itself - otherwise a whole transcript stays
+// closed over in the state and the panel gets no history at all.
+func TestHTTPLoadPublishesTheReplayInsteadOfParkingIt(t *testing.T) {
+	m, sender, cwd := managerWithStore(t)
+	id := persistSession(t, m, cwd)
+
+	sender.mu.Lock()
+	sender.ups = nil
+	sender.mu.Unlock()
+
+	if _, err := m.EnsureHTTPSession(context.Background(), id, cwd); err != nil {
+		t.Fatalf("EnsureHTTPSession: %v", err)
+	}
+
+	// The slash catalogue is the update HandleSessionReady always emits, so seeing it means
+	// the drain ran rather than that the load happened to write inline.
+	if got := countLoads(sender); got != 1 {
+		t.Fatalf("expected one available-commands update after an HTTP load, got %d", got)
+	}
+	st := m.SessionByID(id)
+	if st == nil {
+		t.Fatal("session not live after EnsureHTTPSession")
+	}
+	if st.HasPendingReadyNotifyForTest() {
+		t.Fatal("HTTP load left a parked replay nothing will ever publish")
+	}
+}
+
 // The leader runs on a context detached from its own request: a webview that aborts its
 // fetch (session switch, reload) must not take the other waiters down with it.
 func TestEnsureSurvivesACancelledLeader(t *testing.T) {

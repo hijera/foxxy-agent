@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -104,16 +105,33 @@ func (m *Manager) activeCfg() *config.Config {
 	return m.cfgAt.Load()
 }
 
-// ReplaceConfig swaps the live configuration and rebuilds the skills loader. MCP clients on
-// existing sessions are not recreated.
+// mcpReloadTimeout bounds the MCP handshakes triggered by a settings save so a
+// hung server cannot block the request that replaced the configuration. The
+// stdio subprocess itself outlives this context (see newStdioTransport).
+const mcpReloadTimeout = 30 * time.Second
+
+// ReplaceConfig swaps the live configuration, rebuilds the skills loader, and
+// applies configured MCP server changes to sessions that are already active.
+//
+// Only the config-declared servers are compared: the dialer also merges
+// <home>/mcp.json and <cwd>/.foxxycode/mcp.json, and reaching those from here
+// would mean file I/O on the request that saved the settings.
 func (m *Manager) ReplaceConfig(next *config.Config) {
 	if next == nil {
 		return
 	}
+	previous := m.activeCfg()
 	skillsDirs := make([]string, len(next.Skills.Dirs))
 	copy(skillsDirs, next.Skills.Dirs)
 	m.skillsLoad = skills.NewLoader(skillsDirs)
+	// Stored before the dial, which reads activeCfg() to build the server list.
 	m.cfgAt.Store(next)
+	if previous != nil && reflect.DeepEqual(previous.MCPServers, next.MCPServers) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
+	defer cancel()
+	m.reloadConfiguredMCPServers(ctx)
 }
 
 // SetPreferredSessionID pins the identifier used for the next session/new invocation (typically from --session-id).
@@ -206,11 +224,16 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	// CLI --session-id with an existing snapshot is treated as reopening disk state.
 	if m.store != nil && preferredConsumed != "" {
 		if _, err := m.store.ReadSnapshot(id); err == nil {
+			// The replay is parked, not written: the client learns this id from
+			// the response it has not received yet. Over HTTP the same branch is
+			// reachable through manager_load_flight.go, where no ACP dispatch will
+			// ever call HandleSessionReady - which is why loadOrCreateSession
+			// drains it itself rather than leaving a whole transcript closed over.
 			loadResult, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams{
 				SessionID:  id,
 				CWD:        params.CWD,
 				MCPServers: params.MCPServers,
-			})
+			}, true)
 			if err != nil {
 				return nil, fmt.Errorf("session/new: reopen persisted session %s: %w", id, err)
 			}
@@ -254,8 +277,6 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	m.log.Info("session created", "id", id, "cwd", cwd, "mode", state.Mode)
 
-	m.sendAvailableSlashCommands(id, state)
-
 	return &acp.SessionNewResult{
 		SessionID:     id,
 		ConfigOptions: BuildACPConfigOptions(m.activeCfg(), state),
@@ -292,7 +313,12 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 	return state, nil
 }
 
-func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
+// loadSessionFromDisk restores a persisted bundle. deferPublish parks the
+// replayed transcript (and the plan and context usage that go with it) on the
+// state instead of writing it immediately: session/new reopening a bundle must
+// not emit updates for a session id the client only learns from the response it
+// has not received yet. HandleSessionReady publishes them afterwards.
+func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoadParams, deferPublish bool) (*acp.SessionLoadResult, error) {
 	if m.store == nil {
 		return nil, fmt.Errorf("session/load: persistence is disabled")
 	}
@@ -366,20 +392,25 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	m.mu.Lock()
 	m.sessions[params.SessionID] = st
 	m.mu.Unlock()
-	m.sendContextUsageUpdate(params.SessionID, st)
+	publish := func() {
+		m.sendContextUsageUpdate(params.SessionID, st)
 
-	if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
-		m.log.Warn("replay conversation", "error", err)
+		if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
+			m.log.Warn("replay conversation", "error", err)
+		}
+
+		if len(st.GetPlan()) > 0 && m.server != nil {
+			_ = m.server.SendSessionUpdate(params.SessionID, acp.PlanUpdate{
+				SessionUpdate: acp.UpdateTypePlan,
+				Entries:       st.GetPlan(),
+			})
+		}
 	}
-
-	if len(st.GetPlan()) > 0 && m.server != nil {
-		_ = m.server.SendSessionUpdate(params.SessionID, acp.PlanUpdate{
-			SessionUpdate: acp.UpdateTypePlan,
-			Entries:       st.GetPlan(),
-		})
+	if deferPublish {
+		st.setPendingReadyNotify(publish)
+	} else {
+		publish()
 	}
-
-	m.sendAvailableSlashCommands(params.SessionID, st)
 
 	m.log.Info("session loaded",
 		"id", params.SessionID,
@@ -399,8 +430,11 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 // session to be available - every per-session HTTP route - must go through
 // LoadPersistedSession / EnsureHTTPSession instead, so a fan-out of readers cannot turn into
 // a fan-out of reloads that close each other's state.
+//
+// The client named the session itself here, so the replayed history is written
+// before the response, as ACP requires - nothing is deferred.
 func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
-	return m.loadSessionFromDisk(ctx, params)
+	return m.loadSessionFromDisk(ctx, params, false)
 }
 
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
@@ -504,7 +538,7 @@ func (m *Manager) awaitMCPReady(ctx context.Context, sessionID string, state *St
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
 func (m *Manager) AcquireComposerTurnLock(sessionID string, st *State) (unlock func(), err error) {
-	return m.acquirePromptTurnLock(sessionID, st)
+	return m.acquireTurnLockWithReloadDrain(sessionID, st)
 }
 
 // WriteCrossProcessCancelRequest writes the on-disk cancel signal for a persisted session bundle.
@@ -540,7 +574,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		unlock = func() {}
 	} else {
 		lockStart := time.Now()
-		unlock, err = m.acquirePromptTurnLock(params.SessionID, state)
+		unlock, err = m.acquireTurnLockWithReloadDrain(params.SessionID, state)
 		lockWait = time.Since(lockStart)
 		if err != nil {
 			return nil, err
@@ -653,7 +687,7 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 
 	if err := m.server.SendSessionUpdate(params.SessionID, acp.ModeUpdate{
 		SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
-		ModeID:        params.ModeID,
+		CurrentModeID: params.ModeID,
 	}); err != nil {
 		m.log.Warn("failed to send mode update", "error", err)
 	}
@@ -679,7 +713,7 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 		state.SetMode(params.Value)
 		if err := m.server.SendSessionUpdate(params.SessionID, acp.ModeUpdate{
 			SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
-			ModeID:        params.Value,
+			CurrentModeID: params.Value,
 		}); err != nil {
 			m.log.Warn("failed to send mode update", "error", err)
 		}
@@ -746,6 +780,18 @@ func (m *Manager) getSession(id string) *State {
 // SessionByID returns in-memory session state or nil.
 func (m *Manager) SessionByID(id string) *State {
 	return m.getSession(id)
+}
+
+// HandleSessionReady publishes notifications that require the ACP client to
+// have registered the session after receiving session/new or session/load.
+func (m *Manager) HandleSessionReady(sessionID string) {
+	st := m.getSession(sessionID)
+	if st != nil {
+		if publish := st.takePendingReadyNotify(); publish != nil {
+			publish()
+		}
+	}
+	m.sendAvailableSlashCommands(sessionID, st)
 }
 
 func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
@@ -864,6 +910,117 @@ func (m *Manager) configuredMCPClients(ctx context.Context, cwd string) []*mcp.C
 		}
 	}
 	return clients
+}
+
+// reloadConfiguredMCPServers reconnects the configured MCP servers of every
+// active session after the settings changed, leaving ACP client-supplied
+// per-session servers untouched. The reload is a fresh trust evaluation, not a
+// replay of what the session started with, so a declaration whose approval has
+// since been withdrawn does not come back.
+//
+// A session with a turn in flight is not touched here: swapping its configured
+// clients would strand the tool definitions that turn already handed the model,
+// so the MCP call it is running would resolve to a server that no longer exists.
+// The reload is parked on the state and drained the moment the turn releases its
+// lock (see drainPendingMCPReload). The flag is marked before the lock probe so
+// a turn releasing concurrently either observes it in its own drain or leaves
+// the lock free for us to take here.
+func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
+	m.mu.RLock()
+	states := make([]*State, 0, len(m.sessions))
+	for _, state := range m.sessions {
+		states = append(states, state)
+	}
+	m.mu.RUnlock()
+
+	for _, state := range states {
+		state.markMCPReloadPending()
+		unlock, err := m.acquirePromptTurnLock(state.GetID(), state)
+		if err != nil {
+			// A turn holds the lock; its release drains the parked reload.
+			continue
+		}
+		applied := true
+		if state.takeMCPReloadPending() {
+			applied = m.applyConfiguredMCPReload(ctx, state)
+		}
+		unlock()
+		// A save that arrived while this one was dialing parked its reload
+		// behind our lock. Draining here applies the newest configuration to an
+		// idle session instead of leaving it on the superseded one until its
+		// next turn.
+		if applied {
+			m.drainPendingMCPReload(state.GetID(), state)
+		}
+	}
+}
+
+// applyConfiguredMCPReload dials the configured servers for the session and
+// installs them, replacing whatever the previous reload left. A dial the
+// context cut short is discarded instead: an empty or partial result then says
+// nothing about the operator's configuration, and installing it would strip a
+// healthy session of its MCP tools. Sessions share one deadline per settings
+// save, so this is what a server hanging in the session dialed first costs the
+// rest. It reports whether the swap happened; a discarded dial leaves the
+// reload parked for a later turn to retry.
+func (m *Manager) applyConfiguredMCPReload(ctx context.Context, st *State) bool {
+	clients := m.configuredMCPClients(ctx, st.GetCWD())
+	if err := ctx.Err(); err != nil {
+		for _, client := range clients {
+			_ = client.Close()
+		}
+		st.markMCPReloadPending()
+		m.log.Warn("configured MCP reload ran out of time; keeping the current servers",
+			"session", st.GetID(), "error", err)
+		return false
+	}
+	st.replaceConfiguredMCPClients(clients)
+	return true
+}
+
+// drainPendingMCPReload applies a reload parked by reloadConfiguredMCPServers,
+// if one is waiting and the session turn lock is free. It runs right after a
+// turn releases the lock, so the configured clients are swapped between turns
+// rather than under an in-flight MCP tool call. If a newer turn has already
+// taken the lock, this returns and that turn's release drains the flag instead.
+func (m *Manager) drainPendingMCPReload(sessionID string, st *State) {
+	if st == nil || !st.hasPendingMCPReload() {
+		return
+	}
+	unlock, err := m.acquirePromptTurnLock(sessionID, st)
+	if err != nil {
+		return
+	}
+	defer unlock()
+	if !st.takeMCPReloadPending() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
+	defer cancel()
+	_ = m.applyConfiguredMCPReload(ctx, st)
+}
+
+// acquireTurnLockWithReloadDrain wraps the raw turn lock so its release also
+// applies any configured-MCP reload parked while the turn was running.
+//
+// All three turn entry points use it - AcquireComposerTurnLock,
+// AcquireComposerTurnLockWaiting, and HandleSessionPromptWithSender - so no
+// path can finish a turn without draining. The waiting variant matters most:
+// it is what the streaming HTTP composer takes before handing the turn on with
+// SkipTurnLock, so without it the main SPA path would never drain at all.
+//
+// SetSessionWorkspace deliberately takes the raw lock instead: it has just
+// redialled for the new working directory itself, and draining on top would
+// repeat that work.
+func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (func(), error) {
+	unlock, err := m.acquirePromptTurnLock(sessionID, st)
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		unlock()
+		m.drainPendingMCPReload(sessionID, st)
+	}, nil
 }
 
 // acpMCPServerToConfig converts an ACP client-supplied MCP server definition

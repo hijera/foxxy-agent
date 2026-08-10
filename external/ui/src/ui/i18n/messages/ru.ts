@@ -595,6 +595,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.cron.empty": "Введите cron-выражение (5 полей, UTC).",
   "scheduler.cron.invalid": "Некорректное cron-выражение",
   "scheduler.confirmDelete": "Удалить задачу планировщика «{jobId}»?",
+  "scheduler.confirmDeleteBody": "Задача и её расписание будут удалены навсегда.",
   "scheduler.pause": "Пауза",
   "scheduler.resume": "Возобновить",
   "scheduler.delete": "Удалить",
@@ -756,8 +757,17 @@ export const messagesRu: Record<string, string> = {
   "theme.nord": "Nord",
   "theme.rosePine": "Rosé Pine",
 
-  "app.confirmDeleteDraft": "Удалить черновик",
-  "app.confirmDeleteChat": "Удалить чат",
+  // Общий диалог подтверждения (ui/components/ConfirmDialog.tsx)
+  "confirm.cancel": "Отмена",
+  "confirm.confirm": "Подтвердить",
+  "confirm.ariaLabel": "Подтверждение действия",
+
+  "app.confirmDeleteDraft": "Удалить черновик?",
+  "app.confirmDeleteDraftBody":
+    "Этот чат ни разу не отправлялся, на сервере ничего не сохранено.",
+  "app.confirmDeleteChat": "Удалить чат?",
+  "app.confirmDeleteChatBody": "Чат и всё его содержимое будут удалены навсегда.",
+  "app.delete": "Удалить",
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.chatBusyReattached":
