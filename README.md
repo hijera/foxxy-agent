@@ -559,6 +559,8 @@ LLM  Инструменты Навыки  MCP
 - [AGENTS.md](AGENTS.md) — карта репозитория и памятка для автоматизированных участников
 - [Правила](docs/rules.md) — правила проекта (`.cursor/rules`, `.foxxycode/rules` и другие)
 - [Хуки Codex](docs/codex-hooks.md) — как `.cursor/rules/*.mdc` попадают в сессию Codex CLI, работающую с этим репозиторием
+- [Хуки OpenCode](docs/opencode-hooks.md) — детерминированная доставка `.cursor/rules/*.mdc` в сессии OpenCode, работающие с этим репозиторием
+- [Хуки ZCode](docs/zcode-hooks.md) — то же самое для сессий ZCode
 - [Навыки](docs/skills.md) — slash-команды и **`skills.dirs`**
 - [Фоновые задачи](docs/background-tasks.md) — отсоединённые команды, пул задач, таймауты и грант на целую программу
 - [Интеграция MCP](docs/mcp-integration.md) — руководство по MCP-серверам

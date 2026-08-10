@@ -395,6 +395,11 @@ unit-тесты конфигурации/компакции/лимитов, HTTP
 фикстура `ui-schema.json` и RU-оверлей `schema.ru.ts`.
 
 **Расхождение с upstream — `ProcessGroupAlive` на Windows (осознанное).**
+> ⚠️ **СНЯТО в волне `0f2dbf1 → fa7ecf1`.** Upstream пришёл к тому же диагнозу и пошёл дальше:
+> добавил идентичность процесса (`process_started_at`) и сделал пробу fail-closed, потому что
+> тот же булев ответ теперь авторизует `taskkill /T /F`. Форковый файл заменён на upstream'ский
+> целиком; ниже — история, а не действующее поведение. Подробности в разделе той волны.
+
 Upstream пробует pid через `os.FindProcess`, что отвечает на вопрос «могу ли я открыть этот pid»,
 а не «жив ли он», и врёт в обе стороны. Проверено эмпирически на этой машине:
 
@@ -660,7 +665,8 @@ exec заводит для не-`*os.File` stdout, поэтому `io.Copy` вн
   она снимает **локальную** консольную кодовую страницу Windows, а байты приходят с удалённого
   хоста — применять её там было бы неверно. `SanitizeOutput` (ANSI и `\r`) уместна и добавлена.
 - Форковый `ProcessGroupAlive` на Windows (`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` +
-  `GetExitCodeProcess`) не тронут.
+  `GetExitCodeProcess`) не тронут. ⚠️ **Снято в волне `0f2dbf1 → fa7ecf1`** — принята
+  upstream-реализация с проверкой идентичности процесса.
 
 **Тесты:** `features/foreground_timeout_adoption.feature` (6 сценариев, включая внука,
 держащего пайп) + 14 юнитов и `internal/bgtask/adopt_test.go`, `switchwriter_test.go`,
@@ -731,7 +737,314 @@ exec заводит для не-`*os.File` stdout, поэтому `io.Copy` вн
 
 ---
 
+## Волна `0f2dbf1 -> fa7ecf1` (теги `0.9.54`–`0.9.60`) — ГОТОВО
+
+19 не-merge коммитов (2026-08-01…08), 88 файлов, +5071/−259. Шесть независимых блоков.
+Решения оператора для этой волны: брать её **целиком 1:1** (включая `.opencode/`, `.zcode/`
+и 10 PNG), `ProcessGroupAlive` — **принять upstream полностью**, hot-reload MCP — **синхронный**,
+как у upstream.
+
+### 1. Ретраи LLM принадлежат нам (upstream `8bfe843` + `6535cfc`)
+
+Скрытые ретраи SDK перемножались с нашими: при `retry_max: 1` провайдер слал до **6** запросов
+вместо 2. `option.WithMaxRetries(0)` в `newOpenAIProvider`, `newAnthropicProvider` и в per-request
+`opts` у `codexProvider.responsesClient` — три однострочника, легли чисто.
+
+**Расхождение:** `internal/llm/resilient_test.go` — таблица upstream взята (она добавляет
+`context.DeadlineExceeded`), но форковый кейс «`net.Error.Timeout()` retryable» **дописан**, а не
+затёрт. `resilient.go` upstream не трогает, форковый `Logger` остаётся.
+
+**Тесты:** `features/llm_retry_ownership.feature` (6 строк примеров) + `bdd_retry_ownership_test.go`
+(httptest-сервер, всегда 500, считает запросы). **Проверено «наоборот»:** с откатом однострочников
+падают ровно 4 сценария из 6 с «upstream requests = 6, want 2».
+
+### 2. Системная кодовая страница перевешивает детектор (upstream `38bb9a4`)
+
+Короткий файл, где кириллица — меньшинство (исходник с одним русским комментарием, повседневный
+случай на русской Windows), уводил chardet в ISO-8859-1 **как «успех»**, поэтому до форковой
+ступени `windows-1251` дело не доходило вовсе. Теперь ANSI-чтение — кандидат, который может
+перебить детектор, по трём условиям: ANSI заявляет нелатинское письмо, которого детектор не нашёл;
+у детектора есть непрерывный прогон не-ASCII ≥ 3 (форма мохибаке); ни одно слово в ANSI-чтении не
+смешивает письменности.
+
+**Ручной порт, не cherry-pick:** у форка `textenc` переписан под round-trip, поэтому арбитраж
+вшит в **`Decode(data) (string, Encoding, error)`**, а не в обёртку `DecodeToUTF8`, куда бьёт хунк
+upstream; `candidate` — `{text, enc}`, а не `{text, charset}`; `hasNonLatinLetters` уже был.
+Чистые функции (`preferSystemANSI`, `maxNonASCIIRun`, `hasMixedScriptWord`, `minMojibakeRun`)
+перенесены дословно. Комментарий в `internal/platform/output_windows.go` правлен вручную (форк там
+сильно разошёлся).
+
+**Взаимодействие с форковой ступенью cp1251:** она строго внешняя (`internal/tools/fs/text_encoding.go`,
+срабатывает только на `ErrUndecodable`), поэтому на русской Windows ответ теперь даёт уже `Decode`
+с тем же charset `windows-1251` — round-trip не меняется; на Linux-CI `DecodeANSI` — заглушка,
+ветка инертна. В комментарий `text_encoding.go` дописано, что cp1251 теперь **третий**, а не второй
+кириллический путь.
+
+**Тесты:** `prefer_ansi_test.go` (портируемая таблица), `textenc_windows_test.go`, `@windows`-сценарий
+в `features/prompt_attachment_encoding.feature` + гейтинг `systemANSIReadsCyrillic()` / `~@windows`.
+**Проверено «наоборот»** на этой машине (ACP 1251): с закороченным `preferSystemANSI` падает ровно
+новый сценарий, остальные 8 зелёные.
+
+### 3. Идентичность Windows-процессов (upstream `caee16a` + `23953c9` + `9262ffe`, одним коммитом)
+
+Три коммита — три черновика одного дизайна; промежуточные состояния (slack-окно, fail-open
+идентичность, 2-арг terminate) строго хуже и не воспроизводились.
+
+**Форковое расхождение снято по решению оператора.** `internal/platform/procgroup_windows.go` взят
+у upstream целиком: `ProcessGroupAlive(pid, startedAt)` открывает
+`PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE`, отличает труп от живого через
+`WaitForSingleObject(h,0) == WAIT_TIMEOUT` и требует **точного совпадения creation time**;
+fail-closed и на ошибке открытия, и на нулевом `startedAt`. Обоснование: тот же булев ответ теперь
+авторизует `taskkill /T /F`, а идентичность недоказуема на хэндле, который не удалось открыть.
+Форковая константа `stillActive` и тест `TestProcessGroupAliveReportsProtectedProcess` (пинил
+`ProcessGroupAlive(4) == true`) удалены вместе с политикой, которую пинили.
+
+Плюс: `ProcessStartedAt`, `Snapshot.ProcessStartedAt` с тегом **`json:"-"`** (в HTTP-строку задачи
+не попадает, поэтому OpenAPI править не пришлось), `persistedSnapshot` с ключом
+`process_started_at` в `meta.json`, метод `ProcessStartedAt()` в интерфейсе `Handle` и
+3-арг `TerminateProcessGroupByPID`, который переоткрывает pid, перепроверяет идентичность и держит
+хэндл **всё время `taskkill`**.
+
+**Форк-специфика:** третья реализация `Handle` — `adoptedHandle` в `internal/tools/shell/foreground.go`
+(путь усыновления `Pool.Adopt`, которого у upstream в этом виде нет) получает `processStartedAt`,
+иначе усыновлённая задача становится нереапабельной. `startDetachedHelper` в `bgtask_test.go`
+переписан на `NewCommandRunner()` — на голой Windows `sleep` нет; это предпосылка Windows-CI (блок 6).
+
+**Одноразовое изменение поведения (проговорено в `docs/background-tasks.md`, раздел Upgrading):**
+бандл, записанный до этой волны, имеет `pid`, но не `process_started_at`. На Windows такая запись
+больше не попадает в `background_list`, не убивается `background_reap` и молча игнорируется
+`background_stop`. Escape-hatch намеренно не делали — он вернул бы дыру переиспользования pid.
+Unix не затронут: его проба идентичность не потребляет.
+
+**Тесты:** `internal/platform/procgroup_test.go` (кроссплатформенный) и upstream'ский
+`procgroup_windows_test.go` — 9 тестов, включая `TestProcessGroupAliveFailsClosedWithoutAStartTime`
+и `TestTerminateProcessGroupByPIDRefusesAPidTheRecordDoesNotDescribe`; `features/background_reap.feature`
++ `bdd_background_reap_test.go` (3 сценария, реальный второй пул поверх того же бандла);
+`examples/httpserver/http_e2e_background_reap.py` (уже platform-aware у upstream — форковой правки
+про POSIX-цикл не потребовалось).
+
+### 4. ACP session-ready + `currentModeId` (upstream `2e0e915`, не-MCP половина)
+
+`available_commands_update` уходил **до** ответа на `session/new`, то есть клиент получал команды
+для сессии, идентификатор которой ещё не знал. Добавлен интерфейс `sessionReadyHandler` и
+`Manager.HandleSessionReady`; вызовы `sendAvailableSlashCommands` убраны из `HandleSessionNew` и
+`loadSessionFromDisk`. Плюс проводной фикс `ModeUpdate.ModeID` → `CurrentModeID` /
+`json:"currentModeId"` (три вызова; `SessionSetModeParams.ModeID` — другая структура, не тронута;
+`bridge.go` `ModeUpdate` не маппит, SPA не затронута — меняется формат для ACP-клиентов).
+
+**Расхождения:** третий вызов `sendAvailableSlashCommands` — `cwd.go:98` в `SetSessionWorkspace` —
+**оставлен на месте**: смена рабочей папки не отвечает ни на какой запрос. Хунки, которые в форке
+уже были (`TryLock` в `acquireStubTurnLock`, введение `replaceConfiguredMCPClients`, смена сигнатуры
+`connectMCPServer`), пропущены.
+
+### 5. `deferPublish` (upstream `22a983b`) — единственное место, где «1:1» физически неприменимо
+
+Реплей транскрипта паркуется в `state.pendingReadyNotify` и публикуется из `HandleSessionReady`.
+
+**Вынужденная форковая правка.** У форка есть слой `internal/session/manager_load_flight.go`,
+которого у upstream нет: через него HTTP-маршруты гонят `HandleSessionNew`/`HandleSessionLoad`, и
+там `HandleSessionReady` не выстрелит никогда — дословный порт оставил бы навсегда припаркованное
+замыкание с целым транскриптом. Поэтому `loadOrCreateSession` **сама** зовёт `m.HandleSessionReady(id)`
+в обеих ветках. Это же сохраняет доставку `available_commands_update` для HTTP-созданных сессий
+после переезда слэш-команд из блока 4. Подстраховка: `State.CloseAll` дренирует и выбрасывает
+припаркованное замыкание.
+
+Гард `m.server != nil` **не использован**: в форке HTTP-сервер тоже передаёт непустой sender
+(`external/httpserver/commands.go`), так что этот признак ничего не различает — защищает именно дренаж.
+
+**Тест (форковый):** `TestHTTPLoadPublishesTheReplayInsteadOfParkingIt` + тест-шов
+`export_ready_notify_test.go`. **Проверено «наоборот»:** без дренажа тест падает на «0 available-commands
+updates».
+
+### 6. Живая перезагрузка MCP (upstream `2e0e915` MCP-половина + `8ffa6ca` + `3503593`)
+
+Синхронно, как у upstream. `ReplaceConfig` сравнивает только `MCPServers` и при изменении зовёт
+`reloadConfiguredMCPServers(ctx)` с бюджетом `mcpReloadTimeout = 30s`. Сессия с идущим ходом не
+трогается: флаг `mcpReloadPending` ставится **до** пробы блокировки, а свап делается, когда ход
+отпустит замок (`drainPendingMCPReload`). Дозвон, который не уложился в ctx, **выбрасывается**
+(`applyConfiguredMCPReload`), а не устанавливается: пустой результат ничего не говорит о конфигурации
+оператора и снял бы у здоровой сессии её инструменты.
+
+**Расхождения:**
+- Дозвон идёт через **форковый `m.configuredMCPClients(ctx, cwd)`** — параллельный и с
+  `mcp.NewTrustGate` внутри, так что гейт доверия остаётся на единственной двери, а перезагрузка
+  является **свежей оценкой доверия**, а не повтором того, с чем сессия стартовала.
+- **Оборачиваются три acquirer'а, а не два.** Кроме `AcquireComposerTurnLock` и
+  `HandleSessionPromptWithSender` есть форковый **`AcquireComposerTurnLockWaiting`** — именно им
+  пользуется стримящий композер SPA (потом передаёт ход с `SkipTurnLock`), поэтому без обёртки
+  основной HTTP-путь не дренировал бы **никогда**.
+- `SetSessionWorkspace` намеренно берёт сырой замок: она только что сама передозвонилась под новый
+  cwd, дренаж повторил бы ту же работу.
+- Из `e43f3ea` понадобился **один хунк** — guard `mcpClosed` в `addMCPClient`.
+  `replaceConfiguredMCPClients` и `CloseAll`→`markMCPClosed` у форка уже были (записано, чтобы
+  следующая волна не искала).
+- `manager_mcp_reload_test.go`: в хелпер добавлено ожидание `WaitMCPReady` — форк дозванивается
+  на фоне, у upstream дозвон инлайновый, поэтому клиентов после `HandleSessionNew` ещё нет.
+  По той же причине из `bdd_acp_session_test.go` удалён дубликат `assertMCPClientNames`:
+  форковый в `manager_test.go` строго сильнее (ждёт гейт готовности).
+
+**Тесты:** `features/acp_session_integration.feature` (4 сценария, все зелёные),
+`internal/session/manager_mcp_reload_test.go`, `external/httpserver/mcp_config_http_test.go`, плюс
+**форковый** `TestReplaceConfigDrainsThroughTheWaitingComposerLock` — acquirer, которого у upstream
+нет. **Проверено «наоборот»** трижды: без выброса ctx-просроченного дозвона падает
+`TestReloadKeepsClientsWhenContextExpired`; без дренажа на релизе замка падает
+`TestReplaceConfigDefersMCPReloadWhileTurnHoldsLock`; без обёртки на `AcquireComposerTurnLockWaiting`
+падает форковый тест.
+
+### 7. ConfirmDialog (upstream `814701f` + `bb90e09` + `df305ba`, одним коммитом)
+
+`814701f` в одиночку не собирается (удаляет `sessionDeleteBackdropSuppress`, не разведя `App.tsx`),
+`df305ba` удаляет два CSS-правила из `bb90e09` — взята итоговая форма каждого файла. Нативный
+`confirm()` заменён React-диалогом в трёх местах: удаление черновика, удаление чата
+(`App.tsx`), удаление задания планировщика (`SchedulerJobEditorSheet.tsx`).
+`sessionDeleteBackdropSuppress.{ts,test.ts}` удалены — их подпорка больше не нужна.
+
+**Расхождения:**
+- **i18n (upstream — целиком английский).** Три английских дефолта (`"Cancel"`, `"Confirm"`,
+  `"Confirm action"`) не видны линту `noHardcodedStrings` (это JS-дефолты, а не JSX-текст), но
+  уехали бы в прод непереведёнными — заменены на `confirm.cancel` / `confirm.confirm` /
+  `confirm.ariaLabel` через не-хуковый `translate` (конвенция форка для дефолтов). Плюс новые
+  `app.confirmDeleteDraftBody`, `app.confirmDeleteChatBody`, `app.delete`,
+  `scheduler.confirmDeleteBody`; существующие `app.confirmDelete*` переформулированы в вопрос.
+  Все ключи — и в `en.ts`, и в `ru.ts` (гейт `messagesParity`).
+- **`ConfirmProvider` смонтирован внутри `I18nProvider`** (у форка дерево
+  `StrictMode → AppErrorBoundary → I18nProvider → App`, хунк upstream ждёт `App` прямо под
+  `StrictMode`), чтобы подписи резолвились в активной локали, а падение диалога ловил
+  `AppErrorBoundary`.
+- **`df305ba` для форка обязателен, а не косметика:** у форка есть свой window-listener на Escape
+  (`App.tsx`), закрывающий планировщик и шторку сессий; без capture-фазы и `stopImmediatePropagation`
+  отмена подтверждения схлопывала бы ещё и шторку.
+- **CSS:** ~162 строки вставлены перед `.workspace-menu`; `--coddy-*` → `--foxxycode-*`
+  (в форке 0 вхождений `--coddy-`, а `postcss-resolve-color-mix.mjs` жёстко валит сборку на
+  нерезолвящейся custom property). Запрещённых Chromium-104 конструкций нет; `check:compat` зелёный.
+
+**Гейты:** 974 vitest-теста (165 файлов), `build` + `check:compat` + `build:go` (ассеты `go:embed`
+пересобраны), `go test -tags=http,ui ./external/httpserver`.
+
+### 8. Хуки правил OpenCode и ZCode (upstream `03aacf1` + `122d50d`)
+
+Обоих каталогов в форке не было (только `.codex/`). Портированы как есть:
+`.opencode/{package.json,lib,plugins,tests}`, `.zcode/{config.json,hooks/attach_rules.py}`,
+`docs/opencode-hooks.md`, `docs/zcode-hooks.md`, `.gitignore` (+`.zcode/plans/`, `.zcode/sessions/`),
+`README.md`, секция `AGENTS.md` переименована в **Codex, OpenCode, Cursor and ZCode rules**.
+Ребренд: `zcode-coddy-rules` → `zcode-foxxycode-rules`, temp-префикс в тесте плагина.
+В `.zcode/config.json` сохранён `python` (а не `python3`) — комментарий про Windows Store stub
+здесь по делу.
+
+**`Makefile` — ручной мерж:** форковый `.PHONY` несёт 12 лишних целей; добавлены
+`test-opencode-rules`, `check-windows`, `lint-windows`; `test:` получил префикс
+`test-opencode-rules`. Хунк `install:` не применялся — форк переписал его на многострочный блок.
+
+**Проверено:** `node --test .opencode/tests/project-rules.test.js` — 8/8; ZCode-хук прогнан руками
+обоими событиями на этом репозитории (`SessionStart` отдаёт 3 always-правила, 5727 байт;
+`PreToolUse` на `external/httpserver/server.go` подтягивает `api-layer.mdc`, 5850 байт).
+
+### 9. Windows-CI, правило про скриншот, ассеты (upstream `f409c52` + `859b484` + `990c429`)
+
+- `.github/workflows/tests-on-pr.yaml`: задания `cross-build-windows` (ubuntu, `make check-windows`)
+  и `test-windows` (`windows-latest`, `internal/platform` + `internal/bgtask` + `internal/tools/shell`),
+  плюс второй шаг golangci-lint с `GOOS: windows`. Проверено, что эти три пакета **не** шеллятся
+  в `rg` (упоминания `rg` там — только строковый валидатор Ask-режима), поэтому ripgrep на
+  windows-раннере не нужен.
+- `Makefile`: цели `check-windows` (кросс-сборка + `go vet` по всем не-`ui` комбинациям тегов,
+  включая тестовые файлы) и `lint-windows`.
+- `.claude/rules/testing.md` + зеркало `.cursor/rules/testing.mdc` — по пункту про Windows-гейты.
+- `859b484` **переписан, а не cherry-pick'нут**: форковый `.claude/rules/workflow.md` разошёлся
+  (свои пункты **Rules sync** и **Changelog**, удалённая секция BDD upstream). Новый шаг 5
+  (скриншот каждой изменённой UI-поверхности в PR) вставлен, шаги 5-8 → 6-9, `paths:` += `external/ui/**/*`.
+  Зеркало `.cursor/rules/workflow.mdc` перегенерировано из `.md`, **форковый `alwaysApply: false`
+  сохранён**. Обновлены `.codex/rules.md` и `AGENTS.md`.
+- `990c429`: взяты **только** 10 PNG `docs/assets/pw-confirm-*.png` (первый `git checkout` тянул
+  весь upstream'ский `docs/assets/` с coddy-брендированными логотипами и затирал форковый
+  `INDEX.md` — откачено). В `INDEX.md` добавлена секция с явной пометкой, что кадры сняты с
+  английского UI upstream.
+
+### Осознанно принятые риски этой волны
+
+- **Синхронный reload держит HTTP-запрос.** `ReplaceConfig` дозванивается прямо в запросе, а форк
+  зовёт её из **двух** сохраняющих путей (`config_http.go`, `skills_mgmt.go`), поэтому сохранение
+  настроек может занять до 30 с × число живых сессий. У upstream та же цена, но вызывающий один.
+- **Три писателя `configuredMCPClients` не упорядочены между собой.** Старт сессии и
+  `SetSessionWorkspace` публикуют из фоновой горутины, reload — синхронно; медленный стартовый
+  дозвон может лечь поверх более свежего reload. У upstream писателей два и оба синхронные.
+  Чинится монотонной эпохой публикации — отдельным PR.
+
+### Живой прогон (реальный провайдер `neuraldeep`)
+
+Бинарь `-tags "http ui"`, изолированные `FOXXYCODE_HOME`/`FOXXYCODE_CONFIG`/cwd во временном
+каталоге вне репозитория, ключ **только** через `${NEURALDEEP_API_KEY}` в конфиге (на диск не
+попадает). Модель `nd/gpt-oss-120b`. Тела запросов идут из файла через Python — кириллицу в
+аргументе `curl`/PowerShell ломает слой запуска процесса, а не продукт.
+
+- **Ретраи.** `llm_retry_max: 1` против всегда-500 эндпоинта: **ровно 2** запроса вверх — и для
+  прямой YAML-модели, и для agent-хода. (Промежуточная ошибка стенда поймала и подтвердила
+  дефолт: с несуществующим ключом `retry_max` применяется `llm_retry_max: 3` → 4 запроса,
+  то есть скрытых SDK-ретраев нет ни в одной комбинации.)
+- **Короткое cp1251-вложение** — тот самый баг блока 2. Файл `short.go`, **44 байта**, не валидный
+  UTF-8, единственная кириллица — комментарий `// Готово`: модель процитировала его дословно.
+  `note.txt` (43 байта): `«кавычки»`, `тире —`, `№ 5`, `ёж и Ёлка` — всё дошло целым.
+- **Round-trip cp1251.** Модель через `edit` заменила строку на `итог — № 42, ёж`: файл на диске
+  **остался cp1251** (не валидный UTF-8), правка применена, соседние строки целы.
+- **Идентичность фоновых задач.** `process_started_at` пишется в `meta.json` и **совпадает с
+  creation time от Windows до микросекунды** (`08:22:36.713972` в записи против `08:22:36.7139720`
+  у ОС). Бинарь убит без drain — дерево пережило смерть процесса; после рестарта
+  `background_list` в **той же сессии** отдаёт `bg_1 [orphaned] … still alive from an earlier run
+  (pid 60356), reap with background_reap`; `background_reap` снёс его (процесса больше нет);
+  повторный `reap` — «No leftover background processes from an earlier run».
+- **Старый бандл без идентичности** (одноразовое изменение поведения): у записи вручную удалён
+  `process_started_at` — задача **не показана** в `background_list`, **не тронута** `background_reap`,
+  процесс остался жить. Ровно то, что описано в `docs/background-tasks.md` (**Upgrading**),
+  то есть поведение задокументировано, а не сломано молча.
+- **Hot-reload MCP.** Сессия открыта без configured-серверов → `PUT /foxxycode/config` с новым
+  stdio-сервером (200) → `GET /foxxycode/mcp` показывает `settings-probe: connected, 1 tool` →
+  **уже открытая** сессия вызвала его инструмент и получила `pong from settings-probe`.
+  Удаление сервера тем же путём тоже применилось.
+- **ConfirmDialog.** Удаление чата: `role="dialog"`, `aria-modal="true"`, portal в `body`,
+  заголовок «Удалить чат?», тело «Чат и всё его содержимое будут удалены навсегда.», кнопки
+  «Отмена» / «Удалить», фокус по открытию — на **Отмене**. **Escape отменяет диалог и оставляет
+  шторку сессий открытой** (16 строк до и после) — это форковый фикс `df305ba`, без capture-фазы
+  схлопнулась бы и шторка. Подтверждение реально удаляет (16 → 15 строк, `DELETE … → 200`).
+  Консоль чистая; единственная 404 — `/foxxycode/scheduler/jobs`, потому что стенд собран без
+  тега `scheduler`.
+
+**Не покрыто живьём:** скриншоты SPA — панель браузера в этой среде не композитит кадры
+(`screenshot` отваливается по таймауту), проверка сделана через DOM; и порядок ACP `session/new`
+— ACP-транспорт не поднимался, поведение закрыто `features/acp_session_integration.feature`.
+
+### Осталось нерешённым (перенесено)
+
+- Четыре незакрытых «известных риска» волны `96c04fb → 6d46afe`.
+- Четыре PNG `docs/assets/screenshot-tool-previews*.png` — тянутся с волны `6666606 → 19754e8`.
+- Скриншоты ConfirmDialog со **своего** UI (по новому правилу из блока 9) — нужна среда с рабочей
+  панелью браузера.
+
+### Гейты этой волны (все зелёные)
+
+`go build` (default и `http ui scheduler memory`); `go test ./cmd/... ./internal/...`;
+`-tags=memory`, `-tags=scheduler`, `-tags=http`, `-tags=http,ui`, `-tags=http,scheduler,memory`
+по `external/httpserver`; `go test ./internal/session/... -race`;
+`GOOS=linux`/`GOOS=darwin`/`GOOS=windows go vet` (доказывает, что `procgroup_other.go` и обе
+half'ы компилируются); `golangci-lint run` — **0 issues**; `node --test` — 8/8;
+`npm run test` — **974 теста / 165 файлов**, `build` + `check:compat` + `build:go`.
+`make test` целиком **не гонялся** — его шаг `ui-build` на этой машине падает, а `kilocode-main/`
+ломает `./...`, поэтому сборка и линт идут по каталогам (`./cmd/... ./internal/... ./external/...`).
+
+---
+
 ## Последняя синхронизация
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-08-10 |
+| **Синхронизировано до `upstream/main`** | `fa7ecf1` (2026-08-08) |
+| **Ближайший upstream-тег** | `0.9.60` |
+| **Наш коммит-порт** | ветка `claude/foxxy-agent-upstream-sync-2333bc` |
+| **Живой прогон** | выполнен на `neuraldeep` — см. раздел волны (ретраи, cp1251, идентичность фоновых задач, hot-reload MCP, ConfirmDialog) |
+| **Отложенные follow-up** | скриншоты ConfirmDialog со своего UI (панель браузера не композитит); четыре PNG `docs/assets/screenshot-tool-previews*.png`; четыре незакрытых «известных риска» волны `96c04fb → 6d46afe`; два новых риска этой волны (синхронный reload в HTTP-обработчике, неупорядоченные писатели `configuredMCPClients`) |
+
+---
+
+## Предыдущая синхронизация (`5e44bdb -> 0f2dbf1`)
 
 | Поле | Значение |
 | --- | --- |
@@ -829,7 +1142,7 @@ exec заводит для не-`*os.File` stdout, поэтому `io.Copy` вн
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 0f2dbf1..upstream/main` — список кандидатов.
+2. `git log --oneline --no-merges fa7ecf1..upstream/main` — список кандидатов.
 3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
 4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
 5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.
