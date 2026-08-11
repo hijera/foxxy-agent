@@ -40,6 +40,15 @@
         <notificationGroup id="FoxxyCode" displayType="BALLOON"/>
     </extensions>
 
+    <!-- The backend must be dead before the IDE exits or the plugin is replaced: on Windows a
+         surviving process keeps its port, and anything it still has open cannot be deleted. -->
+    <applicationListeners>
+        <listener class="dev.foxxycode.intellij.process.FoxxyCodeBackendLifecycleListener"
+                  topic="com.intellij.ide.AppLifecycleListener"/>
+        <listener class="dev.foxxycode.intellij.process.FoxxyCodeBackendLifecycleListener"
+                  topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    </applicationListeners>
+
     <actions>
         <action id="FoxxyCodeWelcome"
                 class="dev.foxxycode.intellij.ui.FoxxyCodeWelcomeAction"
