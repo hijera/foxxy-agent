@@ -154,10 +154,12 @@ test home deliberately has none). Report those as not covered instead of faking 
   RetrieveResponse".
 - **After changing plugin sources**, restart the sandbox — it runs the plugin as packaged at
   launch. Kill by PID, rerun `runIdeForUiTests` (it rebuilds via prepareUiTestingSandbox).
-- **Kill the backend too.** Killing the sandbox IDE by PID leaves its `foxxycode.exe` child
-  running, and it holds the bundled binary open — the next `runIdeForUiTests` then dies in
-  `prepareUiTestingSandbox` with "Could not copy file … foxxycode.exe". Clean up with
+- **Kill the backend too.** Killing the sandbox IDE by PID skips `appWillBeClosed`, so its
+  `foxxycode.exe` child keeps running. It no longer breaks the next `runIdeForUiTests` — the
+  plugin runs a *staged* copy under `idea-sandbox/system/foxxycode-bin/`, not the one
+  `prepareUiTestingSandbox` writes — but it still holds a port and eats memory. Clean up with
   `Get-Process foxxycode | Where-Object { $_.Path -like "*idea-sandbox*" } | Stop-Process -Force`.
+  Exiting through `action Exit` instead reaps the backend by itself.
 - The `clean`-then-build file-lock flake and the mojibake worker crash from
   `intellij-plugin-gradle` apply to these tasks too.
 
