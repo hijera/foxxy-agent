@@ -313,12 +313,20 @@ const (
 	UpdateTypeCurrentModeUpdate       = "current_mode_update"
 	UpdateTypeConfigOptionUpdate      = "config_option_update"
 	UpdateTypeTokenUsage              = "token_usage"
+	UpdateTypeUsage                   = "usage_update"
 	UpdateTypeMemoryPhase             = "memory_phase"
 	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 	UpdateTypeFileEdit                = "file_edit"
 	UpdateTypeCompaction              = "compaction"
 	UpdateTypeSessionTitle            = "session_title"
+	UpdateTypeMCPPhase                = "mcp_phase"
+)
+
+// MCP phase values for MCPPhaseUpdate.Phase.
+const (
+	MCPPhaseConnecting = "connecting"
+	MCPPhaseReady      = "ready"
 )
 
 // Compaction phase values for CompactionUpdate.Phase.
@@ -404,7 +412,7 @@ type FileEditUpdate struct {
 // ModeUpdate notifies the client that the current mode changed.
 type ModeUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "current_mode_update"
-	ModeID        string `json:"modeId"`
+	CurrentModeID string `json:"currentModeId"`
 }
 
 // ConfigOptionUpdate sends the full session configuration options state to the client.
@@ -421,6 +429,13 @@ type TokenUsageUpdate struct {
 	TotalTokens   int    `json:"totalTokens"`
 }
 
+// UsageUpdate reports how much of the model context window is currently occupied.
+type UsageUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "usage_update"
+	Used          int    `json:"used"`
+	Size          int    `json:"size"`
+}
+
 // CompactionUpdate marks the start or completion of an automatic context-compaction pass, where
 // older turns are summarized to keep the conversation within the model's context window.
 type CompactionUpdate struct {
@@ -429,6 +444,17 @@ type CompactionUpdate struct {
 	RemovedMessages int    `json:"removedMessages,omitempty"`
 	TokensBefore    int    `json:"tokensBefore,omitempty"`
 	TokensAfter     int    `json:"tokensAfter,omitempty"`
+}
+
+// MCPPhaseUpdate tells the client that a turn is held up waiting for the session's configured
+// MCP servers to finish connecting, and when they are done. Emitted only when the turn actually
+// has to wait — a warm session goes straight to the model and sends nothing.
+//
+// Transient by design: it drives the live status line next to the typing dots, and is not part
+// of the transcript.
+type MCPPhaseUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "mcp_phase"
+	Phase         string `json:"phase"`         // "connecting" | "ready"
 }
 
 // SessionTitleUpdate carries a newly generated session title (from the hidden "title" agent) so

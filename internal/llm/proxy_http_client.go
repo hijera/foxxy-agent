@@ -8,10 +8,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/net/http/httpproxy"
 	xproxy "golang.org/x/net/proxy"
 )
+
+const llmResponseHeaderTimeout = 30 * time.Second
 
 // HTTPClientForOptionalProxy returns an HTTP client that sends traffic through the given proxy URL.
 // Supported schemes are http, https (HTTP proxy), socks5, and socks5h (SOCKS5 with remote DNS on socks5h).
@@ -21,13 +24,17 @@ import (
 // honored, and loopback targets always bypass the proxy, so a local api_base (Ollama, LM Studio) keeps
 // working when a proxy is configured.
 //
-// For an empty proxyURL it returns nil, nil so callers keep the SDK default client. That client uses
-// http.DefaultTransport, whose ProxyFromEnvironment picks up HTTP_PROXY/HTTPS_PROXY — so an empty value
-// means "inherit the environment (i.e. the editor's) proxy, else connect directly", not "force direct".
+// An empty proxyURL still gets a dedicated transport: it inherits HTTP_PROXY/HTTPS_PROXY from the
+// process environment, but bounds the wait for response headers. No whole-request timeout is set,
+// because streamed response bodies may legitimately remain open for a long time.
 func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
 	proxyURL = strings.TrimSpace(proxyURL)
 	if proxyURL == "" {
-		return nil, nil
+		t, err := transportEnvironmentProxy()
+		if err != nil {
+			return nil, err
+		}
+		return &http.Client{Transport: t}, nil
 	}
 	u, err := url.Parse(proxyURL)
 	if err != nil {
@@ -74,11 +81,10 @@ func proxyFuncFor(u *url.URL) func(*url.URL) (*url.URL, error) {
 }
 
 func transportHTTPProxy(u *url.URL) (*http.Transport, error) {
-	base, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return nil, fmt.Errorf("default transport is not *http.Transport")
+	t, err := cloneLLMTransport()
+	if err != nil {
+		return nil, err
 	}
-	t := base.Clone()
 	proxyFor := proxyFuncFor(u)
 	t.Proxy = func(req *http.Request) (*url.URL, error) { return proxyFor(req.URL) }
 	return t, nil
@@ -89,11 +95,10 @@ func transportSOCKSProxy(u *url.URL) (*http.Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("socks proxy: %w", err)
 	}
-	base, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return nil, fmt.Errorf("default transport is not *http.Transport")
+	t, err := cloneLLMTransport()
+	if err != nil {
+		return nil, err
 	}
-	t := base.Clone()
 	// A SOCKS proxy is applied by dialing through it, not via Transport.Proxy; clear the inherited
 	// ProxyFromEnvironment so an ambient HTTP_PROXY cannot also be layered on top.
 	t.Proxy = nil
@@ -105,7 +110,7 @@ func transportSOCKSProxy(u *url.URL) (*http.Transport, error) {
 		return dialer.Dial(network, address)
 	}
 	proxyFor := proxyFuncFor(u)
-	direct := base.DialContext
+	direct := t.DialContext
 	if direct == nil {
 		direct = (&net.Dialer{}).DialContext
 	}
@@ -115,6 +120,28 @@ func transportSOCKSProxy(u *url.URL) (*http.Transport, error) {
 		}
 		return socksDial(ctx, network, address)
 	}
+	return t, nil
+}
+
+func transportEnvironmentProxy() (*http.Transport, error) {
+	t, err := cloneLLMTransport()
+	if err != nil {
+		return nil, err
+	}
+	proxyFor := httpproxy.FromEnvironment().ProxyFunc()
+	t.Proxy = func(req *http.Request) (*url.URL, error) {
+		return proxyFor(req.URL)
+	}
+	return t, nil
+}
+
+func cloneLLMTransport() (*http.Transport, error) {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("default transport is not *http.Transport")
+	}
+	t := base.Clone()
+	t.ResponseHeaderTimeout = llmResponseHeaderTimeout
 	return t, nil
 }
 

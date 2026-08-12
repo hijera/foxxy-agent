@@ -1,11 +1,17 @@
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
-import { GeneralLocalePicker, GeneralSendModePicker } from "./GeneralSection";
+import {
+  GeneralLocalePicker,
+  GeneralSendModePicker,
+  GeneralStatusLinePicker,
+} from "./GeneralSection";
 import { useT } from "../i18n/I18nProvider";
 import { tSchemaText } from "../i18n/schemaStrings";
 import { applyModelsChange } from "./applyModelsChange";
+import { CodexAuthField } from "./CodexAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
+import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
 import { ProviderExportButtons } from "./ProviderExportButtons";
@@ -76,6 +82,26 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   return <NeuralDeepAPIBaseField ctx={ctx} />;
 }
 
+function providerFieldOverride(ctx: FieldOverrideContext) {
+  const providerType =
+    ctx.parentObj?.type === undefined || ctx.parentObj.type === null
+      ? ""
+      : String(ctx.parentObj.type);
+  if (providerType === "codex") {
+    if (ctx.path === "api_key" || ctx.path === "api_key_command") {
+      return false;
+    }
+    if (ctx.path === "api_base") {
+      const providerName =
+        ctx.parentObj?.name === undefined || ctx.parentObj.name === null
+          ? ""
+          : String(ctx.parentObj.name);
+      return <CodexAuthField providerName={providerName} />;
+    }
+  }
+  return neuralDeepAPIBaseOverride(ctx);
+}
+
 /**
  * SettingsSection renders the active settings tab. Object sections render their
  * sub-schema fields directly (the tab already names the section); array sections
@@ -108,6 +134,7 @@ export function SettingsSection(props: {
       <>
         <GeneralLocalePicker doc={doc} setDoc={setDoc} />
         <GeneralSendModePicker doc={doc} setDoc={setDoc} />
+        <GeneralStatusLinePicker doc={doc} setDoc={setDoc} />
       </>
     );
   }
@@ -149,6 +176,13 @@ export function SettingsSection(props: {
     );
   }
 
+  // The MCP tab is API-driven (/foxxycode/mcp*): toggles and project entries
+  // persist into config.yaml / .foxxycode/mcp.json immediately, so it does not
+  // edit the settings document at all.
+  if (section.kind === "mcp") {
+    return <MCPSection />;
+  }
+
   const key = section.schemaKey ?? section.id;
 
   if (section.kind === "array") {
@@ -168,7 +202,7 @@ export function SettingsSection(props: {
               />
             ) : null
         : key === "providers"
-          ? neuralDeepAPIBaseOverride
+          ? providerFieldOverride
           : undefined;
     const isProviders = key === "providers";
     // Renaming a logical model id must follow through to the default-model

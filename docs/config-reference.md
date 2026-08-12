@@ -24,6 +24,7 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`skills`](#skills) | object | Skill discovery directories | — |
 | [`rules`](#rules) | object | Project rules discovery | — |
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
+| [`mcp`](#mcp) | object | Trust policy for project-local MCP discovery | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
@@ -42,8 +43,8 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
-| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, or `neuraldeep`. Use `openai` for any OpenAI-compatible endpoint (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` is OpenAI-compatible with a fixed endpoint. |
-| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep`, which always uses `https://api.neuraldeep.ru/v1`. |
+| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints; `neuraldeep` uses its fixed endpoint; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
+| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep` and `type: codex`, which use fixed official endpoints. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | environment proxy | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Overrides a proxy inherited from the environment (`HTTP_PROXY`/`HTTPS_PROXY` — the IDE plugin forwards the editor's proxy this way); `NO_PROXY` is still honored and local addresses always connect directly. When empty, the environment proxy is used, or a direct connection when there is none. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
@@ -59,7 +60,23 @@ providers:
     type: openai
     api_base: "http://localhost:11434/v1"
     api_key: "~"
+  - name: codex
+    type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
+
+For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or use the terminal flow:
+
+```bash
+foxxycode codex login    # prints a URL and one-time code, then waits
+foxxycode codex status   # reports credential availability and source
+foxxycode codex logout   # removes only the FoxxyCode-managed credential
+```
+
+`--provider NAME` targets a particular Codex provider. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
+
+Codex is only a model backend: FoxxyCode keeps its own system prompt, tools, permissions, and ReAct loop. Access tokens are refreshed shortly before expiry and written back to their source file. When a Codex provider is configured, `foxxycode acp` and `foxxycode http` log a non-secret credential status line at startup.
+
+Codex reasoning supports `none`, `low`, `medium`, `high`, and `xhigh`; `minimal` is mapped to `none`. FoxxyCode requests reasoning summaries and encrypted reasoning content so the model can replay its own opaque reasoning item across tool calls. The opaque value is persisted as `reasoning_signature` but is not exposed by the session messages HTTP endpoint.
 
 ## `models`
 
@@ -68,7 +85,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `model` | string | **yes** | — | `"provider_name/api_model_id"`. First segment must match a `providers[].name`; the remainder is sent to the API verbatim (may contain slashes). |
-| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. |
+| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. Ignored by `codex`, whose backend rejects `max_output_tokens`. |
 | `temperature` | float | no | `0` | Sampling temperature. |
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
@@ -98,6 +115,10 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). |
 | `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. |
 | `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms (e.g. `12000` on strict free tiers). |
+| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
+| `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
+| `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
+| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it stops the turn with a notice. |
 
 ## `prompts`
 
@@ -144,20 +165,44 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | no | `stdio` | Transport: `stdio` (local command) or `http` (remote endpoint). |
+| `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
 | `command` | string | stdio only | — | Executable for stdio transport. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
-| `url` | string | http only | — | HTTP(S) endpoint for `type: http`. |
+| `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
+| `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
 ```yaml
 mcp_servers:
   - name: filesystem
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    disabled_tools: ["write_file"]
 ```
+
+Servers can also be declared in Cursor-compatible mcp.json files: the user-global
+`~/.foxxycode/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
+`mcp_servers` list it forms the "global" scope) and the project-local
+`<workspace>/.foxxycode/mcp.json` ("local" scope). Each file holds a single
+`mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
+per-tool switches use `disabledTools`). Later levels override earlier ones by
+name: `mcp_servers` < `~/.foxxycode/mcp.json` < `./.foxxycode/mcp.json`. See
+`docs/mcp-integration.md`.
+
+## `mcp`
+
+MCP settings that are not tied to a single server entry (`config.MCP`, `internal/config/mcp.go`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_trust` | string | no | `ask` | Trust policy for the project-local `<workspace>/.foxxycode/mcp.json`, which travels with the checkout: `ask` keeps its servers cold until the operator approves that exact declaration for that workspace (`foxxycode mcp trust <name>`, or the shield in Settings → MCP servers); `allow` starts them automatically; `deny` never loads them. The `-mcp-project-trust` flag on `foxxycode acp` / `foxxycode http` overrides this value for one process; an unknown value fails the launch. |
+
+Approvals live in `<home>/mcp-trust.json`, keyed by canonical workspace and bound to a digest of the
+command-bearing declaration, so editing an approved entry asks again. Entries from `config.yaml` and
+`~/.foxxycode/mcp.json` are operator-authored and are never gated.
 
 ## `tools`
 
@@ -170,6 +215,36 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
 | `plan_no_self_run` | bool | no | `false` | Forbid the model from starting to execute a plan itself. In plan mode `plan_exit` is not offered and any tool outside the plan allowlist is refused instead of run, so only **Run plan** starts the implementation. The `-plan-no-self-run` flag on `foxxycode acp` / `foxxycode http` overrides this value; the IntelliJ and VS Code plugins pass it, so their panels are guarded by default. |
 | `ask_disable_extended_tools` | bool | no | `false` | Hide Ask mode's read-only shell, web, annotated MCP, and scheduler inspection tools. Basic repository read/search/tree, question, and skill tools remain available. |
+| `output_limits` | object | no | — | Per-tool line and byte ceilings for results and errors. |
+| `background` | object | no | — | Bounds for commands the agent runs detached in the session background task pool. See below. |
+
+### `tools.output_limits`
+
+Every positive line limit also applies a hard **64 KiB per-call byte ceiling**. `0` disables both limits for that tool; an unset field uses the default. Truncated output ends with a recovery hint.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `read` | int | no | `1000` | File-page or directory-listing lines. |
+| `grep` | int | no | `200` | `path:line:content` records. |
+| `glob` | int | no | `300` | Returned paths. |
+| `print_tree` | int | no | `400` | Directory-tree lines. |
+| `run_command` | int | no | `500` | Combined stdout and stderr lines. |
+| `ssh_run_command` | int | no | `500` | Remote command output lines. |
+| `webfetch` | int | no | `800` | Fetched page lines. |
+| `websearch` | int | no | `200` | Search-result lines. |
+| `default` | int | no | `1000` | Unlisted and MCP tools; `0` is unlimited. |
+
+### `tools.background`
+
+Bounds for background execution (`config.ToolBackground`). A backgrounded `run_command` returns a task id instead of output; `background_list`, `background_output`, `background_wait`, and `background_stop` collect the result later. The pool lives inside the running `foxxycode` process: each task mirrors its metadata and captured output into the session bundle under `background/<task_id>/`, and a task interrupted by a restart is reported as `orphaned` rather than as still running. `0` on any integer field means "use the default". See `docs/background-tasks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Offer the `background` option on `run_command` and expose the background task tools. |
+| `max_concurrent` | int | no | `5` | Background tasks one session may run at once. Starting past the limit is refused, not queued. |
+| `default_timeout_seconds` | int | no | `900` | Hard limit for a task started without an explicit `timeout_seconds` and without `expected_seconds`. |
+| `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
+| `output_buffer_bytes` | int | no | `262144` | In-memory output window per task, used by the status ticker and `background_output`. The full log still goes to the session bundle. |
 
 ## `logger`
 
@@ -210,6 +285,12 @@ Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; im
 
 Automatic context compaction (`config.CompactionConfig`, `internal/config/compaction.go`; always compiled). When the running prompt approaches the model's context window (`models[].max_context_tokens`), older turns are summarized into one message so the session can continue. Two engines share this section, selected by `engine`: the default **coddy** engine inserts a summary row and replays only the window from the last summary onward (and enables the manual `/compact` command plus the HTTP compact endpoint); the **opencode** engine flags older messages compacted and excludes them from the model payload while keeping them in the transcript.
 
+Either engine republishes the context estimate right after it folds history: the agent recomputes the
+`conversation` / `summary` categories over the window that engine actually sends, persists the result
+next to the provider token counters in `stats.json`, and emits the `usage_update` ACP/SSE event. The
+composer context ring therefore drops without a reload, and a session reopened after a restart
+reports the compacted window rather than its pre-compaction size.
+
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `engine` | string | no | `coddy` | Compaction implementation: `coddy` or `opencode`. |
@@ -218,6 +299,17 @@ Automatic context compaction (`config.CompactionConfig`, `internal/config/compac
 | `threshold_percent` | int | no | `80` (coddy) / `85` (opencode) | Trigger when context usage exceeds this percent of the model context window. The opencode engine clamps to 50..99. |
 | `keep_recent_turns` | int | no | `2` | Most recent user turns preserved verbatim (never summarized). |
 | `max_tokens` | int | no | `4096` | Completion token cap for the summary generation (opencode engine only). |
+| `result_eviction` | object | no | — | Prunes superseded `read`/`grep` results from the LLM projection while keeping persisted messages complete. |
+
+### `compaction.result_eviction`
+
+Unmarked large `read` and `grep` results collapse to short placeholders in later LLM requests. A result survives when the model calls `keep_result`, sets `keep: true`, or it remains in the recent working window. Successful filesystem and Subversion mutations invalidate earlier observations of workspace content.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Master switch. |
+| `keep_recent` | int | no | `2` | Recent evictable results kept intact; `0` keeps none. |
+| `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted; `0` makes all results candidates. |
 
 ## `title`
 
@@ -284,6 +376,7 @@ Embedded SPA preferences (`config.UIConfig`, `internal/config/ui.go`). Used by t
 | `enabled` | bool | no | `true` | — | Serve the embedded web UI at `GET /`. Set `false` to run `foxxycode http` as an API-only server; `/v1/*` and `/foxxycode/*` stay available. |
 | `locale` | string | no | `""` (auto) | — | UI language: empty (auto-detect system/browser locale), `en`, or `ru`. |
 | `send_mode` | string | no | `enter` | — | How the main chat composer submits: `enter` (Enter sends, Shift/Ctrl+Enter insert a newline), `ctrl_enter` (Ctrl/Cmd+Enter sends, Enter inserts a newline), or `off` (keyboard send disabled, Send button only). |
+| `status_line` | bool | no | `true` | — | Show the live status line next to the typing dots while the agent works: current tool and its target, waiting for the model, and elapsed time. Set `false` to show only the animated dots. |
 
 ## `browser`
 
@@ -295,6 +388,23 @@ Interactive browser automation tool (`config.BrowserConfig`, `internal/config/br
 | `headless` | bool | no | `true` | — | Run the browser without a visible window. Set to `false` to watch the automated session. |
 | `executable_path` | string | no | `""` (auto) | — | Path to a specific Chrome/Chromium binary; empty lets chromedp auto-detect an installed browser. |
 | `timeout_seconds` | int | no | `30` | — | Per-action timeout for navigation, clicks, and other browser operations. |
+
+## `vcs`
+
+Version control integration (`config.VCSConfig`, `internal/config/vcs.go`). Git needs no configuration; this section carries the Subversion settings.
+
+### `vcs.svn`
+
+Subversion support: working copy detection for the composer chips plus the `svn_*` tools (`svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout`). Detection is independent of git, so a branch folder that also holds a git repository reports both.
+
+| Field | Type | Required | Default | Env fallback | Description |
+|---|---|---|---|---|---|
+| `enabled` | bool | no | `true` | — | Turns Subversion support on. `false` hides the SVN chip and removes every `svn_*` tool from the definitions sent to the model. |
+| `binary` | string | no | `""` (PATH) | — | Path to the svn client; empty resolves `svn` on `PATH`. Set it when the client is installed outside `PATH`. |
+| `timeout_seconds` | int | no | `120` | — | Per-command timeout for svn invocations such as update, commit, and merge. |
+| `branch_lookup` | bool | no | `true` | — | Allows listing `trunk` and `branches/` for the SVN chip menu. This contacts the server; turn it off on slow links. |
+
+When no svn client is installed, detection reports `available: false`, the chip stays hidden and the tools are not registered — nothing else changes.
 
 ## Related environment variables
 

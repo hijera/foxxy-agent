@@ -13,6 +13,7 @@ type Config struct {
 	Skills       Skills            `yaml:"skills"`
 	Rules        Rules             `yaml:"rules"`
 	MCPServers   []MCPServerConfig `yaml:"mcp_servers"`
+	MCP          MCP               `yaml:"mcp"`
 	Tools        Tools             `yaml:"tools"`
 	Logger       Logger            `yaml:"logger"`
 	Sessions     Sessions          `yaml:"sessions"`
@@ -24,4 +25,5 @@ type Config struct {
 	Gateways     GatewayConfig     `yaml:"gateways"`
 	UI           UIConfig          `yaml:"ui"`
 	Browser      BrowserConfig     `yaml:"browser"`
+	VCS          VCSConfig         `yaml:"vcs"`
 }

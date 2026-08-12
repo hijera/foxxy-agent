@@ -22,12 +22,12 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for any OpenAI-compatible endpoint (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio). \"neuraldeep\" is OpenAI-compatible with a fixed endpoint.",
-            "enum": ["openai", "anthropic", "neuraldeep"]
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints, \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's fixed endpoint, or \"codex\" for ChatGPT OAuth against the official Codex backend.",
+            "enum": ["openai", "anthropic", "neuraldeep", "codex"]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\", which always uses https://api.neuraldeep.ru/v1."
+            "description": "Optional base URL override. For type \"openai\" include /v1; for type \"anthropic\" use an Anthropic-compatible gateway. Ignored for type \"neuraldeep\" and type \"codex\", which use fixed official endpoints."
           },
           "api_key": {
             "type": "string",
@@ -60,7 +60,7 @@
           },
           "max_tokens": {
             "type": "integer",
-            "description": "Upper bound on completion tokens per assistant message."
+            "description": "Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens."
           },
           "temperature": {
             "type": "number",
@@ -126,6 +126,29 @@
           "type": "integer",
           "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing; e.g. 12000 on strict free tiers).",
           "default": 0,
+          "minimum": 0
+        },
+        "loop_guard": {
+          "type": "boolean",
+          "description": "Runaway-loop protection: cut a streamed response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "default": true
+        },
+        "loop_tool_repeat_limit": {
+          "type": "integer",
+          "description": "Consecutive identical tool calls (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check.",
+          "default": 3,
+          "minimum": 0
+        },
+        "loop_stream_repeat_cycles": {
+          "type": "integer",
+          "description": "Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check.",
+          "default": 5,
+          "minimum": 0
+        },
+        "loop_nudge_max": {
+          "type": "integer",
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it with a notice.",
+          "default": 2,
           "minimum": 0
         }
       }
@@ -239,8 +262,12 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
-            "enum": ["stdio", "http"]
+            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
+            "enum": [
+              "stdio",
+              "http",
+              "sse"
+            ]
           },
           "name": {
             "type": "string",
@@ -284,7 +311,36 @@
                 "value": { "type": "string", "description": "HTTP header value." }
               }
             }
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Skip connecting this server without removing its definition."
+          },
+          "disabled_tools": {
+            "type": "array",
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
+            }
           }
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "title": "MCP discovery",
+      "description": "MCP settings that are not tied to a single server entry.",
+      "additionalProperties": false,
+      "properties": {
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for the project-local <cwd>/.foxxycode/mcp.json, which travels with the checkout: \"ask\" keeps its servers cold until the operator approves that exact declaration for that workspace; \"allow\" starts them automatically (trusted workspaces only); \"deny\" never loads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
         }
       }
     },
@@ -319,6 +375,56 @@
           "type": "boolean",
           "description": "When true, Ask mode hides read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools, leaving only the basic repository-reading surface. Defaults to false.",
           "default": false
+        },
+        "output_limits": {
+          "type": "object",
+          "title": "Tool output limits",
+          "description": "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB byte ceiling. 0 disables both limits; unset uses the built-in default.",
+          "additionalProperties": false,
+          "properties": {
+            "read": { "type": "integer", "default": 1000, "minimum": 0 },
+            "grep": { "type": "integer", "default": 200, "minimum": 0 },
+            "glob": { "type": "integer", "default": 300, "minimum": 0 },
+            "print_tree": { "type": "integer", "default": 400, "minimum": 0 },
+            "run_command": { "type": "integer", "default": 500, "minimum": 0 },
+            "ssh_run_command": { "type": "integer", "default": 500, "minimum": 0 },
+            "webfetch": { "type": "integer", "default": 800, "minimum": 0 },
+            "websearch": { "type": "integer", "default": 200, "minimum": 0 },
+            "default": { "type": "integer", "default": 1000, "minimum": 0 }
+          }
+        },
+        "background": {
+          "type": "object",
+          "title": "Background tasks",
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the foxxycode process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Offer the background option on run_command and expose the background task tools.",
+              "default": true
+            },
+            "max_concurrent": {
+              "type": "integer",
+              "description": "How many background tasks one session may run at once. 0 uses the default.",
+              "default": 5
+            },
+            "default_timeout_seconds": {
+              "type": "integer",
+              "description": "Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default.",
+              "default": 900
+            },
+            "max_timeout_seconds": {
+              "type": "integer",
+              "description": "Ceiling applied to any requested or estimate-derived timeout. 0 uses the default.",
+              "default": 3600
+            },
+            "output_buffer_bytes": {
+              "type": "integer",
+              "description": "How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default.",
+              "default": 262144
+            }
+          }
         }
       }
     },
@@ -466,6 +572,31 @@
           "type": "integer",
           "description": "Completion token cap for the summary generation (opencode engine only).",
           "default": 4096
+        },
+        "result_eviction": {
+          "type": "object",
+          "title": "Read/grep result eviction",
+          "description": "Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for result eviction.",
+              "default": true
+            },
+            "keep_recent": {
+              "type": "integer",
+              "description": "Most recent evictable results kept as a working window.",
+              "default": 2,
+              "minimum": 0
+            },
+            "min_result_bytes": {
+              "type": "integer",
+              "description": "Results at or below this size are never evicted.",
+              "default": 2000,
+              "minimum": 0
+            }
+          }
         }
       }
     },
@@ -700,6 +831,11 @@
           "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
           "enum": ["enter", "ctrl_enter", "off"],
           "default": "enter"
+        },
+        "status_line": {
+          "type": "boolean",
+          "description": "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Set false to show only the animated dots. Unset defaults to true.",
+          "default": true
         }
       }
     },
@@ -728,6 +864,42 @@
           "type": "integer",
           "description": "Per-action timeout for navigation, clicks, and other browser operations.",
           "default": 30
+        }
+      }
+    },
+    "vcs": {
+      "type": "object",
+      "title": "Version control",
+      "description": "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
+      "additionalProperties": false,
+      "properties": {
+        "svn": {
+          "type": "object",
+          "title": "Subversion",
+          "description": "Subversion support for SVN working copies and branch folders.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
+              "default": true
+            },
+            "binary": {
+              "type": "string",
+              "description": "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH.",
+              "default": ""
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Per-command timeout for svn invocations such as update, commit, and merge.",
+              "default": 120
+            },
+            "branch_lookup": {
+              "type": "boolean",
+              "description": "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.",
+              "default": true
+            }
+          }
         }
       }
     }

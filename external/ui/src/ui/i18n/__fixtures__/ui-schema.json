@@ -24,6 +24,30 @@
           "title": "LLM retry max",
           "type": "integer"
         },
+        "loop_guard": {
+          "default": true,
+          "description": "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "title": "Loop guard",
+          "type": "boolean"
+        },
+        "loop_nudge_max": {
+          "default": 2,
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it.",
+          "title": "Loop nudge max",
+          "type": "integer"
+        },
+        "loop_stream_repeat_cycles": {
+          "default": 5,
+          "description": "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
+          "title": "Loop stream repeat cycles",
+          "type": "integer"
+        },
+        "loop_tool_repeat_limit": {
+          "default": 3,
+          "description": "Consecutive identical tool calls before the loop guard steps in (0 disables the check).",
+          "title": "Loop tool repeat limit",
+          "type": "integer"
+        },
         "max_tokens_per_turn": {
           "default": 200000,
           "description": "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
@@ -51,7 +75,11 @@
         "max_tokens_per_turn",
         "llm_retry_max",
         "llm_retry_base_ms",
-        "llm_min_interval_ms"
+        "llm_min_interval_ms",
+        "loop_guard",
+        "loop_tool_repeat_limit",
+        "loop_stream_repeat_cycles",
+        "loop_nudge_max"
       ]
     },
     "browser": {
@@ -127,6 +155,34 @@
           "title": "Compaction model",
           "type": "string"
         },
+        "result_eviction": {
+          "additionalProperties": false,
+          "description": "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
+          "properties": {
+            "enabled": {
+              "description": "Master switch for result eviction. Defaults to true.",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "keep_recent": {
+              "description": "Most recent evictable results kept as a working window (default 2).",
+              "title": "Keep recent results",
+              "type": "integer"
+            },
+            "min_result_bytes": {
+              "description": "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
+              "title": "Min result bytes",
+              "type": "integer"
+            }
+          },
+          "title": "Read/grep result eviction",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled",
+            "keep_recent",
+            "min_result_bytes"
+          ]
+        },
         "threshold_percent": {
           "default": 80,
           "description": "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode).",
@@ -142,7 +198,8 @@
         "model",
         "threshold_percent",
         "keep_recent_turns",
-        "max_tokens"
+        "max_tokens",
+        "result_eviction"
       ]
     },
     "gateways": {
@@ -417,6 +474,19 @@
             "title": "Command",
             "type": "string"
           },
+          "disabled": {
+            "description": "Skip connecting this server without removing its definition.",
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "disabled_tools": {
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Disabled tools",
+            "type": "array"
+          },
           "env": {
             "description": "Extra environment variables for the stdio child process.",
             "items": {
@@ -473,7 +543,7 @@
             "type": "string"
           },
           "type": {
-            "description": "stdio runs a local command; http connects to a remote MCP endpoint.",
+            "description": "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport.",
             "title": "Server type",
             "type": "string"
           },
@@ -494,7 +564,9 @@
           "args",
           "env",
           "url",
-          "headers"
+          "headers",
+          "disabled",
+          "disabled_tools"
         ]
       },
       "title": "MCP servers",
@@ -575,7 +647,7 @@
           },
           "max_tokens": {
             "default": 4096,
-            "description": "Upper bound on completion tokens the model may emit for one assistant message.",
+            "description": "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.",
             "title": "Max tokens",
             "type": "integer"
           },
@@ -687,7 +759,7 @@
         "additionalProperties": false,
         "properties": {
           "api_base": {
-            "description": "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.",
+            "description": "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.",
             "title": "API base URL",
             "type": "string"
           },
@@ -721,7 +793,8 @@
             "enum": [
               "openai",
               "anthropic",
-              "neuraldeep"
+              "neuraldeep",
+              "codex"
             ],
             "title": "Provider type",
             "type": "string"
@@ -884,6 +957,46 @@
           "title": "Disable extended Ask tools",
           "type": "boolean"
         },
+        "background": {
+          "additionalProperties": false,
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn.",
+          "properties": {
+            "default_timeout_seconds": {
+              "description": "Hard limit for a task started without a timeout or a duration estimate (default 900).",
+              "title": "Default timeout (s)",
+              "type": "integer"
+            },
+            "enabled": {
+              "description": "Offer the background option on run_command and the background task tools (default true).",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "max_concurrent": {
+              "description": "How many background tasks one session may run at once (default 5).",
+              "title": "Max concurrent",
+              "type": "integer"
+            },
+            "max_timeout_seconds": {
+              "description": "Ceiling applied to any requested or estimated timeout (default 3600).",
+              "title": "Max timeout (s)",
+              "type": "integer"
+            },
+            "output_buffer_bytes": {
+              "description": "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).",
+              "title": "Output buffer (bytes)",
+              "type": "integer"
+            }
+          },
+          "title": "Background tasks",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled",
+            "max_concurrent",
+            "default_timeout_seconds",
+            "max_timeout_seconds",
+            "output_buffer_bytes"
+          ]
+        },
         "command_allowlist": {
           "default": [],
           "description": "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -892,6 +1005,70 @@
           },
           "title": "Command allowlist",
           "type": "array"
+        },
+        "output_limits": {
+          "additionalProperties": false,
+          "description": "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB per-call byte ceiling. 0 disables both limits; unset uses the built-in default.",
+          "properties": {
+            "default": {
+              "description": "Limit for unlisted and MCP tools (default 1000; 0 is unlimited).",
+              "title": "default",
+              "type": "integer"
+            },
+            "glob": {
+              "description": "Max paths from glob (default 300).",
+              "title": "glob",
+              "type": "integer"
+            },
+            "grep": {
+              "description": "Max grep records (default 200).",
+              "title": "grep",
+              "type": "integer"
+            },
+            "print_tree": {
+              "description": "Max directory-tree lines (default 400).",
+              "title": "print_tree",
+              "type": "integer"
+            },
+            "read": {
+              "description": "Max lines for a read page or directory listing (default 1000).",
+              "title": "read",
+              "type": "integer"
+            },
+            "run_command": {
+              "description": "Max stdout and stderr lines (default 500).",
+              "title": "run_command",
+              "type": "integer"
+            },
+            "ssh_run_command": {
+              "description": "Max remote command output lines (default 500).",
+              "title": "ssh_run_command",
+              "type": "integer"
+            },
+            "webfetch": {
+              "description": "Max fetched page lines (default 800).",
+              "title": "webfetch",
+              "type": "integer"
+            },
+            "websearch": {
+              "description": "Max search result lines (default 200).",
+              "title": "websearch",
+              "type": "integer"
+            }
+          },
+          "title": "Tool output limits",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "read",
+            "grep",
+            "glob",
+            "print_tree",
+            "run_command",
+            "ssh_run_command",
+            "webfetch",
+            "websearch",
+            "default"
+          ]
         },
         "permission_mode": {
           "default": "ask",
@@ -917,7 +1094,9 @@
         "permission_mode",
         "command_allowlist",
         "plan_no_self_run",
-        "ask_disable_extended_tools"
+        "ask_disable_extended_tools",
+        "output_limits",
+        "background"
       ]
     },
     "ui": {
@@ -949,6 +1128,11 @@
           ],
           "title": "Sending messages",
           "type": "string"
+        },
+        "status_line": {
+          "description": "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.",
+          "title": "Status line",
+          "type": "boolean"
         }
       },
       "title": "UI",
@@ -956,7 +1140,56 @@
       "x-foxxycode-property-order": [
         "enabled",
         "locale",
-        "send_mode"
+        "send_mode",
+        "status_line"
+      ]
+    },
+    "vcs": {
+      "additionalProperties": false,
+      "description": "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
+      "properties": {
+        "svn": {
+          "additionalProperties": false,
+          "description": "Subversion support for SVN working copies and branch folders.",
+          "properties": {
+            "binary": {
+              "description": "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH.",
+              "title": "SVN client path",
+              "type": "string"
+            },
+            "branch_lookup": {
+              "default": true,
+              "description": "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.",
+              "title": "List repository branches",
+              "type": "boolean"
+            },
+            "enabled": {
+              "default": true,
+              "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "timeout_seconds": {
+              "default": 120,
+              "description": "Per-command timeout for svn invocations such as update, commit, and merge.",
+              "title": "Command timeout (seconds)",
+              "type": "integer"
+            }
+          },
+          "title": "Subversion",
+          "type": "object",
+          "x-foxxycode-property-order": [
+            "enabled",
+            "binary",
+            "timeout_seconds",
+            "branch_lookup"
+          ]
+        }
+      },
+      "title": "Version control",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "svn"
       ]
     }
   },
@@ -979,6 +1212,7 @@
     "sessions",
     "gateways",
     "browser",
+    "vcs",
     "ui"
   ]
 }

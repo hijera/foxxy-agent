@@ -23,14 +23,14 @@ services:
     environment:
       FOXXYCODE_HOME: /home/user/.foxxycode
       FOXXYCODE_CWD: /workspace
-      FOXXYCODE_CONFIG: /home/user/.foxxycode.yaml
+      FOXXYCODE_CONFIG: /home/user/.foxxycode/config.yaml
       OPENAI_API_KEY: ${OPENAI_API_KEY-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY-}
       # Messenger gateway bot token (used only in gateway mode; empty if unset).
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN-}
     volumes:
-      - ${FOXXYCODE_CONFIG-./config.yaml}:/home/user/.foxxycode.yaml:ro
+      - ${FOXXYCODE_CONFIG-./config.yaml}:/home/user/.foxxycode/config.yaml:ro
       - ${FOXXYCODE_CWD-./workspace}:/workspace
       - ${FOXXYCODE_HOME-./foxxycode_home}:/home/user/.foxxycode
     healthcheck:

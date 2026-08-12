@@ -30,6 +30,8 @@ export const schemaTextRu: Record<string, string> = {
   "API base URL": "Базовый URL API",
   "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.":
     "Необязательная замена базового URL API по умолчанию для этого провайдера. Игнорируется для neuraldeep — он всегда использует https://api.neuraldeep.ru/v1.",
+  "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.":
+    "Необязательная замена базового URL API. Игнорируется для neuraldeep и codex: они используют фиксированные официальные адреса.",
   "API key": "API-ключ",
   "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).":
     "Можно задать ключ напрямую, сослаться на ${ENV} в YAML (подставляется при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание имени провайдера).",
@@ -50,6 +52,8 @@ export const schemaTextRu: Record<string, string> = {
   "Max tokens": "Макс. токенов",
   "Upper bound on completion tokens the model may emit for one assistant message.":
     "Верхняя граница токенов ответа, которые модель может выдать в одном сообщении ассистента.",
+  "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.":
+    "Верхняя граница токенов одного ответа ассистента. Игнорируется Codex, потому что его backend не принимает max_output_tokens.",
   Temperature: "Температура",
   "Sampling temperature for this logical model (0 = deterministic, higher = more random).":
     "Температура сэмплирования для этой логической модели (0 = детерминированно, выше = более случайно).",
@@ -71,8 +75,8 @@ export const schemaTextRu: Record<string, string> = {
   "Model Context Protocol servers started or contacted for new sessions.":
     "Серверы Model Context Protocol, запускаемые или используемые для новых сессий.",
   "Server type": "Тип сервера",
-  "stdio runs a local command; http connects to a remote MCP endpoint.":
-    "stdio запускает локальную команду; http подключается к удалённому MCP-эндпоинту.",
+  "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport.":
+    "stdio запускает локальную команду; http использует Streamable HTTP по указанному URL (с откатом на legacy SSE); sse принудительно использует legacy-транспорт HTTP+SSE.",
   "Server name": "Имя сервера",
   "Stable id referenced by the agent; must be unique in this list.":
     "Стабильный id, на который ссылается агент; должен быть уникальным в этом списке.",
@@ -101,6 +105,12 @@ export const schemaTextRu: Record<string, string> = {
     "Имя HTTP-заголовка для HTTP-транспортов MCP.",
   "Header value": "Значение заголовка",
   "HTTP header value.": "Значение HTTP-заголовка.",
+  Disabled: "Отключён",
+  "Skip connecting this server without removing its definition.":
+    "Не подключать этот сервер, сохранив его описание.",
+  "Disabled tools": "Отключённые инструменты",
+  "Tool names of this server hidden from the agent.":
+    "Названия инструментов этого сервера, скрытых от агента.",
 
   // Agent
   "ReAct agent": "Агент ReAct",
@@ -124,11 +134,70 @@ export const schemaTextRu: Record<string, string> = {
   "LLM min interval ms": "Мин. интервал LLM (мс)",
   "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing).":
     "Минимальный промежуток между последовательными вызовами LLM в миллисекундах (0 отключает ограничение).",
+  "Loop guard": "Защита от зацикливания",
+  "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.":
+    "Останавливать ответ, выродившийся в повтор самого себя, и блокировать инструмент, который вызывают снова и снова с теми же аргументами.",
+  "Loop tool repeat limit": "Лимит повторов инструмента",
+  "Consecutive identical tool calls before the loop guard steps in (0 disables the check).":
+    "Сколько одинаковых вызовов инструмента подряд допускается до вмешательства защиты (0 отключает проверку).",
+  "Loop stream repeat cycles": "Циклов повтора в потоке",
+  "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).":
+    "Сколько одинаковых циклов вывода подряд внутри одного потокового ответа допускается до его обрыва (0 отключает проверку).",
+  "Loop nudge max": "Макс. подсказок при зацикливании",
+  "How many times one turn may be nudged back on track before the loop guard stops it.":
+    "Сколько раз за один шаг модель можно подтолкнуть вернуться к задаче, прежде чем защита остановит шаг.",
 
   // Tools
   "Tools and permissions": "Инструменты и разрешения",
   "Filesystem and shell policy for built-in tools.":
     "Политика файловой системы и шелла для встроенных инструментов.",
+  "Tool output limits": "Лимиты вывода инструментов",
+  "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB per-call byte ceiling. 0 disables both limits; unset uses the built-in default.":
+    "Максимум строк результата или ошибки инструмента в контексте LLM. Положительный лимит также включает предел 64 КиБ на вызов. 0 отключает оба ограничения; пустое значение использует встроенный лимит.",
+  read: "read",
+  "Max lines for a read page or directory listing (default 1000).":
+    "Максимум строк страницы файла или списка каталога (по умолчанию 1000).",
+  grep: "grep",
+  "Max grep records (default 200).":
+    "Максимум записей grep (по умолчанию 200).",
+  glob: "glob",
+  "Max paths from glob (default 300).":
+    "Максимум путей от glob (по умолчанию 300).",
+  print_tree: "print_tree",
+  "Max directory-tree lines (default 400).":
+    "Максимум строк дерева каталогов (по умолчанию 400).",
+  run_command: "run_command",
+  "Max stdout and stderr lines (default 500).":
+    "Максимум строк stdout и stderr (по умолчанию 500).",
+  ssh_run_command: "ssh_run_command",
+  "Max remote command output lines (default 500).":
+    "Максимум строк вывода удалённой команды (по умолчанию 500).",
+  webfetch: "webfetch",
+  "Max fetched page lines (default 800).":
+    "Максимум строк загруженной страницы (по умолчанию 800).",
+  websearch: "websearch",
+  "Max search result lines (default 200).":
+    "Максимум строк результатов поиска (по умолчанию 200).",
+  default: "По умолчанию",
+  "Limit for unlisted and MCP tools (default 1000; 0 is unlimited).":
+    "Лимит для остальных инструментов и MCP (по умолчанию 1000; 0 — без ограничений).",
+  "Background tasks": "Фоновые задачи",
+  "Commands the agent runs detached in the session task pool instead of blocking a turn.":
+    "Команды, которые агент запускает отдельно в пуле задач сессии, вместо того чтобы занимать ход.",
+  "Offer the background option on run_command and the background task tools (default true).":
+    "Предлагать флаг background у run_command и инструменты фоновых задач (по умолчанию включено).",
+  "Max concurrent": "Максимум одновременно",
+  "How many background tasks one session may run at once (default 5).":
+    "Сколько фоновых задач сессия может выполнять одновременно (по умолчанию 5).",
+  "Default timeout (s)": "Таймаут по умолчанию (с)",
+  "Hard limit for a task started without a timeout or a duration estimate (default 900).":
+    "Жёсткий предел для задачи, запущенной без таймаута и без оценки длительности (по умолчанию 900).",
+  "Max timeout (s)": "Максимальный таймаут (с)",
+  "Ceiling applied to any requested or estimated timeout (default 3600).":
+    "Потолок для любого запрошенного или рассчитанного таймаута (по умолчанию 3600).",
+  "Output buffer (bytes)": "Буфер вывода (байты)",
+  "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).":
+    "Сколько вывода каждой задачи хранится в памяти для индикатора; полный лог всё равно пишется в бандл сессии (по умолчанию 262144).",
   "Permission mode": "Режим разрешений",
   'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts.':
     "Определяет, когда агент запрашивает подтверждение перед запуском инструментов. «ask»: подтверждать команды и запись. «accept_edits»: автоматически подтверждать запись, спрашивать про команды. «bypass»: пропускать все запросы.",
@@ -203,6 +272,17 @@ export const schemaTextRu: Record<string, string> = {
   "Summary max tokens": "Макс. токенов сводки",
   "Completion token cap for the summary generation (opencode engine only).":
     "Лимит токенов ответа для генерации сводки (только движок opencode).",
+  "Read/grep result eviction": "Вытеснение результатов read/grep",
+  "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.":
+    "Заменяет устаревшие результаты read/grep плейсхолдерами в запросе LLM; сохранённая история не изменяется.",
+  "Master switch for result eviction. Defaults to true.":
+    "Главный переключатель вытеснения результатов. По умолчанию включён.",
+  "Keep recent results": "Сохранять последние результаты",
+  "Most recent evictable results kept as a working window (default 2).":
+    "Количество последних вытесняемых результатов в рабочем окне (по умолчанию 2).",
+  "Min result bytes": "Минимальный размер результата",
+  "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).":
+    "Результаты этого размера или меньше не вытесняются (по умолчанию 2000; 0 делает кандидатами все результаты).",
 
   // Title
   "Automatic session title": "Автоматический заголовок сессии",
@@ -358,6 +438,9 @@ export const schemaTextRu: Record<string, string> = {
   "Sending messages": "Отправка сообщений",
   'How the main chat composer submits a message. "enter": Enter sends (Shift/Ctrl+Enter insert a newline). "ctrl_enter": Ctrl/Cmd+Enter sends (Enter inserts a newline). "off": disable keyboard send (Send button only).':
     "Как основное окно чата отправляет сообщение. «enter»: отправка по Enter (Shift/Ctrl+Enter — перенос строки). «ctrl_enter»: отправка по Ctrl/Cmd+Enter (Enter — перенос строки). «off»: отправка с клавиатуры отключена (только кнопкой «Отправить»).",
+  "Status line": "Строка статуса",
+  "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.":
+    "Показывать рядом с анимированными точками строку статуса: текущий инструмент и над чем он работает, ожидание ответа модели и прошедшее время. Выключите, чтобы остались только точки.",
 
   // Browser tool
   "Browser tool": "Инструмент браузера",
@@ -374,6 +457,25 @@ export const schemaTextRu: Record<string, string> = {
   "Action timeout (seconds)": "Таймаут действия (секунды)",
   "Per-action timeout for navigation, clicks, and other browser operations.":
     "Таймаут на каждое действие: навигацию, клики и прочие операции браузера.",
+
+  // Version control
+  "Version control": "Система контроля версий",
+  "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.":
+    "Интеграция с системами контроля версий. Git работает из коробки; Subversion добавляет чип SVN рядом с чипом git и инструменты svn_*, когда обнаружена рабочая копия.",
+  Subversion: "Subversion",
+  "Subversion support for SVN working copies and branch folders.":
+    "Поддержка Subversion для рабочих копий SVN и папок-веток.",
+  "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.":
+    "Включает поддержку Subversion. Включено по умолчанию; при отключении чип SVN скрывается, а все инструменты svn_* перестают передаваться модели.",
+  "SVN client path": "Путь к клиенту SVN",
+  'Optional path to the svn client. Empty resolves "svn" on PATH; set it when the client is installed outside PATH.':
+    "Необязательный путь к клиенту svn. Пусто — команда «svn» ищется в PATH; укажите путь, если клиент установлен вне PATH.",
+  "Command timeout (seconds)": "Таймаут команды (секунды)",
+  "Per-command timeout for svn invocations such as update, commit, and merge.":
+    "Таймаут на каждую команду svn: update, commit, merge и остальные.",
+  "List repository branches": "Список веток репозитория",
+  "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.":
+    "Разрешает получать список trunk и branches/ для меню чипа SVN. Требует обращения к серверу; отключите на медленном канале.",
 };
 
 /**
@@ -386,6 +488,7 @@ export const schemaEnumLabelRu: Record<string, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   neuraldeep: "NeuralDeep",
+  codex: "Codex",
   // tools.permission_mode
   ask: "Спрашивать",
   accept_edits: "Авто-подтверждение правок",

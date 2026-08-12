@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/hijera/foxxycode-agent/internal/textenc"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -37,7 +38,7 @@ func EditPreview(toolName, argsJSON, cwd string) (absPath string, before, after 
 		}
 		absPath = ResolvePath(args.Path, cwd)
 		before, _ = os.ReadFile(absPath)
-		encoding := textEncodingUTF8
+		encoding := textenc.UTF8
 		if before != nil {
 			encoding, err = existingTextEncoding(before)
 			if err != nil {

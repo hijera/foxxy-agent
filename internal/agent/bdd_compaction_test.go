@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -37,18 +38,36 @@ func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message
 	return &llm.Response{Content: "post-compaction answer", StopReason: "end_turn"}, nil
 }
 
+// compactionUsageSender records every session update so a scenario can assert what the ACP
+// client saw (the fork's resumePermissionSender answers permission requests but drops updates).
+type compactionUsageSender struct {
+	resumePermissionSender
+	updates []interface{}
+}
+
+func (s *compactionUsageSender) SendSessionUpdate(_ string, update interface{}) error {
+	s.updates = append(s.updates, update)
+	return nil
+}
+
 type compactionFeatureState struct {
-	tmpDirs  []string
-	st       *session.State
-	ag       *Agent
-	provider *bddCompactionProvider
-	exchanges int
+	tmpDirs    []string
+	st         *session.State
+	ag         *Agent
+	provider   *bddCompactionProvider
+	sender     *compactionUsageSender
+	engine     string
+	exchanges  int
+	beforeUsed int
 }
 
 func (s *compactionFeatureState) reset() error {
 	s.close()
 	s.provider = &bddCompactionProvider{}
+	s.sender = &compactionUsageSender{}
+	s.engine = ""
 	s.exchanges = 0
+	s.beforeUsed = 0
 	return nil
 }
 
@@ -94,17 +113,29 @@ func (s *compactionFeatureState) sessionWithExchanges(n int) error {
 	keep := 2
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000}},
 		Agent:     config.Agent{Model: "fake/model"},
 		Compaction: config.CompactionConfig{
+			Engine:          s.engine,
 			KeepRecentTurns: &keep,
 		},
 	}
-	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
+	cfg.Compaction.ApplyDefaults()
+	s.ag = NewAgent(cfg, s.st, s.sender, nil)
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
 		return s.provider, nil
 	}
 	return nil
+}
+
+func (s *compactionFeatureState) useCompactionEngine(engine string) error {
+	switch engine {
+	case config.CompactionEngineCoddy, config.CompactionEngineOpenCode:
+		s.engine = engine
+		return nil
+	default:
+		return fmt.Errorf("unknown compaction engine %q", engine)
+	}
 }
 
 func (s *compactionFeatureState) compactSession() error {
@@ -148,6 +179,49 @@ func transcriptText(msgs []llm.Message) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func TestCoddyCompactionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
+	st := &session.State{ID: "sess_compact_stale_read", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "inspect the file"})
+	st.AddMessage(asstRead("read", "big.go", 1, 500, true))
+	st.AddMessage(toolResult("read", bigBody("STALE FILE CONTENT")))
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "now change it"})
+	st.AddMessage(asstWrite("write", "write", "big.go"))
+	st.AddMessage(toolResult("write", "written"))
+
+	keepTurns := 1
+	keepResults := 0
+	minBytes := 10
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+		Compaction: config.CompactionConfig{
+			Engine:          config.CompactionEngineCoddy,
+			KeepRecentTurns: &keepTurns,
+			ResultEviction: config.ResultEviction{
+				KeepRecent:     &keepResults,
+				MinResultBytes: &minBytes,
+			},
+		},
+	}
+	provider := &bddCompactionProvider{}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	if _, err := ag.CompactSession(context.Background(), "", false); err != nil {
+		t.Fatal(err)
+	}
+	request := transcriptText(provider.completeSeen[0])
+	if strings.Contains(request, "STALE FILE CONTENT") {
+		t.Fatalf("compaction retained a read made stale by a write in the kept tail:\n%s", request)
+	}
+	if !strings.Contains(request, "modified after this read") {
+		t.Fatalf("compaction request missing stale-read placeholder:\n%s", request)
+	}
 }
 
 // nextLLMRequest sends a probe prompt through the agent and returns the
@@ -233,6 +307,124 @@ func (s *compactionFeatureState) agentRepliesSuccessfully() error {
 	return nil
 }
 
+func (s *compactionFeatureState) clientObservedContextUsageBeforeCompaction() error {
+	b := &session.ContextBreakdown{
+		SystemPrompt: 100,
+		Conversation: 10000,
+	}
+	b.Sum()
+	s.beforeUsed = b.EstimatedTotal
+	s.st.SetLastContextBreakdown(b)
+	s.sender.updates = nil
+	return nil
+}
+
+func (s *compactionFeatureState) lastACPUsageUpdate() (used, size int, err error) {
+	for i := len(s.sender.updates) - 1; i >= 0; i-- {
+		raw, marshalErr := json.Marshal(s.sender.updates[i])
+		if marshalErr != nil {
+			return 0, 0, marshalErr
+		}
+		var update struct {
+			SessionUpdate string `json:"sessionUpdate"`
+			Used          int    `json:"used"`
+			Size          int    `json:"size"`
+		}
+		if unmarshalErr := json.Unmarshal(raw, &update); unmarshalErr != nil {
+			return 0, 0, unmarshalErr
+		}
+		if update.SessionUpdate == "usage_update" {
+			return update.Used, update.Size, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("ACP client received no usage_update: %#v", s.sender.updates)
+}
+
+func (s *compactionFeatureState) clientReceivesSmallerContextUsage() error {
+	used, size, err := s.lastACPUsageUpdate()
+	if err != nil {
+		return err
+	}
+	if used >= s.beforeUsed {
+		return fmt.Errorf("compacted usage = %d, want less than %d", used, s.beforeUsed)
+	}
+	if size != 128000 {
+		return fmt.Errorf("context size = %d, want 128000", size)
+	}
+	return nil
+}
+
+// llmWindowForEngine mirrors buildMessages: the coddy engine replays only the window after the
+// last summary row, the opencode engine keeps everything not flagged Compacted.
+func (s *compactionFeatureState) llmWindowForEngine() []llm.Message {
+	history := s.st.GetMessages()
+	if s.ag.cfg.Compaction.EngineIsCoddy() {
+		return session.MessagesForLLM(history)
+	}
+	out := make([]llm.Message, 0, len(history))
+	for _, m := range history {
+		if isLLMHistoryMessage(m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func (s *compactionFeatureState) reportedACPUsageMatchesContext() error {
+	used, _, err := s.lastACPUsageUpdate()
+	if err != nil {
+		return err
+	}
+	b := s.st.GetLastContextBreakdown()
+	if b == nil {
+		return fmt.Errorf("session has no context breakdown after compaction")
+	}
+	window := s.llmWindowForEngine()
+	wantConversation := session.EstimateTokens(conversationText(window))
+	if b.Conversation != wantConversation {
+		return fmt.Errorf("conversation tokens = %d, want %d", b.Conversation, wantConversation)
+	}
+	wantSummary := session.EstimateTokens(compactionSummaryText(window))
+	if b.Summary != wantSummary {
+		return fmt.Errorf("summary tokens = %d, want %d", b.Summary, wantSummary)
+	}
+	if used != b.EstimatedTotal {
+		return fmt.Errorf("ACP used = %d, context breakdown total = %d", used, b.EstimatedTotal)
+	}
+	return nil
+}
+
+// compactSessionOnActiveEngine folds history the way the configured engine does: the coddy engine
+// exposes CompactSession, while the opencode engine only compacts from inside a turn.
+func (s *compactionFeatureState) compactSessionOnActiveEngine() error {
+	if s.ag == nil {
+		return fmt.Errorf("no session prepared")
+	}
+	if s.ag.cfg.Compaction.EngineIsCoddy() {
+		return s.compactSession()
+	}
+	// A large lastInputTokens puts the opencode engine over its threshold deterministically.
+	did, err := s.ag.maybeCompact(context.Background(), s.provider, 1_000_000)
+	if err != nil {
+		return err
+	}
+	if !did {
+		return fmt.Errorf("opencode engine did not compact")
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) llmWindowOmitsOlderExchanges() error {
+	joined := transcriptText(s.llmWindowForEngine())
+	for i := 1; i <= s.exchanges-2; i++ {
+		if strings.Contains(joined, fmt.Sprintf("question %d", i)) ||
+			strings.Contains(joined, fmt.Sprintf("answer %d", i)) {
+			return fmt.Errorf("older exchange %d still inside the LLM window", i)
+		}
+	}
+	return nil
+}
+
 func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	s := &compactionFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -253,6 +445,12 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user sends a new prompt$`, s.userSendsNewPrompt)
 	sc.Step(`^the agent replies successfully$`, s.agentRepliesSuccessfully)
 	sc.Step(`^the LLM request for that reply starts from the summary$`, s.nextRequestStartsFromSummary)
+	sc.Step(`^the ACP client has observed the context usage before compaction$`, s.clientObservedContextUsageBeforeCompaction)
+	sc.Step(`^the ACP client receives a smaller context usage update$`, s.clientReceivesSmallerContextUsage)
+	sc.Step(`^the reported ACP usage matches the compacted LLM context$`, s.reportedACPUsageMatchesContext)
+	sc.Step(`^the "([^"]*)" compaction engine is active$`, s.useCompactionEngine)
+	sc.Step(`^the session is compacted by the active engine$`, s.compactSessionOnActiveEngine)
+	sc.Step(`^the LLM context window no longer holds the older exchanges$`, s.llmWindowOmitsOlderExchanges)
 }
 
 func TestContextCompactionFeature(t *testing.T) {
@@ -268,5 +466,21 @@ func TestContextCompactionFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("context compaction feature suite failed")
+	}
+}
+
+func TestContextCompactionEngineParityFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "context-compaction-engines",
+		ScenarioInitializer: initializeCompactionScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/context_compaction_engines.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("context compaction engine parity feature suite failed")
 	}
 }

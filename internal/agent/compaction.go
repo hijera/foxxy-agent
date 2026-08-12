@@ -160,6 +160,9 @@ func (a *Agent) maybeCompact(ctx context.Context, provider llm.Provider, lastInp
 
 	newHistory := buildCompactedHistory(history, boundary, summary)
 	a.state.ReplaceMessagesAndPersist(newHistory)
+	// Republish the shrunken window so the context HUD drops without waiting for the next
+	// system-prompt rebuild (the coddy engine does the same inside CompactSession).
+	a.refreshConversationContextUsage(true)
 
 	after := session.EstimateTokens(conversationText(newHistory)) +
 		session.EstimateTokens(compactionSummaryText(newHistory))

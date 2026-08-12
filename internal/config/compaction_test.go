@@ -28,6 +28,45 @@ func TestCompactionDefaults(t *testing.T) {
 	}
 }
 
+func TestResultEvictionDefaults(t *testing.T) {
+	var r config.ResultEviction
+	if !r.IsEnabled() {
+		t.Fatal("result eviction must be enabled by default")
+	}
+	if got := r.EffectiveKeepRecent(); got != config.ResultEvictionDefaultKeepRecent {
+		t.Fatalf("keep_recent = %d, want %d", got, config.ResultEvictionDefaultKeepRecent)
+	}
+	if got := r.EffectiveMinResultBytes(); got != config.ResultEvictionDefaultMinResultBytes {
+		t.Fatalf("min_result_bytes = %d, want %d", got, config.ResultEvictionDefaultMinResultBytes)
+	}
+}
+
+func TestResultEvictionExplicitValues(t *testing.T) {
+	off := false
+	zero := 0
+	r := config.ResultEviction{Enabled: &off, KeepRecent: &zero, MinResultBytes: &zero}
+	if r.IsEnabled() {
+		t.Fatal("explicit enabled:false must disable")
+	}
+	if r.EffectiveKeepRecent() != 0 || r.EffectiveMinResultBytes() != 0 {
+		t.Fatal("explicit zero result-eviction values must be preserved")
+	}
+}
+
+func TestResultEvictionValidate(t *testing.T) {
+	neg := -1
+	if err := (&config.ResultEviction{KeepRecent: &neg}).Validate(); err == nil {
+		t.Fatal("expected error for negative keep_recent")
+	}
+	if err := (&config.ResultEviction{MinResultBytes: &neg}).Validate(); err == nil {
+		t.Fatal("expected error for negative min_result_bytes")
+	}
+	cfg := &config.Config{Compaction: config.CompactionConfig{ResultEviction: config.ResultEviction{KeepRecent: &neg}}}
+	if err := cfg.Compaction.Validate(cfg); err == nil {
+		t.Fatal("CompactionConfig.Validate must surface result_eviction errors")
+	}
+}
+
 func TestCompactionOpenCodeDefaults(t *testing.T) {
 	c := config.CompactionConfig{Engine: "opencode"}
 	c.Normalize()

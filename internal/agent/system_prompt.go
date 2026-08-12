@@ -74,6 +74,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText)
 	}
 	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
+	intellijContextMD := session.LoadIntelliJProjectContext(a.state.GetCWD())
 	var promptVariants []string
 	if a.cfg.Prompts.PerProviderEnabled() {
 		promptVariants = a.promptVariants()
@@ -91,10 +92,12 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
 	full = languageDirective(a.cfg.UI.Locale) + "\n\n" + full
-	// Appended outside the configurable template so custom prompts cannot drop platform facts.
-	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
-	if rs, ok := a.state.(rulesState); ok {
-		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.state.GetMessages(), toolDefs))
+	// Appended outside the configurable template so custom prompts cannot drop IDE metadata or platform facts.
+	full = joinNonEmptyPromptBlocks(full, intellijContextMD, a.environment.PromptContext())
+	if _, ok := a.state.(rulesState); ok {
+		// The Conversation estimate mirrors what buildMessages sends: only the window the active
+		// compaction engine still replays.
+		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.prunedForLLM(a.llmVisibleMessages()), toolDefs), false)
 	}
 	return full
 }

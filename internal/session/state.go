@@ -63,8 +63,38 @@ type State struct {
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
-	// MCPClients are connected MCP servers for this session.
+	// MCPClients are MCP servers supplied by the session client (for example
+	// ACP). They survive configured project-server reconnects.
 	MCPClients []*mcp.Client
+
+	// configuredMCPClients are derived from config.yaml plus global/project
+	// mcp.json. They are replaced when the session workspace changes.
+	configuredMCPClients []*mcp.Client
+
+	// mcpReady is the gate for a configured-MCP connect running in the background;
+	// nil when nothing is in flight. mcpClosed marks the session as gone so a late
+	// connect neither publishes into it nor holds a waiter (state_mcp_ready.go).
+	mcpReady  *mcpGate
+	mcpClosed bool
+
+	// mcpReloadPending records that a settings save changed the configured MCP
+	// servers while a turn held the lock. The swap cannot happen under an
+	// in-flight turn without stranding the tool definitions it already handed
+	// the model, so it is parked here and drained when the turn releases.
+	mcpReloadPending bool
+
+	// pendingReadyNotify holds session updates that must not reach the client
+	// before the response carrying this session id is on the wire. Only
+	// session/new reopening a persisted bundle parks work here: the client
+	// learns the id from that response. A real session/load needs no deferral,
+	// because the client supplied the id and ACP requires the replayed history
+	// to arrive before the response.
+	pendingReadyNotify func()
+
+	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
+	// Manager; may be nil = allow all). Re-reading config and .foxxycode/mcp.json
+	// on every build lets enable/disable toggles apply to live sessions.
+	MCPFilterFactory func() func(server, tool string) bool
 
 	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
@@ -139,8 +169,28 @@ func (s *State) GetID() string {
 	return s.ID
 }
 
+// setPendingReadyNotify parks session updates until the response that first
+// tells the client this session id has been written.
+func (s *State) setPendingReadyNotify(notify func()) {
+	s.mu.Lock()
+	s.pendingReadyNotify = notify
+	s.mu.Unlock()
+}
+
+// takePendingReadyNotify atomically clears and returns the parked updates, so
+// they are published exactly once.
+func (s *State) takePendingReadyNotify() func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notify := s.pendingReadyNotify
+	s.pendingReadyNotify = nil
+	return notify
+}
+
 // GetCWD returns the session working directory.
 func (s *State) GetCWD() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.CWD
 }
 
@@ -219,7 +269,93 @@ func (s *State) GetSkills() []*skills.Skill {
 func (s *State) GetMCPClients() []*mcp.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.MCPClients
+	out := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.MCPClients))
+	out = append(out, s.configuredMCPClients...)
+	out = append(out, s.MCPClients...)
+	return out
+}
+
+// addMCPClient attaches a server the ACP client supplied. A connect that lands
+// after the session was closed hands its client straight to Close instead of
+// attaching it to dead state, the same rule replaceConfiguredMCPClients follows.
+func (s *State) addMCPClient(client *mcp.Client) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		_ = client.Close()
+		return
+	}
+	s.MCPClients = append(s.MCPClients, client)
+	s.mu.Unlock()
+}
+
+// markMCPReloadPending parks a configured-MCP reload for the next moment the
+// session turn lock is free. A closed session has nothing left to reload.
+func (s *State) markMCPReloadPending() {
+	s.mu.Lock()
+	if !s.mcpClosed {
+		s.mcpReloadPending = true
+	}
+	s.mu.Unlock()
+}
+
+// hasPendingMCPReload reports whether a reload is parked, without taking it.
+func (s *State) hasPendingMCPReload() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mcpReloadPending
+}
+
+// takeMCPReloadPending atomically clears the parked-reload flag and reports
+// whether it was set, so exactly one of several racing drainers applies it.
+func (s *State) takeMCPReloadPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.mcpReloadPending
+	s.mcpReloadPending = false
+	return pending
+}
+
+func (s *State) setMCPFilterFactory(factory func() func(server, tool string) bool) {
+	s.mu.Lock()
+	s.MCPFilterFactory = factory
+	s.mu.Unlock()
+}
+
+// replaceConfiguredMCPClients atomically swaps only the clients derived from
+// FoxxyCode configuration. Session-client supplied connections remain live.
+// A connect that lands after the session was closed hands its clients straight
+// to Close instead of attaching them to dead state.
+func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
+	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		for _, client := range clients {
+			_ = client.Close()
+		}
+		return
+	}
+	old := s.configuredMCPClients
+	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
+	s.mu.Unlock()
+	for _, client := range old {
+		_ = client.Close()
+	}
+}
+
+// GetMCPToolFilter builds the current MCP tool filter. Without a factory the
+// filter allows everything (ACP-supplied servers, tests).
+func (s *State) GetMCPToolFilter() func(server, tool string) bool {
+	s.mu.RLock()
+	factory := s.MCPFilterFactory
+	s.mu.RUnlock()
+	if factory == nil {
+		return func(string, string) bool { return true }
+	}
+	return factory()
 }
 
 // SetPersistHook registers a callback after state that is written to disk changes.
@@ -309,7 +445,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if ent == nil {
 		return ""
 	}
-	levels := ent.ResolvedReasoningLevels()
+	levels := cfg.ReasoningLevelsFor(ent)
 	if len(levels) == 0 {
 		return ""
 	}
@@ -321,7 +457,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 			return sel
 		}
 	}
-	return ent.DefaultReasoningLevel()
+	return cfg.DefaultReasoningLevelFor(ent)
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.
@@ -748,14 +884,24 @@ func (s *State) Cancel() {
 	}
 }
 
-// CloseAll closes all MCP clients.
+// CloseAll closes all MCP clients. The session does not come back after this — both callers
+// either drop it or replace it with a freshly loaded State — so the readiness gate is settled
+// permanently, releasing anyone waiting on a connect that is now pointless.
 func (s *State) CloseAll() {
+	s.markMCPClosed()
+	// A replay parked for a response that never arrived closes over the whole
+	// transcript, so drop it here rather than leave it reachable from a dead state.
+	_ = s.takePendingReadyNotify()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, c := range s.MCPClients {
+	clients := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.MCPClients))
+	clients = append(clients, s.configuredMCPClients...)
+	clients = append(clients, s.MCPClients...)
+	s.configuredMCPClients = nil
+	s.MCPClients = nil
+	s.mu.Unlock()
+	for _, c := range clients {
 		_ = c.Close()
 	}
-	s.MCPClients = nil
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).

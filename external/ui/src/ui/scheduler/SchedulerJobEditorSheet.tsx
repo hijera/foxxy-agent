@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { t as translate } from "../i18n/i18n";
+import { useConfirm } from "../components/useConfirm";
 import {
   schedulerCreateJob,
   schedulerDeleteJob,
@@ -82,6 +83,7 @@ export function SchedulerJobEditorSheet(props: {
   onDeleted: () => void;
 }) {
   const { t } = useT();
+  const confirm = useConfirm();
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [fieldErrs, setFieldErrs] = useState<FieldErrors>({});
@@ -450,7 +452,12 @@ export function SchedulerJobEditorSheet(props: {
     if (!jid) {
       return;
     }
-    const ok = window.confirm(t("scheduler.confirmDelete", { jobId: jid }));
+    const ok = await confirm({
+      title: t("scheduler.confirmDelete", { jobId: jid }),
+      message: t("scheduler.confirmDeleteBody"),
+      confirmLabel: t("scheduler.delete"),
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }

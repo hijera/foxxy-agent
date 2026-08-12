@@ -107,7 +107,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": sessionBusyResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -116,7 +116,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** only.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -137,7 +137,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**, **`foxxycode_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -155,7 +155,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": sessionBusyResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -558,6 +558,54 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/project/last-session": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Session to reopen for the current project",
+					"description": "Returns the session the user last had open in the current project, for editor plugins that reopen their panel on a fresh random port each launch. **`session_id`** is empty when nothing was recorded, or when the recorded session was deleted, is a scheduler run, or no longer lives under **`path`**.",
+					"operationId": "foxxycodeProjectLastSessionGet",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Last opened session for the current project",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeProjectLastSession"},
+								},
+							},
+						},
+					},
+				},
+				"put": map[string]interface{}{
+					"summary":     "Record the session to reopen for the current project",
+					"description": "Stores **`session_id`** against the current project in `~/.foxxycode/projects.json`. An empty **`session_id`** clears the record, so the next launch starts on a new chat. The recent-projects order and the current project are left unchanged.",
+					"operationId": "foxxycodeProjectLastSessionPut",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"session_id"},
+									"properties": map[string]interface{}{
+										"session_id": map[string]string{"type": "string", "description": "Session id, or empty to clear the record"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Updated record",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeProjectLastSession"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/project/pick-folder": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Open the native folder dialog (desktop only)",
@@ -580,10 +628,12 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/workspace/context": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
+					"summary": "Workspace context for the composer chips (folder, git branch, worktree, svn branch)",
 					"description": "Describes the workspace of the session in **`X-FoxxyCode-Session-ID`** (or the server default cwd without the header). " +
 						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
-						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree.",
+						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree. " +
+						"Subversion is detected independently of git, so a branch folder that also holds a git repository reports both: **`is_svn_repo`** plus an **`svn`** object with **`available`**, **`wc_root`**, **`url`**, **`relative_url`**, **`repository_root`**, **`revision`**, **`branch`** (`trunk`, `branches/<name>`), **`branches`** (when `vcs.svn.branch_lookup` is on), and **`nested`** (the working copy root sits above the folder). " +
+						"With **`vcs.svn.enabled: false`** or no svn client installed, **`is_svn_repo`** is false.",
 					"operationId": "foxxycodeWorkspaceContextGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -701,7 +751,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically, reloads in-process config. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically, and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -800,6 +850,89 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/background-tasks": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Background tasks of a session",
+					"description": "Lists commands the agent started with **run_command** **`background: true`**. Each row carries **id**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **foxxycode** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Task list with a **running** count"},
+						"404": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Clear the finished background tasks of a session",
+					"description": "Drops every terminal task of the session, in memory and from the session bundle, and answers with **cleared**. Running tasks are left alone. History accumulates on its own and is deleted with the session, so this is the operator's explicit way to throw it away early.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Number of cleared tasks"},
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/background-tasks/{task_id}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "One background task with its captured output",
+					"description": "Returns the task row plus **output**, the combined stdout and stderr captured so far. Works while the task is still running. A task the pool no longer holds is answered from the session bundle log.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "task_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Background task id (for example **bg_1**).",
+						},
+						map[string]interface{}{
+							"name": "tail", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "integer"},
+							"description": "Return only the last N lines of output. Omit for everything retained. A non-integer or negative value is a **400**. A log read back from the session bundle is capped at its last 256 KiB and flags the truncation.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Task with output"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/background-tasks/{task_id}/stop": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Stop a running background task",
+					"description": "Terminates the task and the whole process group it started, then returns the final row and its output. Stopping a task that already finished changes nothing and still returns **200**. An unknown id is a **404**; a task that exists but could not be terminated is a **500**, never a 404.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "task_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Background task id (for example **bg_1**).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Stopped task with output"},
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
@@ -836,12 +969,15 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/sessions/{id}/workspace": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary": "Switch the session workspace folder, git branch, or worktree",
+					"summary": "Switch the session workspace folder, git branch, worktree, or svn branch",
 					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder (skills, project rules, and slash commands are re-derived; the new cwd persists in **session.json**). " +
 						"Body **`{\"branch\": b}`** checks the branch out in place; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
 						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created under **`<home>/worktrees/<repo>/`** on demand) and moves the session cwd into it. " +
+						"**`vcs`** selects the version control system: **`git`** (default) or **`svn`**. With **`{\"vcs\": \"svn\", \"branch\": b}`** the working copy is switched in place (`svn switch`); " +
+						"Subversion has no worktrees, so **`{\"vcs\": \"svn\", \"branch\": b, \"worktree\": true}`** checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** and moves the session cwd there. An existing checkout of that branch is reused. " +
 						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
-						"A missing folder or a branch switch outside a git repository yields **400**; git checkout/worktree failures yield **409**. The session is created on demand (draft flow). Responds with the fresh workspace context.",
+						"A missing folder or a branch switch outside the corresponding repository yields **400**; git checkout/worktree and svn switch/checkout failures yield **409**, as does an svn switch with **`vcs.svn.enabled: false`** or no svn client installed. " +
+						"The session is created on demand (draft flow). Responds with the fresh workspace context.",
 					"operationId": "foxxycodeSessionWorkspacePost",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -860,6 +996,11 @@ func openAPISpec() map[string]interface{} {
 										"path":     map[string]string{"type": "string"},
 										"branch":   map[string]string{"type": "string"},
 										"worktree": map[string]string{"type": "boolean"},
+										"vcs": map[string]interface{}{
+											"type":        "string",
+											"enum":        []interface{}{"git", "svn"},
+											"description": "Version control system for a branch switch. Default git.",
+										},
 									},
 								},
 							},
@@ -901,10 +1042,100 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/export": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Export the session transcript as a downloadable document",
+					"description": "Renders the dialogue surface — **user** and **assistant** turns plus any assistant **reasoning** blocks; tool/system rows are omitted — into the requested **format** and returns it as a `Content-Disposition: attachment` download. Markdown in message content (headings, lists, code, emphasis) is preserved across formats. The **html**, **pdf** and **docx** documents drop the ambient editor state the agent appends to each user turn (the `<foxxycode_ide_context>` active-file / open-tabs block and the `<foxxycode_terminal_context>` summary), keeping the wrappers that record a user action; **json** keeps everything verbatim for re-import. The disposition carries an ASCII `filename` plus an RFC 8187 `filename*=UTF-8''…` so non-Latin titles survive. The bundled UI only exposes this action once at least one assistant answer exists; the server applies the same guard and returns **404** for a session that has none.",
+					"operationId": "exportSession",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{
+							"name":        "format",
+							"in":          "query",
+							"required":    true,
+							"description": "Output format.",
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"json", "html", "pdf", "docx"}},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The exported document, sent as an attachment.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"session_id":  map[string]string{"type": "string"},
+											"title":       map[string]string{"type": "string"},
+											"exported_at": map[string]string{"type": "string"},
+											"messages":    map[string]interface{}{"type": "array", "items": map[string]string{"type": "object"}},
+										},
+									},
+								},
+								"text/html": map[string]interface{}{
+									"schema": map[string]string{"type": "string"},
+								},
+								"application/pdf": map[string]interface{}{
+									"schema": map[string]string{"type": "string", "format": "binary"},
+								},
+								"application/vnd.openxmlformats-officedocument.wordprocessingml.document": map[string]interface{}{
+									"schema": map[string]string{"type": "string", "format": "binary"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/export/file": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Render the session transcript to a file on disk",
+					"description": "Same document as `GET .../export`, written under the OS temp directory instead of returned as an attachment, and announced to connected editor plugins as a `reveal_file` event on `/foxxycode/ide/events`. This exists for editor panels, which cannot save a download: IntelliJ's JCEF drops downloads no handler claims, and the VS Code panel hosts the SPA in a cross-origin iframe with no download permission. The path is derived from the session and its title — it is never taken from the caller — and re-exporting the same session and format overwrites the same file, falling back to `<title>_1`, `<title>_2`, … when the previous export is still held open (Windows locks a `.docx` open in Word).",
+					"operationId": "exportSessionToFile",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{
+							"name":        "format",
+							"in":          "query",
+							"required":    true,
+							"description": "Output format.",
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"json", "html", "pdf", "docx"}},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "The document was written; the response carries its absolute path.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"path": map[string]interface{}{
+												"type":        "string",
+												"description": "Absolute path of the rendered document.",
+											},
+											"delivered": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Whether an editor plugin was connected to receive the reveal request.",
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** and payload `{\"error\":{\"message\":\"no active composer stream\"}}` instead of waiting. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1034,7 +1265,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`**, or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -1150,6 +1381,66 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/providers/{name}/codex-auth": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get Codex OAuth status",
+					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"operationId": "getProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Non-secret Codex OAuth connection status.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Remove FoxxyCode-managed Codex OAuth credentials",
+					"description": "Deletes only the credential stored under `FOXXYCODE_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
+					"operationId": "deleteProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Connection status after removal.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/providers/{name}/codex-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Start Codex ChatGPT device authorization",
+					"description": "Starts the official ChatGPT device flow. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"operationId": "startProviderCodexDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/providers/{name}/codex-auth/device/{loginID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Poll Codex device authorization",
+					"description": "Returns `pending`, `completed`, or `failed`. Token values are never returned.",
+					"operationId": "getProviderCodexDeviceAuth",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "loginID", "in": "path", "required": true,
+							"schema": map[string]string{"type": "string"},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/skills/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a skill",
@@ -1164,6 +1455,208 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Skill disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List MCP servers",
+					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.foxxycode/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/foxxycode/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`env`/`url`/`fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.",
+					"operationId": "listMCPServers",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Set to `1` to bypass the probe cache.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "MCP server list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/MCPServerList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable an MCP server",
+					"description": "Clears the disabled flag, persisting into the file that defines the server (config.yaml or `.foxxycode/mcp.json`). New sessions connect it; live sessions see its tools on their next turn.",
+					"operationId": "enableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable an MCP server",
+					"description": "Sets the disabled flag in the owning file. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"operationId": "disableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Approve a project MCP server for this workspace",
+					"description": "Records the operator's approval of the **current** declaration of a project-local (`.foxxycode/mcp.json`) server for the server's workspace, so sessions may start it. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
+					"operationId": "trustMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Server approved; the response carries the approved `fingerprint`.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":          map[string]interface{}{"type": "boolean"},
+											"fingerprint": map[string]interface{}{"type": "string", "description": "Digest the approval is bound to."},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project MCP server approval",
+					"description": "Removes the workspace approval of a project-local server. Sessions already holding a connected client keep it; new sessions no longer start the server. `removed` reports whether an approval was actually on file.",
+					"operationId": "untrustMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Approval withdrawn (or none was on file).",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":      map[string]interface{}{"type": "boolean"},
+											"removed": map[string]interface{}{"type": "boolean"},
+										},
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/project-trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Set the project MCP trust policy",
+					"description": "Persists **`mcp.project_trust`** into config.yaml and reloads it. Body: **`{\"policy\":\"ask\"|\"allow\"|\"deny\"}`**. `ask` (default) keeps project-local `.foxxycode/mcp.json` servers cold until each declaration is approved for its workspace; `allow` starts them automatically; `deny` never loads them. The MCP tab of the bundled UI edits this next to the servers it governs, so it never joins the settings-document save flow.",
+					"operationId": "setMCPProjectTrust",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"policy"},
+									"properties": map[string]interface{}{
+										"policy": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Policy stored; the response echoes the effective `project_trust`.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":            map[string]interface{}{"type": "boolean"},
+											"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable a single MCP tool",
+					"description": "Removes **{tool}** from the server's disabled-tools list in the owning file.",
+					"operationId": "enableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable a single MCP tool",
+					"description": "Adds **{tool}** to the server's disabled-tools list (`disabled_tools` in config.yaml, `disabledTools` in `.foxxycode/mcp.json`). The tool is hidden from the agent and rejected at dispatch.",
+					"operationId": "disableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/mcp/{name}": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Create or update an mcp.json MCP server",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.foxxycode/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Config.yaml-defined servers are edited via **PUT** `/foxxycode/config` instead.",
+					"operationId": "putMCPServer",
+					"parameters": []interface{}{
+						mcpServerNameParam(),
+						map[string]interface{}{
+							"name": "scope", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
+							"description": "Target file: local (default) = ./.foxxycode/mcp.json, global = <home>/mcp.json.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/MCPJSONServer"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server saved."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Delete an mcp.json MCP server",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.foxxycode/mcp.json`** or global **`<home>/mcp.json`**). Servers defined in config.yaml are refused with 400.",
+					"operationId": "deleteMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server deleted."},
 						"400": errorResponseRef(),
 					},
 				},
@@ -1358,7 +1851,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**). The provider is resolved from the saved config, so its credentials (`api_key` / `api_key_command` / `NAME_API_KEY`) and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**; codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1377,7 +1870,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/models-probe": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "List models for an unsaved provider (onboarding probe)",
-					"description": "Fetches the model list for a provider that is not saved in the config yet: credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Malformed body or unsupported `type` returns 400.",
+					"description": "Fetches the model list for a provider that is not saved in the config yet: API credentials arrive in the request body instead of being resolved by provider name (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; empty `api_base` uses the provider type's default). For `type: codex`, `provider_name` is required and the server reads that name's managed OAuth credential; no token enters the request body. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Malformed body, invalid Codex provider name, or unsupported `type` returns 400.",
 					"operationId": "probeProviderModels",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1387,10 +1880,11 @@ func openAPISpec() map[string]interface{} {
 									"type":     "object",
 									"required": []string{"type"},
 									"properties": map[string]interface{}{
-										"type":     map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic", "neuraldeep"}},
-										"api_base": map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. http://localhost:11434/v1). Empty uses the type default. Ignored for type neuraldeep, whose endpoint is fixed at https://api.neuraldeep.ru/v1."},
-										"api_key":  map[string]interface{}{"type": "string"},
-										"proxy":    map[string]interface{}{"type": "string", "description": "Optional proxy URL."},
+										"type":          map[string]interface{}{"type": "string", "enum": []string{"openai", "anthropic", "neuraldeep", "codex"}},
+										"provider_name": map[string]interface{}{"type": "string", "description": "Provider name whose server-side OAuth credential is used. Required for type codex; ignored otherwise."},
+										"api_base":      map[string]interface{}{"type": "string", "description": "Provider base URL (e.g. http://localhost:11434/v1). Empty uses the type default. Ignored for type neuraldeep and codex."},
+										"api_key":       map[string]interface{}{"type": "string"},
+										"proxy":         map[string]interface{}{"type": "string", "description": "Optional proxy URL."},
 									},
 								},
 							},
@@ -1399,6 +1893,7 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"400": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -1655,7 +2150,10 @@ func openAPISpec() map[string]interface{} {
 						"error": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"message": map[string]string{"type": "string"},
+								"message":    map[string]string{"type": "string"},
+								"code":       map[string]string{"type": "string", "description": "Machine-readable error kind when the server has one; `session_busy` for a 409 raised by a live agent turn."},
+								"sessionId":  map[string]string{"type": "string", "description": "Session the error refers to (sent with `session_busy`)."},
+								"turnActive": map[string]string{"type": "boolean", "description": "True when the named session has an agent turn in flight (sent with `session_busy`)."},
 							},
 						},
 					},
@@ -1761,12 +2259,81 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 				},
+				"FoxxyCodeProjectLastSession": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":     map[string]string{"type": "string", "example": "foxxycode.project_last_session"},
+						"path":       map[string]string{"type": "string", "description": "Project directory the record belongs to (same value as **GET** `/foxxycode/project`)"},
+						"session_id": map[string]string{"type": "string", "description": "Session to reopen; empty when there is none or the recorded one is no longer usable"},
+					},
+				},
 				"FoxxyCodeProjectPick": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"object":    map[string]string{"type": "string", "example": "foxxycode.project_pick"},
 						"cancelled": map[string]string{"type": "boolean"},
 						"path":      map[string]string{"type": "string", "description": "Chosen directory; empty when cancelled"},
+					},
+				},
+				"MCPToolRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Tool name as advertised by the server."},
+						"description": map[string]string{"type": "string"},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the tool is in the server's disabled-tools list."},
+					},
+				},
+				"MCPServerRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.foxxycode/mcp.json)."},
+						"origin":      map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.foxxycode/mcp.json."},
+						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"transport":   map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":     map[string]string{"type": "string"},
+						"args":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":         map[string]string{"type": "string"},
+						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":      map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
+						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
+						"source_path": map[string]string{"type": "string", "description": "File the declaration was read from."},
+						"trusted":     map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
+						"gated":       map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
+						"fingerprint": map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
+						"tools": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
+						},
+						"disabled_tools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
+				"MCPServerList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":        map[string]string{"type": "string", "example": "foxxycode.mcp_list"},
+						"workspace":     map[string]string{"type": "string", "description": "Workspace the rows were merged for; approvals are recorded against it."},
+						"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "Effective mcp.project_trust policy."},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPServerRow"},
+						},
+					},
+				},
+				"MCPJSONServer": map[string]interface{}{
+					"type":        "object",
+					"description": "One mcp.json entry (global <home>/mcp.json or project .foxxycode/mcp.json; Cursor-compatible).",
+					"properties": map[string]interface{}{
+						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
+						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
+						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"url":           map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
+						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"disabled":      map[string]interface{}{"type": "boolean"},
+						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 					},
 				},
 				"FoxxyCodeConfigJSON": map[string]interface{}{
@@ -1779,6 +2346,39 @@ func openAPISpec() map[string]interface{} {
 						"ok":    map[string]string{"type": "boolean"},
 						"error": map[string]string{"type": "string"},
 					},
+				},
+				"CodexAuthStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"connected": map[string]string{"type": "boolean"},
+						"source": map[string]interface{}{
+							"type": "string", "enum": []string{"foxxycode", "codex_cli"},
+						},
+						"account_id": map[string]string{"type": "string"},
+					},
+					"required": []string{"connected"},
+				},
+				"CodexAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id":         map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{"type": "string", "format": "uri"},
+						"user_code":        map[string]string{"type": "string"},
+						"status":           map[string]string{"type": "string", "example": "pending"},
+						"connected":        map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
+				},
+				"CodexAuthDeviceStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"status": map[string]interface{}{
+							"type": "string", "enum": []string{"pending", "completed", "failed"},
+						},
+						"connected": map[string]string{"type": "boolean"},
+						"error":     map[string]string{"type": "string"},
+					},
+					"required": []string{"status", "connected"},
 				},
 				"ModelList": map[string]interface{}{
 					"type": "object",
@@ -1802,7 +2402,7 @@ func openAPISpec() map[string]interface{} {
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},
-										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Omitted for non-reasoning models.",
+										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. Omitted for non-reasoning models.",
 									},
 									"reasoning_default": map[string]string{
 										"type":        "string",
@@ -1918,7 +2518,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"attachments": map[string]interface{}{
 							"type":        "array",
-							"description": "Allowed only when **model** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
+							"description": "Allowed only when **model** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. Hydrated text file bodies from session **cwd** **path** fields, converted to UTF-8 when the file uses another detected encoding.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
 						"inline_files": map[string]interface{}{
@@ -2070,12 +2670,40 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"is_svn_repo": map[string]interface{}{
+							"type":        "boolean",
+							"description": "The folder is an svn working copy. Detected independently of git: a branch folder holding a git repository reports both.",
+						},
+						"svn": map[string]interface{}{
+							"type":        "object",
+							"description": "Subversion state; present whenever vcs.svn.enabled is on, with available:false when no client is installed. Absent when Subversion support is disabled.",
+							"properties": map[string]interface{}{
+								"available":       map[string]string{"type": "boolean"},
+								"wc_root":         map[string]string{"type": "string"},
+								"url":             map[string]string{"type": "string"},
+								"relative_url":    map[string]string{"type": "string"},
+								"repository_root": map[string]string{"type": "string"},
+								"revision":        map[string]string{"type": "integer"},
+								"branch": map[string]interface{}{
+									"type":        "string",
+									"description": "trunk, branches/<name>, or tags/<name>; empty for an unrecognised layout.",
+								},
+								"branches": map[string]interface{}{
+									"type":  "array",
+									"items": map[string]string{"type": "string"},
+								},
+								"nested": map[string]interface{}{
+									"type":        "boolean",
+									"description": "The folder itself is unversioned; the working copy root sits above it.",
+								},
+							},
+						},
 						"id": map[string]interface{}{
 							"type":        "string",
 							"description": "Session id (present on POST /foxxycode/sessions/{id}/workspace responses).",
 						},
 					},
-					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree"},
+					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree", "is_svn_repo"},
 				},
 			},
 		},
@@ -2084,6 +2712,15 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenAPIMemoryDoc(&doc)
 	mergeOpenAPIMiniAppsDoc(&doc)
 	return doc
+}
+
+// sessionBusyResponseRef documents the 409 raised while another agent turn holds the
+// session: the body carries `code: session_busy` plus `sessionId`/`turnActive` so a client
+// can re-attach to the running turn via GET /foxxycode/sessions/{id}/composer-stream.
+func sessionBusyResponseRef() map[string]interface{} {
+	out := errorResponseRef()
+	out["description"] = "Session busy - another agent turn is in progress. `error.code` is `session_busy`, `error.sessionId` names the busy session, `error.turnActive` is true. Streaming requests wait up to 3s for the lock first, so a send issued right after `POST /foxxycode/sessions/{id}/cancel` succeeds while the cancelled turn unwinds."
+	return out
 }
 
 func errorResponseRef() map[string]interface{} {
@@ -2096,6 +2733,43 @@ func errorResponseRef() map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+func codexProviderNameParameter() map[string]interface{} {
+	return map[string]interface{}{
+		"name":        "name",
+		"in":          "path",
+		"required":    true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Codex provider name. Valid unsaved provider names are accepted by the OAuth routes.",
+	}
+}
+
+func jsonSchemaResponse(description, ref string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"$ref": ref},
+			},
+		},
+	}
+}
+
+func mcpServerNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "MCP server name (no `__`, spaces, or path separators).",
+	}
+}
+
+func mcpToolNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "tool", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Tool name as advertised by the server.",
 	}
 }
 

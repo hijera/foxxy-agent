@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/project"
@@ -52,8 +53,17 @@ type Server struct {
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
+	// mcpProbeCache holds probed MCP tool inventories for /foxxycode/mcp (keyed
+	// by server name, invalidated on config fingerprint change or edit).
+	mcpProbeMu    sync.Mutex
+	mcpProbeCache map[string]mcpProbeEntry
+
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	codexAuthIssuer string
+	codexAuthMu     sync.Mutex
+	codexAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	bgWG               sync.WaitGroup
@@ -62,6 +72,13 @@ type Server struct {
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	s.cancelCodexAuthLogins()
+	// Background tasks are children of this process; leaving them running would
+	// orphan whole shell trees the operator can no longer see or stop. Close the
+	// pool first so a turn that is still winding down cannot start one more, and
+	// so a wake retrying on a busy session gives up instead of holding bgWG.
+	bgtask.Default().SetDraining(true)
+	bgtask.Default().StopAll()
 	s.bgWG.Wait()
 }
 
@@ -76,8 +93,14 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
 		slashCache:           make(map[string]slashListCacheEntry),
+		codexAuthIssuer:      llm.CodexIssuerURL,
+		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 	}
 	s.cfgAt.Store(cfg)
+	// A fresh server means this process intends to serve again, so reopen the
+	// task pool a previous Drain closed.
+	bgtask.Default().SetDraining(false)
+	s.attachBackgroundWaker()
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
@@ -133,6 +156,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -157,6 +181,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -172,7 +197,7 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 
 // Handler returns the root HTTP handler.
 func (s *Server) Handler() http.Handler {
-	return s.corsMiddleware(s.authGate(s.mux))
+	return s.corsMiddleware(s.authGate(s.slowRequestLog(s.mux)))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -231,8 +256,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: mc,
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  ent.ResolvedReasoningLevels(),
-				ReasoningDefault: ent.DefaultReasoningLevel(),
+				ReasoningLevels:  s.activeCfg().ReasoningLevelsFor(ent),
+				ReasoningDefault: s.activeCfg().DefaultReasoningLevelFor(ent),
 			})
 		}
 	}
@@ -333,10 +358,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		if req.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sessionID, st)
+			unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sessionID, st, composerTurnLockWait)
 			if lockErr != nil {
 				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+					writeSessionBusy(w, sessionID, sessionBusyMessage)
 					return
 				}
 				s.log.Error("session turn lock", "error", lockErr)
@@ -344,9 +369,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			defer unlock()
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
+			writeSSEHeaders(w)
 			rel := s.beginComposerRelay(sessionID)
 			defer s.endComposerRelay(sessionID, rel)
 			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
@@ -366,17 +389,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}, bridge, promptOpts); err != nil {
 			s.log.Error("session prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !req.Stream {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+				writeSessionBusy(w, sessionID, sessionBusyMessage)
 				return
 			}
 			if req.Stream {
-				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+				_ = bridge.SendError(err)
 			} else {
-				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) {
-					code = http.StatusConflict
-				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -408,9 +427,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		writeSSEHeaders(w)
 		bridge = NewSender(s.activeCfg(), w, true, model)
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
@@ -435,7 +452,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("direct completion", "error", err)
 		if req.Stream {
-			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+			_ = bridge.SendError(err)
 		} else {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		}
@@ -464,6 +481,35 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// sessionBusyMessage is the human-readable half of every session-busy conflict.
+const sessionBusyMessage = "session busy: another agent turn is in progress"
+
+// composerTurnLockWait is how long a streaming composer POST waits for the previous turn
+// to release the session before reporting it busy. Sized for the Stop-then-resend case
+// (a cancelled turn still persists and diffs the workspace on its way out), not for
+// queueing behind a turn that is genuinely still working.
+const composerTurnLockWait = 3 * time.Second
+
+// writeSessionBusy answers a 409 with a machine-readable body so clients can react to a
+// live turn (re-attach to it) instead of only surfacing the message text. sessionID may be
+// empty when the handler does not know it.
+func writeSessionBusy(w http.ResponseWriter, sessionID, message string) {
+	if strings.TrimSpace(message) == "" {
+		message = sessionBusyMessage
+	}
+	errBody := map[string]interface{}{
+		"message":    message,
+		"code":       "session_busy",
+		"turnActive": true,
+	}
+	if id := strings.TrimSpace(sessionID); id != "" {
+		errBody["sessionId"] = id
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": errBody})
 }
 
 func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *session.State, id string, createdNew bool, err error) {
@@ -656,6 +702,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			code := http.StatusBadRequest
 			if !errors.Is(err, session.ErrPathTraversal) &&
 				!errors.Is(err, session.ErrFolderAttach) &&
+				!errors.Is(err, session.ErrNotDecodableText) &&
 				!os.IsNotExist(err) &&
 				!strings.Contains(err.Error(), "file too large") &&
 				!strings.Contains(err.Error(), "UTF-8") &&
@@ -666,9 +713,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				s.log.Error("responses prompt attachments", "error", err)
 			}
 			if body.Stream {
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				w.Header().Set("Connection", "keep-alive")
+				writeSSEHeaders(w)
 				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
 			} else {
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
@@ -678,10 +723,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 
 		var bridge *Sender
 		if body.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sid, st)
+			unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sid, st, composerTurnLockWait)
 			if lockErr != nil {
 				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+					writeSessionBusy(w, sid, sessionBusyMessage)
 					return
 				}
 				s.log.Error("session turn lock", "error", lockErr)
@@ -689,9 +734,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			defer unlock()
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
+			writeSSEHeaders(w)
 			rel := s.beginComposerRelay(sid)
 			defer s.endComposerRelay(sid, rel)
 			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
@@ -718,17 +761,13 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts); err != nil {
 			s.log.Error("responses prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+				writeSessionBusy(w, sid, sessionBusyMessage)
 				return
 			}
 			if body.Stream {
-				_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+				_ = bridge.SendError(err)
 			} else {
-				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) {
-					code = http.StatusConflict
-				}
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
+				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
 			return
 		}
@@ -754,9 +793,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 
 	var bridge *Sender
 	if body.Stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		writeSSEHeaders(w)
 		bridge = NewSender(s.activeCfg(), w, true, model)
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
@@ -781,7 +818,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Error("responses direct completion", "error", err)
 		if body.Stream {
-			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
+			_ = bridge.SendError(err)
 		} else {
 			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 		}

@@ -11,6 +11,12 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	planNoSelfRun := false
 	titleEnabled := true
 	browserHeadless := true
+	svnEnabled := true
+	svnBranchLookup := true
+	loopGuard := true
+	loopToolRepeatLimit := AgentDefaultLoopToolRepeatLimit
+	loopStreamRepeatCycles := AgentDefaultLoopStreamRepeatCycles
+	loopNudgeMax := AgentDefaultLoopNudgeMax
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
 			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
@@ -24,11 +30,15 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			},
 		},
 		Agent: AgentJSON{
-			Model:            "openai/gpt-4o",
-			MaxTurns:         AgentDefaultMaxTurns,
-			MaxTokensPerTurn: AgentDefaultMaxTokensPerTurn,
-			LLMRetryMax:      AgentDefaultLLMRetryMax,
-			LLMRetryBaseMS:   AgentDefaultLLMRetryBaseMS,
+			Model:                  "openai/gpt-4o",
+			MaxTurns:               AgentDefaultMaxTurns,
+			MaxTokensPerTurn:       AgentDefaultMaxTokensPerTurn,
+			LLMRetryMax:            AgentDefaultLLMRetryMax,
+			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
+			LoopGuard:              &loopGuard,
+			LoopToolRepeatLimit:    &loopToolRepeatLimit,
+			LoopStreamRepeatCycles: &loopStreamRepeatCycles,
+			LoopNudgeMax:           &loopNudgeMax,
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",
@@ -49,6 +59,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			AutoDiscovery: &skillsAutoDiscovery,
 		},
 		MCPServers: []MCPServerJSON{},
+		MCP:        MCPJSON{ProjectTrust: ProjectTrustAsk},
 		Tools: ToolsJSON{
 			PermissionMode:          PermModeAsk,
 			CommandAllowlist:        nil,
@@ -107,6 +118,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Headless:       &browserHeadless,
 			ExecutablePath: "",
 			TimeoutSeconds: BrowserDefaultTimeoutSeconds,
+		},
+		VCS: VCSJSON{
+			SVN: SVNJSON{
+				Enabled:        &svnEnabled,
+				Binary:         "",
+				TimeoutSeconds: SVNDefaultTimeoutSeconds,
+				BranchLookup:   &svnBranchLookup,
+			},
 		},
 	}
 }

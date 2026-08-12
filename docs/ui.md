@@ -39,6 +39,15 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
 
+## Settings: Codex OAuth
+
+- The first-run provider picker includes **Codex**. Selecting it replaces the API-key field with the same **Sign In with ChatGPT** device-flow card, keeps the optional proxy and model controls, and saves `type: codex` without credentials in the config document.
+- After sign-in, **Fetch models** probes the Codex catalog using the server-side credential for the unsaved `codex` provider name; the browser never receives or resubmits the OAuth token.
+- In **Settings → LLM Providers**, a row with **`type: codex`** hides the generic **API base URL**, **API key**, and **API key command** fields and renders **Sign In with ChatGPT**.
+- The button starts **`POST /foxxycode/providers/{name}/codex-auth/device`**, opens the returned official verification page, displays the one-time code, and polls **`GET .../device/{loginID}`** until completion or failure. The displayed link remains available if the browser blocks the automatic tab.
+- Connected state comes from **`GET /foxxycode/providers/{name}/codex-auth`**. **Sign Out** deletes only the FoxxyCode-managed credential; a server-side Codex CLI login may still appear as a compatibility connection.
+- OAuth tokens never enter the settings document or browser. The server stores them under **`$FOXXYCODE_HOME/providers/<name>/codex-auth.json`**.
+
 ## Layout
 
 Desktop layout
@@ -98,6 +107,7 @@ Narrow-rail tooltips (desktop)
   - Draft sessions use `#/draft/<draftId>` and are stored in `localStorage` under `foxxycode_draft_sessions_v1`.
   - History rows show a `Draft:` title prefix.
 - Session id is sent in the `X-FoxxyCode-Session-ID` header for chat transport.
+- **Editor embeds reopen the project's last session.** Inside a plugin webview (`?embed=…`, `isEditorEmbed()`), an empty hash on load means *continue where the user left off*, not *new chat*: the SPA reads `GET /foxxycode/project/last-session` and routes to `#/s/<sessionId>`. Any explicit hash (`#/s/…`, `#/draft/…`, `#/history`, `#/settings`, `#/scheduler`) wins over the restore, and the desktop app and plain browser tabs are unaffected. The viewed session is recorded back with `PUT /foxxycode/project/last-session`; going back to a new chat records an empty id so that sticks too. Logic lives in `external/ui/src/ui/sessions/lastProjectSession.ts`; the record is per project in `~/.foxxycode/projects.json`, because plugins bind a fresh random port on every IDE launch and browser storage is keyed by origin.
 - Session id validation matches `internal/session/ValidateFolderSessionID`.
 - Session persisted files live under the session directory and are deleted together when the session is deleted.
   - `tool_calls/` tool call history
@@ -128,17 +138,20 @@ Session title
 - **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /foxxycode/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
-### Per-session workspace (folder / branch / worktree chips)
+### Per-session workspace (folder / branch / worktree / svn chips)
 
-- A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (workspace basename, full path in tooltip), **branch chip** (current git branch; only when the workspace is a git repository), and a **worktree checkbox**.
+- A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (workspace basename, full path in tooltip), **branch chip** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN chip** plus its **branch-folder checkbox**.
 - Context loads from **`GET /foxxycode/workspace/context`** with **`X-FoxxyCode-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**.
 - **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /foxxycode/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. Picking calls **`POST /foxxycode/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, and slash commands re-derive from the new cwd.
 - **Branch chip** opens the branch list (current first, marked selected). Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, a dedicated worktree under **`<home>/worktrees/<repo>/`** when the checkbox is on, or a jump to the worktree that already has the branch checked out (including back to the main checkout).
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
+- **SVN chip** (**`composer-svn-chip`**) renders next to the git chip whenever **`is_svn_repo`** is true. Git and Subversion are detected independently, so a branch folder checked out from SVN that also holds a git repository shows both chips and each switches only its own VCS. The chip label is the svn branch (**`trunk`**, **`branches/<name>`**), with URL and revision in the tooltip; the menu lists the current branch first, then **`trunk`**, then the rest. Picking one posts **`{"branch", "worktree": <checkbox>, "vcs": "svn"}`**.
+- **SVN branch-folder checkbox** (**`composer-svn-folder-checkbox`**) replaces the worktree idea for Subversion, which has none: off switches the working copy in place (**`svn switch`**), on checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** (reusing an existing checkout) and moves the session there — the branch-folder workflow.
+- With **`vcs.svn.enabled: false`** or no svn client installed, **`is_svn_repo`** is false and neither svn chip renders.
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /foxxycode/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
-- Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`external/httpserver/features/workspace_switching.feature`** (godog).
+- Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`features/workspace_switching.feature`** and **`features/svn_workspace.feature`** (godog).
 ## Session list
 
 - **History** panel lists sessions via `GET /foxxycode/sessions` (still a **drawer**, not a persistent second column).
@@ -185,6 +198,7 @@ SSE payloads
   - `tool_call_update`
   - `plan`
   - `token_usage`
+  - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
 ## Composer primary action (`#btn-send`)
@@ -193,7 +207,7 @@ Context ring and breakdown popover
 
 - **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
 - **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet + scrim as slash / **`@`** pickers (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**). **Escape** or **Close** dismisses; hover tooltip returns when closed.
-- Legend keys map to **`contextBreakdown`** on **`GET /foxxycode/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`).
+- Legend keys map to **`contextBreakdown`** on **`GET /foxxycode/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `subagents`, `conversation`, `summary`). Live **`usage_update`** SSE replaces the displayed total immediately (including after `/compact` or automatic compaction), then the UI refreshes the detailed stats. Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`) and **`consumeComposerSseOrder.test.ts`** (`usage_update replaces the displayed current context after compaction`).
 
 Shape and glyphs
 
@@ -301,7 +315,8 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 - `tool_call`
   - A single tool execution row, same disclosure chrome as **thinking** / **memory** (**chevron**, **`thinking-label`** with the tool name or kind, **`thinking-dur`** for duration or **`-`**).
   - While **`pending`** or **`in_progress`**, the summary label uses a **`...`** suffix (for example **`read_file...`**). **`startedAtMs`** drives a live duration until the tool finishes.
-  - Details show arguments and streamed result when expanded. The **result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline), monospace, muted grey (**`.tool-result-raw`**). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, no **Load more** link and no fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), **overflow-y** hidden until **Load more**. **Load more results** (**`data-testid="tool-result-more-link"`**) performs **GET `/foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, then **overflow-y auto** and **Hide** (**`data-testid="tool-result-hide-link"`** ); **Hide** restores the clipped preview without a second GET while **fullResultText** stays in memory.
+  - When a structured preview and **Result** are both present, they touch and share the outer corners as one continuous execution card; there is no gap or duplicate border between them.
+  - Details reuse the permission card's tool-specific preview in a static mode: full diff / path / command content, but no copy, **More…**, or approval actions. **read**, **grep**, **glob**, and **print_tree** also receive compact structured argument previews; unknown tools keep a styled monospace fallback. The separate **Result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, there is no overflow toggle or fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), with **overflow-y** hidden until **More…**. **More…** (**`data-testid="tool-result-more"`**) performs **GET `/foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, then enables **overflow-y auto** at the same height and becomes **Less** (**`data-testid="tool-result-less"`**); **Less** restores the clipped preview without a second GET while **fullResultText** stays in memory. Both use the shared left-aligned **`tool-overflow-toggle`** tab button attached flush to the result panel's bottom border.
 
 ## Tool call card (bundled SPA, current)
 
@@ -315,11 +330,54 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /foxxycode/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
-| Full text | First **Load more** only - **`GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
-| CSS | **`styles.css`**: **`.foxxycode-tool-call-row`**, **`.foxxycode-tool-call-body`**, **`thinking-details:not([open])` body hidden**, plus **`.tool-result-raw`** and viewport / toggle classes above |
+| Full text | First **More…** only - **`GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
+| CSS | **`styles.css`**: **`.foxxycode-tool-call-row`**, transparent **`.foxxycode-tool-call-body`**, shared **`.permission-preview*`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` body hidden**, plus result viewport / toggle classes above |
 
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.
+
+## Tool permission card
+
+The inline approval gate is implemented by **PermissionPromptSection** and **PermissionPromptPreview**.
+
+- Render the card only for a pending permission request. Read-only tools render their normal timeline row only; there is no informational no-approval card, checkmark, or explanatory sentence.
+- Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated. The desktop notification toast reuses the same question text.
+- Actions follow the server-provided option list and order (**Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**); a fourth button needs no client change beyond layout. Labels are localized by **`optionId`** in **`chat/permissionOptionLabel.ts`** rather than rendered from the backend's English text.
+- The program-wide option only reaches the client for **run_command** on a single plain invocation. The backend label already names the exact grant (**`curl`**, **`git status`**), so the program name is carried through the translation verbatim rather than re-derived.
+- Match the prompt to its **tool_call** by **toolCallId** and prefer that row's **argsText**; fall back to **Arguments:** content in the permission payload.
+- **apply_patch** and **edit** render old/new line gutters and theme-aware added/deleted/context rows. Other filesystem mutation tools and **run_command** use compact structured previews rather than JSON.
+- The collapsed preview is measured after layout. Show **More…** only when **scrollHeight > clientHeight**; keep the viewport bounded, switch it to internal vertical scrolling, and change the button to **Less**. Returning to the collapsed state restores clipping and re-measures overflow. The shared button is left-aligned; on phones it has a **36px** minimum height.
+- Restored write permission prompts include **rm** and **rmdir** alongside the other filesystem mutation tools.
+- All question / header / metadata strings come from **`t()`** with **`en.ts`** + **`ru.ts`** parity, so the card renders in the active UI locale.
+
+Automated checks:
+
+- **external/ui/src/ui/chat/permissionToolPreview.test.ts**
+- **external/ui/src/ui/chat/PermissionPromptSection.test.tsx**
+- **external/ui/src/ui/chat/permissionPromptPreviewCss.test.ts**
+- **external/ui/src/ui/messages/MessageList.test.tsx**
+- **external/ui/src/ui/messages/toolCallConnectedResultCss.test.ts**
+
+## Background tasks panel
+
+The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/foxxycode/sessions/{id}/background-tasks*` (see `docs/background-tasks.md`).
+
+- It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
+- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`.
+- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk. **Clear** drops the finished history for the session.
+- Ordering is purely by start time, newest first, in both sections.
+- The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
+- On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
+- A transcript `run_command` row that started a task keeps a live chip in its **collapsed** summary and gains **Open in Tasks** / **Stop** when expanded, driven by the same poll.
+
+Automated checks:
+
+- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping)
+- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, empty and error states)
+- **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
+- **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion)
+- **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
 
 ## Live token usage
 
@@ -409,6 +467,48 @@ File API
 - `GET /foxxycode/sessions/{id}/memory/file` reads.
 - `PUT /foxxycode/sessions/{id}/memory/file` writes.
 
+## MCP servers (Settings tab)
+
+Functional checklist for the Settings -> MCP servers tab (`MCPSection.tsx`,
+section kind `mcp`; visual contract in `DESIGN.md`):
+
+- `GET /foxxycode/mcp` backs the list: merged `config.yaml` + global `~/.foxxycode/mcp.json`
+  + project `./.foxxycode/mcp.json` servers, each with `source` (`global` / `local`
+  scope badge), `origin` (`config` / `home` / `project` — drives the badge
+  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  `status`, and its tool inventory.
+- Status dot per server: connected (green), error (red, tooltip shows the probe
+  error), disabled (gray), unknown transport type (amber, `unsupported`).
+- Server switch toggles `POST /foxxycode/mcp/{name}/enable|disable`; the change
+  persists into the file that defines the server.
+- Expanding a row lists tools with per-tool switches
+  (`POST /foxxycode/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
+  locked while the server is disabled.
+- Edit and Delete are locked for `readonly` (config.yaml) rows; mcp.json rows
+  of both scopes stay editable. Delete calls `DELETE /foxxycode/mcp/{name}`, Edit
+  opens the JSON editor card inline with the scope pinned to the owning file.
+- Add server opens the editor prefilled with a Cursor-style entry template and
+  a Local/Global scope picker (default Local); Save issues
+  `PUT /foxxycode/mcp/{name}?scope=local|global` after client-side validation
+  (`mcpServerJson.ts`: JSON object, `command` or `url` required, name without
+  `__`, spaces, or path separators).
+- Refresh re-probes all servers via `GET /foxxycode/mcp?refresh=1`.
+- An **MCP discovery** fieldset above the list carries `mcp.project_trust`
+  (`POST /foxxycode/mcp/project-trust`, values `ask` / `allow` / `deny`). It never
+  joins the settings-document Save all flow.
+- A project-local server the workspace trust gate holds back shows `status`
+  `needs_approval` (amber dot), exposes **no tools** — it is reported, not probed —
+  and opens a note listing the declaration an approval would cover: transport,
+  the command with arguments or the URL, env and header **names** (never their
+  values), and the workspace. `denied` renders the same place with the policy
+  explanation instead.
+- The per-server **shield** toggles `POST /foxxycode/mcp/{name}/trust|untrust`.
+  It renders only under the `ask` policy, since `allow` and `deny` leave no
+  per-server decision to make.
+- List refreshes never unmount the list (initial-load-only placeholder), so the
+  drawer scroll position is preserved.
+- The tab does not participate in the settings document Save all flow.
+
 ## Swagger
 
 - Swagger UI is served under `/docs/`.
@@ -472,15 +572,15 @@ both processes with headroom under a 45-second outer timeout.
   - Given a session has tool calls executed
   - When the user reloads the page
   - Then tool call cards are visible in the transcript
-  - And expanding a tool card shows args and raw grey **result** preview
-  - And if the server marked the preview truncated, **Load more results** then **Hide** behave as in the table above; if not truncated, there is no **Load more** row and no **`tool-result-viewport--tall`** on the result panel
+  - And expanding a tool card shows a structured args preview and a separate raw **Result** panel, without approval buttons
+  - And if the server marked the preview truncated, **More…** then **Less** behave as in the table above; if not truncated, there is no overflow-toggle row and no **`tool-result-viewport--tall`** on the result panel
 
 - Tool result truncation (Playwright MCP)
   - Given a persisted session whose tool output on disk exceeds the preview line cap
-  - When the user opens the tool card and clicks **Load more results**
-  - Then the link becomes **Hide**, full lines are available inside the same max-height scrollable panel, and **`.tool-result-viewport--scroll`** has **`scrollHeight`** greater than **`clientHeight`**
-  - When the user clicks **Hide**
-  - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **Load more results** appears again
+  - When the user opens the tool card and clicks **More…**
+  - Then the button becomes **Less**, full lines are available inside the same max-height scrollable panel, and **`.tool-result-viewport--scroll`** has **`scrollHeight`** greater than **`clientHeight`**
+  - When the user clicks **Less**
+  - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **More…** appears again
 
 - Token usage survives restart
   - Given a session has non zero token usage

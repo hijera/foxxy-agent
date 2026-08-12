@@ -8,11 +8,16 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
-import { contextUsagePercent } from "./chat/contextUsage";
+import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
+import { markConnected, markReconnecting } from "./chat/liveConnectionState";
+import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
-import { consumeComposerSseReader } from "./chat/consumeComposerSse";
+import {
+  consumeComposerSseReader,
+  type ContextUsageUpdate,
+} from "./chat/consumeComposerSse";
 import {
   parseFoxxyCodePermissionPayload,
   type PermissionResolvedState,
@@ -52,7 +57,11 @@ import {
   upsertPermissionPromptRecord,
 } from "./chat/permissionPromptSessionStore";
 import { permissionPromptInsertIndex } from "./chat/permissionPromptPlacement";
-import { trimTranscriptForTurnReplay } from "./chat/transcriptTurnTrim";
+import { createTurnReplayTrimGate } from "./chat/transcriptTurnTrim";
+import {
+  isNoLiveTurnRelayError,
+  parseSessionBusyResponse,
+} from "./chat/liveTurnRecovery";
 import {
   parseToolsPermissionPolicy,
   type ToolsPermissionPolicy,
@@ -97,10 +106,8 @@ import {
   armNotificationSoundUnlock,
   playNotificationSound,
 } from "./desktop/desktopNotifySound";
-import {
-  permissionPromptDetail,
-  permissionPromptTitle,
-} from "./chat/permissionPromptDisplay";
+import { permissionPromptDetail } from "./chat/permissionPromptDisplay";
+import { buildPermissionToolPreview } from "./chat/permissionToolPreview";
 import { submitPermissionChoice } from "./chat/permissionSubmit";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
@@ -114,10 +121,7 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
-import {
-  armSessionDeleteBackdropSuppressUntil,
-  shouldSuppressShellBackdropClose,
-} from "./sessions/sessionDeleteBackdropSuppress";
+import { useConfirm } from "./components/useConfirm";
 import type { SessionRow } from "./sessions/types";
 import {
   isClientDraftSessionId,
@@ -137,6 +141,11 @@ import {
   sessionsProjectCwdParam,
   writeProjectOnlyPref,
 } from "./sessions/sessionsProjectFilter";
+import {
+  fetchLastProjectSession,
+  recordLastProjectSession,
+  shouldRestoreLastSession,
+} from "./sessions/lastProjectSession";
 import { isEditorEmbed } from "./embedShell";
 import { scheduleSessionTitleRefresh } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
@@ -164,15 +173,27 @@ import {
   setSchedulerCreateHash,
   setSchedulerJobHash,
   setSchedulerListHash,
+  setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
+import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
+import {
+  clearFinishedBackgroundTasks,
+  getBackgroundTask,
+  listBackgroundTasks,
+  stopBackgroundTask,
+} from "./tasks/api";
+import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { downloadBlob } from "./settings/transferIO";
 import { t } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
+import type { ExportFormat } from "./chat/SessionExportMenu";
 
 const HDR = "X-FoxxyCode-Session-ID";
 
@@ -640,10 +661,31 @@ function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Parse the filename from a `Content-Disposition: attachment; filename="..."`
+ * header, decoding the percent-encoded form the server uses for non-ASCII
+ * names. Returns null when the header is missing or carries no filename.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const m = /filename="([^"]+)"/i.exec(header);
+  if (!m || !m[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
 export function App() {
   // Only the active locale id is needed here: memoized labels below must recompute when the user
   // switches language. Translations themselves go through the module-level t().
   const { locale } = useT();
+  const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
@@ -659,6 +701,7 @@ export function App() {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
@@ -680,11 +723,15 @@ export function App() {
     null,
   );
   const [worktreePref, setWorktreePref] = useState(false);
+  // Subversion has no worktrees: this is the "check the branch out into its own
+  // folder" preference behind the checkbox next to the SVN chip.
+  const [svnFolderPref, setSvnFolderPref] = useState(false);
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
     path?: string;
     branch?: string;
     worktree?: boolean;
+    vcs?: "git" | "svn";
   } | null>(null);
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
@@ -804,14 +851,18 @@ export function App() {
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
-  /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
-  const sessionDeleteBackdropSuppressUntilRef = useRef(0);
+  /** Set once the editor-embed last-session probe finished (or was skipped). */
+  const lastSessionRestoreDoneRef = useRef(false);
+  /** Last value sent to the last-session record; null until the first write. */
+  const lastRecordedSessionRef = useRef<string | null>(null);
   const bumpComposerActivity = () =>
     setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
 
   function addActiveComposer(sid: string) {
     const k = sid.trim();
     if (!k) return;
+    // A stream is attached, so the live-status label stops saying "reconnecting".
+    markConnected(k);
     if (activeComposerSidRef.current.has(k)) return;
     activeComposerSidRef.current.add(k);
     bumpComposerActivity();
@@ -820,6 +871,9 @@ export function App() {
   function removeActiveComposer(sid: string) {
     const k = sid.trim();
     if (!k) return;
+    // Backstop for the live-status label: every turn ends through here, however it ended.
+    markConnected(k);
+    setMcpConnecting(k, false);
     if (!activeComposerSidRef.current.delete(k)) return;
     bumpComposerActivity();
   }
@@ -985,6 +1039,17 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const [backgroundRunning, setBackgroundRunning] = useState(0);
+  const [backgroundOutput, setBackgroundOutput] = useState("");
+  const [backgroundListError, setBackgroundListError] = useState<string | null>(
+    null,
+  );
+  const [backgroundListLoading, setBackgroundListLoading] = useState(false);
+  /** Ticks once a second so elapsed times advance between polls. */
+  const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
   const [schedulerInfo, setSchedulerInfo] = useState<SchedulerInfo | null>(
     null,
@@ -1125,7 +1190,8 @@ export function App() {
           sessionId: key,
           toolCallId: tcid,
           itemId: stablePermissionPromptItemId(tcid),
-          title: permissionPromptTitle(p),
+          // Same wording as the inline card so the toast and the transcript agree.
+          title: buildPermissionToolPreview(p).title,
           detail: permissionPromptDetail(p),
           options: p.options.map((o) => ({
             optionId: o.optionId,
@@ -1322,6 +1388,85 @@ export function App() {
     );
   }
 
+  /**
+   * Export the current session transcript as a document. The server renders the
+   * chosen format and returns a binary attachment; we stream it to a Blob and
+   * trigger a browser download, recovering the filename from the
+   * Content-Disposition header when the server supplies one.
+   */
+  async function exportSession(format: ExportFormat) {
+    if (!sessionId || exportBusy) {
+      return;
+    }
+    const sid = sessionId;
+    // A failed export must say so: the spinner stopping on its own reads as a
+    // finished download that never arrived. Network errors are caught here too,
+    // otherwise the rejected promise escapes the `void exportSession(...)` call
+    // site as an unhandled rejection.
+    const notice = (level: "error" | "info", message: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level,
+          message,
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    };
+    const fail = () => notice("error", t("chat.exportFailed"));
+    setExportBusy(true);
+    try {
+      if (isEditorEmbed()) {
+        // An editor webview cannot save a blob: IntelliJ's JCEF drops downloads
+        // no CefDownloadHandler claims, and the VS Code panel hosts this SPA in
+        // a cross-origin iframe with no download permission. Have the server
+        // write the document out instead; a connected plugin reveals it.
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/export/file?format=${format}`,
+          { method: "POST", headers: { [HDR]: sid } },
+        );
+        if (!res.ok) {
+          // 409: every candidate name was held by something the server could not
+          // replace — on Windows that is the exported document still open.
+          notice(
+            "error",
+            res.status === 409
+              ? t("chat.exportNameTaken")
+              : t("chat.exportFailed"),
+          );
+          return;
+        }
+        const saved = (await res.json()) as { path?: string };
+        const path = (saved.path ?? "").trim();
+        if (path === "") {
+          fail();
+          return;
+        }
+        notice("info", t("chat.exportSaved", { path }));
+        return;
+      }
+      const res = await fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/export?format=${format}`,
+        { headers: { [HDR]: sid } },
+      );
+      if (!res.ok) {
+        fail();
+        return;
+      }
+      const blob = await res.blob();
+      const filename =
+        filenameFromDisposition(res.headers.get("Content-Disposition")) ??
+        `session.${format}`;
+      downloadBlob(filename, blob);
+    } catch {
+      fail();
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   const headers = useMemo(
     () => (sessionId ? { [HDR]: sessionId } : {}),
     [sessionId],
@@ -1377,6 +1522,7 @@ export function App() {
     path?: string;
     branch?: string;
     worktree?: boolean;
+    vcs?: "git" | "svn";
   }) {
     const sid = sessionId.trim();
     if (!sid) {
@@ -1399,15 +1545,22 @@ export function App() {
         }
       } else if (payload.branch) {
         const nextBranch = payload.branch;
-        setWorkspaceCtx((prev) =>
-          prev
-            ? {
-                ...prev,
-                branch: nextBranch,
-                is_worktree: Boolean(payload.worktree),
-              }
-            : prev,
-        );
+        setWorkspaceCtx((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          if (payload.vcs === "svn") {
+            return {
+              ...prev,
+              svn: { ...(prev.svn ?? { available: true }), branch: nextBranch },
+            };
+          }
+          return {
+            ...prev,
+            branch: nextBranch,
+            is_worktree: Boolean(payload.worktree),
+          };
+        });
       }
       return;
     }
@@ -1459,6 +1612,7 @@ export function App() {
             body: JSON.stringify({
               branch: pending.branch,
               worktree: Boolean(pending.worktree),
+              vcs: pending.vcs ?? "git",
             }),
           },
         );
@@ -1467,6 +1621,76 @@ export function App() {
       // ignore: the session still starts in the default workspace
     }
   }
+
+  const refreshBackgroundTasks = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        setBackgroundTasks([]);
+        setBackgroundRunning(0);
+        return;
+      }
+      const silent = !!opts?.silent;
+      if (!silent) {
+        setBackgroundListLoading(true);
+        setBackgroundListError(null);
+      }
+      const res = await listBackgroundTasks(sid);
+      if (!silent) {
+        setBackgroundListLoading(false);
+      }
+      if (!res.ok) {
+        if (!silent) {
+          setBackgroundListError(res.message);
+          setBackgroundTasks([]);
+          setBackgroundRunning(0);
+        }
+        return;
+      }
+      setBackgroundListError(null);
+      setBackgroundTasks(res.data.data || []);
+      setBackgroundRunning(res.data.running || 0);
+    },
+    [sessionId],
+  );
+
+  const refreshBackgroundTaskOutput = useCallback(
+    async (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        setBackgroundOutput("");
+        return;
+      }
+      const res = await getBackgroundTask(sid, taskId);
+      setBackgroundOutput(res.ok ? res.data.output || "" : "");
+    },
+    [sessionId],
+  );
+
+  const stopBackgroundTaskById = useCallback(
+    async (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        return;
+      }
+      const res = await stopBackgroundTask(sid, taskId);
+      if (res.ok) {
+        setBackgroundOutput(res.data.output || "");
+      }
+      void refreshBackgroundTasks({ silent: true });
+    },
+    [sessionId, refreshBackgroundTasks],
+  );
+
+  const clearFinishedTasks = useCallback(async () => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    await clearFinishedBackgroundTasks(sid);
+    setTasksSelectedId(null);
+    void refreshBackgroundTasks({ silent: true });
+  }, [sessionId, refreshBackgroundTasks]);
 
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -1535,6 +1759,8 @@ export function App() {
       void markFoxxyCodeSessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(p.tasksOpen);
+      setTasksSelectedId(p.taskId);
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -1542,6 +1768,8 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -1558,6 +1786,8 @@ export function App() {
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       return;
     }
     if (p.branch === "settings") {
@@ -1565,6 +1795,8 @@ export function App() {
       setSettingsSection(p.section);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSessionsOpen(false);
       return;
     }
@@ -1590,6 +1822,8 @@ export function App() {
       }
       setSchedulerOpen(true);
       setSessionsOpen(false);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -1599,6 +1833,8 @@ export function App() {
     setSettingsRoute(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSessionsOpen(!!p.historyOpen);
   }, [schedulerHttpLinked]);
 
@@ -1607,6 +1843,8 @@ export function App() {
       setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
@@ -1618,6 +1856,8 @@ export function App() {
   const clearSessionRoute = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
@@ -1627,6 +1867,8 @@ export function App() {
   const closeSchedulerDrawer = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -1648,6 +1890,8 @@ export function App() {
     setMiniAppsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (parseAppHash().branch === "settings") {
       const sid = sessionId.trim();
       if (sid) {
@@ -1733,6 +1977,58 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, [applyLocationHash]);
 
+  // Editor plugins open their panel on the bare route, so continue where the
+  // user left off in this project instead of showing the hero screen. Runs
+  // once; any explicit deep link in the hash wins.
+  useEffect(() => {
+    if (
+      !shouldRestoreLastSession({
+        embed: isEditorEmbed(),
+        branch: parseAppHash().branch,
+      })
+    ) {
+      lastSessionRestoreDoneRef.current = true;
+      return;
+    }
+    const startHash = window.location.hash;
+    void (async () => {
+      const sid = await fetchLastProjectSession();
+      lastSessionRestoreDoneRef.current = true;
+      // The probe is a loopback call, but the user may still have navigated
+      // (History pick, New chat) while it was in flight - never override that.
+      if (
+        !sid ||
+        window.location.hash !== startHash ||
+        viewedSessionIdRef.current
+      ) {
+        return;
+      }
+      openSessionFromRoute(sid);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Remember what to reopen next launch. Gated on the probe above: the empty
+  // sessionId of a fresh mount would otherwise clear the record before the
+  // restore had a chance to read it. Once the user has a session open, going
+  // back to a new chat records an empty id so that sticks across restarts too.
+  useEffect(() => {
+    if (!isEditorEmbed() || !lastSessionRestoreDoneRef.current) {
+      return;
+    }
+    const sid = sessionId.trim();
+    // A deep-linked id arrives one render after mount, so the opening empty
+    // value is startup noise, not the user asking for a new chat.
+    if (!sid && lastRecordedSessionRef.current === null) {
+      return;
+    }
+    if (lastRecordedSessionRef.current === sid) {
+      return;
+    }
+    lastRecordedSessionRef.current = sid;
+    recordLastProjectSession(sid);
+  }, [sessionId]);
+
   useEffect(() => {
     void (async () => {
       const res = await fetchJSON<{ items?: Array<{ name: string }> }>(
@@ -1743,6 +2039,60 @@ export function App() {
       }
     })();
   }, []);
+
+  // Background tasks outlive the SSE stream of the turn that started them, so
+  // the drawer and the nav badge are kept honest by polling rather than by the
+  // composer stream. The cadence drops to a slow heartbeat when nothing runs.
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      setBackgroundTasks([]);
+      setBackgroundRunning(0);
+      setBackgroundOutput("");
+      return;
+    }
+    void refreshBackgroundTasks({ silent: !tasksOpen });
+  }, [sessionId, tasksOpen, refreshBackgroundTasks]);
+
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      return;
+    }
+    const id = window.setInterval(
+      () => {
+        void refreshBackgroundTasks({ silent: true });
+        if (tasksOpen && tasksSelectedId) {
+          void refreshBackgroundTaskOutput(tasksSelectedId);
+        }
+      },
+      tasksPollIntervalMs(backgroundRunning),
+    );
+    return () => window.clearInterval(id);
+  }, [
+    sessionId,
+    tasksOpen,
+    tasksSelectedId,
+    backgroundRunning,
+    refreshBackgroundTasks,
+    refreshBackgroundTaskOutput,
+  ]);
+
+  useEffect(() => {
+    if (!tasksOpen || !tasksSelectedId) {
+      setBackgroundOutput("");
+      return;
+    }
+    void refreshBackgroundTaskOutput(tasksSelectedId);
+  }, [tasksOpen, tasksSelectedId, refreshBackgroundTaskOutput]);
+
+  // Elapsed labels must advance between polls, so the clock ticks on its own
+  // while something is actually running.
+  useEffect(() => {
+    if (backgroundRunning <= 0) {
+      return;
+    }
+    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [backgroundRunning]);
 
   useEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked === false) {
@@ -2033,6 +2383,9 @@ export function App() {
         const { setSendMode, readSendModeFromConfigDoc } =
           await import("./i18n/sendModeConfig");
         setSendMode(readSendModeFromConfigDoc(res.data));
+        const { setStatusLineEnabled, readStatusLineFromConfigDoc } =
+          await import("./chat/statusLineConfig");
+        setStatusLineEnabled(readStatusLineFromConfigDoc(res.data));
       }
     })();
   }, [headers]);
@@ -2221,9 +2574,28 @@ export function App() {
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
     let pendingAssistant = emptyDeferredAssistant();
+    let assistantInTurn = 0;
+    /**
+     * Emits whatever assistant text has accumulated so far.
+     *
+     * Assistant text is buffered rather than pushed on sight so that a reply split across
+     * several messages reads as one bubble. It therefore has to be flushed before anything
+     * that comes *after* it chronologically — the tool calls of the same step, and the
+     * reasoning of the next one. Without that, a turn that spoke before calling a tool
+     * renders as "user, every tool call, then all the text at the bottom": invisible while a
+     * model only talks at the end, glaring the moment a turn is stopped mid-flight and its
+     * partial answer is persisted ahead of the tools.
+     */
     const flushAssistantForTurn = () => {
-      const row = deferredAssistantItem(pendingAssistant, userTurnIdx);
-      if (row) next.push(row);
+      const row = deferredAssistantItem(
+        pendingAssistant,
+        userTurnIdx,
+        assistantInTurn,
+      );
+      if (row) {
+        next.push(row);
+        assistantInTurn++;
+      }
       pendingAssistant = emptyDeferredAssistant();
     };
     for (const m of res.data.messages || []) {
@@ -2248,6 +2620,7 @@ export function App() {
         }
         userTurnIdx++;
         thinkingInTurn = 0;
+        assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
         const parsedAssets = parseSessionAssetFiles(rawContent);
@@ -2287,6 +2660,8 @@ export function App() {
         }
         const reasoning = (m.reasoning || "").trim();
         if (reasoning) {
+          // Reasoning opens a new step, so anything said in the previous one closes here.
+          flushAssistantForTurn();
           const dk = reasoningDurationCacheKey(reasoning);
           const cachedMs = dk
             ? reasoningDurationMsByContentRef.current.get(dk)
@@ -2328,6 +2703,10 @@ export function App() {
           );
         }
         const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
+        // Whatever the model said before reaching for a tool belongs above that tool.
+        if (tcs.length > 0) {
+          flushAssistantForTurn();
+        }
         for (const tc of tcs) {
           const id = tc?.id || "";
           const fn = tc?.function || {};
@@ -2585,6 +2964,8 @@ export function App() {
     setMiniAppsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2615,13 +2996,15 @@ export function App() {
 
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
-      const ok = window.confirm(t("app.confirmDeleteDraft"));
+      const ok = await confirm({
+        title: t("app.confirmDeleteDraft"),
+        message: t("app.confirmDeleteDraftBody"),
+        confirmLabel: t("app.delete"),
+        variant: "danger",
+      });
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(
-        sessionDeleteBackdropSuppressUntilRef,
-      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2630,13 +3013,15 @@ export function App() {
       }
       return;
     }
-    const ok = window.confirm(t("app.confirmDeleteChat"));
+    const ok = await confirm({
+      title: t("app.confirmDeleteChat"),
+      message: t("app.confirmDeleteChatBody"),
+      confirmLabel: t("app.delete"),
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(
-      sessionDeleteBackdropSuppressUntilRef,
-    );
     clearQuestionPromptRecords(id);
     await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -2791,73 +3176,76 @@ export function App() {
         }
       }
 
-      const list = await loadSessionsList(true);
-      if (lifecycle.signal.aborted) {
-        return;
-      }
-      const exists = !!list?.some((s) => s.id === sessionId);
-      if (exists) {
-        const sess = list?.find((s) => s.id === sessionId);
-        const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-          `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
-          { headers },
-        );
+      // The transcript must not queue behind History: the list is a whole-store scan
+      // and one more round trip, and blocking on it is what leaves the panel on a
+      // spinner after a reload. Start it here, read it only where it is needed.
+      const listPromise = loadSessionsList(true);
+      const statsPromise = fetchJSON<{ stats?: SessionStats | null }>(
+        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/stats`,
+        { headers },
+      );
+
+      const shadowSnap = streamShadowBySidRef.current.get(sessionId);
+      let loaded: TranscriptItem[] | null = null;
+      if (
+        activeComposerSidRef.current.has(sessionId) &&
+        shadowSnap &&
+        shadowSnap.length > 0
+      ) {
+        setItems([...shadowSnap]);
+      } else {
+        // freshLoad when no shadow: prevents stale itemsRef from a previous session
+        // bleeding into this session (e.g. React StrictMode double-invoke of effects).
+        const noShadow = !shadowSnap || shadowSnap.length === 0;
+        loaded = await loadMessages(undefined, {
+          freshLoad: noShadow,
+          preserveOnError: true,
+        });
         if (lifecycle.signal.aborted) {
           return;
         }
-        if (statsRes.ok && statsRes.data?.stats) {
-          applySessionStatsPayload(
-            statsRes.data.stats,
-            viewedSessionIdRef.current.trim() === sessionId,
-          );
-        }
-        const shadowSnap = streamShadowBySidRef.current.get(sessionId);
-        if (
-          activeComposerSidRef.current.has(sessionId) &&
-          shadowSnap &&
-          shadowSnap.length > 0
+        const shAfter = streamShadowBySidRef.current.get(sessionId);
+        if (activeComposerSidRef.current.has(sessionId) && shAfter?.length) {
+          setItems([...shAfter]);
+        } else if (
+          !loaded &&
+          !shAfter?.length &&
+          !activeComposerSidRef.current.has(sessionId)
         ) {
-          setItems([...shadowSnap]);
-          setSessionLoading(false);
-        } else {
-          // freshLoad when no shadow: prevents stale itemsRef from a previous session
-          // bleeding into this session (e.g. React StrictMode double-invoke of effects).
-          const noShadow = !shadowSnap || shadowSnap.length === 0;
-          const loaded = await loadMessages(undefined, { freshLoad: noShadow });
-          if (lifecycle.signal.aborted) {
-            return;
-          }
-          if (activeComposerSidRef.current.has(sessionId)) {
-            const sh = streamShadowBySidRef.current.get(sessionId);
-            if (sh && sh.length > 0) {
-              setItems([...sh]);
-              setSessionLoading(false);
-            }
-          }
-          if (
-            loaded &&
-            sess?.turnActive &&
-            !activeComposerSidRef.current.has(sessionId)
-          ) {
-            void rejoinComposerLiveStream(sessionId, loaded);
-          }
-        }
-      } else {
-        const shElse = streamShadowBySidRef.current.get(sessionId);
-        if (
-          activeComposerSidRef.current.has(sessionId) ||
-          (shElse && shElse.length > 0)
-        ) {
-          if (shElse && shElse.length > 0) {
-            setItems([...shElse]);
-          }
-        } else {
+          // Nothing on disk for this id yet (a draft chat, or a read that failed):
+          // show it empty rather than the previous session's transcript.
           setItems([]);
         }
-        // Always clear the skeleton once this session is resolved. A live composer
-        // with an empty shadow (first send, before the first token) must not leave
-        // the loading state stuck — the stream fills the transcript as it arrives.
-        setSessionLoading(false);
+      }
+      // The chat is resolved either way. A failed or empty read must never leave the
+      // panel on a skeleton - that reads as "loading forever" to the user.
+      setSessionLoading(false);
+
+      const statsRes = await statsPromise;
+      if (lifecycle.signal.aborted) {
+        return;
+      }
+      if (statsRes.ok && statsRes.data?.stats) {
+        applySessionStatsPayload(
+          statsRes.data.stats,
+          viewedSessionIdRef.current.trim() === sessionId,
+        );
+      }
+
+      const list = await listPromise;
+      if (lifecycle.signal.aborted) {
+        return;
+      }
+      if (!activeComposerSidRef.current.has(sessionId)) {
+        const sess = list?.find((s) => s.id === sessionId);
+        if (loaded && sess?.turnActive) {
+          void rejoinComposerLiveStream(sessionId, loaded);
+        } else {
+          // The list row is only the fast path: one page deep (limit 30,
+          // project-scoped) and a moment stale, so a chat missing from it may still
+          // be working. Ask the session itself before deciding it is idle.
+          void reconnectLiveStreamIfActive(sessionId);
+        }
       }
     })();
     return () => {
@@ -2955,9 +3343,13 @@ export function App() {
     if (!key) return;
     if (userStoppedSidRef.current.has(key)) {
       userStoppedSidRef.current.delete(key);
+      markConnected(key);
       return;
     }
-    if (activeComposerSidRef.current.has(key)) return;
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
     let active = false;
     try {
       const act = await fetchJSON<{ turnActive?: boolean }>(
@@ -2966,10 +3358,12 @@ export function App() {
       );
       active = !!(act.ok && act.data?.turnActive);
     } catch {
+      markConnected(key);
       return;
     }
     if (!active) {
       liveReconnectAttemptsRef.current.delete(key);
+      markConnected(key);
       // The turn already finished. If we got here from a dropped stream, pull the
       // persisted transcript so a stuck partial assistant is replaced by the result.
       if (opts?.reconcileIfDone && !activeComposerSidRef.current.has(key)) {
@@ -2979,12 +3373,23 @@ export function App() {
       }
       return;
     }
-    if (activeComposerSidRef.current.has(key)) return;
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
     const loaded = await loadMessages(key, {
       skipSetItems: viewedSessionIdRef.current.trim() !== key,
     });
-    if (!loaded) return;
-    if (activeComposerSidRef.current.has(key)) return;
+    if (!loaded) {
+      markConnected(key);
+      return;
+    }
+    if (activeComposerSidRef.current.has(key)) {
+      markConnected(key);
+      return;
+    }
+    // addActiveComposer clears the reconnecting flag the moment the stream attaches;
+    // this call runs for the whole rejoined turn, so clearing it here would be too late.
     await rejoinComposerLiveStream(key, loaded);
   }
 
@@ -2993,8 +3398,12 @@ export function App() {
     if (!key) return;
     if (userStoppedSidRef.current.has(key)) return;
     const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
-    if (attempts >= LIVE_RECONNECT_MAX) return;
+    if (attempts >= LIVE_RECONNECT_MAX) {
+      markConnected(key);
+      return;
+    }
     liveReconnectAttemptsRef.current.set(key, attempts + 1);
+    markReconnecting(key);
     window.setTimeout(() => {
       // Go through the ref so the delayed call uses the current render's closure.
       reconnectLiveStreamRef.current(key, { reconcileIfDone: true });
@@ -3100,23 +3509,42 @@ export function App() {
     addActiveComposer(key);
     const assistantId = newId("a");
     streamingAssistantBySidRef.current.set(key, assistantId);
-    // The relay replays the in-flight turn's SSE from the start, so drop any
-    // partial turn output already loaded from disk — the replay rebuilds it in
-    // emission order (otherwise the turn's text would render twice).
-    const replayBase = trimTranscriptForTurnReplay(baseline);
-    streamShadowBySidRef.current.set(key, [...replayBase]);
+    streamShadowBySidRef.current.set(key, [...baseline]);
     if (viewedSessionIdRef.current.trim() === key) {
-      setItems([...replayBase]);
+      setItems([...baseline]);
     }
 
+    // The relay replays the in-flight turn's SSE from the start, so the partial turn
+    // output loaded from disk has to go — otherwise the turn's text renders twice.
+    // The gate trims on the FIRST relay byte, not up front: when no relay answers
+    // (turn already over, backend restarted) the transcript must stay as the user
+    // left it instead of being emptied by a replay that never arrives.
+    const trimOnFirstReplayByte = createTurnReplayTrimGate();
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
-    ) => applyStreamItemsForSession(key, fn);
+    ) =>
+      applyStreamItemsForSession(key, (prev) =>
+        fn(trimOnFirstReplayByte(prev)),
+      );
+
+    // Give up on the live stream and let the disk poller show the turn's progress.
+    // (The finally block below clears the abort controller and reconciles.)
+    const fallBackToDisk = () => {
+      streamingAssistantBySidRef.current.delete(key);
+      removeActiveComposer(key);
+      startDiskFallbackPoll(key);
+    };
 
     const branchTokenUsage = (u: TokenUsage | null) => {
       if (u === null) return;
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
+        debouncedRefreshSessionStats(key);
+      }
+    };
+    const branchContextUsage = (u: ContextUsageUpdate) => {
+      if (viewedSessionIdRef.current.trim() === key) {
+        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
         debouncedRefreshSessionStats(key);
       }
     };
@@ -3128,6 +3556,9 @@ export function App() {
         { headers: { [HDR]: key }, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
+        // No relay to attach to (auth, restart, session gone). Keep the transcript
+        // and let the poller reveal the turn's progress if it is still running.
+        fallBackToDisk();
         return;
       }
       const reader = res.body.getReader();
@@ -3147,6 +3578,7 @@ export function App() {
         assistantId,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
+        setContextUsage: branchContextUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
@@ -3156,7 +3588,10 @@ export function App() {
         onPermission: handleComposerSsePermission,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
-        onDesignPlan: (slug: string) => handleComposerSseDesignPlan(key, slug),
+        onMcpConnecting: (connecting: boolean) =>
+          setMcpConnecting(key, connecting),
+        onDesignPlan: (slug: string) =>
+          handleComposerSseDesignPlan(key, slug),
       });
 
       const syncAssistantFromServer = async () => {
@@ -3197,6 +3632,16 @@ export function App() {
         }
       };
 
+      if (isNoLiveTurnRelayError(streamErrorMessage)) {
+        // The relay has nothing to attach to. That is a state, not a failure: the
+        // turn may have finished while we reconnected, or it runs somewhere this
+        // process cannot see. Reconcile from disk and keep watching if it is live.
+        flushToolQueue();
+        finishThinking();
+        fallBackToDisk();
+        return;
+      }
+
       if (streamErrorMessage) {
         flushToolQueue();
         finishThinking();
@@ -3227,11 +3672,13 @@ export function App() {
 
       if (endedWithoutDone) {
         // Relay was cut before [DONE]; the turn is likely still running. Schedule
-        // another re-attach and leave the transcript as-is for now.
+        // another re-attach and leave the transcript as-is for now. Poll the
+        // persisted rows meanwhile so progress shows even if every retry fails.
         flushToolQueue();
         finishThinking();
         reconcileOnExit = false;
         scheduleLiveStreamReconnect(key);
+        startDiskFallbackPoll(key);
         return;
       }
       liveReconnectAttemptsRef.current.delete(key);
@@ -3330,6 +3777,12 @@ export function App() {
         if (u === null) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
+          debouncedRefreshSessionStats(streamKey);
+        }
+      };
+      const branchContextUsage = (u: ContextUsageUpdate) => {
+        if (viewedSessionIdRef.current.trim() === streamKey) {
+          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
           debouncedRefreshSessionStats(streamKey);
         }
       };
@@ -3439,31 +3892,46 @@ export function App() {
       });
 
       if (res.status === 409) {
-        let msg = t("app.chatBusy");
+        let parsedBody: unknown = null;
         try {
-          const body = (await res.json()) as {
-            error?: { message?: string };
-          };
-          const m = body?.error?.message;
-          if (typeof m === "string" && m.trim()) {
-            msg = m.trim();
-          }
+          parsedBody = await res.json();
         } catch {
           // ignore
         }
+        const busy = parseSessionBusyResponse(res.status, parsedBody);
+        const serverMsg = busy.message.trim();
+        const busySid = (busy.sessionId || postSessionKey).trim();
+
+        // The turn that owns this chat is still running server-side (typically a
+        // long request the user reloaded away from). Nothing was accepted, so put
+        // the text back in the composer, drop the optimistic row, and open the
+        // running turn instead of leaving a dead-end error behind.
         applyStreamItems((prev) => [
-          ...prev,
+          ...prev.filter((it) => it.id !== userItem.id),
           {
             id: newId("s"),
             type: "system_notice",
-            level: "error" as const,
-            message: msg,
+            level: busy.busy ? ("info" as const) : ("error" as const),
+            message: busy.busy
+              ? t("app.chatBusyReattached")
+              : serverMsg || t("app.chatBusy"),
             createdAtUtc: new Date().toISOString(),
           },
         ]);
         postAbortBySidRef.current.delete(postSessionKey);
         streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
+        if (busy.busy) {
+          setDraft(text);
+          if (busySid && viewedSessionIdRef.current.trim() !== busySid) {
+            openSessionFromRoute(busySid);
+          }
+          // Detached: the finally block below still has to release this send's
+          // composer state before the re-attach can claim it.
+          void Promise.resolve().then(() =>
+            reconnectLiveStreamIfActive(busySid, { reconcileIfDone: true }),
+          );
+        }
         return;
       }
 
@@ -3536,6 +4004,7 @@ export function App() {
         assistantId,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
+        setContextUsage: branchContextUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
@@ -3545,6 +4014,8 @@ export function App() {
         onPermission: handleComposerSsePermission,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
+        onMcpConnecting: (connecting: boolean) =>
+          setMcpConnecting(streamKey, connecting),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
       });
@@ -3855,14 +4326,72 @@ export function App() {
     }
     setSessionsOpen(false);
     setMiniAppsOpen(false);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
   }, [schedulerHttpLinked]);
 
+  const openTasksFromNav = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setTasksOpen(true);
+    setTasksSelectedId(null);
+    setSessionTasksHash(sid);
+  }, [sessionId]);
+
+  const closeTasksDrawer = useCallback(() => {
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    if (sessionsOpen) {
+      setHistoryHash();
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId, sessionsOpen]);
+
+  const openBackgroundTask = useCallback(
+    (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      setTasksOpen(true);
+      setTasksSelectedId(taskId);
+      setSessionTasksHash(sid, taskId);
+    },
+    [sessionId],
+  );
+
+  const backToBackgroundTaskList = useCallback(() => {
+    const sid = sessionId.trim();
+    setTasksSelectedId(null);
+    if (sid) {
+      setSessionTasksHash(sid);
+    }
+  }, [sessionId]);
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSessionsOpen(false);
     setMiniAppsOpen(false);
     setSettingsHash();
@@ -3897,6 +4426,9 @@ export function App() {
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+
     setSettingsRoute(false);
     setMiniAppsOpen(false);
     setSessionsOpen(true);
@@ -3910,6 +4442,8 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSettingsRoute(false);
     setMiniAppsOpen(true);
   }, [miniAppsHttpLinked]);
@@ -3926,10 +4460,28 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSettingsRoute(false);
     setMiniAppsOpen(true);
     setMiniAppsDistillRequestEpoch((current) => current + 1);
   }, [generating, miniAppsHttpLinked, sessionId]);
+
+  /** Background tasks indexed by the tool call that started them, so a
+   *  transcript row can keep ticking after the tool itself returned. */
+  const backgroundTasksByToolCallId = useMemo(() => {
+    const byToolCall = new Map<string, BackgroundTask>();
+    for (const t of backgroundTasks) {
+      const tc = (t.tool_call_id || "").trim();
+      if (tc) {
+        byToolCall.set(tc, t);
+      }
+    }
+    return byToolCall;
+  }, [backgroundTasks]);
+
+  // The panel belongs to a chat, so it only exists when one is open.
+  const tasksPanelOpen = tasksOpen && !!sessionId.trim();
 
   const shellBackdropOpen =
     sessionsOpen ||
@@ -4027,7 +4579,11 @@ export function App() {
       />
 
       <div
-        className={["shell-main", sessionsOpen ? "shell-history-open" : ""]
+        className={[
+          "shell-main",
+          sessionsOpen ? "shell-history-open" : "",
+          tasksPanelOpen ? "shell-tasks-open" : "",
+        ]
           .filter(Boolean)
           .join(" ")}
         style={
@@ -4041,13 +4597,6 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (
-              shouldSuppressShellBackdropClose(
-                sessionDeleteBackdropSuppressUntilRef,
-              )
-            ) {
-              return;
-            }
             if (shellBackdropOpen) {
               closeAllShellDrawers();
             }
@@ -4137,11 +4686,40 @@ export function App() {
             />
           </div>
         ) : null}
+        {tasksPanelOpen ? (
+          <BackgroundTasksPanel
+            open
+            selectedTaskId={tasksSelectedId}
+            tasks={backgroundTasks}
+            selectedOutput={backgroundOutput}
+            listError={backgroundListError}
+            loading={backgroundListLoading}
+            nowMs={backgroundNowMs}
+            onClose={closeTasksDrawer}
+            onOpenTask={openBackgroundTask}
+            onBackToList={backToBackgroundTaskList}
+            onStopTask={(id) => {
+              void stopBackgroundTaskById(id);
+            }}
+            onClearFinished={() => {
+              void clearFinishedTasks();
+            }}
+          />
+        ) : null}
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          backgroundTasks={backgroundTasks}
+          onOpenBackgroundTasks={openTasksFromNav}
+          backgroundTasksByToolCallId={backgroundTasksByToolCallId}
+          backgroundNowMs={backgroundNowMs}
+          onOpenBackgroundTask={openBackgroundTask}
+          onStopBackgroundTask={(id: string) => {
+            void stopBackgroundTaskById(id);
+          }}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
+          svnFolderPref={svnFolderPref}
           workspaceLocked={items.length > 0}
           onWorkspacePickFolder={(p: string) =>
             void switchWorkspace({ path: p })
@@ -4150,6 +4728,10 @@ export function App() {
             void switchWorkspace({ branch: b, worktree: wt })
           }
           onWorktreeToggle={() => setWorktreePref((v) => !v)}
+          onWorkspacePickSvnBranch={(b: string, folder: boolean) =>
+            void switchWorkspace({ branch: b, worktree: folder, vcs: "svn" })
+          }
+          onSvnFolderToggle={() => setSvnFolderPref((v) => !v)}
           sessionLoading={sessionLoading}
           sessionFadingOut={sessionFadingOut}
           heroAccentVerb={heroAccentVerb}
@@ -4162,6 +4744,8 @@ export function App() {
           !generating
             ? { onCreateMiniApp: createMiniAppFromCurrentSession }
             : {})}
+          onExportSession={(f: ExportFormat) => void exportSession(f)}
+          exportBusy={exportBusy}
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}

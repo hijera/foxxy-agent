@@ -11,8 +11,11 @@ import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { ChatHeader } from "./ChatHeader";
+import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
+import type { BackgroundTask } from "../tasks/types";
+import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import { useT } from "../i18n/I18nProvider";
 import {
   subscribeShellStack,
@@ -31,6 +34,9 @@ export function ChatScreen(props: {
   onTitleSave: (title: string) => void;
   onCreateMiniApp?: () => void;
   items: TranscriptItem[];
+  /** Export the session transcript as a document. Hidden until an assistant answer exists. */
+  onExportSession?: (format: ExportFormat) => void;
+  exportBusy?: boolean;
   draft: string;
   tokenUsage: TokenUsage | null;
   contextPct?: number;
@@ -75,14 +81,25 @@ export function ChatScreen(props: {
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  /** Every background task of this chat, for the opener under the transcript. */
+  backgroundTasks?: BackgroundTask[];
+  onOpenBackgroundTasks?: () => void;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
+  svnFolderPref?: boolean;
   /** The workspace is chosen once: locked as soon as the conversation starts. */
   workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
+  onSvnFolderToggle?: () => void;
 }) {
   const { t } = useT();
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -316,10 +333,13 @@ export function ChatScreen(props: {
                 ? {
                     workspaceCtx: props.workspaceCtx ?? null,
                     worktreePref: props.worktreePref ?? false,
+                    svnFolderPref: props.svnFolderPref ?? false,
                     workspaceLocked: props.workspaceLocked ?? false,
                     onWorkspacePickFolder: props.onWorkspacePickFolder,
                     onWorkspacePickBranch: props.onWorkspacePickBranch,
                     onWorktreeToggle: props.onWorktreeToggle,
+                    onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
+                    onSvnFolderToggle: props.onSvnFolderToggle,
                   }
                 : {})}
             />
@@ -348,6 +368,19 @@ export function ChatScreen(props: {
                   onTitleSave={props.onTitleSave}
                   {...(props.onCreateMiniApp
                     ? { onCreateMiniApp: props.onCreateMiniApp }
+                    : {})}
+                  {...(props.onExportSession &&
+                  hasExportableAssistant(props.items)
+                    ? {
+                        actions: (
+                          <SessionExportMenu
+                            onExport={props.onExportSession}
+                            {...(props.exportBusy !== undefined
+                              ? { busy: props.exportBusy }
+                              : {})}
+                          />
+                        ),
+                      }
                     : {})}
                 />
               </div>
@@ -385,7 +418,28 @@ export function ChatScreen(props: {
                 {...(props.knownSkillNames
                   ? { knownSkillNames: props.knownSkillNames }
                   : {})}
+                {...(props.backgroundTasksByToolCallId
+                  ? {
+                      backgroundTasksByToolCallId:
+                        props.backgroundTasksByToolCallId,
+                    }
+                  : {})}
+                {...(props.backgroundNowMs !== undefined
+                  ? { backgroundNowMs: props.backgroundNowMs }
+                  : {})}
+                {...(props.onOpenBackgroundTask
+                  ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+                  : {})}
+                {...(props.onStopBackgroundTask
+                  ? { onStopBackgroundTask: props.onStopBackgroundTask }
+                  : {})}
               />
+              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
+                <BackgroundTasksChip
+                  tasks={props.backgroundTasks}
+                  onOpen={props.onOpenBackgroundTasks}
+                />
+              ) : null}
             </div>
             <div className="chat-scroll-tail" aria-hidden />
           </div>
@@ -449,10 +503,13 @@ export function ChatScreen(props: {
                   ? {
                       workspaceCtx: props.workspaceCtx ?? null,
                       worktreePref: props.worktreePref ?? false,
+                      svnFolderPref: props.svnFolderPref ?? false,
                       workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
                       onWorktreeToggle: props.onWorktreeToggle,
+                      onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
+                      onSvnFolderToggle: props.onSvnFolderToggle,
                     }
                   : {})}
               />
@@ -461,5 +518,17 @@ export function ChatScreen(props: {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * True when the transcript holds at least one completed assistant answer. The
+ * export action is gated on this so it only appears once there is something to
+ * download; matches the `type === "assistant_message"` discriminant used by
+ * MessageList and the streaming-sync local check.
+ */
+function hasExportableAssistant(items: TranscriptItem[]): boolean {
+  return items.some(
+    (it) => it.type === "assistant_message" && it.content.trim() !== "",
   );
 }

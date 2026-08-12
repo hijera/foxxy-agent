@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,6 +27,7 @@ type ResilientOptions struct {
 	RetryBase     time.Duration
 	RetryMaxDelay time.Duration
 	MinInterval   time.Duration
+	Logger        *slog.Logger
 }
 
 func (o ResilientOptions) withDefaults() ResilientOptions {
@@ -37,6 +40,9 @@ func (o ResilientOptions) withDefaults() ResilientOptions {
 	}
 	if out.RetryMaxDelay <= 0 {
 		out.RetryMaxDelay = defaultLLMRetryMaxDelay
+	}
+	if out.Logger == nil {
+		out.Logger = slog.Default()
 	}
 	return out
 }
@@ -101,6 +107,13 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		if delay <= 0 {
 			delay = p.opts.RetryBase
 		}
+		p.opts.Logger.WarnContext(ctx, "LLM request failed; retrying",
+			"attempt", attempt+1,
+			"next_attempt", attempt+2,
+			"max_attempts", p.opts.RetryMax+1,
+			"delay", delay,
+			"error", err,
+		)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -188,6 +201,10 @@ func isRetryableLLMError(err error) bool {
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
 	}
 	switch httpStatusFromError(err) {
 	case 429, 408, 500, 502, 503, 504:

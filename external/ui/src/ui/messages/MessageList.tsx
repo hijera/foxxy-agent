@@ -1,5 +1,22 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
+import {
+  isReconnecting,
+  serverSnapshotLiveConnection,
+  snapshotLiveConnection,
+  subscribeLiveConnection,
+} from "../chat/liveConnectionState";
+import {
+  isMcpConnecting,
+  serverSnapshotMcpConnecting,
+  snapshotMcpConnecting,
+  subscribeMcpConnecting,
+} from "../chat/mcpConnectingState";
+import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
+import {
+  getStatusLineEnabled,
+  onStatusLineChange,
+} from "../chat/statusLineConfig";
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
 import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
@@ -14,6 +31,7 @@ import { CompactionMessage } from "./CompactionMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import type { BackgroundTask } from "../tasks/types";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 
@@ -57,10 +75,56 @@ export function MessageList(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   onBranchSwitch?: (sessionId: string) => void;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
+  );
+  const toolCallsById = useMemo(() => {
+    const byId = new Map<
+      string,
+      Extract<TranscriptItem, { type: "tool_call" }>
+    >();
+    for (const item of props.items) {
+      if (item.type === "tool_call") byId.set(item.toolCallId, item);
+    }
+    return byId;
+  }, [props.items]);
+
+  // ui.status_line: when off, the dots render exactly as they did before this feature.
+  const statusLineOn = useSyncExternalStore(
+    onStatusLineChange,
+    getStatusLineEnabled,
+    () => true,
+  );
+  // A dropped stream makes every tool row stale, so the label says so instead.
+  const connectionEpoch = useSyncExternalStore(
+    subscribeLiveConnection,
+    snapshotLiveConnection,
+    serverSnapshotLiveConnection,
+  );
+  const reconnecting =
+    connectionEpoch >= 0 && !!props.sessionId && isReconnecting(props.sessionId);
+  // A turn can be parked before its first model call, waiting for the session's MCP servers.
+  const mcpEpoch = useSyncExternalStore(
+    subscribeMcpConnecting,
+    snapshotMcpConnecting,
+    serverSnapshotMcpConnecting,
+  );
+  const mcpConnecting =
+    mcpEpoch >= 0 && !!props.sessionId && isMcpConnecting(props.sessionId);
+
+  const liveStatus = useMemo(
+    () =>
+      props.generating === true && statusLineOn
+        ? deriveLiveStatus(props.items, { reconnecting, mcpConnecting })
+        : null,
+    [props.generating, statusLineOn, props.items, reconnecting, mcpConnecting],
   );
 
   const userMsgIndices = useMemo(() => {
@@ -226,6 +290,7 @@ export function MessageList(props: {
               <PermissionPromptSection
                 itemId={it.id}
                 payload={it.payload}
+                toolCall={toolCallsById.get(it.payload.toolCall.toolCallId)}
                 resolved={it.resolved}
                 onResolved={(state) =>
                   props.onPermissionPromptResolved?.(
@@ -261,6 +326,22 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(props.backgroundTasksByToolCallId?.get(it.toolCallId)
+              ? {
+                  backgroundTask: props.backgroundTasksByToolCallId.get(
+                    it.toolCallId,
+                  ) as BackgroundTask,
+                }
+              : {})}
+            {...(props.backgroundNowMs !== undefined
+              ? { backgroundNowMs: props.backgroundNowMs }
+              : {})}
+            {...(props.onOpenBackgroundTask
+              ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+              : {})}
+            {...(props.onStopBackgroundTask
+              ? { onStopBackgroundTask: props.onStopBackgroundTask }
+              : {})}
             {...(it.title !== undefined ? { title: it.title } : {})}
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}
@@ -290,7 +371,20 @@ export function MessageList(props: {
         );
       })}
       {props.generating === true && !hasStreamingAssistant(props.items) ? (
-        <TypingDotsMessage />
+        <TypingDotsMessage
+          {...(liveStatus
+            ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
+            : {})}
+          {...(liveStatus && liveStatus.target
+            ? {
+                statusTarget: truncateStatusTarget(liveStatus.target),
+                statusTargetFull: liveStatus.target,
+              }
+            : {})}
+          {...(typeof liveStatus?.startedAtMs === "number"
+            ? { startedAtMs: liveStatus.startedAtMs }
+            : {})}
+        />
       ) : null}
     </>
   );

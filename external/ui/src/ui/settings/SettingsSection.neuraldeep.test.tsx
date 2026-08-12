@@ -1,11 +1,14 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
 import type { SectionDescriptor } from "./settingsSections";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const providersSection: SectionDescriptor = {
   id: "providers",
@@ -110,6 +113,32 @@ test("switching type away from NeuralDeep restores the previously entered API ba
     expect(base.readOnly).toBe(false);
   });
   expect(base.value).toBe("https://custom.example/v1");
+});
+
+test("Codex provider replaces API credentials with ChatGPT OAuth", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ connected: false }),
+    })),
+  );
+  render(
+    <Harness
+      provider={{
+        name: "codex",
+        type: "codex",
+        api_base: "",
+        api_key: "",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(await screen.findByText("ChatGPT account")).toBeTruthy();
+  expect(screen.queryByLabelText("API base URL")).toBeNull();
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  expect(screen.getByTestId("codex-auth-sign-in")).toBeTruthy();
 });
 
 const modelsSection: SectionDescriptor = {

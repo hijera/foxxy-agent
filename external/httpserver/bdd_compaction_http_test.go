@@ -43,15 +43,19 @@ func (cannedSummaryProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.
 }
 
 type compactHTTPFeatureState struct {
-	root      string
-	ts        *httptest.Server
-	mgr       *session.Manager
-	srv       *Server
-	sessionID string
-	exchanges int
-	status    int
-	body      map[string]interface{}
-	respText  string
+	root        string
+	ts          *httptest.Server
+	mgr         *session.Manager
+	srv         *Server
+	sessionID   string
+	engine      string
+	maxContext  int
+	exchanges   int
+	status      int
+	body        map[string]interface{}
+	respText    string
+	beforeUsed  int
+	streamUsage *acp.UsageUpdate
 }
 
 func (s *compactHTTPFeatureState) reset() error {
@@ -62,10 +66,14 @@ func (s *compactHTTPFeatureState) reset() error {
 	}
 	s.root = root
 	s.sessionID = ""
+	s.engine = ""
+	s.maxContext = 0
 	s.exchanges = 0
 	s.status = 0
 	s.body = nil
 	s.respText = ""
+	s.beforeUsed = 0
+	s.streamUsage = nil
 	return nil
 }
 
@@ -85,22 +93,32 @@ func (s *compactHTTPFeatureState) close() {
 }
 
 func (s *compactHTTPFeatureState) startServer() error {
-	return s.startServerWithContextWindow(0)
+	return s.startServerWithContextWindow(128000)
 }
 
-// startServerWithContextWindow boots the test server; maxContextTokens > 0
-// arms auto-compaction against that model context window.
+// startServerWithContextWindow boots the test server on the default compaction engine;
+// maxContextTokens > 0 arms auto-compaction against that model context window.
 func (s *compactHTTPFeatureState) startServerWithContextWindow(maxContextTokens int) error {
+	return s.startServerWithEngine("", maxContextTokens)
+}
+
+// startServerWithEngine boots the test server with an explicit compaction engine so a scenario can
+// assert parity between the coddy and opencode implementations.
+func (s *compactHTTPFeatureState) startServerWithEngine(engine string, maxContextTokens int) error {
+	s.engine = engine
+	s.maxContext = maxContextTokens
 	sessRoot := filepath.Join(s.root, "sessions")
 	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
 		return err
 	}
 	cfg := &config.Config{
-		Paths:     config.Paths{Home: filepath.Join(s.root, "home"), CWD: s.root},
-		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2, MaxContextTokens: maxContextTokens}},
-		Agent:     config.Agent{Model: "fake/model"},
+		Paths:      config.Paths{Home: filepath.Join(s.root, "home"), CWD: s.root},
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2, MaxContextTokens: maxContextTokens}},
+		Agent:      config.Agent{Model: "fake/model"},
+		Compaction: config.CompactionConfig{Engine: engine},
 	}
+	cfg.Compaction.ApplyDefaults()
 	fakeFactory := func(llm.ProviderInput) (llm.Provider, error) {
 		return cannedSummaryProvider{}, nil
 	}
@@ -131,15 +149,58 @@ func (s *compactHTTPFeatureState) sessionWithExchanges(n int) error {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i)})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
 	}
+	// Seed a pre-compaction context estimate, both in memory and on disk, so a scenario can prove
+	// the reported usage actually shrank.
+	b := &session.ContextBreakdown{SystemPrompt: 100, Conversation: 10000}
+	b.Sum()
+	s.beforeUsed = b.EstimatedTotal
+	st.SetLastContextBreakdown(b)
+	if err := session.WriteSessionStats(st.GetPersistedSessionDir(), session.SessionStats{
+		ContextBreakdown: b,
+	}); err != nil {
+		return err
+	}
 	s.exchanges = n
 	return nil
 }
 
+// sessionWithExchangesOnEngine boots a server pinned to one compaction engine with a tiny context
+// window, so a single regular prompt trips auto-compaction on either engine (the manual /compact
+// command is coddy-only).
+func (s *compactHTTPFeatureState) sessionWithExchangesOnEngine(n int, engine string) error {
+	switch engine {
+	case config.CompactionEngineCoddy, config.CompactionEngineOpenCode:
+	default:
+		return fmt.Errorf("unknown compaction engine %q", engine)
+	}
+	if err := s.startServerWithEngine(engine, 50); err != nil {
+		return err
+	}
+	return s.sessionWithExchanges(n)
+}
+
+// restartServer tears down the HTTP server and manager but keeps the session store on disk, so the
+// next request reloads the session from its bundle (restoreContextBreakdown path).
+func (s *compactHTTPFeatureState) restartServer() error {
+	if s.ts != nil {
+		s.ts.Close()
+		s.ts = nil
+	}
+	if s.srv != nil {
+		s.srv.Drain()
+		s.srv = nil
+	}
+	s.mgr = nil
+	return s.startServerWithEngine(s.engine, s.maxContext)
+}
+
+// sendCompactPrompt drives /compact over the streaming surface so the scenario sees the same
+// named SSE events the SPA consumes (including usage_update).
 func (s *compactHTTPFeatureState) sendCompactPrompt() error {
 	payload := map[string]interface{}{
 		"model":  "agent",
 		"input":  "/compact",
-		"stream": false,
+		"stream": true,
 	}
 	buf, err := json.Marshal(payload)
 	if err != nil {
@@ -157,20 +218,72 @@ func (s *compactHTTPFeatureState) sendCompactPrompt() error {
 	}
 	defer res.Body.Close()
 	s.status = res.StatusCode
-	var parsed struct {
-		Output []struct {
-			Text string `json:"text"`
-		} `json:"output"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
-		return fmt.Errorf("decode /v1/responses body: %w", err)
+	var raw bytes.Buffer
+	if _, err := raw.ReadFrom(res.Body); err != nil {
+		return err
 	}
 	s.respText = ""
-	for _, o := range parsed.Output {
-		s.respText += o.Text
+	s.streamUsage = nil
+	for _, block := range strings.Split(raw.String(), "\n\n") {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		event := ""
+		data := ""
+		for _, line := range strings.Split(block, "\n") {
+			switch {
+			case strings.HasPrefix(line, "event:"):
+				event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			case strings.HasPrefix(line, "data:"):
+				data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		if event == "usage_update" {
+			var update acp.UsageUpdate
+			if err := json.Unmarshal([]byte(data), &update); err != nil {
+				return fmt.Errorf("decode usage_update: %w", err)
+			}
+			s.streamUsage = &update
+			continue
+		}
+		if event == "" {
+			var chunk struct {
+				Choices []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+				} `json:"choices"`
+			}
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				continue
+			}
+			for _, choice := range chunk.Choices {
+				s.respText += choice.Delta.Content
+			}
+		}
 	}
 	if s.status != http.StatusOK {
 		return fmt.Errorf("POST /v1/responses status %d", s.status)
+	}
+	return nil
+}
+
+func (s *compactHTTPFeatureState) streamReportsSmallerContextUsage() error {
+	if s.streamUsage == nil {
+		return fmt.Errorf("HTTP stream has no usage_update")
+	}
+	if s.streamUsage.SessionUpdate != acp.UpdateTypeUsage {
+		return fmt.Errorf("sessionUpdate = %q, want %q", s.streamUsage.SessionUpdate, acp.UpdateTypeUsage)
+	}
+	if s.streamUsage.Used >= s.beforeUsed {
+		return fmt.Errorf("streamed compacted usage = %d, want less than %d", s.streamUsage.Used, s.beforeUsed)
+	}
+	if s.streamUsage.Size != 128000 {
+		return fmt.Errorf("streamed context size = %d, want 128000", s.streamUsage.Size)
 	}
 	return nil
 }
@@ -286,6 +399,150 @@ func (s *compactHTTPFeatureState) transcriptShowsCompactCommand() error {
 	return nil
 }
 
+// compactHTTPConversationText mirrors internal/agent.conversationText: only the messages the model
+// actually receives count, and compaction summaries are accounted separately.
+func compactHTTPConversationText(msgs []llm.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		if m.Compacted || m.CompactionSummary {
+			continue
+		}
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		b.WriteString(string(m.Role))
+		b.WriteString(":\n")
+		b.WriteString(m.Content)
+		b.WriteString("\n\n")
+	}
+	return b.String()
+}
+
+func compactHTTPSummaryText(msgs []llm.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		if !m.CompactionSummary || strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		b.WriteString(m.Content)
+		b.WriteString("\n\n")
+	}
+	return b.String()
+}
+
+// llmWindowForEngine mirrors the agent's buildMessages dispatch: the coddy engine replays from the
+// last summary row onward, the opencode engine keeps everything not flagged Compacted.
+func (s *compactHTTPFeatureState) llmWindowForEngine(history []llm.Message) []llm.Message {
+	if !strings.EqualFold(s.engine, config.CompactionEngineOpenCode) {
+		return session.MessagesForLLM(history)
+	}
+	out := make([]llm.Message, 0, len(history))
+	for _, m := range history {
+		if m.Compacted {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func (s *compactHTTPFeatureState) fetchSessionStats() (*session.SessionStats, error) {
+	req, err := http.NewRequest(http.MethodGet, s.ts.URL+"/foxxycode/sessions/"+s.sessionID+"/stats", nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET stats status %d", res.StatusCode)
+	}
+	var payload struct {
+		Stats *session.SessionStats `json:"stats"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Stats, nil
+}
+
+func (s *compactHTTPFeatureState) statsMatchCompactedContext() error {
+	stats, err := s.fetchSessionStats()
+	if err != nil {
+		return err
+	}
+	if stats == nil || stats.ContextBreakdown == nil {
+		return fmt.Errorf("HTTP stats have no context breakdown: %+v", stats)
+	}
+	b := stats.ContextBreakdown
+	if b.EstimatedTotal >= s.beforeUsed {
+		return fmt.Errorf("compacted HTTP usage = %d, want less than %d", b.EstimatedTotal, s.beforeUsed)
+	}
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	window := s.llmWindowForEngine(st.GetMessages())
+	wantConversation := session.EstimateTokens(compactHTTPConversationText(window))
+	if b.Conversation != wantConversation {
+		return fmt.Errorf("HTTP conversation tokens = %d, want %d", b.Conversation, wantConversation)
+	}
+	wantSummary := session.EstimateTokens(compactHTTPSummaryText(window))
+	if b.Summary != wantSummary {
+		return fmt.Errorf("HTTP summary tokens = %d, want %d", b.Summary, wantSummary)
+	}
+	sum := b.SystemPrompt + b.ToolDefinitions + b.Rules + b.Skills + b.MCP + b.Subagents + b.Conversation + b.Summary
+	if b.EstimatedTotal != sum {
+		return fmt.Errorf("HTTP estimated total = %d, category sum = %d", b.EstimatedTotal, sum)
+	}
+	return nil
+}
+
+func (s *compactHTTPFeatureState) slashCatalogOffersCompact() error {
+	raw, err := s.slashCatalogJSON()
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(raw, `"name":"compact"`) {
+		return fmt.Errorf("the coddy engine does not advertise /compact: %s", raw)
+	}
+	return nil
+}
+
+func (s *compactHTTPFeatureState) slashCatalogOmitsCompact() error {
+	raw, err := s.slashCatalogJSON()
+	if err != nil {
+		return err
+	}
+	if strings.Contains(raw, `"name":"compact"`) {
+		return fmt.Errorf("the opencode engine still advertises /compact: %s", raw)
+	}
+	return nil
+}
+
+func (s *compactHTTPFeatureState) slashCatalogJSON() (string, error) {
+	req, err := http.NewRequest(http.MethodGet, s.ts.URL+"/foxxycode/slash-commands?page=1&page_size=100", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-FoxxyCode-Session-ID", s.sessionID)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET slash-commands status %d", res.StatusCode)
+	}
+	var raw bytes.Buffer
+	if _, err := raw.ReadFrom(res.Body); err != nil {
+		return "", err
+	}
+	return raw.String(), nil
+}
+
 func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	s := &compactHTTPFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -306,6 +563,48 @@ func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the session transcript contains a compaction summary row$`, s.transcriptHasSummaryRow)
 	sc.Step(`^the session transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptKeepsAllExchanges() })
 	sc.Step(`^the "/compact" command is part of the transcript$`, s.transcriptShowsCompactCommand)
+	sc.Step(`^the HTTP stream reports the smaller context usage$`, s.streamReportsSmallerContextUsage)
+	sc.Step(`^HTTP session stats match the compacted LLM context$`, s.statsMatchCompactedContext)
+}
+
+// initializeCompactionRestoreScenario drives features/context_compaction_restore.feature: the
+// reported context usage must survive a reload on both compaction engines.
+func initializeCompactionRestoreScenario(sc *godog.ScenarioContext) {
+	s := &compactHTTPFeatureState{}
+	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		return ctx, s.reset()
+	})
+	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		s.close()
+		return ctx, nil
+	})
+
+	sc.Step(`^an HTTP session with (\d+) completed exchanges on the "([^"]*)" compaction engine$`, s.sessionWithExchangesOnEngine)
+	sc.Step(`^the client posts to the session compact endpoint$`, s.postCompactEndpoint)
+	sc.Step(`^the compact request succeeds$`, s.compactRequestSucceeds)
+	sc.Step(`^the user sends a regular prompt$`, s.sendRegularPrompt)
+	sc.Step(`^the agent reply arrives over HTTP$`, s.agentReplyArrives)
+	sc.Step(`^the server is restarted against the same session store$`, s.restartServer)
+	sc.Step(`^the session transcript contains a compaction summary row$`, s.transcriptHasSummaryRow)
+	sc.Step(`^HTTP session stats match the compacted LLM context$`, s.statsMatchCompactedContext)
+	sc.Step(`^the slash command catalog does not offer "/compact"$`, s.slashCatalogOmitsCompact)
+	sc.Step(`^the slash command catalog offers "/compact"$`, s.slashCatalogOffersCompact)
+}
+
+func TestContextCompactionRestoreFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "context-compaction-restore",
+		ScenarioInitializer: initializeCompactionRestoreScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/context_compaction_restore.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("context compaction restore feature suite failed")
+	}
 }
 
 func TestContextCompactionCommandFeature(t *testing.T) {

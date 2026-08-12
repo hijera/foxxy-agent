@@ -197,9 +197,9 @@ func UISchemaMap() map[string]interface{} {
 			"type":        "string",
 			"title":       "Provider type",
 			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep"},
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1."),
+		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
@@ -209,7 +209,7 @@ func UISchemaMap() map[string]interface{} {
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
 		"max_tokens": intProp("Max tokens",
-			"Upper bound on completion tokens the model may emit for one assistant message."),
+			"Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens."),
 		"temperature": numProp("Temperature",
 			"Sampling temperature for this logical model (0 = deterministic, higher = more random)."),
 		"max_context_tokens": intProp("Max context tokens (UI hint)",
@@ -234,7 +234,7 @@ func UISchemaMap() map[string]interface{} {
 		"value": strProp("Header value", "HTTP header value."),
 	}
 	mcpProps := map[string]interface{}{
-		"type":    strProp("Server type", "stdio runs a local command; http connects to a remote MCP endpoint."),
+		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
 		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
 		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url)."),
 		"args": map[string]interface{}{
@@ -265,6 +265,13 @@ func UISchemaMap() map[string]interface{} {
 				"required":             []interface{}{"name", "value"},
 				"additionalProperties": false,
 			},
+		},
+		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
+		"disabled_tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Disabled tools",
+			"description": "Tool names of this server hidden from the agent.",
+			"items":       map[string]interface{}{"type": "string"},
 		},
 	}
 
@@ -354,8 +361,19 @@ func UISchemaMap() map[string]interface{} {
 					"Initial backoff between LLM retries in milliseconds."),
 				"llm_min_interval_ms": intProp("LLM min interval ms",
 					"Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing)."),
+				"loop_guard": boolProp("Loop guard",
+					"Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments."),
+				"loop_tool_repeat_limit": intProp("Loop tool repeat limit",
+					"Consecutive identical tool calls before the loop guard steps in (0 disables the check)."),
+				"loop_stream_repeat_cycles": intProp("Loop stream repeat cycles",
+					"Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check)."),
+				"loop_nudge_max": intProp("Loop nudge max",
+					"How many times one turn may be nudged back on track before the loop guard stops it."),
 			},
-			[]string{"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms"},
+			[]string{
+				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
+				"loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
+			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
@@ -375,15 +393,45 @@ func UISchemaMap() map[string]interface{} {
 					"In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on."),
 				"ask_disable_extended_tools": boolPropDefault("Disable extended Ask tools",
 					"In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.", false),
+				"output_limits": objectSchema("Tool output limits",
+					"Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB per-call byte ceiling. 0 disables both limits; unset uses the built-in default.",
+					map[string]interface{}{
+						"read":            intProp("read", "Max lines for a read page or directory listing (default 1000)."),
+						"grep":            intProp("grep", "Max grep records (default 200)."),
+						"glob":            intProp("glob", "Max paths from glob (default 300)."),
+						"print_tree":      intProp("print_tree", "Max directory-tree lines (default 400)."),
+						"run_command":     intProp("run_command", "Max stdout and stderr lines (default 500)."),
+						"ssh_run_command": intProp("ssh_run_command", "Max remote command output lines (default 500)."),
+						"webfetch":        intProp("webfetch", "Max fetched page lines (default 800)."),
+						"websearch":       intProp("websearch", "Max search result lines (default 200)."),
+						"default":         intProp("default", "Limit for unlisted and MCP tools (default 1000; 0 is unlimited)."),
+					},
+					[]string{"read", "grep", "glob", "print_tree", "run_command", "ssh_run_command", "webfetch", "websearch", "default"},
+					nil),
+				"background": objectSchema("Background tasks",
+					"Commands the agent runs detached in the session task pool instead of blocking a turn.",
+					map[string]interface{}{
+						"enabled": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Enabled",
+							"description": "Offer the background option on run_command and the background task tools (default true).",
+						},
+						"max_concurrent":          intProp("Max concurrent", "How many background tasks one session may run at once (default 5)."),
+						"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for a task started without a timeout or a duration estimate (default 900)."),
+						"max_timeout_seconds":     intProp("Max timeout (s)", "Ceiling applied to any requested or estimated timeout (default 3600)."),
+						"output_buffer_bytes":     intProp("Output buffer (bytes)", "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144)."),
+					},
+					[]string{"enabled", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
+					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "ask_disable_extended_tools"},
+			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "ask_disable_extended_tools", "output_limits", "background"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",
 			"title":       "MCP servers",
 			"description": "Model Context Protocol servers started or contacted for new sessions.",
 			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers"},
+				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
 				[]string{"name"}),
 		},
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",
@@ -429,8 +477,17 @@ func UISchemaMap() map[string]interface{} {
 				"threshold_percent": intProp("Threshold percent", "Trigger at this percent of the model context window. Default 80 (coddy) / 85 (opencode)."),
 				"keep_recent_turns": intProp("Keep recent turns", "Most recent user turns preserved verbatim (default 2)."),
 				"max_tokens":        intProp("Summary max tokens", "Completion token cap for the summary generation (opencode engine only)."),
+				"result_eviction": objectSchema("Read/grep result eviction",
+					"Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript remains untouched.",
+					map[string]interface{}{
+						"enabled":          boolProp("Enabled", "Master switch for result eviction. Defaults to true."),
+						"keep_recent":      intProp("Keep recent results", "Most recent evictable results kept as a working window (default 2)."),
+						"min_result_bytes": intProp("Min result bytes", "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate)."),
+					},
+					[]string{"enabled", "keep_recent", "min_result_bytes"},
+					nil),
 			},
-			[]string{"engine", "enabled", "model", "threshold_percent", "keep_recent_turns", "max_tokens"},
+			[]string{"engine", "enabled", "model", "threshold_percent", "keep_recent_turns", "max_tokens", "result_eviction"},
 			nil),
 		"title": objectSchema("Automatic session title", "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
 			map[string]interface{}{
@@ -533,6 +590,20 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enabled", "headless", "executable_path", "timeout_seconds"},
 			nil),
+		"vcs": objectSchema("Version control", "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
+			map[string]interface{}{
+				"svn": objectSchema("Subversion", "Subversion support for SVN working copies and branch folders.",
+					map[string]interface{}{
+						"enabled":         boolProp("Enabled", "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model."),
+						"binary":          strProp("SVN client path", "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH."),
+						"timeout_seconds": intProp("Command timeout (seconds)", "Per-command timeout for svn invocations such as update, commit, and merge."),
+						"branch_lookup":   boolProp("List repository branches", "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links."),
+					},
+					[]string{"enabled", "binary", "timeout_seconds", "branch_lookup"},
+					nil),
+			},
+			[]string{"svn"},
+			nil),
 		"ui": objectSchema("UI", "Embedded SPA preferences for desktop and HTTP UI.",
 			map[string]interface{}{
 				"enabled": boolProp("Serve the SPA", "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available."),
@@ -548,14 +619,15 @@ func UISchemaMap() map[string]interface{} {
 					"description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
 					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
 				},
+				"status_line": boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
 			},
-			[]string{"enabled", "locale", "send_mode"},
+			[]string{"enabled", "locale", "send_mode", "status_line"},
 			nil),
 	}
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "ui",
+		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui",
 	}
 
 	doc := map[string]interface{}{
@@ -580,7 +652,21 @@ func toIfaceOrder(keys []string) []interface{} {
 	return out
 }
 
-// UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON except httpserver (hidden from UI).
+// uiHiddenConfigKeys are ConfigJSON keys the Settings form must not render as
+// sections of its own. They still round-trip through GET/PUT /foxxycode/config,
+// so hiding one here never drops it from the saved document.
+//
+//	httpserver - the surface the UI itself is served from; editing it there
+//	             would let the page cut its own connection.
+//	mcp        - edited in the MCP servers tab (POST /foxxycode/mcp/project-trust),
+//	             next to the servers the policy governs.
+var uiHiddenConfigKeys = map[string]struct{}{
+	"httpserver": {},
+	"mcp":        {},
+}
+
+// UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON
+// except for uiHiddenConfigKeys.
 func UISchemaCoversConfigJSONFields() error {
 	doc := UISchemaMap()
 	props, ok := doc["properties"].(map[string]interface{})
@@ -595,7 +681,10 @@ func UISchemaCoversConfigJSONFields() error {
 		if c := strings.IndexByte(tag, ','); c >= 0 {
 			name = tag[:c]
 		}
-		if name == "" || name == "-" || name == "httpserver" {
+		if name == "" || name == "-" {
+			continue
+		}
+		if _, hidden := uiHiddenConfigKeys[name]; hidden {
 			continue
 		}
 		want[name] = struct{}{}
@@ -606,8 +695,8 @@ func UISchemaCoversConfigJSONFields() error {
 		}
 	}
 	for k := range props {
-		if k == "httpserver" {
-			return fmt.Errorf("schema must not expose httpserver in UI")
+		if _, hidden := uiHiddenConfigKeys[k]; hidden {
+			return fmt.Errorf("schema must not expose %q in UI", k)
 		}
 		if _, ok := want[k]; !ok {
 			return fmt.Errorf("schema has unknown property %q", k)

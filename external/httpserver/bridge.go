@@ -94,12 +94,16 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("plan", u)
 	case acp.TokenUsageUpdate:
 		return s.writeNamedEventJSON("token_usage", u)
+	case acp.UsageUpdate:
+		return s.writeNamedEventJSON("usage_update", u)
 	case acp.MemoryPhaseUpdate:
 		return s.writeNamedEventJSON("memory_phase", u)
 	case acp.MemoryMessageChunkUpdate:
 		return s.writeNamedEventJSON("memory_chunk", u)
 	case acp.CompactionUpdate:
 		return s.writeNamedEventJSON("compaction", u)
+	case acp.MCPPhaseUpdate:
+		return s.writeNamedEventJSON("mcp_phase", u)
 	case acp.AvailableCommandsUpdate:
 		return s.writeNamedEventJSON("available_commands", u)
 	default:
@@ -169,6 +173,29 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 		return err
 	}
 	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, line); err != nil {
+		return err
+	}
+	if s.flusher != nil {
+		s.flusher.Flush()
+	}
+	return nil
+}
+
+// SendError emits an OpenAI-shaped SSE error through the same writer as normal stream events.
+// In particular, this keeps the live composer relay informed when the original POST reconnects.
+func (s *Sender) SendError(streamErr error) error {
+	if !s.stream || s.w == nil || streamErr == nil {
+		return nil
+	}
+	line, err := json.Marshal(map[string]interface{}{
+		"error": map[string]string{"message": streamErr.Error()},
+	})
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", line); err != nil {
 		return err
 	}
 	if s.flusher != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -45,6 +46,10 @@ type StartParams struct {
 	// -plan-no-self-run flag was passed). Editor plugins set it so their panels
 	// forbid the model from leaving plan mode by itself.
 	PlanNoSelfRun *bool
+	// ProjectTrust overrides mcp.project_trust when non-empty (the
+	// -mcp-project-trust flag was passed). CI jobs and container entrypoints
+	// use it to opt a trusted checkout in without editing config.yaml.
+	ProjectTrust string
 	// AuthToken is the optional bearer token from --auth-token; empty falls back to
 	// FOXXYCODE_HTTP_TOKEN and then httpserver.auth_token.
 	AuthToken string
@@ -106,6 +111,13 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		v := *params.PlanNoSelfRun
 		cfg.Tools.PlanNoSelfRun = &v
 	}
+	if strings.TrimSpace(params.ProjectTrust) != "" {
+		next := config.MCP{ProjectTrust: params.ProjectTrust}
+		if err := next.Validate(); err != nil {
+			return nil, fmt.Errorf("-%s: %w", config.ProjectTrustFlagName, err)
+		}
+		cfg.MCP = next
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return nil, fmt.Errorf("scheduler: %w", err)
 	}
@@ -117,6 +129,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
+	llm.LogCodexAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)
@@ -215,14 +228,14 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 // ListenAndServe blocks until the HTTP server stops.
 func (st *StartedHTTP) ListenAndServe() error {
 	st.Log.Info("listening", "addr", st.ListenAddr)
-	return st.httpSrv.ListenAndServe()
+	return describeListenError(st.httpSrv.ListenAndServe(), st.ListenAddr)
 }
 
 // Serve starts listening in a background goroutine. Returns when the listener is ready or ctx is done.
 func (st *StartedHTTP) Serve(ctx context.Context) error {
 	ln, err := net.Listen("tcp", st.ListenAddr)
 	if err != nil {
-		return err
+		return describeListenError(err, st.ListenAddr)
 	}
 	st.ListenAddr = ln.Addr().String()
 	errCh := make(chan error, 1)
@@ -251,6 +264,25 @@ func (st *StartedHTTP) Serve(ctx context.Context) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// describeListenError turns a failed bind into a message that names the cause. The OS text
+// differs per platform - Windows says "Only one usage of each socket address ... is normally
+// permitted", not "address already in use" - so the check goes through the errno (see
+// listenErrorIsAddrInUse), and the wording tells the caller what to do about it. Anything
+// else is passed through unchanged.
+func describeListenError(err error, addr string) error {
+	if err == nil {
+		return nil
+	}
+	if listenErrorIsAddrInUse(err) {
+		return fmt.Errorf("cannot listen on %s: the port is already in use by another process "+
+			"(stop it, or start foxxycode on a different port): %w", addr, err)
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("cannot listen on %s: permission denied for this address or port: %w", addr, err)
+	}
+	return err
 }
 
 // Shutdown gracefully stops the HTTP server and drains background work.
@@ -287,6 +319,7 @@ func Run(args []string, deps CommandDeps) error {
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
+	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -318,6 +351,7 @@ func Run(args []string, deps CommandDeps) error {
 		SchedulerEnabled: *schedulerEnabled,
 		AuthToken:        strings.TrimSpace(*authToken),
 		PlanNoSelfRun:    boolFlagIfPassed(fs, config.PlanNoSelfRunFlagName, planNoSelfRun),
+		ProjectTrust:     strings.TrimSpace(*projectTrust),
 	})
 	if err != nil {
 		return err

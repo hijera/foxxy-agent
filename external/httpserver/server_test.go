@@ -27,6 +27,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/version"
+	"golang.org/x/text/encoding/charmap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -264,7 +265,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/providers/{name}/models", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -2200,6 +2201,87 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 }
 
+// TestResponsesAttachmentEncodings covers the two ends of attachment decoding
+// over HTTP: a Windows-1251 file is transcoded and reaches the runner as
+// readable text, while a binary file is refused with 400 rather than 500.
+func TestResponsesAttachmentEncodings(t *testing.T) {
+	const russian = "Первая строка заметки в кодировке Windows-1251.\n" +
+		"Вторая строка нужна, чтобы кодировка определялась уверенно.\n" +
+		"Третья строка завершает пример русского текста.\n"
+
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	wd := filepath.Join(root, "wd")
+	sessRoot := filepath.Join(root, "sessions")
+	for _, d := range []string{filepath.Join(home, "memory"), sessRoot, wd} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cp1251, err := charmap.Windows1251.NewEncoder().Bytes([]byte(russian))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "note.txt"), cp1251, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blob := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 32)...)
+	if err := os.WriteFile(filepath.Join(wd, "logo.png"), blob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, payload string) int {
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	code := post("sess_http_attach_cp1251", `{"model":"agent","input":"read @note.txt","stream":false,"attachments":[{"path":"note.txt"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("windows-1251 attachment status %d, want 200", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) < 2 || blocks[1].Type != "resource" || blocks[1].Resource == nil {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if blocks[1].Resource.Text != russian {
+		t.Fatalf("resource text %q, want %q", blocks[1].Resource.Text, russian)
+	}
+
+	code = post("sess_http_attach_binary", `{"model":"agent","input":"read @logo.png","stream":false,"attachments":[{"path":"logo.png"}]}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("binary attachment status %d, want 400", code)
+	}
+}
+
 func TestFoxxyCodeConfigSchemaValidateAndPut(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
@@ -2882,5 +2964,179 @@ func TestIsProtectedPatternExemptsIDERoutes(t *testing.T) {
 		if got := isProtectedPattern(tc.pattern, tc.publicDocs); got != tc.want {
 			t.Errorf("isProtectedPattern(%q, %v) = %v, want %v", tc.pattern, tc.publicDocs, got, tc.want)
 		}
+	}
+}
+
+// TestFoxxyCodeMCPRoutesEdgeCases covers error paths of the /foxxycode/mcp surface;
+// the happy path lives in features/mcp_management.feature.
+func TestFoxxyCodeMCPRoutesEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FOXXYCODE_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+mcp_servers:
+  - name: broken
+    command: /nonexistent-mcp-binary
+  - name: remote
+    type: websocket
+    url: https://example.com/ws
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	do := func(method, path string, body string) (int, []byte) {
+		t.Helper()
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, ts.URL+path, rdr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, b
+	}
+
+	// The list reports both servers: broken stdio probes to an error status,
+	// the http entry is unsupported without probing. Config.yaml entries are
+	// global-scoped, config-owned, and read-only for edit/delete.
+	status, b := do(http.MethodGet, "/foxxycode/mcp", "")
+	if status != http.StatusOK {
+		t.Fatalf("GET /foxxycode/mcp status %d %s", status, b)
+	}
+	var list struct {
+		Items []struct {
+			Name     string `json:"name"`
+			Source   string `json:"source"`
+			Origin   string `json:"origin"`
+			Readonly bool   `json:"readonly"`
+			Status   string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("items = %+v, want 2", list.Items)
+	}
+	byName := map[string]string{}
+	for _, it := range list.Items {
+		if it.Source != "global" || it.Origin != "config" || !it.Readonly {
+			t.Errorf("server %q = %s/%s readonly=%v, want global/config readonly", it.Name, it.Source, it.Origin, it.Readonly)
+		}
+		byName[it.Name] = it.Status
+	}
+	if byName["broken"] != "error" {
+		t.Errorf("broken status = %q, want error", byName["broken"])
+	}
+	if byName["remote"] != "unsupported" {
+		t.Errorf("remote status = %q, want unsupported", byName["remote"])
+	}
+
+	// Toggling an unknown server or tool fails with 400.
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/ghost/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable unknown server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/ghost/tools/echo/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable tool of unknown server status %d, want 400", status)
+	}
+
+	// PUT rejects names that break the __ namespace, bad bodies, entries with
+	// neither command nor url, and unknown scopes.
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/bad__name", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT bad name status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/okname", `{broken`); status != http.StatusBadRequest {
+		t.Errorf("PUT invalid body status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/okname", `{}`); status != http.StatusBadRequest {
+		t.Errorf("PUT empty entry status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/foxxycode/mcp/okname?scope=nope", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT unknown scope status %d, want 400", status)
+	}
+
+	// PUT with scope=global lands in <home>/mcp.json and lists as global/home.
+	if status, body := do(http.MethodPut, "/foxxycode/mcp/homer?scope=global", `{"command":"home-mcp"}`); status != http.StatusOK {
+		t.Fatalf("PUT scope=global status %d %s", status, body)
+	}
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if err != nil || entries["homer"].Command != "home-mcp" {
+		t.Errorf("global mcp.json entries = %+v err=%v, want homer", entries, err)
+	}
+	_, b = do(http.MethodGet, "/foxxycode/mcp", "")
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	foundHomer := false
+	for _, it := range list.Items {
+		if it.Name == "homer" {
+			foundHomer = true
+			if it.Source != "global" || it.Origin != "home" || it.Readonly {
+				t.Errorf("homer = %s/%s readonly=%v, want global/home editable", it.Source, it.Origin, it.Readonly)
+			}
+		}
+	}
+	if !foundHomer {
+		t.Error("homer missing from list after scope=global PUT")
+	}
+
+	// Config-defined servers cannot be deleted over the API; mcp.json ones can.
+	if status, _ := do(http.MethodDelete, "/foxxycode/mcp/broken", ""); status != http.StatusBadRequest {
+		t.Errorf("DELETE config-sourced status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodDelete, "/foxxycode/mcp/homer", ""); status != http.StatusOK {
+		t.Errorf("DELETE home-sourced status %d, want 200", status)
+	}
+
+	// Trust applies to project entries only: config.yaml servers are the
+	// operator's own, so approving one is refused rather than silently stored.
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/broken/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust a config.yaml server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/foxxycode/mcp/ghost/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust unknown server status %d, want 400", status)
+	}
+	// Withdrawing an approval that was never granted is a no-op, not an error.
+	status, b = do(http.MethodPost, "/foxxycode/mcp/broken/untrust", "")
+	if status != http.StatusOK || !strings.Contains(string(b), `"removed":false`) {
+		t.Errorf("untrust without an approval = %d %s, want 200 removed:false", status, b)
+	}
+
+	// The project-trust policy is set through this surface (the MCP tab owns
+	// it) and rejects values the loader would not accept.
+	if status, body := do(http.MethodPost, "/foxxycode/mcp/project-trust", `{"policy":"nonsense"}`); status != http.StatusBadRequest {
+		t.Errorf("unknown policy status %d %s, want 400", status, body)
+	}
+	if status, body := do(http.MethodPost, "/foxxycode/mcp/project-trust", `{"policy":"deny"}`); status != http.StatusOK {
+		t.Fatalf("set policy status %d %s", status, body)
+	}
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if got := reloaded.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Errorf("config.yaml project_trust = %q, want %q", got, config.ProjectTrustDeny)
+	}
+	_, b = do(http.MethodGet, "/foxxycode/mcp", "")
+	if !strings.Contains(string(b), `"project_trust":"deny"`) {
+		t.Errorf("list does not report the new policy: %s", b)
 	}
 }

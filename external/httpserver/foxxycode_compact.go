@@ -59,7 +59,7 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionTurnBusy) {
-			http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
+			writeSessionBusy(w, id, sessionBusyMessage)
 			return
 		}
 		s.log.Error("compact: turn lock", "session", id, "error", err)

@@ -3,6 +3,11 @@ import { openAIStreamErrorMessage } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
 
+export type ContextUsageUpdate = {
+  used: number;
+  size: number;
+};
+
 type ToolCallUpdate = {
   toolCallId: string;
   title?: string;
@@ -107,6 +112,7 @@ export type ConsumeComposerSseParams = {
   assistantId: string;
   applyStreamItems: (fn: (prev: TranscriptItem[]) => TranscriptItem[]) => void;
   setTokenUsage: (u: TokenUsage | null) => void;
+  setContextUsage: (u: ContextUsageUpdate) => void;
   tokenBaselineRef: MutableRefObject<{
     input: number;
     output: number;
@@ -130,6 +136,12 @@ export type ConsumeComposerSseParams = {
   onCompaction?: (payload: Record<string, unknown>) => void;
   /** FoxxyCode extension. Fired with the plan slug when plan_write publishes a design plan. */
   onDesignPlan?: (slug: string) => void;
+  /**
+   * FoxxyCode extension. Fired when a turn is held up waiting for the session's configured
+   * MCP servers (**`true`**) and when they are up (**`false`**). Transient status only — the
+   * backend sends nothing at all once the servers are connected.
+   */
+  onMcpConnecting?: (connecting: boolean) => void;
 };
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
@@ -187,6 +199,7 @@ export async function consumeComposerSseReader(
     assistantId,
     applyStreamItems,
     setTokenUsage,
+    setContextUsage,
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
@@ -195,6 +208,7 @@ export async function consumeComposerSseReader(
     onQuestion,
     onPermission,
     onCompaction,
+    onMcpConnecting,
     onDesignPlan,
   } = p;
 
@@ -494,6 +508,35 @@ export async function consumeComposerSseReader(
                   tokenBaselineRef.current.total + (u.totalTokens || 0),
               };
               setTokenUsage(merged);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "usage_update") {
+            try {
+              const raw = JSON.parse(ev.data) as ContextUsageUpdate;
+              const used = Number(raw.used);
+              const size = Number(raw.size);
+              if (
+                Number.isFinite(used) &&
+                used >= 0 &&
+                Number.isFinite(size) &&
+                size > 0
+              ) {
+                setContextUsage({ used, size });
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "mcp_phase") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              onMcpConnecting?.(payload.phase === "connecting");
             } catch {
               // ignore
             }

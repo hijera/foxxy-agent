@@ -50,6 +50,15 @@ export function downloadTextFile(
   mime = "application/json",
 ): void {
   const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  downloadBlob(filename, blob);
+}
+
+/**
+ * Trigger a download of a pre-built Blob (e.g. a binary PDF/DOCX response).
+ * The Blob already carries its own content type; the anchor's `download`
+ * attribute names the file.
+ */
+export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -21,12 +21,22 @@ const PlanExitToolName = "plan_exit"
 // MCP server tools are appended separately in react.go (same as agent mode).
 var planToolNames = []string{
 	"read",
+	"keep_result",
 	"glob",
 	"grep",
 	"print_tree",
 	"websearch",
 	"webfetch",
 	"run_command",
+	// Background execution is available in plan mode for the same reason
+	// run_command is: a planner investigating a repo should not have to sit
+	// through a slow read-only command, and the pool tools only observe and
+	// terminate work the planner started itself. background_reap is left out:
+	// it kills process groups this session never started.
+	"background_list",
+	"background_output",
+	"background_wait",
+	"background_stop",
 	"question",
 	"plan_write",
 	"plan_list",
@@ -37,10 +47,20 @@ var planToolNames = []string{
 	// Read-only: lets the planner pull a catalogued skill's instructions when
 	// skills.auto_discovery is on (the tool is only registered when enabled).
 	"load_skill",
+	// Read-only Subversion inspection, mirroring the read-only git commands the
+	// planner can already run through run_command. Registered only when
+	// vcs.svn is enabled and a client is installed; an unregistered name simply
+	// never appears in the definitions.
+	"svn_info",
+	"svn_status",
+	"svn_diff",
+	"svn_log",
+	"svn_list",
 }
 
 var docsToolNames = []string{
 	"read",
+	"keep_result",
 	"glob",
 	"grep",
 	"websearch",
@@ -52,6 +72,7 @@ var docsToolNames = []string{
 
 var askBasicToolNames = []string{
 	"read",
+	"keep_result",
 	"glob",
 	"grep",
 	"print_tree",
@@ -61,11 +82,22 @@ var askBasicToolNames = []string{
 
 var askExtendedToolNames = []string{
 	"run_command",
+	// Ask already grants run_command here, so a backgrounded one is reachable
+	// and has to stay observable. Same omission as plan mode: no background_reap.
+	"background_list",
+	"background_output",
+	"background_wait",
+	"background_stop",
 	"websearch",
 	"webfetch",
 	"foxxycode_scheduler_jobs_list",
 	"foxxycode_scheduler_job_get",
 	"foxxycode_scheduler_job_runs",
+	"svn_info",
+	"svn_status",
+	"svn_diff",
+	"svn_log",
+	"svn_list",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

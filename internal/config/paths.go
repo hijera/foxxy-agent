@@ -19,6 +19,18 @@ const (
 	defaultConfigName  = "config.yaml"
 )
 
+// CodexAuthPath returns the FoxxyCode-managed OAuth credential path for one Codex
+// provider. Provider names are validated before this path is used by HTTP
+// handlers or loaded configuration.
+func CodexAuthPath(home, providerName string) string {
+	home = strings.TrimSpace(home)
+	providerName = strings.TrimSpace(providerName)
+	if home == "" || !validProviderName.MatchString(providerName) {
+		return ""
+	}
+	return filepath.Join(home, "providers", providerName, "codex-auth.json")
+}
+
 // Paths holds resolved FOXXYCODE_HOME, process working directory (FOXXYCODE_CWD), and config file path.
 type Paths struct {
 	// Home is the agent state directory (default ~/.foxxycode). Holds config.yaml, sessions, skills, logs.

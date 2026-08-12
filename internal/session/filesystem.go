@@ -244,18 +244,31 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	}, nil
 }
 
+// ReadMeta reads session.json only, skipping messages and the rest of the
+// snapshot. Use it when a caller just needs metadata such as cwd or title.
+func (f *FileStore) ReadMeta(sessionID string) (SessionMeta, error) {
+	if f == nil || f.Root == "" {
+		return SessionMeta{}, fmt.Errorf("session store unavailable")
+	}
+	metaPath := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
+	b, err := os.ReadFile(metaPath)
+	if err != nil {
+		return SessionMeta{}, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(b, &meta); err != nil {
+		return SessionMeta{}, fmt.Errorf("session.json: %w", err)
+	}
+	return meta, nil
+}
+
 // ReadDiskActivity returns activitySeq and readActivitySeq from session.json only.
 func (f *FileStore) ReadDiskActivity(sessionID string) (activitySeq, readActivitySeq uint64, err error) {
 	if f == nil || f.Root == "" {
 		return 0, 0, nil
 	}
-	metaPath := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
-	b, err := os.ReadFile(metaPath)
+	meta, err := f.ReadMeta(sessionID)
 	if err != nil {
-		return 0, 0, err
-	}
-	var meta SessionMeta
-	if err := json.Unmarshal(b, &meta); err != nil {
 		return 0, 0, err
 	}
 	return meta.ActivitySeq, meta.ReadActivitySeq, nil
@@ -288,21 +301,23 @@ func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) (
 			continue
 		}
 		id := ent.Name()
-		snap, err := f.ReadSnapshot(id)
+		// session.json only: a full ReadSnapshot would parse every stored transcript,
+		// turning the panel's first paint into a scan of the whole session history.
+		meta, err := f.ReadMeta(id)
 		if err != nil {
 			continue
 		}
-		if !includeSchedulerRuns && snap.Meta.ExcludedFromComposerSessionList(id) {
+		if !includeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
 			continue
 		}
-		if cwdFilter != "" && snap.Meta.CWD != cwdFilter {
+		if cwdFilter != "" && meta.CWD != cwdFilter {
 			continue
 		}
 		out = append(out, SessionListEntry{
-			SessionID: snap.Meta.ID,
-			CWD:       snap.Meta.CWD,
-			Title:     snap.Meta.Title,
-			UpdatedAt: snap.Meta.UpdatedAt,
+			SessionID: meta.ID,
+			CWD:       meta.CWD,
+			Title:     meta.Title,
+			UpdatedAt: meta.UpdatedAt,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -507,22 +522,37 @@ func deriveSessionTitle(s *State) string {
 	return ""
 }
 
-// injectedContextTags are the agent-injected <foxxycode_*> environment wrapper tags appended to
-// user messages each turn (see internal/agent/react.go). They carry IDE/terminal/asset context
-// that must be removed before deriving a human-readable session title.
+// The agent-injected <foxxycode_*> environment wrapper tags appended to user messages each turn
+// (see internal/agent/react.go). Exported because callers that render a transcript for a human
+// need to drop the ambient ones — TagIDEContext and TagTerminalContext are editor state nobody
+// typed, while TagSessionAssets and TagTerminalOutput record something the user actually did.
+const (
+	TagSessionAssets   = "foxxycode_session_assets"
+	TagIDEContext      = "foxxycode_ide_context"
+	TagTerminalContext = "foxxycode_terminal_context"
+	TagTerminalOutput  = "foxxycode_terminal_output"
+)
+
+// injectedContextTags carries every wrapper tag, for callers that want the user's bare text.
 var injectedContextTags = []string{
-	"foxxycode_session_assets",
-	"foxxycode_ide_context",
-	"foxxycode_terminal_context",
-	"foxxycode_terminal_output",
+	TagSessionAssets,
+	TagIDEContext,
+	TagTerminalContext,
+	TagTerminalOutput,
 }
 
-// StripInjectedContextBlocks removes agent-injected <foxxycode_*> environment blocks
+// StripInjectedContextBlocks removes every agent-injected <foxxycode_*> environment block
 // (session_assets, ide_context, terminal_context, terminal_output) so a clean title can be
-// derived from the user's actual message text. Matching is case-insensitive and tolerates
-// attributes on the opening tag (e.g. <foxxycode_terminal_output name="...">).
+// derived from the user's actual message text.
 func StripInjectedContextBlocks(s string) string {
-	for _, tag := range injectedContextTags {
+	return StripContextBlocks(s, injectedContextTags...)
+}
+
+// StripContextBlocks removes the named agent-injected <foxxycode_*> blocks from s, leaving any
+// other wrapper in place. Matching is case-insensitive and tolerates attributes on the opening
+// tag (e.g. <foxxycode_terminal_output name="...">).
+func StripContextBlocks(s string, tags ...string) string {
+	for _, tag := range tags {
 		s = stripXMLBlock(s, tag)
 	}
 	return s

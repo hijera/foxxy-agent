@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -175,5 +176,29 @@ func TestForwardTextChunk_TextUsesContentDelta(t *testing.T) {
 	}
 	if strings.Contains(raw, "reasoning_content") {
 		t.Fatalf("text chunk must not set reasoning_content, got: %s", raw)
+	}
+}
+
+func TestSenderSendErrorWritesOpenAIFrameAndFlushes(t *testing.T) {
+	rec := httptest.NewRecorder()
+	relay := newComposerStreamRelay()
+	sender := NewSender(&config.Config{}, &teeSSEWriter{ResponseWriter: rec, relay: relay}, true, "agent-model")
+
+	if err := sender.SendError(errors.New("model did not respond (no output within 30s)")); err != nil {
+		t.Fatal(err)
+	}
+
+	got := rec.Body.String()
+	if !strings.Contains(got, `"error":{"message":"model did not respond (no output within 30s)"}`) {
+		t.Fatalf("missing OpenAI error frame: %q", got)
+	}
+	if !rec.Flushed {
+		t.Fatal("error frame was not flushed")
+	}
+	relay.mu.Lock()
+	relayed := string(relay.buf)
+	relay.mu.Unlock()
+	if relayed != got {
+		t.Fatalf("relay missed the stream error: primary=%q relay=%q", got, relayed)
 	}
 }

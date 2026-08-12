@@ -75,6 +75,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Reasoning level** - for reasoning models (gpt-5, o-series, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/config.md)
 - **ACP protocol** - FoxxyCode is an **ACP server** (`foxxycode acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
 - **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/config.md#ssh-remote-execution)
+- **Subversion support at the git level** - when an SVN working copy is detected, an SVN chip appears next to the git chip (branch `trunk` / `branches/<name>` plus revision): switch the branch in place (`svn switch`) or check it out into its own branch folder. The agent drives Subversion through dedicated `svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout` tools; the mutating ones ask for permission. Git and svn detection are independent, so an SVN branch folder that also holds a git repository works with both. Switchable off in the settings (`vcs.svn.enabled`); with no svn client installed everything stays hidden — see [Configuration](docs/config-reference.md#vcssvn)
 - **Messenger gateway** - optional Telegram bot adapter (`-tags gateway.telegram`); per-user sessions, group isolation modes, admin ACL; extensible to Discord, Slack, etc. — see [Messenger Gateway](docs/gateway.md)
 
 ## Editor and IDE integration
@@ -502,6 +503,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 ## Documentation
 
 - [What FoxxyCode adds over coddy-agent](docs/vs-coddy.md) - fork-specific features vs upstream
+- [Roadmap](ROADMAP.en.md) - plans for 0.3.x, 0.4.x, and 0.5.x
 - [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/foxxycode`**
 - [Updating FoxxyCode](docs/update.md) - **`foxxycode update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**

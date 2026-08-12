@@ -17,6 +17,7 @@ type ConfigJSON struct {
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
 	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
+	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
@@ -28,6 +29,21 @@ type ConfigJSON struct {
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
 	UI           UIJSON           `json:"ui,omitempty"`
 	Browser      BrowserJSON      `json:"browser,omitempty"`
+	VCS          VCSJSON          `json:"vcs,omitempty"`
+}
+
+// VCSJSON mirrors VCSConfig for JSON APIs.
+type VCSJSON struct {
+	SVN SVNJSON `json:"svn,omitempty"`
+}
+
+// SVNJSON mirrors SVNConfig for JSON APIs. Enabled and BranchLookup are pointers
+// so an unset value round-trips as "use default" (true) rather than false.
+type SVNJSON struct {
+	Enabled        *bool  `json:"enabled,omitempty"`
+	Binary         string `json:"binary,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	BranchLookup   *bool  `json:"branch_lookup,omitempty"`
 }
 
 // BrowserJSON mirrors BrowserConfig for JSON APIs. Headless is a pointer so an unset
@@ -41,9 +57,10 @@ type BrowserJSON struct {
 
 // UIJSON mirrors UIConfig for JSON APIs.
 type UIJSON struct {
-	Enabled  *bool  `json:"enabled,omitempty"`
-	Locale   string `json:"locale,omitempty"`
-	SendMode string `json:"send_mode,omitempty"`
+	Enabled    *bool  `json:"enabled,omitempty"`
+	Locale     string `json:"locale,omitempty"`
+	SendMode   string `json:"send_mode,omitempty"`
+	StatusLine *bool  `json:"status_line,omitempty"`
 }
 
 // GatewaysJSON mirrors GatewayConfig for JSON APIs.
@@ -105,14 +122,20 @@ type ModelJSON struct {
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
 }
 
-// AgentJSON mirrors Agent for JSON APIs.
+// AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
+// distinction for the loop guard (enabled defaults to true, the counters to
+// 3 / 5 / 2, and an explicit 0 turns a check off).
 type AgentJSON struct {
-	Model            string `json:"model"`
-	MaxTurns         int    `json:"max_turns,omitempty"`
-	MaxTokensPerTurn int    `json:"max_tokens_per_turn,omitempty"`
-	LLMRetryMax      int    `json:"llm_retry_max,omitempty"`
-	LLMRetryBaseMS   int    `json:"llm_retry_base_ms,omitempty"`
-	LLMMinIntervalMS int    `json:"llm_min_interval_ms,omitempty"`
+	Model                  string `json:"model"`
+	MaxTurns               int    `json:"max_turns,omitempty"`
+	MaxTokensPerTurn       int    `json:"max_tokens_per_turn,omitempty"`
+	LLMRetryMax            int    `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
+	LoopGuard              *bool  `json:"loop_guard,omitempty"`
+	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
+	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -138,13 +161,15 @@ type SkillsJSON struct {
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
 type MCPServerJSON struct {
-	Type    string           `json:"type,omitempty"`
-	Name    string           `json:"name"`
-	Command string           `json:"command,omitempty"`
-	Args    []string         `json:"args,omitempty"`
-	Env     []EnvVarJSON     `json:"env,omitempty"`
-	URL     string           `json:"url,omitempty"`
-	Headers []HTTPHeaderJSON `json:"headers,omitempty"`
+	Type          string           `json:"type,omitempty"`
+	Name          string           `json:"name"`
+	Command       string           `json:"command,omitempty"`
+	Args          []string         `json:"args,omitempty"`
+	Env           []EnvVarJSON     `json:"env,omitempty"`
+	URL           string           `json:"url,omitempty"`
+	Headers       []HTTPHeaderJSON `json:"headers,omitempty"`
+	Disabled      bool             `json:"disabled,omitempty"`
+	DisabledTools []string         `json:"disabled_tools,omitempty"`
 }
 
 // EnvVarJSON mirrors EnvVarConfig.
@@ -159,12 +184,41 @@ type HTTPHeaderJSON struct {
 	Value string `json:"value"`
 }
 
+// MCPJSON mirrors MCP for JSON APIs.
+type MCPJSON struct {
+	ProjectTrust string `json:"project_trust,omitempty"`
+}
+
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode          string   `json:"permission_mode,omitempty"`
-	CommandAllowlist        []string `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun           *bool    `json:"plan_no_self_run,omitempty"`
-	AskDisableExtendedTools bool     `json:"ask_disable_extended_tools,omitempty"`
+	PermissionMode          string               `json:"permission_mode,omitempty"`
+	CommandAllowlist        []string             `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun           *bool                `json:"plan_no_self_run,omitempty"`
+	AskDisableExtendedTools bool                 `json:"ask_disable_extended_tools,omitempty"`
+	// omitempty does not apply to structs; all-nil limits serialize as {}.
+	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
+	Background   ToolBackgroundJSON   `json:"background"`
+}
+
+// ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
+type ToolBackgroundJSON struct {
+	Enabled               *bool `json:"enabled,omitempty"`
+	MaxConcurrent         int   `json:"max_concurrent,omitempty"`
+	DefaultTimeoutSeconds int   `json:"default_timeout_seconds,omitempty"`
+	MaxTimeoutSeconds     int   `json:"max_timeout_seconds,omitempty"`
+	OutputBufferBytes     int   `json:"output_buffer_bytes,omitempty"`
+}
+
+type ToolOutputLimitsJSON struct {
+	Read          *int `json:"read,omitempty"`
+	Grep          *int `json:"grep,omitempty"`
+	Glob          *int `json:"glob,omitempty"`
+	PrintTree     *int `json:"print_tree,omitempty"`
+	RunCommand    *int `json:"run_command,omitempty"`
+	SSHRunCommand *int `json:"ssh_run_command,omitempty"`
+	WebFetch      *int `json:"webfetch,omitempty"`
+	WebSearch     *int `json:"websearch,omitempty"`
+	Default       *int `json:"default,omitempty"`
 }
 
 // LoggerJSON mirrors Logger for JSON APIs.
@@ -202,12 +256,20 @@ type MemoryJSON struct {
 // "use default" (true) rather than an explicit false; KeepRecentTurns is a pointer so an explicit
 // 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
-	Engine           string `json:"engine,omitempty"`
-	Enabled          *bool  `json:"enabled,omitempty"`
-	Model            string `json:"model,omitempty"`
-	ThresholdPercent int    `json:"threshold_percent,omitempty"`
-	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
-	MaxTokens        int    `json:"max_tokens,omitempty"`
+	Engine           string             `json:"engine,omitempty"`
+	Enabled          *bool              `json:"enabled,omitempty"`
+	Model            string             `json:"model,omitempty"`
+	ThresholdPercent int                `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
+	MaxTokens        int                `json:"max_tokens,omitempty"`
+	// omitempty does not apply to structs; unset eviction serializes as {}.
+	ResultEviction ResultEvictionJSON `json:"result_eviction"`
+}
+
+type ResultEvictionJSON struct {
+	Enabled        *bool `json:"enabled,omitempty"`
+	KeepRecent     *int  `json:"keep_recent,omitempty"`
+	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
 }
 
 // TitleJSON mirrors TitleConfig. Enabled is a pointer so an unset value round-trips as
@@ -265,12 +327,16 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, ModelJSON(m))
 	}
 	out.Agent = AgentJSON{
-		Model:            c.Agent.Model,
-		MaxTurns:         c.Agent.MaxTurns,
-		MaxTokensPerTurn: c.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      c.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   c.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: c.Agent.LLMMinIntervalMS,
+		Model:                  c.Agent.Model,
+		MaxTurns:               c.Agent.MaxTurns,
+		MaxTokensPerTurn:       c.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            c.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
+		LoopGuard:              c.Agent.LoopGuard,
+		LoopToolRepeatLimit:    c.Agent.LoopToolRepeatLimit,
+		LoopStreamRepeatCycles: c.Agent.LoopStreamRepeatCycles,
+		LoopNudgeMax:           c.Agent.LoopNudgeMax,
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt,
@@ -285,7 +351,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		AutoDiscovery: c.Skills.AutoDiscovery,
 	}
 	for _, s := range c.MCPServers {
-		mj := MCPServerJSON{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mj := MCPServerJSON{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mj.Env = append(mj.Env, EnvVarJSON(e))
 		}
@@ -294,11 +365,26 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		}
 		out.MCPServers = append(out.MCPServers, mj)
 	}
+	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust()}
 	out.Tools = ToolsJSON{
 		PermissionMode:          c.Tools.ResolvedPermMode(),
 		CommandAllowlist:        append([]string(nil), c.Tools.CommandAllowlist...),
 		PlanNoSelfRun:           c.Tools.PlanNoSelfRun,
 		AskDisableExtendedTools: c.Tools.AskDisableExtendedTools,
+		OutputLimits: ToolOutputLimitsJSON{
+			Read: c.Tools.OutputLimits.Read, Grep: c.Tools.OutputLimits.Grep,
+			Glob: c.Tools.OutputLimits.Glob, PrintTree: c.Tools.OutputLimits.PrintTree,
+			RunCommand: c.Tools.OutputLimits.RunCommand, SSHRunCommand: c.Tools.OutputLimits.SSHRunCommand,
+			WebFetch: c.Tools.OutputLimits.WebFetch, WebSearch: c.Tools.OutputLimits.WebSearch,
+			Default: c.Tools.OutputLimits.Default,
+		},
+		Background: ToolBackgroundJSON{
+			Enabled:               c.Tools.Background.Enabled,
+			MaxConcurrent:         c.Tools.Background.MaxConcurrent,
+			DefaultTimeoutSeconds: c.Tools.Background.DefaultTimeoutSeconds,
+			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
+			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
+		},
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -315,6 +401,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Engine: c.Compaction.Engine, Enabled: c.Compaction.Enabled, Model: c.Compaction.Model,
 		ThresholdPercent: c.Compaction.ThresholdPercent, KeepRecentTurns: c.Compaction.KeepRecentTurns,
 		MaxTokens: c.Compaction.MaxTokens,
+		ResultEviction: ResultEvictionJSON{
+			Enabled: c.Compaction.ResultEviction.Enabled, KeepRecent: c.Compaction.ResultEviction.KeepRecent,
+			MinResultBytes: c.Compaction.ResultEviction.MinResultBytes,
+		},
 	}
 	out.Title = TitleJSON{
 		Enabled: c.Title.Enabled, Model: c.Title.Model, MaxTokens: c.Title.MaxTokens,
@@ -356,11 +446,18 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		})
 	}
 	out.Gateways = GatewaysJSON{Telegram: tgJSON}
-	out.UI = UIJSON{Enabled: c.UI.Enabled, Locale: c.UI.Locale, SendMode: c.UI.SendMode}
+	out.UI = UIJSON{
+		Enabled: c.UI.Enabled, Locale: c.UI.Locale,
+		SendMode: c.UI.SendMode, StatusLine: c.UI.StatusLine,
+	}
 	out.Browser = BrowserJSON{
 		Enabled: c.Browser.Enabled, Headless: c.Browser.Headless,
 		ExecutablePath: c.Browser.ExecutablePath, TimeoutSeconds: c.Browser.TimeoutSeconds,
 	}
+	out.VCS = VCSJSON{SVN: SVNJSON{
+		Enabled: c.VCS.SVN.Enabled, Binary: c.VCS.SVN.Binary,
+		TimeoutSeconds: c.VCS.SVN.TimeoutSeconds, BranchLookup: c.VCS.SVN.BranchLookup,
+	}}
 	return out
 }
 
@@ -377,12 +474,16 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, ModelEntry(m))
 	}
 	cfg.Agent = Agent{
-		Model:            j.Agent.Model,
-		MaxTurns:         j.Agent.MaxTurns,
-		MaxTokensPerTurn: j.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      j.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   j.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: j.Agent.LLMMinIntervalMS,
+		Model:                  j.Agent.Model,
+		MaxTurns:               j.Agent.MaxTurns,
+		MaxTokensPerTurn:       j.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            j.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,
+		LoopGuard:              j.Agent.LoopGuard,
+		LoopToolRepeatLimit:    j.Agent.LoopToolRepeatLimit,
+		LoopStreamRepeatCycles: j.Agent.LoopStreamRepeatCycles,
+		LoopNudgeMax:           j.Agent.LoopNudgeMax,
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt,
@@ -397,7 +498,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AutoDiscovery: j.Skills.AutoDiscovery,
 	}
 	for _, s := range j.MCPServers {
-		mc := MCPServerConfig{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mc := MCPServerConfig{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mc.Env = append(mc.Env, EnvVarConfig(e))
 		}
@@ -406,11 +512,26 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		}
 		cfg.MCPServers = append(cfg.MCPServers, mc)
 	}
+	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust}
 	cfg.Tools = Tools{
 		PermissionMode:          j.Tools.PermissionMode,
 		CommandAllowlist:        append([]string(nil), j.Tools.CommandAllowlist...),
 		PlanNoSelfRun:           j.Tools.PlanNoSelfRun,
 		AskDisableExtendedTools: j.Tools.AskDisableExtendedTools,
+		OutputLimits: ToolOutputLimits{
+			Read: j.Tools.OutputLimits.Read, Grep: j.Tools.OutputLimits.Grep,
+			Glob: j.Tools.OutputLimits.Glob, PrintTree: j.Tools.OutputLimits.PrintTree,
+			RunCommand: j.Tools.OutputLimits.RunCommand, SSHRunCommand: j.Tools.OutputLimits.SSHRunCommand,
+			WebFetch: j.Tools.OutputLimits.WebFetch, WebSearch: j.Tools.OutputLimits.WebSearch,
+			Default: j.Tools.OutputLimits.Default,
+		},
+		Background: ToolBackground{
+			Enabled:               j.Tools.Background.Enabled,
+			MaxConcurrent:         j.Tools.Background.MaxConcurrent,
+			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
+			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
+			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
+		},
 	}
 	cfg.Logger = Logger{
 		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),
@@ -429,6 +550,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Engine: j.Compaction.Engine, Enabled: j.Compaction.Enabled, Model: j.Compaction.Model,
 		ThresholdPercent: j.Compaction.ThresholdPercent, KeepRecentTurns: j.Compaction.KeepRecentTurns,
 		MaxTokens: j.Compaction.MaxTokens,
+		ResultEviction: ResultEviction{
+			Enabled: j.Compaction.ResultEviction.Enabled, KeepRecent: j.Compaction.ResultEviction.KeepRecent,
+			MinResultBytes: j.Compaction.ResultEviction.MinResultBytes,
+		},
 	}
 	cfg.Title = TitleConfig{
 		Enabled: j.Title.Enabled, Model: j.Title.Model, MaxTokens: j.Title.MaxTokens,
@@ -469,11 +594,18 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		})
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg}
-	cfg.UI = UIConfig{Enabled: j.UI.Enabled, Locale: j.UI.Locale, SendMode: j.UI.SendMode}
+	cfg.UI = UIConfig{
+		Enabled: j.UI.Enabled, Locale: j.UI.Locale,
+		SendMode: j.UI.SendMode, StatusLine: j.UI.StatusLine,
+	}
 	cfg.Browser = BrowserConfig{
 		Enabled: j.Browser.Enabled, Headless: j.Browser.Headless,
 		ExecutablePath: j.Browser.ExecutablePath, TimeoutSeconds: j.Browser.TimeoutSeconds,
 	}
+	cfg.VCS = VCSConfig{SVN: SVNConfig{
+		Enabled: j.VCS.SVN.Enabled, Binary: j.VCS.SVN.Binary,
+		TimeoutSeconds: j.VCS.SVN.TimeoutSeconds, BranchLookup: j.VCS.SVN.BranchLookup,
+	}}
 	return cfg
 }
 

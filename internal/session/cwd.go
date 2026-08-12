@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,7 +66,27 @@ func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
 	if err != nil || !fi.IsDir() {
 		return fmt.Errorf("workspace folder not found: %s", abs)
 	}
+
+	if m.SessionTurnActiveInProcess(st.GetID()) {
+		return ErrSessionTurnBusy
+	}
+	unlock, err := m.acquirePromptTurnLock(st.GetID(), st)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	// The cwd switch is committed here, synchronously: the caller reports the new workspace as
+	// soon as this returns. Only reconnecting the new workspace's MCP servers moves to the
+	// background - it re-arms the readiness gate, so a prompt sent right after the switch waits
+	// for the servers it is actually going to use. Same reasoning as
+	// connectConfiguredMCPServers: this runs under the turn lock, on a request goroutine.
+	settle := st.beginConfiguredMCPConnect()
 	st.SetCWD(abs)
+	go func() {
+		defer settle()
+		st.replaceConfiguredMCPClients(m.configuredMCPClients(context.Background(), abs))
+	}()
 
 	cfg := m.activeCfg()
 	loadedSkills, err := m.skillsLoad.LoadAll(abs, cfg.Paths.Home, cfg.Skills.ManagedDir(cfg.Paths.Home))

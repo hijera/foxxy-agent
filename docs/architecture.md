@@ -94,7 +94,8 @@ The core reasoning engine (**`react.go`**):
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
-6. Loops until there are no tool calls, **`max_turns`** is exceeded, or cancellation.
+6. Loops until there are no tool calls, **`max_turns`** is exceeded, the loop guard stops a runaway turn, or cancellation.
+6a. Loop guard (**`agent.loop_guard`**, on by default, **`internal/agent/loopguard.go`**): a streamed channel that degenerates into repeating the same passage has its stream cancelled and the repeated run stripped from the stored message, and a tool call repeated with identical canonical arguments stops being executed. The model is nudged to change course up to **`agent.loop_nudge_max`** times, after which the turn ends with **`StopReasonRefused`** and a UI notice.
 7. On **`session/cancel`** (or HTTP **`POST /foxxycode/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /foxxycode/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
 
 ### LLM Provider (`internal/llm`)
@@ -130,8 +131,29 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **Windows-1251** sources as well as UTF-8 ones. System **`rg`** matches raw bytes and would
   silently miss them. ASCII patterns still go to **`rg`** (faster, honors **`.gitignore`**);
   files above **`maxDecodedSearchFileBytes`** (8 MiB) stream as UTF-8 without the decode step.
+  Note that **`rg`** also cannot answer an ASCII pattern against **UTF-16**, whose ASCII
+  characters are not single bytes on disk; such files are reached through the built-in engine.
+- **`internal/textenc`** - the one place a file's encoding is decided, shared by prompt
+  attachments (**`internal/session/promptfiles.go`**) and every file tool. Tiers: byte-order
+  marks (**UTF-8/16/32**), a UTF-8 fast path, a binary guard, **chardet** detection run twice
+  (whole input, then only the lines carrying non-ASCII bytes, so a mostly-ASCII source with
+  Russian comments is not dragged onto ISO-8859-1), and finally the system **ANSI code page**
+  (**`platform.DecodeANSI`**, Windows only). **`Decode`** also reports the **`Encoding`** so
+  **`write`** / **`edit`** / **`apply_patch`** put a file back byte for byte, mark included.
+  **Fork-specific:** **`internal/tools/fs`** adds one last rung after all of those,
+  **Windows-1251**, so a legacy file the detector cannot name still reads as text - which is
+  what this layer always did unconditionally. Prompt attachments do **not** get that rung: an
+  undecodable attachment is refused with **`ErrNotDecodableText`** rather than inlined as noise.
 - **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
 - **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
+  A **foreground** command that outlives its timeout is **not** killed: **`foreground.go`** starts it in a detached process group with its own **`cmd.Wait`**, and at the deadline **`bgtask.Pool.Adopt`** takes it over, **`switchwriter.go`** redirects its output into the task sink with everything captured so far flushed in first, and the tool answers with the task id followed by that output. Killing was wrong twice over: a dev server is doing exactly what was asked, and a grandchild holding the output pipe kept **`cmd.Wait`** from ever returning. The result is **`(string, nil)`**, not an error, because the agent loop discards the result string when a tool errors - which is what used to throw the captured output away.
+- **`internal/tools/svn`** - Subversion working copy tools (**`svn_info`**, **`svn_status`**, **`svn_diff`**,
+  **`svn_log`**, **`svn_list`**, **`svn_add`**, **`svn_revert`**, **`svn_resolve`**, **`svn_update`**,
+  **`svn_commit`**, **`svn_switch`**, **`svn_merge`**, **`svn_checkout`**) over **`internal/svnws`**.
+  Registered only when **`vcs.svn.enabled`** is on (default) **and** an svn client is installed; the
+  registry is rebuilt every prompt turn, so unchecking the setting removes them without a restart.
+  Mutating tools require permission; detection is independent of git, so a branch folder that also
+  holds a git repository works with both.
 - **`internal/tools/todo`** - todo/plan list (**`foxxycode_todo_plan_read`**, **`foxxycode_todo_plan_replace`**,
   **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**,
   **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**)
@@ -141,7 +163,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 Agents see:
 
 - **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, etc.) plus MCP tools from connected servers.
-- **`plan`** mode - **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, and **`plan_read`**, plus MCP tools. General workspace writes, todo tools, scheduler tools, and memory tools are not advertised to the LLM.
+- **`plan`** mode - **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, **`plan_read`**, and the read-only **`svn_info`** / **`svn_status`** / **`svn_diff`** / **`svn_log`** / **`svn_list`**, plus MCP tools. General workspace writes, todo tools, scheduler tools, and memory tools are not advertised to the LLM.
 - **`docs`** mode - **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`question`**, **`docs_write`**, and **`docs_edit`**. It receives neither **`run_command`** nor MCP tools, so its only built-in mutations are the guarded Markdown writers.
 
 The Docs writers accept only **`.md`** paths inside the session CWD, reject paths that escape after resolving symlinks, and protect **`internal/prompts/`**. **`docs_write`** requires **`overwrite: true`** before replacing an existing file; **`docs_edit`** requires a non-empty exact **`oldString`** that is unique unless **`replaceAll`** is set. The Docs prompt also treats review-only requests as non-mutating and requires an explicit user request before changing documentation.
@@ -188,11 +210,24 @@ Some features live under **`external/`** and define tools that are **not** regis
 
 ### MCP Client (`internal/mcp`)
 
-Connects to external MCP servers specified in `session/new`. Supports:
-- stdio transport (always available)
-- HTTP transport (capability: `mcpCapabilities.http`)
+Connects to external MCP servers from three config levels (`config.yaml`
+`mcp_servers`, the global `~/.foxxycode/mcp.json`, the project `./.foxxycode/mcp.json`;
+later levels override by name) plus servers specified in `session/new`.
+Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
+- stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
+  transport-owned (the connect ctx only bounds the handshake)
+- streamable HTTP (`type: http`) - JSON-RPC POSTs answered as JSON or SSE
+  chunks, `Mcp-Session-Id` round-trip, automatic legacy-SSE fallback
+  (capability: `mcpCapabilities.http`)
+- legacy HTTP+SSE (`type: sse`) - GET event stream announcing the POST
+  endpoint (capability: `mcpCapabilities.sse`)
 
-Tools from MCP servers are appended to the LLM tool list in **`agent`** and **`plan`** modes. Ask receives only tools explicitly annotated with **`readOnlyHint: true`** and only while its extended-tool setting is off (see **`internal/agent/react.go`**).
+`mcp.Probe` backs the `/foxxycode/mcp` management API (connect, `tools/list`,
+close); `manage.go` resolves which file owns a server for enable/disable
+persistence. Tools from MCP servers are appended to the LLM tool list in
+**`agent`** and **`plan`** modes (see **`internal/agent/react.go`**), filtered
+per turn by the disable switches. Ask receives only tools explicitly annotated
+with **`readOnlyHint: true`** and only while its extended-tool setting is off.
 
 ### Skills loader (`internal/skills`)
 
@@ -203,6 +238,10 @@ Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default d
 Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD. Injected into **`{{.Rules}}`** separately from skills; see **`docs/rules.md`**.
 
 Activation uses globs, **`alwaysApply`**, **`@mention`**, and sticky auto rules (see **`docs/rules.md`**).
+
+### IntelliJ IDEA project context (`internal/session`)
+
+When the session CWD contains `.idea/`, readable UTF-8 files below that directory are added recursively to every ReAct model request as project metadata, including module and required-plugin declarations. The files are explicitly marked as data rather than instructions, binary and unreadable files are skipped, individual files are capped at 256 KB, and the combined metadata body is capped at 512 KB.
 
 ### Config (`internal/config`)
 
@@ -218,7 +257,7 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 
 ### `plan` mode
 - Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
-- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, **`plan_read`**, plus any **MCP** tools from configured servers
+- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, **`plan_read`**, the read-only **`svn_*`** inspection tools, plus any **MCP** tools from configured servers
 - No built-in workspace writes or **foxxycode** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 

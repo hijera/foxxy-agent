@@ -1,12 +1,12 @@
 package dev.foxxycode.intellij.diff
 
 /**
- * One `edit_proposed` / `edit_applied` / `open_file` event from the foxxycode
- * `GET /foxxycode/ide/events` SSE stream.
+ * One `edit_proposed` / `edit_applied` / `open_file` / `reveal_file` event from
+ * the foxxycode `GET /foxxycode/ide/events` SSE stream.
  * Mirrors the Go `ideEvent` struct in external/httpserver/ideevents.go.
  */
 data class FoxxyCodeEditEvent(
-    val type: String,        // "edit_proposed" | "edit_applied" | "open_file"
+    val type: String,        // "edit_proposed" | "edit_applied" | "open_file" | "reveal_file"
     val toolCallId: String,
     val sessionId: String,
     val path: String,        // absolute path
@@ -23,4 +23,11 @@ data class FoxxyCodeEditEvent(
      * in-project / native-diff filters to it.
      */
     val isOpenFile: Boolean get() = type == "open_file"
+
+    /**
+     * User exported a session transcript and the document is on disk. It is a
+     * PDF / DOCX / HTML / JSON download, not source to edit, so it belongs in
+     * the OS file manager rather than an editor tab.
+     */
+    val isRevealFile: Boolean get() = type == "reveal_file"
 }

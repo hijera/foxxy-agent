@@ -44,6 +44,7 @@ type SessionState interface {
 	ReplaceMessagesAndPersist(msgs []llm.Message)
 	InsertCompactionSummary(idx int, msg llm.Message)
 	GetMCPClients() []*mcp.Client
+	GetMCPToolFilter() func(server, tool string) bool
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
 	GetMemoryCopilotBlock() string
@@ -103,6 +104,9 @@ const browserVisionNote = "The image(s) below are screenshot(s) captured by the 
 
 // NewAgent creates an Agent for a prompt turn.
 func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, log *slog.Logger) *Agent {
+	if log == nil {
+		log = slog.Default()
+	}
 	environment := platform.CurrentEnvironment()
 	return &Agent{
 		cfg:             cfg,
@@ -176,14 +180,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if ModeAllowsMCPTools(mode, askBasicOnly) {
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				if !MCPToolAllowedForMode(mode, askBasicOnly, t) {
-					continue
-				}
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
+		toolDefs = append(toolDefs, a.mcpToolDefinitions(mode, askBasicOnly)...)
 	}
 
 	// Get or create LLM provider.
@@ -246,6 +243,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
 		LoadSkillBody:     a.loadSkillBody,
+		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
+		Background:        a.backgroundPool(sd),
+		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -283,10 +283,37 @@ func (a *Agent) wireFileEditHook(env *tools.Env) {
 // preventing an unbounded empty-turn loop.
 const maxEmptyAssistantContinuations = 2
 
+// firstTokenTimeout bounds a silent provider/proxy stall. It intentionally applies only until the
+// first streamed output; long-running responses remain unrestricted after data starts arriving.
+const firstTokenTimeout = 30 * time.Second
+
 // emptyAssistantContinuationNudge is injected into the LLM-facing message slice (never
 // persisted to the transcript) to prompt the model to produce its answer or a tool call
 // after an empty turn.
 const emptyAssistantContinuationNudge = "Your previous message had no answer text and no tool call. Continue now: call the appropriate tool to act, or write your reply to the user."
+
+// Loop-guard nudges are injected into the LLM-facing message slice only (never
+// persisted to the transcript), the same way emptyAssistantContinuationNudge is.
+// The repeated passage itself is stripped from the assistant message before the
+// replay, so the nudge does not carry the loop straight back into the model.
+const (
+	streamLoopNudge = "Your previous response was cut off because it degenerated into repeating the same passage over and over. Do not continue that text. Decide what is actually left to do, then either call the appropriate tool or write a short, concrete reply to the user."
+
+	reasoningLoopNudge = "Your previous turn was cut off because your reasoning kept repeating the same thought without reaching a conclusion. Stop deliberating and act: call the appropriate tool, or write your reply to the user now."
+
+	toolLoopNudge = "You have requested the same tool call with identical arguments several times in a row, so it was not executed again. Repeating it will not produce a different result. Use what you already have: try a different tool or different arguments, or answer the user with the information you have."
+
+	toolLoopSkippedResult = "not executed: the loop guard stopped this turn after repeated identical tool calls"
+)
+
+// loopAbortChannel names the streamed channel that degenerated into a loop.
+type loopAbortChannel int
+
+const (
+	loopAbortNone loopAbortChannel = iota
+	loopAbortText
+	loopAbortReasoning
+)
 
 func (a *Agent) runReActLoop(
 	ctx context.Context,
@@ -306,6 +333,21 @@ func (a *Agent) runReActLoop(
 	var lastStatsWrite time.Time
 	var emptyContinuations int
 	var lastInputTokens int
+
+	// Runaway-loop protection. The tool detector spans the whole user turn (a model
+	// can repeat the same call across ReAct rounds, not only inside one response);
+	// the stream detectors are per LLM call and created below. loopNudges is the
+	// shared budget: once it runs out, the next detected loop stops the turn.
+	guardOn := a.cfg.Agent.LoopGuardEnabled()
+	streamRepeatCycles := 0
+	var toolRepeats *toolRepeatDetector
+	loopNudgeBudget := 0
+	if guardOn {
+		streamRepeatCycles = a.cfg.Agent.EffectiveLoopStreamRepeatCycles()
+		toolRepeats = newToolRepeatDetector(a.cfg.Agent.EffectiveLoopToolRepeatLimit())
+		loopNudgeBudget = a.cfg.Agent.EffectiveLoopNudgeMax()
+	}
+	loopNudges := 0
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
@@ -353,10 +395,17 @@ func (a *Agent) runReActLoop(
 
 		sessionID := a.state.GetID()
 
-		// Cancel the stream if no tokens arrive within 90 s (API hang guard).
-		const firstTokenTimeout = 90 * time.Second
+		// Cancel the stream if no output arrives before the silent-start guard.
 		streamCtx, streamCancel := context.WithCancel(ctx)
 		firstTokenTimer := time.AfterFunc(firstTokenTimeout, streamCancel)
+
+		// One detector per streamed channel: a degenerating thinking channel burns
+		// exactly as many tokens as visible text while showing nothing in the
+		// transcript. Tripping cancels the stream the same way the first-token timer
+		// does; the branch after the call decides whether to nudge or stop.
+		textLoop := newStreamRepeatDetector(streamRepeatCycles)
+		reasonLoop := newStreamRepeatDetector(streamRepeatCycles)
+		loopAbort := loopAbortNone
 
 		emitReason := func(d string, now time.Time) {
 			firstTokenTimer.Stop()
@@ -380,13 +429,31 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
-		response, streamErr = provider.Stream(streamCtx, messages, toolDefs, func(chunk llm.StreamChunk) {
+		// Prune only the provider projection. The working slice and persisted
+		// transcript retain full tool results.
+		sendMessages := a.prunedForLLM(messages)
+		response, streamErr = provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
 			now := time.Now()
 			if chunk.ReasoningDelta != "" {
 				emitReason(chunk.ReasoningDelta, now)
+				if _, tripped := reasonLoop.Add(chunk.ReasoningDelta); tripped && loopAbort == loopAbortNone {
+					loopAbort = loopAbortReasoning
+					streamCancel()
+					return
+				}
+			}
+			if chunk.TextDelta != "" {
+				if _, tripped := textLoop.Add(chunk.TextDelta); tripped && loopAbort == loopAbortNone {
+					loopAbort = loopAbortText
+					// Emit this last delta with the fork's own markReasonEnd rule so a
+					// whitespace-only chunk does not close the reasoning clock.
+					emitText(chunk.TextDelta, now, strings.TrimSpace(chunk.TextDelta) != "")
+					streamCancel()
+					return
+				}
 			}
 			if chunk.TextDelta != "" && strings.TrimSpace(chunk.TextDelta) != "" {
 				emitText(chunk.TextDelta, now, true)
@@ -417,6 +484,30 @@ func (a *Agent) runReActLoop(
 		})
 		firstTokenTimer.Stop()
 		streamCancel()
+
+		// The loop guard cancelled this stream: keep the useful part of the answer,
+		// drop the repeated run so it is never replayed to the model, and either nudge
+		// the model back on track or stop the turn with a notice. Checked before the
+		// generic cancellation handling below, which cannot tell a guard abort from a
+		// user Stop. A real cancellation racing the guard wins: the user asked to stop,
+		// so the turn must not be re-prompted.
+		if loopAbort != loopAbortNone && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+			a.persistLoopAbortedMessage(response, &reasoningBuf, reasonClockStart, reasonClockEnd, streamRepeatCycles)
+			if loopNudges >= loopNudgeBudget {
+				return string(acp.StopReasonRefused), loopAbortError(loopAbort)
+			}
+			loopNudges++
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			nudge := streamLoopNudge
+			if loopAbort == loopAbortReasoning {
+				nudge = reasoningLoopNudge
+			}
+			// LLM-facing only; never persisted to the transcript.
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+			a.log.Warn("loop guard cut a degenerating response",
+				"channel", loopAbortChannelName(loopAbort), "nudge", loopNudges)
+			continue
+		}
 
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
 		// surface a timeout error instead of a silent failure.
@@ -458,6 +549,7 @@ func (a *Agent) runReActLoop(
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 					}
 					a.state.AddMessage(assistantMsg)
+					a.refreshConversationContextUsage(true)
 				}
 			}
 			if errors.Is(streamErr, context.Canceled) {
@@ -548,6 +640,7 @@ func (a *Agent) runReActLoop(
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
+		a.refreshConversationContextUsage(true)
 
 		// After the first assistant response, generate a short session title off the hot path.
 		// Internal guards make this a no-op when the title is pinned or already generated, and it
@@ -584,9 +677,29 @@ func (a *Agent) runReActLoop(
 		}
 
 		// Execute all tool calls.
-		for _, tc := range response.ToolCalls {
+		for i, tc := range response.ToolCalls {
 			if ctx.Err() != nil {
 				return string(acp.StopReasonCancelled), nil
+			}
+
+			// A model stuck on the identical call (same name, same canonical arguments)
+			// would otherwise burn the whole max_turns budget without an answer. Skip
+			// the execution and tell it so; every tool_call_id still gets a result,
+			// because OpenAI-compatible endpoints reject the next request otherwise.
+			if _, tripped := toolRepeats.Observe(tc.Name, tc.InputJSON); tripped {
+				if loopNudges >= loopNudgeBudget {
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
+					return string(acp.StopReasonRefused), fmt.Errorf(
+						"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
+				}
+				loopNudges++
+				// The counter deliberately keeps running: clearing it here (as Roo does,
+				// where the trip is a blocking question to the user) would let the model
+				// execute the same call limit-1 more times per nudge. A genuinely
+				// different call resets the counter on its own.
+				a.log.Warn("loop guard blocked a repeated tool call", "tool", tc.Name, "nudge", loopNudges)
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
+				continue
 			}
 
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
@@ -608,6 +721,7 @@ func (a *Agent) runReActLoop(
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
+			a.refreshConversationContextUsage(true)
 		}
 		// The model made progress (executed tool calls), so reset the empty-turn counter. The
 		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow
@@ -635,10 +749,120 @@ func (a *Agent) runReActLoop(
 	return string(acp.StopReasonMaxTurns), nil
 }
 
+// persistLoopAbortedMessage stores the partial assistant message from a stream the
+// loop guard cut, with the repeated run removed from both the answer text and the
+// reasoning. Trimming here is what keeps the loop out of the context: buildMessages
+// replays the transcript from session state, so a looped passage left in place would
+// be fed straight back to the model on the nudge call (and to the compaction
+// summarizer, and to every later turn) and would immediately re-seed the loop.
+func (a *Agent) persistLoopAbortedMessage(
+	response *llm.Response,
+	reasoningBuf *strings.Builder,
+	reasonClockStart, reasonClockEnd time.Time,
+	minCycles int,
+) {
+	content := ""
+	var toolCalls []llm.ToolCall
+	if response != nil {
+		content = response.Content
+		toolCalls = response.ToolCalls
+	}
+	content, _ = trimRepeatedTail(content, minCycles)
+
+	// Trim the raw buffer before trimming whitespace: dropping a trailing space
+	// first would truncate the last cycle and misalign the repeat detection.
+	reasonRaw := reasoningBuf.String()
+	reasonRaw, reasonCut := trimRepeatedTail(reasonRaw, minCycles)
+	reasonTrim := strings.TrimSpace(reasonRaw)
+
+	var reasonStore, reasonSig string
+	if reasonCut {
+		// The Anthropic signature only validates against the exact reasoning text,
+		// so a trimmed block must be replayed unsigned.
+		reasonStore, reasonSig = reasonTrim, ""
+	} else {
+		reasonStore, reasonSig = reasoningForStorage(reasonTrim, reasonRaw, response)
+	}
+
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 {
+		return
+	}
+
+	var reasoningMs int64
+	if reasonTrim != "" && !reasonClockStart.IsZero() {
+		end := reasonClockEnd
+		if end.IsZero() {
+			end = time.Now()
+		}
+		if d := end.Sub(reasonClockStart); d > 0 {
+			reasoningMs = d.Milliseconds()
+		}
+	}
+
+	a.state.AddMessage(llm.Message{
+		Role:                llm.RoleAssistant,
+		Content:             content,
+		Reasoning:           reasonStore,
+		ReasoningSignature:  reasonSig,
+		ToolCalls:           toolCalls,
+		ReasoningDurationMs: reasoningMs,
+		Model:               a.state.EffectiveModelID(a.cfg),
+		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+	})
+	a.refreshConversationContextUsage(true)
+}
+
+// recordSkippedToolCalls answers tool calls the loop guard refused to execute.
+// Every tool_call_id an assistant message announced must get a result, otherwise
+// OpenAI-compatible endpoints reject the next request in the conversation.
+func (a *Agent) recordSkippedToolCalls(messages *[]llm.Message, calls []llm.ToolCall, reason string) {
+	for _, tc := range calls {
+		msg := llm.Message{
+			Role:       llm.RoleTool,
+			Content:    reason,
+			ToolCallID: tc.ID,
+		}
+		*messages = append(*messages, msg)
+		a.state.AddMessage(msg)
+		_ = a.server.SendSessionUpdate(a.state.GetID(), acp.ToolCallStatusUpdate{
+			SessionUpdate: acp.UpdateTypeToolCallUpdate,
+			ToolCallID:    tc.ID,
+			Status:        "cancelled",
+			Content: []acp.ToolCallResultItem{
+				{Type: "content", Content: acp.ContentBlock{Type: "text", Text: reason}},
+			},
+		})
+	}
+	a.refreshConversationContextUsage(true)
+}
+
+// loopAbortChannelName labels the streamed channel that looped, for logs.
+func loopAbortChannelName(c loopAbortChannel) string {
+	if c == loopAbortReasoning {
+		return "reasoning"
+	}
+	return "text"
+}
+
+// loopAbortError is the notice surfaced when a turn keeps looping after every
+// nudge. The session manager records it as a UI log entry with a Retry control.
+func loopAbortError(c loopAbortChannel) error {
+	if c == loopAbortReasoning {
+		return fmt.Errorf("stopped: the model kept repeating the same reasoning without reaching an answer")
+	}
+	return fmt.Errorf("stopped: the model kept repeating the same output instead of finishing the task")
+}
+
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	defer func() { env.ToolCallID = "" }()
+
+	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
+	// front so it holds regardless of the outcome below (permission denial,
+	// tool error), and so both callers — the ReAct loop and the resume-after-
+	// permission path — are covered without threading state through.
+	a.activateScopedRulesForToolCall(tc.Name, tc.InputJSON, env.CWD)
 
 	// The mode allowlist filters the definitions sent to the model; enforce it here too
 	// so a call the model was never offered cannot run (tools.plan_no_self_run only).
@@ -753,11 +977,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: permission.PromptBody(tc.Name, tc.InputJSON)}},
 				},
 			},
-			Options: []acp.PermissionOption{
-				{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
-				{OptionID: "allow_always", Name: "Allow always", Kind: "allow_always"},
-				{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
-			},
+			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
 
 		if err != nil || permResult == nil || permResult.Outcome == "cancelled" || permResult.OptionID == "reject" {
@@ -782,6 +1002,13 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		serverName := tc.Name[:idx]
 		toolName := tc.Name[idx+2:]
 		result, execErr = a.callMCPTool(ctx, serverName, toolName, tc.InputJSON)
+		// MCP calls bypass the built-in registry, so apply the shared default
+		// output limit here.
+		if execErr == nil {
+			result = tools.ApplyOutputLimit(result, tc.Name, env)
+		} else {
+			execErr = tools.ApplyOutputLimitError(execErr, tc.Name, env)
+		}
 	} else {
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
 	}
@@ -825,8 +1052,33 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	return result, execErr
 }
 
-// callMCPTool routes a tool call to the appropriate MCP client.
+// mcpToolDefinitions converts the tools of connected MCP clients into LLM tool
+// definitions, applying both gates a caller must never skip: the configured
+// enable/disable filter and the fork's per-mode annotation filter. Shared by the
+// main prompt path and the permission-resume path so the two cannot drift.
+//
+// Callers are responsible for checking ModeAllowsMCPTools first; this only
+// filters within a mode that gets MCP tools at all.
+func (a *Agent) mcpToolDefinitions(mode string, askBasicOnly bool) []llm.ToolDefinition {
+	allowed := a.state.GetMCPToolFilter()
+	var defs []llm.ToolDefinition
+	for _, client := range a.state.GetMCPClients() {
+		for _, t := range client.Tools() {
+			if !allowed(client.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
+				continue
+			}
+			defs = append(defs, t.ToLLMToolDefinition(client.Name()))
+		}
+	}
+	return defs
+}
+
+// callMCPTool routes a tool call to the appropriate MCP client. Disabled
+// tools are rejected here too so stale history cannot invoke them.
 func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON string) (string, error) {
+	if allowed := a.state.GetMCPToolFilter(); !allowed(serverName, toolName) {
+		return "", fmt.Errorf("MCP tool %s__%s is disabled", serverName, toolName)
+	}
 	for _, client := range a.state.GetMCPClients() {
 		if client.Name() == serverName {
 			return client.CallTool(ctx, toolName, argsJSON)
@@ -983,6 +1235,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   rm.MaxTokens,
 		Temperature: rm.Temperature,
 	}, a.cfg.Agent.LLMRetryMax, a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
@@ -1045,19 +1298,39 @@ func extractContextFiles(blocks []acp.ContentBlock) []string {
 		if b.Type == "resource" && b.Resource != nil {
 			uri := b.Resource.URI
 			if strings.HasPrefix(uri, "file://") {
-				files = append(files, strings.TrimPrefix(uri, "file://"))
+				files = append(files, fileURIPath(uri))
 			}
 		}
 	}
 	return files
 }
 
+// fileURIPath turns a file:// URI into a filesystem path. On Windows the
+// authority-less form is file:///C:/proj/x.go, whose leading slash must go —
+// "/C:/proj/x.go" matches no rule scope and no glob. A POSIX path that merely
+// contains a colon (/a:b) keeps its slash: the drive form requires a separator
+// after the colon, or nothing at all.
+func fileURIPath(uri string) string {
+	p := strings.TrimPrefix(uri, "file://")
+	if len(p) >= 3 && p[0] == '/' && isASCIILetter(p[1]) && p[2] == ':' &&
+		(len(p) == 3 || p[3] == '/' || p[3] == '\\') {
+		p = p[1:]
+	}
+	return p
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "glob", "grep", "websearch", "webfetch":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch":
 		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv",
+		"svn_add", "svn_revert", "svn_resolve", "svn_update", "svn_commit",
+		"svn_switch", "svn_merge", "svn_checkout":
 		return "write"
 	case "run_command":
 		return "run_command"
@@ -1068,7 +1341,9 @@ func toolKind(name string) string {
 
 func filesystemWriteTool(name string) bool {
 	switch name {
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv",
+		"svn_add", "svn_revert", "svn_resolve", "svn_update", "svn_commit",
+		"svn_switch", "svn_merge", "svn_checkout":
 		return true
 	default:
 		return false

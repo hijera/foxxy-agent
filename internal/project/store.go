@@ -19,10 +19,14 @@ const (
 	maxRecent = 15
 )
 
-// RecentEntry is one recently opened project folder.
+// RecentEntry is one recently opened project folder. LastSessionID remembers
+// the session the user last had open there, so an editor plugin can reopen it
+// on the next launch; editor plugins bind the backend to a fresh random port
+// every time, which rules out browser-side storage.
 type RecentEntry struct {
-	Path         string `json:"path"`
-	LastOpenedAt string `json:"last_opened_at"`
+	Path          string `json:"path"`
+	LastOpenedAt  string `json:"last_opened_at"`
+	LastSessionID string `json:"last_session_id,omitempty"`
 }
 
 type fileShape struct {
@@ -95,6 +99,9 @@ func (s *Store) SetCurrent(path string) error {
 	next = append(next, entry)
 	for _, r := range s.data.Recent {
 		if samePath(r.Path, clean) {
+			// Reopening a project must not forget which session was open in
+			// it: editor plugins re-seed the current project on every launch.
+			next[0].LastSessionID = r.LastSessionID
 			continue
 		}
 		next = append(next, r)
@@ -114,6 +121,54 @@ func (s *Store) Recent() []RecentEntry {
 	out := make([]RecentEntry, len(s.data.Recent))
 	copy(out, s.data.Recent)
 	return out
+}
+
+// SetLastSession records sessionID as the session last opened in dir and
+// saves to disk. An empty sessionID clears the record. The recent list keeps
+// its order and the current project is left alone: this is a bookmark, not a
+// project switch. A directory missing from the recent list is appended, so a
+// server started without an explicit -cwd still remembers its session.
+func (s *Store) SetLastSession(dir, sessionID string) error {
+	clean, err := ValidateDir(dir)
+	if err != nil {
+		return err
+	}
+	id := strings.TrimSpace(sessionID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Recent {
+		if samePath(s.data.Recent[i].Path, clean) {
+			s.data.Recent[i].LastSessionID = id
+			return s.save()
+		}
+	}
+	if len(s.data.Recent) >= maxRecent {
+		s.data.Recent = s.data.Recent[:maxRecent-1]
+	}
+	s.data.Recent = append(s.data.Recent, RecentEntry{
+		Path:          clean,
+		LastOpenedAt:  time.Now().UTC().Format(time.RFC3339),
+		LastSessionID: id,
+	})
+	return s.save()
+}
+
+// LastSession returns the session id last opened in dir, or "" when the
+// directory is unknown, invalid, or has no record. Callers must still check
+// that the session exists before routing to it.
+func (s *Store) LastSession(dir string) string {
+	clean, err := ValidateDir(dir)
+	if err != nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.data.Recent {
+		if samePath(r.Path, clean) {
+			return r.LastSessionID
+		}
+	}
+	return ""
 }
 
 // ValidateDir checks that path names an existing directory and returns

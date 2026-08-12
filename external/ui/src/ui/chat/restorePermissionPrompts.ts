@@ -11,7 +11,18 @@ import {
 function inferToolKind(toolName: string): string {
   const n = toolName.trim().toLowerCase();
   if (n === "run_command") return "shell";
-  if (["write", "edit", "apply_patch", "mkdir", "touch", "mv"].includes(n)) {
+  if (
+    [
+      "write",
+      "edit",
+      "apply_patch",
+      "mkdir",
+      "rmdir",
+      "touch",
+      "rm",
+      "mv",
+    ].includes(n)
+  ) {
     return "fs";
   }
   return "tool";

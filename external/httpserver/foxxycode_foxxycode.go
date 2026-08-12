@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
@@ -125,6 +126,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/enhance-prompt", s.foxxycodeEnhancePromptPost)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/activity", s.foxxycodeSessionActivityGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", s.foxxycodeSessionMessagesGet)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/export", s.foxxycodeSessionExportGet)
+	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/export/file", s.foxxycodeSessionExportFilePost)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/composer-stream", s.foxxycodeSessionComposerStream)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls", s.foxxycodeToolCallsList)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}", s.foxxycodeToolCallGet)
@@ -147,10 +150,12 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/capabilities", s.foxxycodeCapabilitiesGet)
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
+	s.registerBackgroundRoutes()
 	s.registerSchedulerRoutes()
 	s.registerMiniAppRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
+	s.registerMCPManagementRoutes()
 }
 
 func (s *Server) foxxycodeCapabilitiesGet(w http.ResponseWriter, r *http.Request) {
@@ -661,23 +666,17 @@ func foxxycodeMustSession(w http.ResponseWriter, s *session.Manager, id string, 
 	return st
 }
 
+// foxxycodeEnsureLoaded resolves the session a per-session route was asked about, loading it
+// from disk when it is not live. Goes through LoadPersistedSession rather than
+// HandleSessionLoad: a panel opens ten of these routes at once, and only one of them may
+// actually read the bundle (see internal/session/manager_load_flight.go).
 func (s *Server) foxxycodeEnsureLoaded(w http.ResponseWriter, r *http.Request, id string) *session.State {
 	fs := s.foxxycodeRequireStore(w)
 	if fs == nil {
 		return nil
 	}
 	load := func() (*session.State, error) {
-		if !fs.HasPersistedSnapshot(id) {
-			return nil, errSessionNotFound
-		}
-		_, err := s.mgr.HandleSessionLoad(r.Context(), acp.SessionLoadParams{
-			SessionID: id,
-			CWD:       s.sessionDefaultCWD(),
-		})
-		if err != nil {
-			return nil, err
-		}
-		return s.mgr.SessionByID(id), nil
+		return s.mgr.LoadPersistedSession(r.Context(), id, s.sessionDefaultCWD())
 	}
 	return foxxycodeMustSession(w, s.mgr, id, load)
 }
@@ -1027,6 +1026,9 @@ func (s *Server) foxxycodeSessionDelete(w http.ResponseWriter, r *http.Request) 
 	if fs == nil {
 		return
 	}
+	// Terminate anything this session left running before its bundle (and the
+	// task logs inside it) go away.
+	bgtask.Default().StopSession(id)
 	s.mgr.ForgetLiveSession(id)
 	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
 		if !os.IsNotExist(err) {

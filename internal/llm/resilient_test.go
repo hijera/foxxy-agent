@@ -1,9 +1,12 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -43,13 +46,29 @@ func TestIsRetryableLLMError(t *testing.T) {
 	if !isRetryableLLMError(err429Neuraldeep()) {
 		t.Fatal("429 should be retryable")
 	}
-	if isRetryableLLMError(errors.New("openai stream: 400 Bad Request")) {
-		t.Fatal("400 should not be retryable")
+	for name, err := range map[string]error{
+		"400":      errors.New("openai stream: 400 Bad Request"),
+		"cancel":   context.Canceled,
+		"deadline": context.DeadlineExceeded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if isRetryableLLMError(err) {
+				t.Fatalf("%s should not be retryable", name)
+			}
+		})
 	}
-	if isRetryableLLMError(context.Canceled) {
-		t.Fatal("cancel should not be retryable")
+	if !isRetryableLLMError(timeoutNetError{message: "proxy response headers timed out"}) {
+		t.Fatal("network timeout should be retryable")
 	}
 }
+
+type timeoutNetError struct{ message string }
+
+func (e timeoutNetError) Error() string   { return e.message }
+func (e timeoutNetError) Timeout() bool   { return true }
+func (e timeoutNetError) Temporary() bool { return true }
+
+var _ net.Error = timeoutNetError{}
 
 func TestParseLimitResetDelay(t *testing.T) {
 	resetAt := time.Now().UTC().Add(2 * time.Second).Truncate(time.Second)
@@ -75,8 +94,8 @@ func TestResilientProviderRetries429UntilSuccess(t *testing.T) {
 		},
 	}
 	p := wrapResilient(inner, ResilientOptions{
-		RetryMax:   3,
-		RetryBase:  5 * time.Millisecond,
+		RetryMax:      3,
+		RetryBase:     5 * time.Millisecond,
 		RetryMaxDelay: time.Second,
 	})
 	resp, err := p.Stream(context.Background(), nil, nil, nil)
@@ -88,6 +107,39 @@ func TestResilientProviderRetries429UntilSuccess(t *testing.T) {
 	}
 	if calls.Load() != 3 {
 		t.Fatalf("calls=%d want 3", calls.Load())
+	}
+}
+
+func TestResilientProviderLogsEveryRetryWithExactError(t *testing.T) {
+	var calls atomic.Int32
+	var logs bytes.Buffer
+	retryErr := timeoutNetError{message: "net/http: timeout awaiting response headers from proxy.local:3128"}
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			if calls.Add(1) < 3 {
+				return nil, retryErr
+			}
+			return &Response{Content: "done", StopReason: "end_turn"}, nil
+		},
+	}
+	p := wrapResilient(inner, ResilientOptions{
+		RetryMax:      3,
+		RetryBase:     time.Millisecond,
+		RetryMaxDelay: time.Second,
+		Logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	if _, err := p.Stream(context.Background(), nil, nil, nil); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	got := logs.String()
+	if strings.Count(got, "LLM request failed; retrying") != 2 {
+		t.Fatalf("retry logs:\n%s", got)
+	}
+	if strings.Count(got, retryErr.Error()) != 2 {
+		t.Fatalf("exact error must be present in every retry log:\n%s", got)
+	}
+	if !strings.Contains(got, "attempt=1") || !strings.Contains(got, "attempt=2") {
+		t.Fatalf("retry attempts missing from logs:\n%s", got)
 	}
 }
 
