@@ -370,6 +370,37 @@ Automated checks:
 - Counters update when SSE event `token_usage` arrives.
 - Update granularity is per completed backend model call, not per generated token.
 - UI restores token counters after restart via `GET /foxxycode/sessions/{id}/stats`.
+- **What the number means: tokens spent by this chat since it was created.** `/stats` reports
+  `tokenUsageTotal` cumulative for the session; the SSE `token_usage` of the running turn is
+  cumulative for that turn and is added on top of the baseline read **before** it started.
+  The two must not be mixed: `applySessionStatsPayload` (`App.tsx`) routes the payload through
+  **`planSessionStatsApply`** (`chat/sessionTokenTotals.ts`), which refuses to reseed the
+  baseline while a composer stream is attached to that session — the poll runs every 800ms, so
+  reseeding from a total that already counts the turn double-counted it, and compounded on
+  every poll. Regression: **`chat/sessionTokenTotals.test.ts`**.
+- **The context breakdown is exempt from that gate** and is applied whenever it arrives: it is a
+  live estimate, not an accumulator, and it is the only thing that reports compaction shrinking
+  the window, so the ring has to be able to drop mid-turn.
+- **The poll follows the session, not this client.** Stats refresh while `generating` **or**
+  `viewedTurnActive` (raised by the `turnActive` probes in `startDiskFallbackPoll` and
+  `reconnectLiveStreamIfActive`). A turn that outlived its request, or the autonomous turn a
+  finished background task woke, burns context the same way; keying the poll on `generating`
+  alone left the ring frozen until the turn ended.
+
+## Live status line
+
+- The row next to the typing dots (`TypingDotsMessage`, phrase from `chat/liveStatus.ts`) is
+  derived from the transcript, so it is only as fresh as the transcript is.
+- **While re-attaching, the transcript is stale by construction.** `rejoinComposerLiveStream`
+  therefore keeps the session flagged through `markReconnecting` until the relay delivers its
+  first byte, and only then calls `markConnected`; `deriveLiveStatus` shows
+  `status.reconnecting` meanwhile. `addActiveComposer` clears that flag on attach, which is
+  correct for a fresh `POST /v1/responses` (its baseline is the message just sent) and wrong for
+  a rejoin — a rejoin that showed the pre-turn transcript's last tool is what froze the row for
+  the whole time the server held the request open with no relay to attach to.
+- The `background_*` tool family has phrases of its own (`status.backgroundWait` and friends).
+  `background_wait` parks for up to a minute, and the generic "Running a tool" read as a status
+  line that had stopped moving.
 
 ## Markdown rendering
 

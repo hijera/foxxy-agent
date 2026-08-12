@@ -311,6 +311,18 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
     expect(statusKeyForTool("")).toBe("status.tool");
   });
+
+  // These park for a long time by design, so the generic "Running a tool" read as a
+  // status line that had stopped moving.
+  it("names the background task family instead of falling back", () => {
+    expect(statusKeyForTool("background_wait")).toBe("status.backgroundWait");
+    expect(statusKeyForTool("background_list")).toBe("status.backgroundList");
+    expect(statusKeyForTool("background_output")).toBe(
+      "status.backgroundOutput",
+    );
+    expect(statusKeyForTool("background_stop")).toBe("status.backgroundStop");
+    expect(statusKeyForTool("background_reap")).toBe("status.backgroundReap");
+  });
 });
 
 describe("truncateStatusTarget", () => {

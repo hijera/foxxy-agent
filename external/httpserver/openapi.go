@@ -137,7 +137,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -826,6 +826,25 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/stats": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Token and context statistics for a session",
+					"description": "Returns **tokenUsageTotal** (provider tokens **cumulative for the session**, not for the running turn), **tokenUsageByTurn** (the most recent turns; whatever the cap drops is folded into **tokenUsageTrimmed** so the total stays whole) and **contextBreakdown** (live estimate of the current model window, overlaid from the in-memory session when it is loaded, so it reflects compaction immediately). A client that renders a running total adds the live **token_usage** SSE of the current turn on top of the **tokenUsageTotal** it read **before** that turn started; re-reading this route mid-turn to reseed that baseline counts the turn twice. **stats** is **null** when the session has no statistics file yet.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Session stats payload"},
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/assets/{name}": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Serve a session asset file",
@@ -1135,7 +1154,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** and payload `{\"error\":{\"message\":\"no active composer stream\"}}` instead of waiting. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** and payload `{\"error\":{\"message\":\"no active composer stream\"}}` instead of waiting. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},

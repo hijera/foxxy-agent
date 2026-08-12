@@ -27,6 +27,7 @@ import {
   type QuestionResolvedState,
 } from "./chat/questionTypes";
 import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import { planSessionStatsApply } from "./chat/sessionTokenTotals";
 import { stripCompactionPreamble } from "./chat/compactionSummary";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import {
@@ -195,6 +196,14 @@ import { useT } from "./i18n/I18nProvider";
 import type { ExportFormat } from "./chat/SessionExportMenu";
 
 const HDR = "X-FoxxyCode-Session-ID";
+
+/**
+ * How often the open chat is asked whether it is working, while this client is not
+ * streaming it. Slow enough to be invisible on an idle chat, quick enough that a turn
+ * started without us - a background task waking the agent - shows up as progress rather
+ * than as a chat that sat still and then jumped.
+ */
+const VIEWED_ACTIVITY_POLL_MS = 4000;
 
 async function markFoxxyCodeSessionActivityRead(id: string): Promise<void> {
   const t = id.trim();
@@ -755,30 +764,43 @@ export function App() {
     () => new Set(),
   );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
+  /**
+   * The viewed session has a turn running that this client is not streaming: a turn that
+   * outlived its request, or the autonomous turn a finished background task woke. The
+   * context ring has to keep updating through those, and `generating` cannot say so - it
+   * only means "a composer stream is attached here".
+   */
+  const [viewedTurnActive, setViewedTurnActive] = useState(false);
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
 
   const applySessionStatsPayload = useCallback(
-    (stats: SessionStats | null | undefined, viewing: boolean) => {
+    (
+      stats: SessionStats | null | undefined,
+      viewing: boolean,
+      sessionKey?: string,
+    ) => {
       if (!viewing) {
         return;
       }
-      if (stats?.tokenUsageTotal) {
-        const t = stats.tokenUsageTotal;
+      // While this client streams the turn, tokenUsage is baseline + the turn's live
+      // deltas. Reseeding the baseline from a total that already counts the turn would
+      // add it twice, so only the context breakdown is refreshed then.
+      const key = (sessionKey ?? viewedSessionIdRef.current).trim();
+      const plan = planSessionStatsApply(stats, {
+        liveStreamAttached: key !== "" && activeComposerSidRef.current.has(key),
+      });
+      if (plan.tokenUsage) {
         tokenBaselineRef.current = {
-          input: t.inputTokens || 0,
-          output: t.outputTokens || 0,
-          total: t.totalTokens || 0,
+          input: plan.tokenUsage.inputTokens,
+          output: plan.tokenUsage.outputTokens,
+          total: plan.tokenUsage.totalTokens,
         };
-        setTokenUsage({
-          inputTokens: tokenBaselineRef.current.input,
-          outputTokens: tokenBaselineRef.current.output,
-          totalTokens: tokenBaselineRef.current.total,
-        });
+        setTokenUsage(plan.tokenUsage);
       }
-      if (stats?.contextBreakdown) {
-        setContextBreakdown(stats.contextBreakdown);
+      if (plan.contextBreakdown) {
+        setContextBreakdown(plan.contextBreakdown);
       }
     },
     [],
@@ -800,6 +822,7 @@ export function App() {
       applySessionStatsPayload(
         statsRes.data?.stats,
         viewedSessionIdRef.current.trim() === key,
+        key,
       );
     },
     [applySessionStatsPayload],
@@ -929,9 +952,12 @@ export function App() {
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
 
+  // Poll while the session is working, not merely while this client streams it: a turn
+  // recovered from disk, or an autonomous turn woken by a background task, burns context
+  // just the same, and stopping here is what left the ring frozen until the turn ended.
   useEffect(() => {
     const sid = sessionId.trim();
-    if (!sid || !generating) {
+    if (!sid || (!generating && !viewedTurnActive)) {
       return;
     }
     void refreshSessionStats(sid);
@@ -939,7 +965,13 @@ export function App() {
       void refreshSessionStats(sid);
     }, 800);
     return () => window.clearInterval(timer);
-  }, [sessionId, generating, refreshSessionStats]);
+  }, [sessionId, generating, viewedTurnActive, refreshSessionStats]);
+
+  // A session switch must not carry the previous chat's "still working" flag; the probes
+  // below re-raise it within a couple of seconds if the new one is in fact busy.
+  useEffect(() => {
+    setViewedTurnActive(false);
+  }, [sessionId]);
 
   // Arm audio unlock once so the first desktop chime is not swallowed by the
   // browser autoplay policy.
@@ -3190,6 +3222,7 @@ export function App() {
         applySessionStatsPayload(
           statsRes.data.stats,
           viewedSessionIdRef.current.trim() === sessionId,
+          sessionId,
         );
       }
 
@@ -3318,6 +3351,7 @@ export function App() {
         { headers: { [HDR]: key } },
       );
       active = !!(act.ok && act.data?.turnActive);
+      noteViewedTurnActive(key, active);
     } catch {
       markConnected(key);
       return;
@@ -3371,6 +3405,13 @@ export function App() {
     }, delayMs);
   }
 
+  /** Record a turnActive probe, but only for the chat the user is actually looking at. */
+  function noteViewedTurnActive(rawSid: string, active: boolean): void {
+    const key = rawSid.trim();
+    if (!key || viewedSessionIdRef.current.trim() !== key) return;
+    setViewedTurnActive(active);
+  }
+
   function stopDiskFallbackPoll(rawSid: string): void {
     const key = rawSid.trim();
     const h = diskFallbackTimerRef.current.get(key);
@@ -3409,6 +3450,7 @@ export function App() {
           );
           if (!act.ok) return;
           active = !!act.data?.turnActive;
+          noteViewedTurnActive(key, active);
         } catch {
           return;
         }
@@ -3455,6 +3497,55 @@ export function App() {
     };
   }, []);
 
+  /**
+   * Heartbeat on the open chat while this client is not streaming it.
+   *
+   * Every other re-attach path needs an event we do not get here: a send, a session
+   * switch, a window focus. A turn can start with none of those - the autonomous turn a
+   * finished background task wakes is the ordinary case - and the user sitting on that
+   * chat would see nothing move until they clicked away and back. One HEAD-sized GET
+   * every few seconds is what makes such a turn appear at all, and what keeps the context
+   * ring honest while it runs.
+   */
+  useEffect(() => {
+    const sid = sessionId.trim();
+    if (!sid || generating) {
+      return;
+    }
+    let stopped = false;
+    const probe = async () => {
+      if (stopped) return;
+      // A stream of our own took over, or the user pressed Stop and must not be
+      // re-attached behind their back (that flag is consumed by the reconnect path,
+      // so this one only reads it).
+      if (
+        activeComposerSidRef.current.has(sid) ||
+        userStoppedSidRef.current.has(sid)
+      ) {
+        return;
+      }
+      try {
+        const act = await fetchJSON<{ turnActive?: boolean }>(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/activity`,
+          { headers: { [HDR]: sid } },
+        );
+        if (stopped || !act.ok) return;
+        const active = !!act.data?.turnActive;
+        noteViewedTurnActive(sid, active);
+        if (active && !activeComposerSidRef.current.has(sid)) {
+          reconnectLiveStreamRef.current(sid);
+        }
+      } catch {
+        // Server not reachable right now; the next tick retries.
+      }
+    };
+    const id = window.setInterval(() => void probe(), VIEWED_ACTIVITY_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [sessionId, generating]);
+
   async function rejoinComposerLiveStream(
     sid: string,
     baseline: TranscriptItem[],
@@ -3468,6 +3559,18 @@ export function App() {
     relayAbortBySidRef.current.set(key, fetchCtl);
 
     addActiveComposer(key);
+    // addActiveComposer clears the reconnecting flag, and until the relay actually says
+    // something we have nothing but the transcript as it was before this turn started.
+    // Deriving a status line from that is how the row froze on the previous turn's last
+    // tool for the whole time the server held the request open with no relay to attach
+    // to - the case a background task's autonomous turn used to produce.
+    markReconnecting(key);
+    let relayDelivered = false;
+    const noteRelayByte = () => {
+      if (relayDelivered) return;
+      relayDelivered = true;
+      markConnected(key);
+    };
     const assistantId = newId("a");
     streamingAssistantBySidRef.current.set(key, assistantId);
     streamShadowBySidRef.current.set(key, [...baseline]);
@@ -3483,10 +3586,12 @@ export function App() {
     const trimOnFirstReplayByte = createTurnReplayTrimGate();
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
-    ) =>
+    ) => {
+      noteRelayByte();
       applyStreamItemsForSession(key, (prev) =>
         fn(trimOnFirstReplayByte(prev)),
       );
+    };
 
     // Give up on the live stream and let the disk poller show the turn's progress.
     // (The finally block below clears the abort controller and reconciles.)
@@ -3496,14 +3601,18 @@ export function App() {
       startDiskFallbackPoll(key);
     };
 
+    // Usage events carry no transcript rows, so they clear the flag on their own:
+    // a turn whose first sign of life is a token count is attached all the same.
     const branchTokenUsage = (u: TokenUsage | null) => {
       if (u === null) return;
+      noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
         debouncedRefreshSessionStats(key);
       }
     };
     const branchContextUsage = (u: ContextUsageUpdate) => {
+      noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
         setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
         debouncedRefreshSessionStats(key);
