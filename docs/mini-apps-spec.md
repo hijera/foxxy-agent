@@ -922,6 +922,11 @@ fails before starting if a required interaction has no supplied answer policy.
 
 Only the selected branch executes. Nested step ids remain globally unique.
 
+`if` is required on a branch step and is distinct from the `when` gate every
+step kind shares: a false `when` skips the whole step, including `else`, while a
+false `if` runs `else`. Nested mini-app calls are bounded at 8 levels, so a
+release that names itself fails instead of recursing.
+
 ### 12.10 Mini-app call step
 
 A `miniapp` step invokes an exact released mini-app id and version with mapped

@@ -35,6 +35,16 @@ var allowedOpcodes = map[string]bool{
 	"json.validate": true, "host.call": true,
 }
 
+// nameArg returns the string argument an opcode names something with.
+func nameArg(function string, index int, instruction Instruction) (string, error) {
+	name, ok := instruction.Arg.(string)
+	if !ok || name == "" {
+		return "", fmt.Errorf("function %s instruction %d: %s requires a name argument",
+			function, index, instruction.Op)
+	}
+	return name, nil
+}
+
 type verifiedProgram struct {
 	program Program
 	labels  map[string]map[string]int
@@ -63,6 +73,11 @@ func verifyProgram(program Program) (*verifiedProgram, error) {
 		return nil, fmt.Errorf("program heap limit exceeds engine policy")
 	}
 
+	for id := range program.Imports {
+		if id == "" {
+			return nil, errors.New("program contains an empty import name")
+		}
+	}
 	labels := make(map[string]map[string]int, len(program.Functions))
 	for name, code := range program.Functions {
 		if name == "" {
@@ -74,26 +89,30 @@ func verifyProgram(program Program) (*verifiedProgram, error) {
 				return nil, fmt.Errorf("function %s instruction %d: unknown opcode %q", name, i, instruction.Op)
 			}
 			if instruction.Op == "label" {
-				label, ok := instruction.Arg.(string)
-				if !ok || label == "" {
-					return nil, fmt.Errorf("function %s instruction %d: label requires a name", name, i)
+				label, err := nameArg(name, i, instruction)
+				if err != nil {
+					return nil, err
 				}
 				if _, duplicate := labels[name][label]; duplicate {
 					return nil, fmt.Errorf("function %s: duplicate label %q", name, label)
 				}
 				labels[name][label] = i
 			}
-			if instruction.Op == "host.call" {
-				id, _ := instruction.Arg.(string)
-				if _, ok := program.Imports[id]; !ok {
-					return nil, fmt.Errorf("function %s instruction %d: undeclared import %q", name, i, id)
-				}
-			}
 		}
 	}
 	for name, code := range program.Functions {
 		for i, instruction := range code {
-			arg, _ := instruction.Arg.(string)
+			switch instruction.Op {
+			case "jump", "jump_if_true", "jump_if_false", "try", "call", "host.call":
+			default:
+				continue
+			}
+			// The interpreter reads these arguments as strings without
+			// re-checking, so reject anything else before the program runs.
+			arg, err := nameArg(name, i, instruction)
+			if err != nil {
+				return nil, err
+			}
 			switch instruction.Op {
 			case "jump", "jump_if_true", "jump_if_false", "try":
 				if _, ok := labels[name][arg]; !ok {
@@ -102,6 +121,10 @@ func verifyProgram(program Program) (*verifiedProgram, error) {
 			case "call":
 				if _, ok := program.Functions[arg]; !ok {
 					return nil, fmt.Errorf("function %s instruction %d: unknown function %q", name, i, arg)
+				}
+			case "host.call":
+				if _, ok := program.Imports[arg]; !ok {
+					return nil, fmt.Errorf("function %s instruction %d: undeclared import %q", name, i, arg)
 				}
 			}
 		}

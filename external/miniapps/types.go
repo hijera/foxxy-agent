@@ -184,10 +184,14 @@ type RetryPolicy struct {
 
 // Step uses kind-specific fields so the entire workflow remains editable JSON.
 type Step struct {
-	ID             string                   `json:"id"`
-	Kind           string                   `json:"kind"`
-	Title          string                   `json:"title"`
-	When           *Condition               `json:"when,omitempty"`
+	ID    string     `json:"id"`
+	Kind  string     `json:"kind"`
+	Title string     `json:"title"`
+	When  *Condition `json:"when,omitempty"`
+	// If is the selector of a branch step. It is separate from When, which
+	// gates every step kind: a branch whose When is false is skipped whole,
+	// while a branch whose If is false runs its Else steps.
+	If             *Condition               `json:"if,omitempty"`
 	TimeoutSeconds int                      `json:"timeout_seconds,omitempty"`
 	Retry          RetryPolicy              `json:"retry,omitempty"`
 	Language       string                   `json:"language,omitempty"`

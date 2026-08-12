@@ -80,7 +80,9 @@ func (s *Server) foxxycodeMiniAppDistillPost(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.bgWG.Add(1)
-	go func() {
+	// The goroutine owns its own copy: the handler still encodes the queued
+	// job into the response, and sharing one value would race.
+	go func(job miniapps.DistillationJob) {
 		defer s.bgWG.Done()
 		job.Status, job.Phase, job.Progress = miniapps.DistillationAnalyzing, "analyzing_session", 20
 		_ = store.SaveDistillation(job)
@@ -106,7 +108,7 @@ func (s *Server) foxxycodeMiniAppDistillPost(w http.ResponseWriter, r *http.Requ
 			job.AppID, job.Summary = app.ID, miniapps.DistillationSummary(app)
 		}
 		_ = store.SaveDistillation(job)
-	}()
+	}(job)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Location", "/foxxycode/miniapp-distillations/"+job.ID)

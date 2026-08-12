@@ -37,6 +37,26 @@ type Runner struct {
 	localWorkspace string
 }
 
+// maxMiniAppNesting bounds how deep miniapp steps may call one another. A
+// released app may name any released app, including itself, so without a limit
+// a self-referential release recurses until the stack is exhausted, which is a
+// fatal error the process cannot recover from.
+const maxMiniAppNesting = 8
+
+type nestingDepthKey struct{}
+
+func nestedRunContext(ctx context.Context) (context.Context, error) {
+	depth, _ := ctx.Value(nestingDepthKey{}).(int)
+	if depth >= maxMiniAppNesting {
+		return nil, fmt.Errorf("mini app nesting limit of %d is exceeded", maxMiniAppNesting)
+	}
+	return context.WithValue(ctx, nestingDepthKey{}, depth+1), nil
+}
+
+// networkPolicyKey carries the running app's declared network permissions into
+// the HTTP client's redirect check.
+type networkPolicyKey struct{}
+
 func (r *Runner) WithLocalWorkspace(path string) *Runner {
 	r.localWorkspace = strings.TrimSpace(path)
 	return r
@@ -45,7 +65,27 @@ func (r *Runner) WithLocalWorkspace(path string) *Runner {
 func NewRunner(store *Store, models ModelExecutor) *Runner {
 	return &Runner{
 		store: store, models: models,
-		httpClient: &http.Client{Timeout: 2 * time.Minute},
+		httpClient: &http.Client{
+			Timeout: 2 * time.Minute,
+			// A permitted host must not be able to hand an api step to an
+			// undeclared one, so every redirect hop is checked against the
+			// same permissions as the original request. Requests that carry no
+			// policy — runtime downloads, which are pinned by size and
+			// SHA-256 instead — keep the default redirect behaviour.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				}
+				allowed, enforced := req.Context().Value(networkPolicyKey{}).([]NetworkPermission)
+				if !enforced {
+					return nil
+				}
+				if !networkAllowed(allowed, req.URL.String(), req.Method) {
+					return fmt.Errorf("redirect to %q is not declared in permissions", req.URL.Host)
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -254,13 +294,12 @@ func (r *Runner) executeStep(ctx context.Context, app MiniApp, step Step, refs m
 		}
 		return true, nil
 	case "branch":
-		condition := true
-		if step.When != nil {
-			var err error
-			condition, err = evaluateCondition(*step.When, refs)
-			if err != nil {
-				return nil, err
-			}
+		if step.If == nil {
+			return nil, errors.New("branch step requires an if condition")
+		}
+		condition, err := evaluateCondition(*step.If, refs)
+		if err != nil {
+			return nil, err
 		}
 		selected := step.Else
 		if condition {
@@ -271,6 +310,10 @@ func (r *Runner) executeStep(ctx context.Context, app MiniApp, step Step, refs m
 		}
 		return condition, nil
 	case "miniapp":
+		nestedCtx, err := nestedRunContext(ctx)
+		if err != nil {
+			return nil, err
+		}
 		mapped := map[string]any{}
 		for key, value := range step.InputMap {
 			resolved, err := resolveValue(value, refs)
@@ -279,7 +322,7 @@ func (r *Runner) executeStep(ctx context.Context, app MiniApp, step Step, refs m
 			}
 			mapped[key] = resolved
 		}
-		nested, err := r.RunRelease(ctx, step.AppID, step.AppVersion, mapped, decisions)
+		nested, err := r.RunRelease(nestedCtx, step.AppID, step.AppVersion, mapped, decisions)
 		if err != nil {
 			return nil, err
 		}
@@ -314,6 +357,7 @@ func (r *Runner) executeAPI(ctx context.Context, app MiniApp, step Step, refs ma
 		}
 		body = bytes.NewReader(raw)
 	}
+	ctx = context.WithValue(ctx, networkPolicyKey{}, app.Permissions.Network)
 	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(step.Request.Method), urlText, body)
 	if err != nil {
 		return nil, err

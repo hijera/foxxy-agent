@@ -191,6 +191,9 @@ func Validate(app MiniApp) ValidationReport {
 					add(path+".operation", "is unsupported")
 				}
 			case "branch":
+				if step.If == nil {
+					add(path+".if", "is required so the else branch is reachable")
+				}
 				validateSteps(step.Then, path+".then")
 				validateSteps(step.Else, path+".else")
 			case "miniapp":

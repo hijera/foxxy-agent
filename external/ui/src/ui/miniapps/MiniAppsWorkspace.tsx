@@ -155,7 +155,14 @@ function newMiniAppStep(
     case "confirm":
       return { ...base, message: "Allow this operation?" };
     case "branch":
-      return { ...base, then: [], else: [] };
+      // "if" selects the branch; "when", shared by every kind, would skip the
+      // whole step instead and leave "else" unreachable.
+      return {
+        ...base,
+        if: { op: "exists", value: { $ref: "inputs.value" } },
+        then: [],
+        else: [],
+      };
     case "miniapp":
       return { ...base, app_id: "other-app", app_version: "1.0.0" };
     default:
