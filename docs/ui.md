@@ -494,6 +494,35 @@ section kind `mcp`; visual contract in `DESIGN.md`):
   drawer scroll position is preserved.
 - The tab does not participate in the settings document Save all flow.
 
+## Mini Apps
+
+Mini Apps is available in the bundled web and desktop SPA only when the server
+capability document reports **`miniapps: true`**. It is hard-hidden in IDE
+embeds. **`#/miniapps`** opens the catalog and **`#/miniapps/{id}`** restores a
+selected app after reload; the nav item is a real hash link.
+
+An idle completed session with at least one successful tool call exposes
+**Create Mini App** in the chat header. The authoring flow shows distillation
+progress and cancellation, requires an explicit scenario selection, then opens
+an editor for metadata, typed inputs, workflow steps, permissions, success
+criteria, private evidence, and canonical JSON. Draft saves use optimistic
+revision checks. Validation, same-data verification, sanitization, repair
+acceptance, and release are separate explicit actions; a dirty or stale editor
+cannot release an older stored revision.
+
+The runner generates controls for text, numeric, boolean, enum, date, and
+secret inputs. It polls the asynchronous job as the authoritative state and
+uses sequenced SSE for prompt progress. Confirmation cards show the exact
+reviewed action; cancellation and rerun remain available. Released runs load
+the immutable version from **`/versions/{version}`**, including after a page
+reload, while the editor continues to show the current draft. Run history is
+loaded from the server rather than inferred from the current browser session.
+
+The responsive contract keeps the catalog and editor side-by-side on wide
+screens and presents one readable surface at a time on narrow screens. Mini App
+controls reuse the existing shell tokens, icon library, focus treatment, and
+40px touch targets.
+
 ## Swagger
 
 - Swagger UI is served under `/docs/`.

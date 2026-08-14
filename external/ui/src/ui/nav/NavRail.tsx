@@ -3,6 +3,7 @@ import { useT } from "../i18n/I18nProvider";
 import {
   appNavHrefHistory,
   appNavHrefHome,
+  appNavHrefMiniApps,
   appNavHrefScheduler,
   appNavHrefSettings,
 } from "../scheduler/hashRoute";
@@ -51,6 +52,28 @@ function IconScheduler(props: { className?: string }) {
     >
       <circle cx="12" cy="12" r="8" />
       <path d="M12 8v4l2.5 2.5" />
+    </svg>
+  );
+}
+
+function IconMiniApps(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="4" width="6" height="6" rx="1" />
+      <rect x="14" y="4" width="6" height="6" rx="1" />
+      <rect x="4" y="14" width="6" height="6" rx="1" />
+      <rect x="14" y="14" width="6" height="6" rx="1" />
     </svg>
   );
 }
@@ -143,6 +166,10 @@ export function NavRail(props: {
   historyOpen: boolean;
   /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
   showScheduler?: boolean;
+  /** When false, hide Mini Apps (binary built without miniapps HTTP routes). */
+  showMiniApps?: boolean;
+  onOpenMiniApps?: () => void;
+  miniAppsOpen?: boolean;
   onOpenScheduler: () => void;
   schedulerOpen: boolean;
   onOpenSettings: () => void;
@@ -175,6 +202,8 @@ export function NavRail(props: {
   }, [props.canWidenRail, props.railLabelsWide]);
 
   const showScheduler = props.showScheduler !== false;
+  const showMiniApps = props.showMiniApps === true;
+  const miniAppsOpen = props.miniAppsOpen === true;
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
@@ -317,6 +346,36 @@ export function NavRail(props: {
               {!pillWide && !props.schedulerOpen ? (
                 <span className="rail-tip" role="tooltip">
                   {t("nav.scheduler")}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {showMiniApps ? (
+            <div
+              className={`rail-tip-host${miniAppsOpen ? " rail-tip-host--active" : ""}`}
+            >
+              <a
+                href={appNavHrefMiniApps()}
+                className={`${navBtnCls} ${miniAppsOpen ? "is-active" : ""}`}
+                aria-label={t("nav.miniappsAriaLabel")}
+                aria-pressed={miniAppsOpen}
+                data-testid="nav-miniapps"
+                onClick={(ev) =>
+                  sameTabInAppNavClick(
+                    ev,
+                    props.onOpenMiniApps ?? (() => undefined),
+                  )
+                }
+              >
+                <IconMiniApps className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.miniapps")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !miniAppsOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.miniapps")}
                 </span>
               ) : null}
             </div>

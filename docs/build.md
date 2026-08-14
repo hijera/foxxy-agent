@@ -28,7 +28,7 @@ python scripts/build.py
 **Non-interactive** (CI or scripts):
 
 ```bash
-# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory")
+# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory miniapps")
 python scripts/build.py --target cli --preset full
 
 # Lean ACP-only binary (no npm step)
@@ -62,7 +62,7 @@ python scripts/build.py --target all --preset full
 | IntelliJ | **`editors/intellij/build/distributions/*.zip`** |
 | VS Code | **`editors/vscode/*.vsix`** (one per **`--vscode-target`**) |
 
-**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory`), **`gateway`**
+**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory miniapps`), **`gateway`**
 (adds **`gateway.telegram`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
 requires **`http`**).
 
@@ -71,10 +71,10 @@ Run **`python scripts/build.py --help`** for the full flag list (Russian descrip
 
 Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../external/memory/README.md)).
 
-The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
+The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, and **Mini Apps** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every supported full-release feature:
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory miniapps"
 ```
 
 Output: **`build/foxxycode`**.
@@ -84,26 +84,26 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory \
+go build -tags=http,ui,scheduler,memory,miniapps \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
   -o build/foxxycode \
   ./cmd/foxxycode/
 ```
 
-The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
+The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,miniapps`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
 ## Install on your PATH
 
 **`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
 
-- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory"`** first.
+- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory miniapps"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory miniapps"`** first.
 
 - **root** - **`/usr/local/bin/foxxycode`**
 - **non-root** - **`~/.local/bin/foxxycode`** (ensure that directory is on **`PATH`**)
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory miniapps"
 make install
 ```
 
@@ -139,7 +139,7 @@ Manual one-liner aligned with **`make build`**:
 
 ```bash
 go build \
-  -tags=http,ui,scheduler,memory \
+  -tags=http,ui,scheduler,memory,miniapps \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=$(make -s print-version)" \
   -o build/foxxycode \
   ./cmd/foxxycode/
@@ -150,13 +150,13 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory miniapps"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
 
 ```bash
-go build -tags=http,ui,scheduler,memory ...
+go build -tags=http,ui,scheduler,memory,miniapps ...
 ```
 
 Order does not matter for these tags.
@@ -223,4 +223,4 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For the supported full feature set (HTTP, UI, scheduler, memory, and Mini Apps), clone the repo and use **`make build TAGS="http ui scheduler memory miniapps"`** (or **`go build -tags=...`** as above).

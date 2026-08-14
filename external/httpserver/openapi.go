@@ -2710,6 +2710,7 @@ func openAPISpec() map[string]interface{} {
 	}
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
+	mergeOpenAPIMiniAppsDoc(&doc)
 	return doc
 }
 

@@ -1,7 +1,8 @@
 /**
  * Hash routes: `#/s/<sessionId>`, `#/s/<sessionId>/tasks`,
  * `#/s/<sessionId>/tasks/<task_id>`, `#/history`, `#/scheduler`,
- * `#/scheduler/new`, `#/scheduler/jobs/<job_id>`.
+ * `#/scheduler/new`, `#/scheduler/jobs/<job_id>`, `#/miniapps`, and
+ * `#/miniapps/<app_id>`.
  *
  * Background tasks hang off the session segment rather than living at the top
  * level: a task belongs to one chat, so the URL that opens its panel has to
@@ -20,6 +21,7 @@ export type ParsedAppHash =
     }
   | { branch: "draft"; draftId: string; historyOpen: boolean }
   | { branch: "history" }
+  | { branch: "miniapps"; appId: string | null }
   | {
       branch: "scheduler";
       jobId: string | null;
@@ -87,6 +89,13 @@ export function parseAppHash(): ParsedAppHash {
   }
   if (h === "history") {
     return { branch: "history" };
+  }
+  if (h === "miniapps") {
+    return { branch: "miniapps", appId: null };
+  }
+  const miniApp = /^miniapps\/(.+)$/.exec(h);
+  if (miniApp && miniApp[1]) {
+    return { branch: "miniapps", appId: decodeURIComponent(miniApp[1]) };
   }
   if (h === "settings") {
     return { branch: "settings", historyOpen, section: null };
@@ -383,6 +392,24 @@ export function appNavHrefHome(): string {
 
 export function appNavHrefHistory(): string {
   return "#/history";
+}
+
+/** Hash route for the Mini Apps catalog (or one selected app). */
+export function appNavHrefMiniApps(appId?: string | null): string {
+  const id = (appId || "").trim();
+  return id ? `#/miniapps/${encodeURIComponent(id)}` : "#/miniapps";
+}
+
+export function setMiniAppsHash(appId?: string | null): void {
+  const next = appNavHrefMiniApps(appId);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
 }
 
 export function appNavHrefSettings(): string {

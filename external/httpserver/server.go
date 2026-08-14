@@ -61,6 +61,11 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
+	// miniAppsState is initialized lazily by the optional Mini Apps transport.
+	// It remains an any value so the lean http build does not import that tag.
+	miniAppsMu    sync.Mutex
+	miniAppsState any
+
 	codexAuthIssuer string
 	codexAuthMu     sync.Mutex
 	codexAuthLogins map[string]*codexAuthLoginAttempt
@@ -73,6 +78,7 @@ type Server struct {
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
 	s.cancelCodexAuthLogins()
+	s.miniAppsDrain()
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
 	// pool first so a turn that is still winding down cannot start one more, and

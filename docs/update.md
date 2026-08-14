@@ -14,7 +14,7 @@ CI publishes one archive per platform on each SemVer tag **`X.Y.Z`**:
 | **`foxxycode_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
 | **`foxxycode_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
 
-Each binary is built with **`http`**, **`ui`**, **`scheduler`**, and **`memory`** (same as **`make build TAGS="http ui scheduler memory"`** and the default Docker image). See [Build from source](build.md#release-binaries-ci) for the release pipeline.
+Each binary is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, and **`miniapps`** (same as **`make build TAGS="http ui scheduler memory miniapps"`** and the default Docker image). See [Build from source](build.md#release-binaries-ci) for the release pipeline.
 
 ## Which file is replaced
 

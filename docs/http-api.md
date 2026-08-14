@@ -173,6 +173,61 @@ Malformed ids (**HTTP 400**). Dedicated **`/foxxycode/*`** helpers return **503*
 - **`PATCH /foxxycode/sessions/{id}`** accepts **`selectedModelId`** to set the YAML **`models[].model`** selector for that session (unknown ids **400**) and **`selectedReasoning`** to set the reasoning level (must be one of the model's **`reasoning_levels`**; empty clears it; unsupported value **400**).
 - The SPA restores **Model** from **`model`** when opening a chat. Changing **Model** writes cookie **`foxxycode_llm_model`** (default for the next **New chat**) and **`PATCH`**es the active session.
 
+## Mini Apps REST (**`-tags=http,miniapps`**)
+
+Mini Apps distill a completed, tool-backed session into a reviewed workflow.
+The optional surface advertises itself through **`GET
+/foxxycode/capabilities`** (`capabilities.miniapps: true`). The same endpoint is
+present without the tag and reports `false`; clients must hide Mini Apps in
+that build.
+
+Authoring is asynchronous:
+
+- **`POST /foxxycode/sessions/{id}/miniapps/distill`** starts extraction and
+  returns **`202`** with a job id. The session must exist, be idle in this
+  process, and have no cross-process turn lock.
+- **`GET /foxxycode/miniapp-distillations/{job_id}`** returns persisted status;
+  **`GET .../events`** streams sequenced SSE progress through a terminal
+  **`[DONE]`** frame; **`POST .../scenario`** confirms or corrects one candidate;
+  **`POST .../cancel`** propagates cancellation.
+- Statuses include **`queued`**, **`running`**, **`waiting_for_scenario`**,
+  **`waiting_for_input`**, **`waiting_for_confirmation`**, **`succeeded`**,
+  **`failed`**, **`cancelled`**, and **`interrupted`**.
+
+Catalog and review routes:
+
+- **`GET|POST /foxxycode/miniapps`**, **`GET|PATCH
+  /foxxycode/miniapps/{id}`**, and **`GET|PUT .../{id}/draft`** manage the global
+  catalog and mutable draft. Updates require the current revision in the body
+  or **`If-Match`** and return **`409 revision_conflict`** on stale writes.
+- **`GET .../{id}/authoring/source`** returns private sanitized evidence;
+  **`POST .../authoring/patches`** proposes bounded repairs and **`POST
+  .../patches/{patch_id}/accept`** applies one explicitly against its base
+  revision.
+- **`POST .../{id}/validate`** and **`POST .../{id}/sanitize`** return the exact
+  release review reports. **`POST .../{id}/release`** requires
+  **`{version, approved: true, expected_revision}`**, a passing test bound to
+  that revision, and a clean sanitization report. Releases are immutable and
+  monotonically increasing semantic versions.
+- **`GET .../{id}/versions/{version}`** reads one immutable release.
+
+Execution routes:
+
+- **`POST .../{id}/test-runs`** and **`POST
+  .../{id}/versions/{version}/runs`** return **`202`** jobs. **`GET
+  /foxxycode/miniapp-runs/{run_or_job_id}`**, **`GET .../events`**, **`POST
+  .../confirmation`**, and **`POST .../cancel`** drive the persisted lifecycle.
+  A confirmation response includes the exact confirmation id and reviewed
+  message/details. **`GET /foxxycode/miniapps/{id}/runs`** returns sanitized run
+  history without server filesystem paths.
+
+All ids are portable identifiers, request bodies are bounded strict JSON, and
+operator-visible errors/events are redacted. Source evidence is never copied
+into the portable release document. The first runtime supports registered
+`tool`, configured `llm`, bounded ReAct `agent`, `confirm`, restricted `branch`,
+and exact-version `miniapp` steps; arbitrary script/command runtimes and MCP
+bundles are not part of this contract.
+
 ## Authentication & CORS
 
 Off by default (unchanged "no login" behavior). When **`httpserver.auth_token`** (or **`--auth-token`** / **`FOXXYCODE_HTTP_TOKEN`**) is set, every **`/v1/*`** and **`/foxxycode/*`** route requires **`Authorization: Bearer <token>`** and returns **`401`** with **`WWW-Authenticate: Bearer`** otherwise. The SPA shell and static assets stay public; **`/docs`** and **`/openapi.*`** are protected unless **`httpserver.public_docs: true`**; the local IDE-integration routes (**`/foxxycode/ide/*`**) stay public so the editor plugin keeps working. The token is redacted from **`GET /foxxycode/config`** (reported only as **`auth_configured`**) and preserved on **`PUT`** when the payload omits it. The composer-stream re-attach GET (**`GET /foxxycode/sessions/{id}/composer-stream`**) also accepts **`?access_token=`** because EventSource cannot set an Authorization header cross-origin.
