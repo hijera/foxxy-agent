@@ -130,6 +130,10 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.VCS.Validate(); err != nil {
 		return fmt.Errorf("vcs: %w", err)
 	}
+	cfg.Debug.ApplyDefaults()
+	if err := cfg.Debug.Validate(); err != nil {
+		return fmt.Errorf("debug: %w", err)
+	}
 	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
 	}

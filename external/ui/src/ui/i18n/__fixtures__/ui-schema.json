@@ -202,6 +202,29 @@
         "result_eviction"
       ]
     },
+    "debug": {
+      "additionalProperties": false,
+      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
+      "properties": {
+        "capture_llm": {
+          "description": "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled.",
+          "title": "Capture LLM bodies",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "Debug",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "capture_llm"
+      ]
+    },
     "gateways": {
       "additionalProperties": false,
       "description": "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
@@ -1213,6 +1236,7 @@
     "gateways",
     "browser",
     "vcs",
-    "ui"
+    "ui",
+    "debug"
   ]
 }

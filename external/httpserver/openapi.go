@@ -826,6 +826,24 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/debug": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Debug trace for a session",
+					"description": "Returns the persisted debug-trace events (**object** `foxxycode.session_debug`, **sessionId**, **events**) collected while **debug.enabled** is on: one record per turn start, LLM request/response, and tool start/finish boundary. Raw LLM HTTP bodies go to the process log; this endpoint surfaces the lightweight structured timeline. A session with no trace returns **events: null**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Debug trace payload"},
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/assets/{name}": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Serve a session asset file",

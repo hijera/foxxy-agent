@@ -166,6 +166,7 @@ func runACP(args []string) error {
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
@@ -200,6 +201,7 @@ func runACP(args []string) error {
 	}
 	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
 	config.ApplyPlanNoSelfRunFlag(fs, cfg, planNoSelfRun)
+	config.ApplyDebugFlag(fs, cfg, debugFlag)
 	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
 		return err
 	}
@@ -213,10 +215,13 @@ func runACP(args []string) error {
 		File:   strings.TrimSpace(*logFile),
 		Format: strings.TrimSpace(*logFormat),
 	})
-	log, logCloser, err := logger.New(cfg.Logger)
+	log, levelVar, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
+	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
+	llm.SetDebugLogger(log)
+	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting ACP server", "version", version.Get())

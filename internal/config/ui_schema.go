@@ -567,6 +567,13 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "outputs", "file", "format", "rotation"},
 			nil),
+		"debug": objectSchema("Debug", "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
+			map[string]interface{}{
+				"enabled":     boolProp("Enabled", "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace)."),
+				"capture_llm": boolProp("Capture LLM bodies", "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled."),
+			},
+			[]string{"enabled", "capture_llm"},
+			nil),
 		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
 			map[string]interface{}{
 				"dir": strProp("Sessions directory", "Override sessions root; empty resolves under FOXXYCODE_HOME."),
@@ -627,7 +634,7 @@ func UISchemaMap() map[string]interface{} {
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui",
+		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 
 	doc := map[string]interface{}{

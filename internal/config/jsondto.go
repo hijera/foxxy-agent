@@ -30,6 +30,7 @@ type ConfigJSON struct {
 	UI           UIJSON           `json:"ui,omitempty"`
 	Browser      BrowserJSON      `json:"browser,omitempty"`
 	VCS          VCSJSON          `json:"vcs,omitempty"`
+	Debug        DebugJSON        `json:"debug,omitempty"`
 }
 
 // VCSJSON mirrors VCSConfig for JSON APIs.
@@ -230,6 +231,13 @@ type LoggerJSON struct {
 	Rotation LoggerRotationJSON `json:"rotation,omitempty"`
 }
 
+// DebugJSON mirrors Debug for JSON APIs. CaptureLLM is a pointer so an unset
+// value round-trips as "follow Enabled" rather than false.
+type DebugJSON struct {
+	Enabled    bool  `json:"enabled"`
+	CaptureLLM *bool `json:"capture_llm,omitempty"`
+}
+
 // LoggerRotationJSON mirrors LoggerRotation.
 type LoggerRotationJSON struct {
 	MaxSizeMB int `json:"max_size_mb,omitempty"`
@@ -391,6 +399,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		File: c.Logger.File, Format: c.Logger.Format,
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
+	out.Debug = DebugJSON{Enabled: c.Debug.Enabled, CaptureLLM: c.Debug.CaptureLLM}
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
@@ -540,6 +549,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			MaxSizeMB: j.Logger.Rotation.MaxSizeMB, MaxFiles: j.Logger.Rotation.MaxFiles,
 		},
 	}
+	cfg.Debug = Debug{Enabled: j.Debug.Enabled, CaptureLLM: j.Debug.CaptureLLM}
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,

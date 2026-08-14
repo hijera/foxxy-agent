@@ -133,6 +133,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}", s.foxxycodeToolCallGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}", s.foxxycodeSessionAssetGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/stats", s.foxxycodeSessionStatsGet)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/debug", s.foxxycodeSessionDebugGet)
 	s.mux.HandleFunc("PATCH /foxxycode/sessions/{id}", s.foxxycodeSessionPatch)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/workspace", s.foxxycodeSessionWorkspacePost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/cancel", s.foxxycodeSessionCancelGeneration)
@@ -628,6 +629,47 @@ func (s *Server) foxxycodeSessionStatsGet(w http.ResponseWriter, r *http.Request
 		"object":    "foxxycode.session_stats",
 		"sessionId": id,
 		"stats":     stats,
+	})
+}
+
+// foxxycodeSessionDebugGet returns the persisted debug-trace events for a session
+// (one record per turn/LLM/tool boundary), collected only while debug.enabled is on.
+// The raw LLM HTTP bodies are written to the process log; this endpoint surfaces the
+// lightweight structured timeline. A missing trace is reported as events: null.
+func (s *Server) foxxycodeSessionDebugGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.foxxycodeEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	sd := strings.TrimSpace(st.GetPersistedSessionDir())
+	if sd == "" {
+		http.Error(w, `{"error":{"message":"debug trace unavailable"}}`, http.StatusServiceUnavailable)
+		return
+	}
+	events, err := session.ReadDebugTrace(sd)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"object":    "foxxycode.session_debug",
+				"sessionId": id,
+				"events":    nil,
+			})
+			return
+		}
+		http.Error(w, `{"error":{"message":"read failed"}}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "foxxycode.session_debug",
+		"sessionId": id,
+		"events":    events,
 	})
 }
 

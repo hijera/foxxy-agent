@@ -86,6 +86,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		{id: string(session.ModePlan), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModeDocs), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModeAsk), ownedBy: ownedByFoxxyCodeSession},
+		{id: string(session.ModeDebug), ownedBy: ownedByFoxxyCodeSession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -232,6 +233,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 		{id: string(session.ModePlan)},
 		{id: string(session.ModeDocs)},
 		{id: string(session.ModeAsk)},
+		{id: string(session.ModeDebug)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}

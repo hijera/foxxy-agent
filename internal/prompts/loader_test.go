@@ -140,6 +140,30 @@ func TestRenderAskPrompt(t *testing.T) {
 	}
 }
 
+func TestRenderDebugPrompt(t *testing.T) {
+	result, err := prompts.Render("debug", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+		CWD:    "/tmp/debug-workspace",
+		UTCNow: fixtureUTC,
+	})
+	if err != nil {
+		t.Fatalf("Render debug: %v", err)
+	}
+	for _, want := range []string{
+		"/tmp/debug-workspace",
+		"Mode: Debug",
+		"5-7",
+		"confirm the diagnosis",
+		"verify the fix",
+	} {
+		if !strings.Contains(result, want) {
+			t.Errorf("Debug prompt should contain %q", want)
+		}
+	}
+	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
+		t.Error("debug prompt should end with Current UTC time section")
+	}
+}
+
 func TestEmbeddedAskModelVariants(t *testing.T) {
 	base, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
 		CWD:    "/p",
@@ -336,6 +360,14 @@ func TestDefaultSource(t *testing.T) {
 	}
 	if askSrc == agentSrc || askSrc == planSrc || askSrc == docsSrc {
 		t.Error("ask source should differ from agent, plan, and docs")
+	}
+
+	debugSrc := prompts.DefaultSource("debug")
+	if debugSrc == "" {
+		t.Error("debug source should not be empty")
+	}
+	if debugSrc == agentSrc || debugSrc == planSrc || debugSrc == docsSrc || debugSrc == askSrc {
+		t.Error("debug source should differ from agent, plan, docs, and ask")
 	}
 }
 
