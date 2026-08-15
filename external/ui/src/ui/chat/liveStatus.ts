@@ -77,6 +77,22 @@ export function statusKeyForTool(toolName: string): string {
   if (n.startsWith("foxxycode_scheduler_")) {
     return "status.schedule";
   }
+  // The background family runs long by design - background_wait alone parks for up to a
+  // minute - so a generic phrase here reads as a frozen row rather than as work.
+  if (n.startsWith("background_")) {
+    switch (n) {
+      case "background_wait":
+        return "status.backgroundWait";
+      case "background_output":
+        return "status.backgroundOutput";
+      case "background_stop":
+        return "status.backgroundStop";
+      case "background_reap":
+        return "status.backgroundReap";
+      default:
+        return "status.backgroundList";
+    }
+  }
   if (n.startsWith("svn_")) {
     return "status.vcs";
   }

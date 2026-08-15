@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,16 +28,33 @@ func (s *Server) registerBackgroundRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/background-tasks/{task_id}/stop", s.foxxycodeBackgroundTaskStop)
 }
 
-// wakeBusyRetryBudget bounds how long a wake keeps waiting for a session whose
+// wakeBusyWaitBudget bounds how long a wake keeps waiting for a session whose
 // turn lock is held. A user turn can legitimately run for minutes, and the whole
-// point of notify_on_finish is that the outcome is not lost, so the retry has to
+// point of notify_on_finish is that the outcome is not lost, so the wait has to
 // outlast an ordinary turn. It still has to end: a session left permanently busy
 // must not pin a goroutine for the life of the process.
-const wakeBusyRetryBudget = 10 * time.Minute
+const wakeBusyWaitBudget = 10 * time.Minute
 
-// wakeBusyRetryMax caps the backoff between attempts. Small enough that the wake
-// lands promptly once the session frees up.
-const wakeBusyRetryMax = 15 * time.Second
+// wakeLockWaitSlice is how long one attempt at the turn lock waits before the loop looks
+// up again. The wait is sliced rather than taken in one call so shutdown is noticed while
+// the session is still busy: draining must not have to outlast wakeBusyWaitBudget.
+const wakeLockWaitSlice = 250 * time.Millisecond
+
+// wakeTurnSender streams an autonomous turn into the composer relay so a watching SPA
+// sees it live, while keeping the unattended answer policy of planRunNoopSender: nobody
+// is at the keyboard, so a prompt that waits for a human would hang the turn and hold the
+// session turn lock for as long as it waited.
+type wakeTurnSender struct {
+	planRunNoopSender
+	bridge *Sender
+}
+
+func (w wakeTurnSender) SendSessionUpdate(sessionID string, update interface{}) error {
+	if w.bridge == nil {
+		return nil
+	}
+	return w.bridge.SendSessionUpdate(sessionID, update)
+}
 
 // attachBackgroundWaker lets a finished task that asked for it start an
 // autonomous turn, which is what makes a session usable while nobody watches
@@ -62,49 +80,74 @@ func (s *Server) attachBackgroundWaker() {
 	waker.Attach(bgtask.Default())
 }
 
-// runWakeTurn prompts the session, retrying while the turn lock is held.
+// runWakeTurn prompts the session, waiting while the turn lock is held, and streams the
+// turn into the session's composer relay.
 //
-// This is where the fork diverges from upstream. Upstream's manager queues on
-// the lock, so a wake that lands mid-turn simply waits. Ours fails fast with
-// ErrSessionTurnBusy -- the same behaviour that lets the composer answer 409
-// session_busy instead of hanging -- and the waker drops a failed batch, so a
-// task finishing while the user is mid-turn would lose its notification
-// entirely. Retrying here keeps that guarantee without giving the lock a
-// queue, which the SPA relies on not having.
+// Two things are going on here.
+//
+// The waiting is where the fork diverges from upstream. Upstream's manager queues on the
+// lock, so a wake that lands mid-turn simply waits. Ours fails fast with
+// ErrSessionTurnBusy -- the same behaviour that lets the composer answer 409 session_busy
+// instead of hanging -- and the waker drops a failed batch, so a task finishing while the
+// user is mid-turn would lose its notification entirely. Holding the wait here keeps that
+// guarantee without giving the lock a queue, which the SPA relies on not having.
+//
+// The relay is what makes the turn visible. A wake turn is the one turn nobody requested
+// over HTTP, so without this it produced no SSE at all: GET .../composer-stream found the
+// session busy with no relay to attach to, held the request open for its full deadline,
+// and the SPA sat on a status line derived from the pre-wake transcript until it gave up.
 func (s *Server) runWakeTurn(ctx context.Context, sessionID, instruction string) error {
 	params := acp.SessionPromptParams{
 		SessionID: sessionID,
 		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: instruction}},
 	}
 
-	deadline := time.Now().Add(wakeBusyRetryBudget)
-	backoff := time.Second
+	st := s.mgr.SessionByID(sessionID)
+	if st == nil {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	var unlock func()
+	deadline := time.Now().Add(wakeBusyWaitBudget)
 	for {
-		_, err := s.mgr.HandleSessionPromptWithSender(ctx, params, planRunNoopSender{}, nil)
-		if !errors.Is(err, session.ErrSessionTurnBusy) {
-			return err
-		}
-		if time.Now().After(deadline) {
-			return err
-		}
-
-		s.log.Info("background_wake_busy_retry",
-			"session_id", sessionID, "retry_in", backoff.String())
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-
-		// Shutdown began while we were waiting: the turn would be cancelled
-		// immediately and nobody would read it.
+		// Shutdown began: the turn would be cancelled immediately and nobody would read it.
 		if bgtask.Default().Draining() {
 			return nil
 		}
-		if backoff *= 2; backoff > wakeBusyRetryMax {
-			backoff = wakeBusyRetryMax
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		got, err := s.mgr.AcquireComposerTurnLockWaiting(ctx, sessionID, st, wakeLockWaitSlice)
+		if err == nil {
+			unlock = got
+			break
+		}
+		if !errors.Is(err, session.ErrSessionTurnBusy) {
+			return err
+		}
+		if !time.Now().Before(deadline) {
+			s.log.Warn("background_wake_busy_gave_up",
+				"session_id", sessionID, "waited", wakeBusyWaitBudget.String())
+			return err
 		}
 	}
+	defer unlock()
+
+	// Only now that the turn is ours. beginComposerRelay closes whatever relay is already
+	// registered for this session, so taking one before the lock would cut the SPA off
+	// from the composer turn the user is actually watching.
+	rel := s.beginComposerRelay(sessionID)
+	defer s.endComposerRelay(sessionID, rel)
+
+	bridge := NewSender(s.activeCfg(), newRelaySSEWriter(rel), true, st.EffectiveModelID(s.activeCfg()))
+	wireBridgeSession(bridge, st)
+
+	_, err := s.mgr.HandleSessionPromptWithSender(ctx, params, wakeTurnSender{bridge: bridge},
+		&session.PromptRunOpts{SkipTurnLock: true})
+	// [DONE] regardless of the outcome: a subscriber that never sees it reads the stream
+	// as cut and keeps re-attaching.
+	_ = bridge.FinishStream()
+	return err
 }
 
 func (s *Server) foxxycodeBackgroundTasksClear(w http.ResponseWriter, r *http.Request) {

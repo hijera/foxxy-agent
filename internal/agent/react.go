@@ -329,8 +329,10 @@ func (a *Agent) runReActLoop(
 	allowTitleGen bool,
 ) (string, error) {
 	var totalInputTokens, totalOutputTokens int
-	var turnIndex int
 	var lastStatsWrite time.Time
+	// Session-global index for the turn this loop is running, resolved once so every
+	// mid-turn stats write lands on the same row instead of appending a new one.
+	sessionTurnIndex := session.NextTurnIndex(sd)
 	var emptyContinuations int
 	var lastInputTokens int
 
@@ -574,10 +576,13 @@ func (a *Agent) runReActLoop(
 		totalInputTokens += response.InputTokens
 		totalOutputTokens += response.OutputTokens
 		lastInputTokens = response.InputTokens
+		// All three counters are cumulative for this turn. Sending the last call's
+		// input/output next to a cumulative total would make Input + Output != Total in
+		// every client that renders the three together.
 		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
 			SessionUpdate: acp.UpdateTypeTokenUsage,
-			InputTokens:   response.InputTokens,
-			OutputTokens:  response.OutputTokens,
+			InputTokens:   totalInputTokens,
+			OutputTokens:  totalOutputTokens,
 			TotalTokens:   totalInputTokens + totalOutputTokens,
 		})
 
@@ -585,22 +590,17 @@ func (a *Agent) runReActLoop(
 			now := time.Now().UTC()
 			if lastStatsWrite.IsZero() || now.Sub(lastStatsWrite) > 750*time.Millisecond {
 				lastStatsWrite = now
-				stats := session.SessionStats{
-					Version:   1,
-					UpdatedAt: now.Format(time.RFC3339),
-					TokenUsageTotal: session.TokenUsageTotals{
-						InputTokens:  totalInputTokens,
-						OutputTokens: totalOutputTokens,
-						TotalTokens:  totalInputTokens + totalOutputTokens,
-					},
-					TokenUsageByTurn: []session.TokenUsageTurn{{
-						TurnIndex:    turnIndex,
-						InputTokens:  response.InputTokens,
-						OutputTokens: response.OutputTokens,
-						TotalTokens:  totalInputTokens + totalOutputTokens,
-						Timestamp:    now.Format(time.RFC3339),
-					}},
+				// Re-read rather than reuse a turn-start snapshot: compaction writes the
+				// context breakdown into this same file while the turn runs, and a write
+				// built on a stale document would revert it.
+				prior, err := session.ReadSessionStats(sd)
+				if err != nil {
+					prior = nil
 				}
+				stats := session.ApplyTurnUsage(prior, sessionTurnIndex, session.TokenUsageTotals{
+					InputTokens:  totalInputTokens,
+					OutputTokens: totalOutputTokens,
+				}, now)
 				if rs, ok := a.state.(rulesState); ok {
 					if b := rs.GetLastContextBreakdown(); b != nil {
 						cp := *b
@@ -610,7 +610,6 @@ func (a *Agent) runReActLoop(
 				_ = session.WriteSessionStats(sd, stats)
 			}
 		}
-		turnIndex++
 
 		reasonTrim := strings.TrimSpace(reasoningBuf.String())
 		var reasoningMs int64

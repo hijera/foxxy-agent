@@ -144,6 +144,39 @@ func (t *teeSSEWriter) Flush() {
 
 var _ http.Flusher = (*teeSSEWriter)(nil)
 
+// relaySSEWriter is an http.ResponseWriter whose only destination is a relay. It exists
+// for turns nobody requested over HTTP - the autonomous turn a finished background task
+// wakes - so those stream to the SPA through the same GET .../composer-stream path as a
+// composer turn instead of being invisible until the page reloads.
+type relaySSEWriter struct {
+	relay  *composerStreamRelay
+	header http.Header
+}
+
+func newRelaySSEWriter(relay *composerStreamRelay) *relaySSEWriter {
+	return &relaySSEWriter{relay: relay, header: make(http.Header)}
+}
+
+// Header serves a throwaway map: there is no client connection whose headers could matter.
+func (w *relaySSEWriter) Header() http.Header { return w.header }
+
+func (w *relaySSEWriter) WriteHeader(int) {}
+
+func (w *relaySSEWriter) Write(p []byte) (int, error) {
+	if w.relay == nil {
+		return len(p), nil
+	}
+	return w.relay.Write(p)
+}
+
+// Flush is a no-op: the relay hands every Write to its subscribers immediately.
+func (w *relaySSEWriter) Flush() {}
+
+var (
+	_ http.ResponseWriter = (*relaySSEWriter)(nil)
+	_ http.Flusher        = (*relaySSEWriter)(nil)
+)
+
 func (s *Server) beginComposerRelay(sessionID string) *composerStreamRelay {
 	rel := newComposerStreamRelay()
 	s.composerRelayMu.Lock()
