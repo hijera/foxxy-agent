@@ -12,7 +12,7 @@ services:
       args:
         VERSION: ${FOXXYCODE_VERSION:-dev}
         # Includes `gateway` so the built image can run `foxxycode gateway` (see command override below).
-        BUILD_TAGS: ${FOXXYCODE_BUILD_TAGS:-http,scheduler,ui,memory,gateway}
+        BUILD_TAGS: ${FOXXYCODE_BUILD_TAGS:-http,scheduler,ui,memory,miniapps,gateway}
     image: foxxycode-agent:${FOXXYCODE_VERSION:-dev}
     # Default runs `foxxycode http`. Override to run another mode, e.g. the messenger gateway:
     #   FOXXYCODE_COMMAND="gateway --cwd /workspace" docker compose -f docker-compose.dev.yml up -d --build

@@ -75,6 +75,28 @@ function IconSettings(props: { className?: string }) {
   );
 }
 
+function IconMiniApps(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="19"
+      height="19"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <path d="M17.5 14v7M14 17.5h7" />
+    </svg>
+  );
+}
+
 /** Plus glyph for the new-chat brand affordance (top-left of the rail). */
 function IconPlus(props: { className?: string }) {
   return (
@@ -141,6 +163,10 @@ export function NavRail(props: {
   onNewChat: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
+  /** Hidden when the server was built without the miniapps tag. */
+  showMiniApps?: boolean;
+  onOpenMiniApps?: () => void;
+  miniAppsOpen?: boolean;
   /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
   showScheduler?: boolean;
   onOpenScheduler: () => void;
@@ -175,6 +201,7 @@ export function NavRail(props: {
   }, [props.canWidenRail, props.railLabelsWide]);
 
   const showScheduler = props.showScheduler !== false;
+  const showMiniApps = props.showMiniApps === true;
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
@@ -206,12 +233,22 @@ export function NavRail(props: {
                 className="rail-brand rail-brand-header"
                 aria-label={t("nav.homeAriaLabel")}
                 data-testid="nav-home"
-                onClick={(ev) =>
-                  sameTabInAppNavClick(ev, props.onNewChat)
-                }
+                onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
               >
                 <IconPlus className="rail-brand-plus" />
               </a>
+              {showMiniApps ? (
+                <button
+                  type="button"
+                  className={`rail-miniapps-launch${props.miniAppsOpen ? " is-active" : ""}`}
+                  aria-label={t("nav.miniappsAriaLabel")}
+                  aria-pressed={!!props.miniAppsOpen}
+                  data-testid="nav-miniapps"
+                  onClick={props.onOpenMiniApps}
+                >
+                  <IconMiniApps />
+                </button>
+              ) : null}
             </div>
           ) : (
             <>
@@ -234,12 +271,12 @@ export function NavRail(props: {
                   className="rail-brand"
                   aria-label={t("nav.homeAriaLabel")}
                   data-testid="nav-home"
-                  onClick={(ev) =>
-                    sameTabInAppNavClick(ev, props.onNewChat)
-                  }
+                  onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
                 >
                   <span className="rail-brand-text">
-                    <span className="rail-brand-title">{t("nav.brandTitle")}</span>
+                    <span className="rail-brand-title">
+                      {t("nav.brandTitle")}
+                    </span>
                     <span className="rail-brand-sub">{t("nav.brandSub")}</span>
                   </span>
                 </a>
@@ -247,25 +284,63 @@ export function NavRail(props: {
                   {t("nav.newChatTooltip")}
                 </span>
               </div>
+              {showMiniApps ? (
+                <div className="rail-tip-host rail-miniapps-tip-host">
+                  <button
+                    type="button"
+                    className={`rail-miniapps-launch${props.miniAppsOpen ? " is-active" : ""}`}
+                    aria-label={t("nav.miniappsAriaLabel")}
+                    aria-pressed={!!props.miniAppsOpen}
+                    data-testid="nav-miniapps"
+                    onClick={props.onOpenMiniApps}
+                  >
+                    <IconMiniApps />
+                  </button>
+                  {!props.miniAppsOpen ? (
+                    <span className="rail-tip" role="tooltip">
+                      {t("nav.miniapps")}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           )
         ) : (
-          <div className="rail-tip-host rail-brand-tip-host">
-            <a
-              href={appNavHrefHome()}
-              className="rail-brand"
-              aria-label={t("nav.homeAriaLabel")}
-              data-testid="nav-home"
-              onClick={(ev) =>
-                sameTabInAppNavClick(ev, props.onNewChat)
-              }
-            >
-              <IconPlus className="rail-brand-plus" />
-            </a>
-            <span className="rail-tip" role="tooltip">
-              {t("nav.newChatTooltip")}
-            </span>
-          </div>
+          <>
+            <div className="rail-tip-host rail-brand-tip-host">
+              <a
+                href={appNavHrefHome()}
+                className="rail-brand"
+                aria-label={t("nav.homeAriaLabel")}
+                data-testid="nav-home"
+                onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
+              >
+                <IconPlus className="rail-brand-plus" />
+              </a>
+              <span className="rail-tip" role="tooltip">
+                {t("nav.newChatTooltip")}
+              </span>
+            </div>
+            {showMiniApps ? (
+              <div className="rail-tip-host rail-miniapps-tip-host">
+                <button
+                  type="button"
+                  className={`rail-miniapps-launch${props.miniAppsOpen ? " is-active" : ""}`}
+                  aria-label={t("nav.miniappsAriaLabel")}
+                  aria-pressed={!!props.miniAppsOpen}
+                  data-testid="nav-miniapps"
+                  onClick={props.onOpenMiniApps}
+                >
+                  <IconMiniApps />
+                </button>
+                {!props.miniAppsOpen ? (
+                  <span className="rail-tip" role="tooltip">
+                    {t("nav.miniapps")}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </>
         )}
 
         <div className="rail-middle">
@@ -279,9 +354,7 @@ export function NavRail(props: {
               aria-label={t("nav.history")}
               aria-pressed={props.historyOpen}
               data-testid="nav-history"
-              onClick={(ev) =>
-                sameTabInAppNavClick(ev, props.onOpenHistory)
-              }
+              onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenHistory)}
             >
               <IconBook className="rail-svg rail-nav-hit-svg" />
               {pillWide ? (
@@ -333,9 +406,7 @@ export function NavRail(props: {
               aria-label={t("nav.settings")}
               aria-pressed={props.settingsOpen}
               data-testid="nav-settings"
-              onClick={(ev) =>
-                sameTabInAppNavClick(ev, props.onOpenSettings)
-              }
+              onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenSettings)}
             >
               <IconSettings className="rail-svg rail-nav-hit-svg" />
               {pillWide ? (

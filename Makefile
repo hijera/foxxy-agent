@@ -2,18 +2,19 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
+#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory miniapps"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
+#     miniapps        portable mini-app interpreter, builder, REST API, and SPA workspace
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #     desktop         Windows WebView2 desktop shell (foxxycode desktop; combine with http ui)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
-#             make build TAGS="http ui scheduler memory"
+#             make build TAGS="http ui scheduler memory miniapps"
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory gateway"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
@@ -34,7 +35,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory
+FULL_TAGS := http ui scheduler memory miniapps
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -48,7 +49,7 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
-DESKTOP_TAGS := http ui scheduler memory desktop
+DESKTOP_TAGS := http ui scheduler memory miniapps desktop
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
 # Regenerate the Windows app icon resource from the source PNG. Run manually when
@@ -102,12 +103,15 @@ test-opencode-rules:
 test: test-opencode-rules
 	go test ./...
 	go test -tags=memory ./...
+	go test -tags=miniapps ./...
 	go test -tags=http ./...
+	go test -tags=http,miniapps ./...
 	go test -tags=http,memory ./...
 	go test -tags=scheduler ./...
 	go test -tags=scheduler,memory ./...
 	$(MAKE) ui-build
 	go test -tags=http,ui ./...
+	go test -tags=http,ui,miniapps ./...
 	go test -tags=http,ui,memory ./...
 	go test -tags=http,scheduler ./...
 	go test -tags=http,scheduler,memory ./...

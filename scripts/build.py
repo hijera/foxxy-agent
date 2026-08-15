@@ -21,13 +21,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 VERSION_PKG = "github.com/hijera/foxxycode-agent/internal/version.Version"
 
-ALL_TAGS = ("http", "ui", "scheduler", "memory", "gateway.telegram", "gateway")
+ALL_TAGS = ("http", "ui", "scheduler", "memory", "miniapps", "gateway.telegram", "gateway")
 
 PRESETS: dict[str, list[str]] = {
     "lean": [],
-    "full": ["http", "ui", "scheduler", "memory"],
-    "gateway": ["http", "ui", "scheduler", "memory", "gateway.telegram"],
-    "desktop": ["http", "ui", "scheduler", "memory", "desktop"],
+    "full": ["http", "ui", "scheduler", "memory", "miniapps"],
+    "gateway": ["http", "ui", "scheduler", "memory", "miniapps", "gateway.telegram"],
+    "desktop": ["http", "ui", "scheduler", "memory", "miniapps", "desktop"],
 }
 
 RELEASE_TARGETS: list[tuple[str, str]] = [
@@ -933,9 +933,9 @@ def prompt_tags(ui: UI) -> list[str]:
         "Теги/плагины (пресеты):",
         [
             ("1", "Lean — только ACP, без http/UI/scheduler/memory"),
-            ("2", "Full — http ui scheduler memory (как Docker/релизы)"),
-            ("3", "Gateway — http ui scheduler memory gateway.telegram"),
-            ("5", "Desktop — Windows WebView2 exe (http ui scheduler memory desktop)"),
+            ("2", "Full — http ui scheduler memory miniapps (как Docker/релизы)"),
+            ("3", "Gateway — http ui scheduler memory miniapps gateway.telegram"),
+            ("5", "Desktop — Windows WebView2 exe (http ui scheduler memory miniapps desktop)"),
             ("4", "Свои теги — выбрать вручную"),
         ],
         default="2",
@@ -949,7 +949,7 @@ def prompt_tags(ui: UI) -> list[str]:
     if choice == "5":
         return tags_from_preset("desktop")
     raw = input(
-        "Включить теги (через запятую из: http, ui, scheduler, memory, gateway.telegram, gateway): "
+        "Включить теги (через запятую из: http, ui, scheduler, memory, miniapps, gateway.telegram, gateway): "
     ).strip()
     try:
         return normalize_tags([t.strip() for t in raw.split(",") if t.strip()])
@@ -1149,7 +1149,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--tags",
-        help="Свои теги через запятую (http,ui,scheduler,memory,gateway.telegram,gateway).",
+        help="Свои теги через запятую (http,ui,scheduler,memory,miniapps,gateway.telegram,gateway).",
     )
     p.add_argument("--goos", help="GOOS для CLI (linux, darwin, windows).")
     p.add_argument("--goarch", help="GOARCH для CLI (amd64, arm64).")

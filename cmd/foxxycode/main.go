@@ -67,6 +67,13 @@ func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequ
 }
 
 func main() {
+	if handled, err := runEmbeddedMiniApp(os.Args[1:]); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 {
 		a := os.Args[1]
 		if a == "-v" || a == "--version" {
@@ -86,6 +93,13 @@ func main() {
 	if args[0] == "-h" || args[0] == "--help" {
 		printUsage(os.Stdout)
 		os.Exit(0)
+	}
+	if handled, commandErr := runMiniAppsCommand(args); handled {
+		if commandErr != nil {
+			fmt.Fprintln(os.Stderr, commandErr)
+			os.Exit(1)
+		}
+		return
 	}
 
 	var err error
@@ -148,7 +162,8 @@ func printUsage(w *os.File) {
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]
   %[1]s update [flags]
-`, os.Args[0])
+%[2]s
+`, os.Args[0], miniAppsUsage())
 }
 
 func runACP(args []string) error {
@@ -258,7 +273,8 @@ func ensureFoxxyCodeHomeLayout(home string) error {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
-	for _, name := range []string{"sessions", "skills", "scheduler"} {
+	names := append([]string{"sessions", "skills", "scheduler"}, miniAppsHomeDirs()...)
+	for _, name := range names {
 		p := filepath.Join(home, name)
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", p, err)

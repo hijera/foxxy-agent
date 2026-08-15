@@ -87,6 +87,7 @@ import {
 } from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
+import { MiniAppsWorkspace } from "./miniapps/MiniAppsWorkspace";
 import {
   fetchOnboardingStatus,
   shouldShowOnboarding,
@@ -228,9 +229,7 @@ async function markFoxxyCodeSessionActivityRead(id: string): Promise<void> {
 const SCHEDULER_JOBS_POLL_MS = 12_000;
 
 type SchedulerEditorState =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; jobId: string };
+  null | { mode: "create" } | { mode: "edit"; jobId: string };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -729,7 +728,9 @@ export function App() {
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
   // Workspace context chips: folder / git branch / worktree state per session.
-  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
+  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
+    null,
+  );
   const [worktreePref, setWorktreePref] = useState(false);
   // Subversion has no worktrees: this is the "check the branch out into its own
   // folder" preference behind the checkbox next to the SVN chip.
@@ -1048,6 +1049,11 @@ export function App() {
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  /** Advertised by /foxxycode/capabilities only for builds tagged miniapps. */
+  const [miniAppsHttpLinked, setMiniAppsHttpLinked] = useState(false);
+  const [miniAppsOpen, setMiniAppsOpen] = useState(false);
+  const [miniAppsDistillRequestEpoch, setMiniAppsDistillRequestEpoch] =
+    useState(0);
   /**
    * Root folder the server itself was launched with (`--cwd`). Unlike
    * `workspaceCtx`, which follows the *viewed session*, this stays put — so the
@@ -1267,8 +1273,7 @@ export function App() {
           );
           const existing = at >= 0 ? prev[at] : undefined;
           const row: TranscriptItem = {
-            id:
-              existing?.type === "plan_document" ? existing.id : newId("pd"),
+            id: existing?.type === "plan_document" ? existing.id : newId("pd"),
             type: "plan_document",
             slug: s,
             name: String(doc.name ?? ""),
@@ -1561,7 +1566,8 @@ export function App() {
       if (payload.path) {
         try {
           const res = await fetch(
-            "/foxxycode/workspace/context?path=" + encodeURIComponent(payload.path),
+            "/foxxycode/workspace/context?path=" +
+              encodeURIComponent(payload.path),
           );
           if (res.ok) {
             setWorkspaceCtx((await res.json()) as WorkspaceContext);
@@ -1620,14 +1626,19 @@ export function App() {
     const base = { "Content-Type": "application/json", [HDR]: sid };
     try {
       if (pending.path) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`,
+          {
             method: "POST",
             headers: base,
             body: JSON.stringify({ path: pending.path }),
-        });
+          },
+        );
       }
       if (pending.branch) {
-        await fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`, {
+        await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/workspace`,
+          {
             method: "POST",
             headers: base,
             body: JSON.stringify({
@@ -1635,7 +1646,8 @@ export function App() {
               worktree: Boolean(pending.worktree),
               vcs: pending.vcs ?? "git",
             }),
-        });
+          },
+        );
       }
     } catch {
       // ignore: the session still starts in the default workspace
@@ -1769,6 +1781,7 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    setMiniAppsOpen(false);
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
@@ -1906,6 +1919,7 @@ export function App() {
 
   const closeAllShellDrawers = useCallback(() => {
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
@@ -1953,6 +1967,30 @@ export function App() {
       } catch {
         if (!cancelled) {
           setSchedulerHttpLinked(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isEditorEmbed()) {
+      setMiniAppsHttpLinked(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/foxxycode/capabilities");
+        const payload = (await response.json()) as { miniapps?: boolean };
+        if (!cancelled) {
+          setMiniAppsHttpLinked(response.ok && payload.miniapps === true);
+        }
+      } catch {
+        if (!cancelled) {
+          setMiniAppsHttpLinked(false);
         }
       }
     })();
@@ -2955,6 +2993,7 @@ export function App() {
   function goHome() {
     persistComposerDraftBeforeLeave();
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
@@ -3913,7 +3952,10 @@ export function App() {
       };
       const atts = extractAtFileAttachments(text);
       const profileModel =
-        mode === "agent" || mode === "plan" || mode === "docs" || mode === "ask";
+        mode === "agent" ||
+        mode === "plan" ||
+        mode === "docs" ||
+        mode === "ask";
       if (atts.length > 0 && profileModel) {
         reqBody.attachments = atts;
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
@@ -4187,7 +4229,9 @@ export function App() {
         } else {
           mergedForSyncProbe = sh ?? [];
         }
-        if (transcriptHasFilledAssistant(mergedForSyncProbe, finalAssistantId)) {
+        if (
+          transcriptHasFilledAssistant(mergedForSyncProbe, finalAssistantId)
+        ) {
           break;
         }
         await new Promise((r) => setTimeout(r, 16));
@@ -4390,6 +4434,7 @@ export function App() {
       return;
     }
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setTasksOpen(false);
     setTasksSelectedId(null);
     setSchedulerOpen(true);
@@ -4457,6 +4502,7 @@ export function App() {
     setTasksOpen(false);
     setTasksSelectedId(null);
     setSessionsOpen(false);
+    setMiniAppsOpen(false);
     setSettingsHash();
   }, []);
 
@@ -4493,9 +4539,42 @@ export function App() {
     setTasksSelectedId(null);
 
     setSettingsRoute(false);
+    setMiniAppsOpen(false);
     setSessionsOpen(true);
     setHistoryHash();
   }, []);
+
+  const openMiniAppsFromNav = useCallback(() => {
+    if (!miniAppsHttpLinked || isEditorEmbed()) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    setSettingsRoute(false);
+    setMiniAppsOpen(true);
+  }, [miniAppsHttpLinked]);
+
+  const createMiniAppFromCurrentSession = useCallback(() => {
+    if (
+      !miniAppsHttpLinked ||
+      isEditorEmbed() ||
+      !sessionId.trim() ||
+      generating
+    ) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    setSettingsRoute(false);
+    setMiniAppsOpen(true);
+    setMiniAppsDistillRequestEpoch((current) => current + 1);
+  }, [generating, miniAppsHttpLinked, sessionId]);
 
   /** Background tasks indexed by the tool call that started them, so a
    *  transcript row can keep ticking after the tool itself returned. */
@@ -4515,6 +4594,7 @@ export function App() {
 
   const shellBackdropOpen =
     sessionsOpen ||
+    (miniAppsOpen && miniAppsHttpLinked) ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute;
 
@@ -4594,6 +4674,9 @@ export function App() {
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
+        showMiniApps={miniAppsHttpLinked && !isEditorEmbed()}
+        onOpenMiniApps={openMiniAppsFromNav}
+        miniAppsOpen={miniAppsOpen}
         showScheduler={schedulerHttpLinked === true}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
@@ -4631,6 +4714,14 @@ export function App() {
         />
 
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
+
+        <MiniAppsWorkspace
+          open={miniAppsOpen && miniAppsHttpLinked && !isEditorEmbed()}
+          currentSessionId={sessionId}
+          distillRequestEpoch={miniAppsDistillRequestEpoch}
+          availableModels={llmModelIds}
+          onClose={() => setMiniAppsOpen(false)}
+        />
 
         {schedulerOpen && schedulerHttpLinked === true ? (
           <div
@@ -4739,7 +4830,9 @@ export function App() {
           worktreePref={worktreePref}
           svnFolderPref={svnFolderPref}
           workspaceLocked={items.length > 0}
-          onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
+          onWorkspacePickFolder={(p: string) =>
+            void switchWorkspace({ path: p })
+          }
           onWorkspacePickBranch={(b: string, wt: boolean) =>
             void switchWorkspace({ branch: b, worktree: wt })
           }
@@ -4753,6 +4846,13 @@ export function App() {
           heroAccentVerb={heroAccentVerb}
           heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+          {...(miniAppsHttpLinked &&
+          !isEditorEmbed() &&
+          sessionId.trim() &&
+          items.length > 0 &&
+          !generating
+            ? { onCreateMiniApp: createMiniAppFromCurrentSession }
+            : {})}
           onExportSession={(f: ExportFormat) => void exportSession(f)}
           exportBusy={exportBusy}
           items={items}

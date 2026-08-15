@@ -32,6 +32,7 @@ export function ChatScreen(props: {
   /** Bumps when the user starts a fresh home chat so the composer can refocus. */
   heroComposerFocusEpoch: number;
   onTitleSave: (title: string) => void;
+  onCreateMiniApp?: () => void;
   items: TranscriptItem[];
   /** Export the session transcript as a document. Hidden until an assistant answer exists. */
   onExportSession?: (format: ExportFormat) => void;
@@ -40,7 +41,8 @@ export function ChatScreen(props: {
   tokenUsage: TokenUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
-  contextBreakdown?: import("./ContextBreakdownPopover").ContextBreakdown | null;
+  contextBreakdown?:
+    import("./ContextBreakdownPopover").ContextBreakdown | null;
   mode: string;
   modes: string[];
   llmModels?: string[];
@@ -179,7 +181,9 @@ export function ChatScreen(props: {
     "main",
     isEmpty && !showSkeleton ? "is-empty" : "",
     props.sessionFadingOut ? "session-fading-out" : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <main className={mainClassName}>
@@ -198,23 +202,55 @@ export function ChatScreen(props: {
           </div>
           <div className="chat-skeleton-bars" aria-hidden="true">
             <div className="chat-skeleton-header">
-              <div className="chat-skeleton-bar" style={{ width: "180px", height: "18px", borderRadius: "6px" }} />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "180px", height: "18px", borderRadius: "6px" }}
+              />
             </div>
             <div className="chat-skeleton-messages">
               <div className="chat-skeleton-row chat-skeleton-row--user">
-                <div className="chat-skeleton-bar" style={{ width: "220px", height: "38px", borderRadius: "12px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{
+                    width: "220px",
+                    height: "38px",
+                    borderRadius: "12px",
+                  }}
+                />
               </div>
               <div className="chat-skeleton-row">
-                <div className="chat-skeleton-bar" style={{ width: "78%", height: "14px", borderRadius: "6px" }} />
-                <div className="chat-skeleton-bar" style={{ width: "62%", height: "14px", borderRadius: "6px" }} />
-                <div className="chat-skeleton-bar" style={{ width: "70%", height: "14px", borderRadius: "6px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "78%", height: "14px", borderRadius: "6px" }}
+                />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "62%", height: "14px", borderRadius: "6px" }}
+                />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "70%", height: "14px", borderRadius: "6px" }}
+                />
               </div>
               <div className="chat-skeleton-row chat-skeleton-row--user">
-                <div className="chat-skeleton-bar" style={{ width: "160px", height: "38px", borderRadius: "12px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{
+                    width: "160px",
+                    height: "38px",
+                    borderRadius: "12px",
+                  }}
+                />
               </div>
               <div className="chat-skeleton-row">
-                <div className="chat-skeleton-bar" style={{ width: "72%", height: "14px", borderRadius: "6px" }} />
-                <div className="chat-skeleton-bar" style={{ width: "50%", height: "14px", borderRadius: "6px" }} />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "72%", height: "14px", borderRadius: "6px" }}
+                />
+                <div
+                  className="chat-skeleton-bar"
+                  style={{ width: "50%", height: "14px", borderRadius: "6px" }}
+                />
               </div>
             </div>
           </div>
@@ -284,11 +320,15 @@ export function ChatScreen(props: {
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
-              {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+              {...(props.onContextRingOpen
+                ? { onContextRingOpen: props.onContextRingOpen }
+                : {})}
               {...(props.generating === true && props.onStop !== undefined
                 ? { generating: true, onStop: props.onStop }
                 : {})}
-              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+              {...(props.knownSkillNames
+                ? { knownSkillNames: props.knownSkillNames }
+                : {})}
               {...(props.onWorkspacePickFolder
                 ? {
                     workspaceCtx: props.workspaceCtx ?? null,
@@ -326,6 +366,9 @@ export function ChatScreen(props: {
                   title={props.title}
                   editable={true}
                   onTitleSave={props.onTitleSave}
+                  {...(props.onCreateMiniApp
+                    ? { onCreateMiniApp: props.onCreateMiniApp }
+                    : {})}
                   {...(props.onExportSession &&
                   hasExportableAssistant(props.items)
                     ? {
@@ -372,7 +415,9 @@ export function ChatScreen(props: {
                 {...(props.onBranchSwitch
                   ? { onBranchSwitch: props.onBranchSwitch }
                   : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                {...(props.knownSkillNames
+                  ? { knownSkillNames: props.knownSkillNames }
+                  : {})}
                 {...(props.backgroundTasksByToolCallId
                   ? {
                       backgroundTasksByToolCallId:
@@ -414,13 +459,13 @@ export function ChatScreen(props: {
                 {...(props.contextPct !== undefined
                   ? { contextPct: props.contextPct }
                   : {})}
-              {...(props.maxContextTokens !== undefined
-                ? { maxContextTokens: props.maxContextTokens }
-                : {})}
-              {...(props.contextBreakdown !== undefined
-                ? { contextBreakdown: props.contextBreakdown }
-                : {})}
-              {...(props.llmModels !== undefined &&
+                {...(props.maxContextTokens !== undefined
+                  ? { maxContextTokens: props.maxContextTokens }
+                  : {})}
+                {...(props.contextBreakdown !== undefined
+                  ? { contextBreakdown: props.contextBreakdown }
+                  : {})}
+                {...(props.llmModels !== undefined &&
                 props.llmModels.length > 0 &&
                 props.onLlmModelChange !== undefined
                   ? {
@@ -442,11 +487,15 @@ export function ChatScreen(props: {
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
-                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                {...(props.onContextRingOpen
+                  ? { onContextRingOpen: props.onContextRingOpen }
+                  : {})}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                {...(props.knownSkillNames
+                  ? { knownSkillNames: props.knownSkillNames }
+                  : {})}
                 {...(props.editingFiles && props.editingFiles.length > 0
                   ? { editingFiles: props.editingFiles }
                   : {})}

@@ -293,6 +293,7 @@ Top level after **`git clone`** (folder name is arbitrary; **`foxxycode-agent`**
 │   ├── httpserver/              # optional REST gateway (build tag http)
 │   ├── ui/                      # Vite SPA sources (embedded when built with http+ui)
 │   ├── scheduler/               # optional cron runner (build tag scheduler)
+│   ├── miniapps/                # portable JSON VM, lifecycle, runner, bundler (build tag miniapps)
 │   └── gateway/                 # messenger gateway (build tag gateway | gateway.telegram)
 │       ├── access/              # ACL: CanAccess, EffectiveIsolation
 │       ├── sessionstore/        # chat/user → session ID mapping
@@ -308,4 +309,4 @@ Top level after **`git clone`** (folder name is arbitrary; **`foxxycode-agent`**
 └── README.md
 ```
 
-Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enabled`** when the binary was built with **`memory`**.
+Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, **`external/memory`**, and **`external/miniapps`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enabled`** when the binary was built with **`memory`**.
