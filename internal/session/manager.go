@@ -53,26 +53,16 @@ type Manager struct {
 	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
 	stubTurnMu sync.Map // sessionID -> *sync.Mutex
 
-	// activeTurns tracks sessions with a prompt turn in flight in THIS process, so
+	// activeTurns counts prompt turns in flight in THIS process, keyed by session id, so
 	// turnActive can be reported correctly even where TurnLockHeld is a no-op (Windows).
-	activeTurns sync.Map // sessionID -> struct{}
-}
+	// See turn_active.go for why it is a count rather than a set.
+	activeTurnMu sync.Mutex
+	activeTurns  map[string]int
 
-// SessionTurnActiveInProcess reports whether a prompt turn for sessionID is
-// currently running in this process. Unlike TurnLockHeld (which is a no-op on
-// non-unix platforms), this reflects the owning process's live runtime state.
-func (m *Manager) SessionTurnActiveInProcess(sessionID string) bool {
-	_, ok := m.activeTurns.Load(strings.TrimSpace(sessionID))
-	return ok
-}
-
-func (m *Manager) markTurnActive(sessionID string) func() {
-	id := strings.TrimSpace(sessionID)
-	if id == "" {
-		return func() {}
-	}
-	m.activeTurns.Store(id, struct{}{})
-	return func() { m.activeTurns.Delete(id) }
+	// turnObservers receive the started/ended edges of activeTurns (see turn_events.go).
+	turnObserverMu  sync.Mutex
+	turnObservers   map[int]func(TurnEvent)
+	turnObserverSeq int
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -496,11 +486,17 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 	return m.HandleSessionPromptWithSender(ctx, params, m.server, nil)
 }
 
-// PromptRunOpts configures HandleSessionPromptWithSender for HTTP streaming paths that
-// acquire the turn lock before committing SSE headers.
+// PromptRunOpts configures HandleSessionPromptWithSender for HTTP paths that acquire the
+// turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
+// before opening a relay for watchers.
 type PromptRunOpts struct {
 	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. foxxycode http SSE).
 	SkipTurnLock bool
+	// DetachFromRequest when true runs the turn on a context.WithoutCancel copy of ctx, so a
+	// client that drops the HTTP connection mid-turn does not kill it. A streaming composer
+	// POST sets this because its readers may come and go; a non-streaming caller keeps
+	// request-scoped cancellation, since hanging up is the only way it can stop a turn.
+	DetachFromRequest bool
 }
 
 // awaitMCPReady holds the turn until the session's configured MCP servers have connected,
@@ -565,6 +561,8 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	turnStart := time.Now()
 	var lockWait, mcpWait time.Duration
 
+	// Before the lock, not after: a turn queued behind another one is already active as
+	// far as a client watching the session is concerned.
 	clearActive := m.markTurnActive(params.SessionID)
 	defer clearActive()
 
@@ -583,7 +581,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	defer unlock()
 
 	turnBase := ctx
-	if opts != nil && opts.SkipTurnLock {
+	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
 	}
 	turnCtx, cancel := context.WithCancel(turnBase)

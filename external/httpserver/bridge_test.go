@@ -195,10 +195,14 @@ func TestSenderSendErrorWritesOpenAIFrameAndFlushes(t *testing.T) {
 	if !rec.Flushed {
 		t.Fatal("error frame was not flushed")
 	}
+	// The relay stores whole frames now; joined they are the same bytes the client saw.
 	relay.mu.Lock()
-	relayed := string(relay.buf)
+	var relayed strings.Builder
+	for _, f := range relay.frames {
+		relayed.Write(f.data)
+	}
 	relay.mu.Unlock()
-	if relayed != got {
-		t.Fatalf("relay missed the stream error: primary=%q relay=%q", got, relayed)
+	if relayed.String() != got {
+		t.Fatalf("relay missed the stream error: primary=%q relay=%q", got, relayed.String())
 	}
 }

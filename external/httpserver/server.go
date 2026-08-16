@@ -61,6 +61,10 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
+	// events fans server-wide turn lifecycle events out to GET /foxxycode/events subscribers.
+	events             *serverEventsHub
+	removeTurnObserver func()
+
 	codexAuthIssuer string
 	codexAuthMu     sync.Mutex
 	codexAuthLogins map[string]*codexAuthLoginAttempt
@@ -72,6 +76,9 @@ type Server struct {
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	if s.removeTurnObserver != nil {
+		s.removeTurnObserver()
+	}
 	s.cancelCodexAuthLogins()
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
@@ -95,8 +102,14 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
+		events:               newServerEventsHub(),
 	}
 	s.cfgAt.Store(cfg)
+	// Several servers may share one manager (tests do), so each takes its own removable
+	// observer registration rather than a single manager-wide slot.
+	if mgr != nil {
+		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
+	}
 	// A fresh server means this process intends to serve again, so reopen the
 	// task pool a previous Drain closed.
 	bgtask.Default().SetDraining(false)
@@ -357,52 +370,64 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if httpModelIsFoxxyCodeProfile(model) {
 		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
-		if req.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sessionID, st, composerTurnLockWait)
-			if lockErr != nil {
-				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					writeSessionBusy(w, sessionID, sessionBusyMessage)
-					return
-				}
-				s.log.Error("session turn lock", "error", lockErr)
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
-				return
-			}
-			defer unlock()
-			writeSSEHeaders(w)
-			rel := s.beginComposerRelay(sessionID)
-			defer s.endComposerRelay(sessionID, rel)
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
-		} else {
-			bridge = NewSender(s.activeCfg(), nil, false, model)
-		}
-		wireBridgeSession(bridge, st)
-		var promptOpts *session.PromptRunOpts
-		if req.Stream {
-			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
-		}
-		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
-		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
-			SessionID: sessionID,
-			Prompt:    prompt,
-			Meta:      sessionPromptMetaFromHTTP(req.Metadata),
-		}, bridge, promptOpts); err != nil {
-			s.log.Error("session prompt", "error", err)
-			if errors.Is(err, session.ErrSessionTurnBusy) && !req.Stream {
+		// Every profile turn publishes to a relay, whatever shape the caller asked its own
+		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
+		// watch from a browser. The lock is taken first in both branches - beginComposerRelay
+		// evicts any relay already registered for the session, so an unlocked second POST
+		// could cut the watchers off the first turn.
+		unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sessionID, st, composerTurnLockWait)
+		if lockErr != nil {
+			if errors.Is(lockErr, session.ErrSessionTurnBusy) {
 				writeSessionBusy(w, sessionID, sessionBusyMessage)
 				return
 			}
-			if req.Stream {
-				_ = bridge.SendError(err)
-			} else {
+			s.log.Error("session turn lock", "error", lockErr)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+			return
+		}
+		defer unlock()
+		rel := s.beginComposerRelay(sessionID)
+		defer s.endComposerRelay(sessionID, rel)
+		if req.Stream {
+			writeSSEHeaders(w)
+			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
+		} else {
+			bridge = NewRelaySender(s.activeCfg(), rel, model)
+		}
+		wireBridgeSession(bridge, st)
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: req.Stream}
+		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+			SessionID: sessionID,
+			Prompt:    prompt,
+			Meta:      sessionPromptMetaFromHTTP(req.Metadata),
+		}, bridge, promptOpts)
+		if err != nil {
+			s.log.Error("session prompt", "error", err)
+			// Watchers hear about the failure either way; only the caller's own answer
+			// differs between the two response shapes.
+			_ = bridge.SendError(err)
+			_ = bridge.FinishStream()
+			if !req.Stream {
+				if errors.Is(err, session.ErrSessionTurnBusy) {
+					writeSessionBusy(w, sessionID, sessionBusyMessage)
+					return
+				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
 			return
 		}
 		s.captureAndStoreTurnDiff(st, beforeSnap)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
+		if promptRes != nil && promptRes.StopReason != "" {
+			// Remote clients (internal/remote) recover the ACP stop reason
+			// from here; [DONE] alone cannot carry it.
+			meta["stop_reason"] = string(promptRes.StopReason)
+		}
+		// Unconditional: for a relay sender this terminates the watched stream and writes
+		// nothing to w, so the JSON body below is unchanged.
+		_ = bridge.FinishStreamWithMetadata(meta)
 		if req.Stream {
-			_ = bridge.FinishStreamWithMetadata(meta)
 			return
 		}
 		reply := lastAssistantContent(st)
@@ -721,31 +746,30 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// See the same block in handleChatCompletions: the relay is opened for every profile
+		// turn, and the turn lock is taken before it in both branches.
 		var bridge *Sender
-		if body.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sid, st, composerTurnLockWait)
-			if lockErr != nil {
-				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					writeSessionBusy(w, sid, sessionBusyMessage)
-					return
-				}
-				s.log.Error("session turn lock", "error", lockErr)
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+		unlock, lockErr := s.mgr.AcquireComposerTurnLockWaiting(ctx, sid, st, composerTurnLockWait)
+		if lockErr != nil {
+			if errors.Is(lockErr, session.ErrSessionTurnBusy) {
+				writeSessionBusy(w, sid, sessionBusyMessage)
 				return
 			}
-			defer unlock()
+			s.log.Error("session turn lock", "error", lockErr)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+			return
+		}
+		defer unlock()
+		rel := s.beginComposerRelay(sid)
+		defer s.endComposerRelay(sid, rel)
+		if body.Stream {
 			writeSSEHeaders(w)
-			rel := s.beginComposerRelay(sid)
-			defer s.endComposerRelay(sid, rel)
 			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
 		} else {
-			bridge = NewSender(s.activeCfg(), nil, false, model)
+			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		var promptOpts *session.PromptRunOpts
-		if body.Stream {
-			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
-		}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: body.Stream}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
@@ -758,23 +782,29 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				promptParams.ImageParts[i] = acp.ImagePartRef{DataURL: f.DataURL, Name: f.Name}
 			}
 		}
-		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts); err != nil {
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts)
+		if err != nil {
 			s.log.Error("responses prompt", "error", err)
-			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {
-				writeSessionBusy(w, sid, sessionBusyMessage)
-				return
-			}
-			if body.Stream {
-				_ = bridge.SendError(err)
-			} else {
+			_ = bridge.SendError(err)
+			_ = bridge.FinishStream()
+			if !body.Stream {
+				if errors.Is(err, session.ErrSessionTurnBusy) {
+					writeSessionBusy(w, sid, sessionBusyMessage)
+					return
+				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
 			}
 			return
 		}
 		s.captureAndStoreTurnDiff(st, beforeSnap2)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
+		if promptRes != nil && promptRes.StopReason != "" {
+			// Remote clients (internal/remote) recover the ACP stop reason
+			// from here; [DONE] alone cannot carry it.
+			meta["stop_reason"] = string(promptRes.StopReason)
+		}
+		_ = bridge.FinishStreamWithMetadata(meta)
 		if body.Stream {
-			_ = bridge.FinishStreamWithMetadata(meta)
 			return
 		}
 		text := lastAssistantContent(st)
