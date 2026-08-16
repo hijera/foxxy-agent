@@ -139,7 +139,7 @@ func (s *Server) runWakeTurn(ctx context.Context, sessionID, instruction string)
 	rel := s.beginComposerRelay(sessionID)
 	defer s.endComposerRelay(sessionID, rel)
 
-	bridge := NewSender(s.activeCfg(), newRelaySSEWriter(rel), true, st.EffectiveModelID(s.activeCfg()))
+	bridge := NewSender(s.activeCfg(), rel, true, st.EffectiveModelID(s.activeCfg()))
 	wireBridgeSession(bridge, st)
 
 	_, err := s.mgr.HandleSessionPromptWithSender(ctx, params, wakeTurnSender{bridge: bridge},

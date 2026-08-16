@@ -59,6 +59,21 @@ truth for how the dialog reads in Russian.
 - `pw-confirm-scheduler-before-1280-dark.png` - the scheduler job sheet before deleting
 - `pw-confirm-scheduler-delete-1280-{dark,light}.png` - delete a scheduler job
 
+## Upstream wave fa7ecf1 -> 12897ba (PR #34)
+
+Captured from a headless Chrome against a real `-tags "http ui"` build; the
+`-before-` frames come from a second build at `origin/main`, so each pair is a
+readable visual diff. The UI is Russian because that is what the host locale
+resolves to.
+
+- `pr-34-appearance-{before,after}-1280-{dark,light}.png` - the language select lands under the theme grid
+- `pr-34-appearance-{before,after}-390-dark.png` - the same at the narrow breakpoint
+- `pr-34-general-{before,after}-1280-dark.png` - language leaves the General tab; send mode and status line stay
+- `pr-34-composer-attachment-1280-{dark,light}.png` - a pasted image as a chip with a live thumbnail
+- `pr-34-composer-attachment-390-dark.png` - the same at the narrow breakpoint
+- `pr-34-composer-attach-refused-1280-dark.png` - the paste refused by a model without `multimodal: true`
+- `pr-34-bubble-thumbnail-1280-{dark,light}.png` - the sent bubble carrying the persisted thumbnail
+
 ## Batch uploads
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.

@@ -1,6 +1,5 @@
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import {
-  GeneralLocalePicker,
   GeneralSendModePicker,
   GeneralStatusLinePicker,
 } from "./GeneralSection";
@@ -106,8 +105,8 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
  * SettingsSection renders the active settings tab. Object sections render their
  * sub-schema fields directly (the tab already names the section); array sections
  * become master–detail lists; the System group stacks its child object sections;
- * Skills, General (language) and Appearance are special tabs. Model fields
- * receive custom editors via the SchemaForm fieldOverride hook.
+ * Skills, General and Appearance (theme + language) are special tabs. Model
+ * fields receive custom editors via the SchemaForm fieldOverride hook.
  */
 export function SettingsSection(props: {
   section: SectionDescriptor;
@@ -132,7 +131,6 @@ export function SettingsSection(props: {
   if (section.kind === "general") {
     return (
       <>
-        <GeneralLocalePicker doc={doc} setDoc={setDoc} />
         <GeneralSendModePicker doc={doc} setDoc={setDoc} />
         <GeneralStatusLinePicker doc={doc} setDoc={setDoc} />
       </>
@@ -142,7 +140,7 @@ export function SettingsSection(props: {
   if (section.kind === "appearance") {
     return (
       <>
-        <AppearanceThemePicker />
+        <AppearanceThemePicker doc={doc} setDoc={setDoc} />
         {props.onRestartOnboarding ? (
           <div className="appearance-onboarding-restart">
             <button

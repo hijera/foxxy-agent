@@ -1,34 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { messagesEn } from "./messages/en";
-import { messagesRu } from "./messages/ru";
+import { UI_LOCALES, UI_LOCALE_DEFAULT, UI_LOCALE_IDS } from "./locales";
 
-// translate() silently falls back to English for a missing Russian key, so a forgotten translation
-// looks like working code and only shows up as an English string in a Russian UI (exactly how the
-// env-chip menu stayed English after the upstream sync). These tests make the gap fail the suite.
-describe("en/ru message parity", () => {
-  it("defines the same key set in both locales", () => {
-    const en = Object.keys(messagesEn).sort();
-    const ru = Object.keys(messagesRu).sort();
-    expect(ru.filter((k) => !(k in messagesEn))).toEqual([]);
-    expect(en.filter((k) => !(k in messagesRu))).toEqual([]);
+const defaultMessages = UI_LOCALES[UI_LOCALE_DEFAULT].messages;
+const otherLocales = UI_LOCALE_IDS.filter((id) => id !== UI_LOCALE_DEFAULT);
+
+// translate() silently falls back to the default locale for a missing key, so a forgotten
+// translation looks like working code and only shows up as an English string in a non-English UI
+// (exactly how the env-chip menu stayed English after an upstream sync). These tests make the gap
+// fail the suite. They walk the locale registry rather than a hardcoded en/ru pair, so a locale
+// added later is covered without touching this file.
+describe("message parity across registered locales", () => {
+  it.each(otherLocales)("%s defines the same key set as the default locale", (id) => {
+    const messages = UI_LOCALES[id].messages;
+    expect(Object.keys(messages).filter((k) => !(k in defaultMessages))).toEqual([]);
+    expect(Object.keys(defaultMessages).filter((k) => !(k in messages))).toEqual([]);
   });
 
-  it("has no empty values", () => {
-    const blankEn = Object.entries(messagesEn)
+  it.each(UI_LOCALE_IDS)("%s has no empty values", (id) => {
+    const blank = Object.entries(UI_LOCALES[id].messages)
       .filter(([, v]) => v.trim() === "")
       .map(([k]) => k);
-    const blankRu = Object.entries(messagesRu)
-      .filter(([, v]) => v.trim() === "")
-      .map(([k]) => k);
-    expect(blankEn).toEqual([]);
-    expect(blankRu).toEqual([]);
+    expect(blank).toEqual([]);
   });
 
-  it("keeps the same {param} placeholders in both locales", () => {
+  it.each(otherLocales)("%s keeps the same {param} placeholders", (id) => {
+    const messages = UI_LOCALES[id].messages;
     const slots = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
-    const mismatched = Object.keys(messagesEn).filter((k) => {
-      const ru = messagesRu[k];
-      return ru !== undefined && slots(messagesEn[k]!).join() !== slots(ru).join();
+    const mismatched = Object.keys(defaultMessages).filter((k) => {
+      const translated = messages[k];
+      return (
+        translated !== undefined &&
+        slots(defaultMessages[k]!).join() !== slots(translated).join()
+      );
     });
     expect(mismatched).toEqual([]);
   });

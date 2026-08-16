@@ -14,6 +14,9 @@ import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
+import { optimisticUserFiles } from "./chat/optimisticUserFiles";
+import { sessionMessageFiles } from "./chat/sessionMessageFiles";
+import { subscribeServerEvents } from "./chat/serverEvents";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -47,6 +50,7 @@ import {
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pinPlanDocumentsToTurnEnd } from "./chat/planDocumentPlacement";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
@@ -851,6 +855,8 @@ export function App() {
   const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
+  const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
@@ -873,6 +879,12 @@ export function App() {
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
+  /** True while GET /foxxycode/events is connected; gates the fallback sessions poll. */
+  const [serverEventsConnected, setServerEventsConnected] = useState(false);
+  const serverEventHandlersRef = useRef<{
+    turnStarted: (sid: string) => void;
+    turnEnded: (sid: string) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {} });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -2434,14 +2446,25 @@ export function App() {
       (s) => !!s.turnActive && s.id !== sessionId,
     );
     const anyLocalComposer = activeComposerSidRef.current.size > 0;
-    if (!anyLocalComposer && !hasBackgroundTurn) {
+    // With the events stream up, a background turn announces itself, so the poll only
+    // has to keep a local composer's stats and unread flags fresh. When it is down (an
+    // older server, a proxy that eats SSE) the previous behaviour is restored verbatim
+    // rather than leaving the sidebar frozen.
+    const pollForBackground = hasBackgroundTurn && !serverEventsConnected;
+    if (!anyLocalComposer && !pollForBackground) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
+  }, [
+    composerActivityEpoch,
+    sessions,
+    sessionId,
+    loadSessionsList,
+    serverEventsConnected,
+  ]);
 
   useEffect(() => {
     if (!sessionsOpen) {
@@ -2617,7 +2640,10 @@ export function App() {
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
-        const parsedAssets = parseSessionAssetFiles(rawContent);
+        const parsedAssets = sessionMessageFiles(
+          (m as Record<string, unknown>).files,
+          rawContent,
+        );
         next.push({
           id: stableUserItemId(userTurnIdx),
           type: "user_message",
@@ -2802,8 +2828,13 @@ export function App() {
         : viewingTrim === sid
           ? itemsRef.current
           : undefined;
+    const mergedTranscript = mergeTranscriptPreferLocalSuffix(
+      next,
+      localForMerge,
+    );
+    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
-      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      mergedTranscript,
       localForMerge,
     );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
@@ -3481,6 +3512,40 @@ export function App() {
   };
   scheduleLiveStreamReconnectRef.current = scheduleLiveStreamReconnect;
 
+  // Handlers are read through a ref so the subscription below can mount once: it must
+  // survive re-renders, and the callbacks it needs are redefined on every one of them.
+  serverEventHandlersRef.current = {
+    turnStarted: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      // Reuse the fork's re-attach path rather than opening a relay here: it keeps the
+      // user-stopped guard, the activity probe and the reconnect bookkeeping in one place.
+      reconnectLiveStreamRef.current(key);
+    },
+    turnEnded: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void loadMessages(key, { preserveOnError: true });
+      void refreshSessionStats(key);
+    },
+  };
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    void subscribeServerEvents({
+      onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
+      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onConnectedChange: setServerEventsConnected,
+      signal: ctl.signal,
+    });
+    return () => ctl.abort();
+  }, []);
+
+
   // On return to foreground (alt-tab back, tool window shown), re-attach to any
   // in-flight turn whose live stream was cut while the webview was backgrounded.
   useEffect(() => {
@@ -3621,9 +3686,16 @@ export function App() {
 
     let reconcileOnExit = true;
     try {
+      // Resume after the last frame this tab consumed, so a dropped connection costs
+      // a gap rather than a replay of the whole turn.
+      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+      const headers: Record<string, string> = { [HDR]: key };
+      if (resumeFrom) {
+        headers["Last-Event-ID"] = resumeFrom;
+      }
       const res = await fetch(
         `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
-        { headers: { [HDR]: key }, signal: fetchCtl.signal },
+        { headers, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
         // No relay to attach to (auth, restart, session gone). Keep the transcript
@@ -3636,6 +3708,9 @@ export function App() {
       const carry = { buf: "" };
       const {
         streamErrorMessage,
+        streamErrorCode,
+        lastEventId,
+        desynced,
         endedWithoutDone,
         finalAssistantId,
         flushToolQueue,
@@ -3702,7 +3777,19 @@ export function App() {
         }
       };
 
-      if (isNoLiveTurnRelayError(streamErrorMessage)) {
+      if (lastEventId) {
+        relayLastEventIdBySidRef.current.set(key, lastEventId);
+      }
+      // The relay had already dropped frames this tab never saw, so the transcript on
+      // screen has a hole in it. The persisted messages are the source of truth.
+      if (desynced) {
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          preserveOnError: true,
+        });
+      }
+
+      if (isNoLiveTurnRelayError(streamErrorCode, streamErrorMessage)) {
         // The relay has nothing to attach to. That is a state, not a failure: the
         // turn may have finished while we reconnected, or it runs somewhere this
         // process cannot see. Reconcile from disk and keep watching if it is live.
@@ -3877,11 +3964,7 @@ export function App() {
         createdAtUtc: new Date().toISOString(),
         ...(opts?.files && opts.files.length > 0
           ? {
-              files: opts.files.map((f) => ({
-                name: f.name,
-                mimeType: f.type || "application/octet-stream",
-                sizeBytes: f.size,
-              })),
+              files: optimisticUserFiles(opts.files),
             }
           : {}),
       };

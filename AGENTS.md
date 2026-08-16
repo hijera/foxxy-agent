@@ -13,13 +13,15 @@ Short map for automation-friendly contributors.
 | `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks panel, and **`/foxxycode/sessions/{id}/background-tasks`**). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`foxxycode http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/foxxycode` REST,ServeMux wiring). |
+| `external/cli` | Interactive console TUI (**`-tags cli`**): bare **`foxxycode`** on a terminal, hand-rolled rendering in **`external/cli/tui`**. Guide: **`docs/cli.md`**. |
+| `internal/remote` | Go client for a remote **`foxxycode http`** server: SSE frames back into ACP updates, **`/foxxycode`** REST, permission/question answers. Powers **`--remote`** on the console and **`foxxycode acp`**. Guide: **`docs/cli.md`** (Remote mode), **`docs/remote-control.md`**. |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |
 | `external/gateway` | Messenger gateway (**`-tags gateway.telegram`** or **`-tags gateway`**): Telegram bot adapter, session store, proxy support. Full guide: **`docs/gateway.md`**, rules: **`.cursor/rules/gateway.mdc`**. |
 
 ## Builds
 
-Run **`make build TAGS=http`** for the HTTP gateway only (**`foxxycode http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
+Run **`make build TAGS=http`** for the HTTP gateway only (**`foxxycode http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `foxxycode`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
 
 Primary conversational surface for bundled UI lives at **`POST /v1/responses`** with **`stream:true`**. Prefer it over **`POST /v1/chat/completions`** when shipping FoxxyCode-hosted experiences.
 
