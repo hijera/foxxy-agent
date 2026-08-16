@@ -123,6 +123,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/workspace/folders", s.foxxycodeWorkspaceFoldersGet)
 	s.mux.HandleFunc("POST /foxxycode/workspace/relativize", s.foxxycodeWorkspaceRelativizePost)
 	s.mux.HandleFunc("GET /foxxycode/slash-commands", s.foxxycodeSlashCommandsGet)
+	s.mux.HandleFunc("GET /foxxycode/commands", s.foxxycodeCommandsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions", s.foxxycodeSessionsList)
 	s.mux.HandleFunc("POST /foxxycode/describe", s.foxxycodeDescribePost)
 	s.mux.HandleFunc("POST /foxxycode/enhance-prompt", s.foxxycodeEnhancePromptPost)
@@ -1004,6 +1005,9 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		// The session profile, so a remote client restores it on load instead of
+		// dropping every reopened session back to agent.
+		out["mode"] = string(st.GetMode())
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))

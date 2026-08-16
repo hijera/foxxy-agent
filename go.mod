@@ -16,14 +16,17 @@ require (
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/jedib0t/go-pretty/v6 v6.5.9
 	github.com/kuhahalong/ddgsearch v0.0.0-20241205095054-d297f4189b6e
+	github.com/mattn/go-runewidth v0.0.15
 	github.com/ncruces/zenity v0.10.14
 	github.com/openai/openai-go v1.12.0
+	github.com/rivo/uniseg v0.4.7
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/tidwall/gjson v1.18.0
 	github.com/yuin/goldmark v1.8.5
 	golang.org/x/crypto v0.52.0
 	golang.org/x/net v0.54.0
 	golang.org/x/sys v0.45.0
+	golang.org/x/term v0.43.0
 	golang.org/x/text v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -48,9 +51,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/josephspurrier/goversioninfo v1.4.1 // indirect
-	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/randall77/makefat v0.0.0-20210315173500-7ddd0e42c844 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.7 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
