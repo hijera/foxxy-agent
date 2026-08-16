@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -128,6 +130,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", s.foxxycodeSessionMessagesGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/export", s.foxxycodeSessionExportGet)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/export/file", s.foxxycodeSessionExportFilePost)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}/thumbnail", s.foxxycodeSessionAssetThumbnailGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/composer-stream", s.foxxycodeSessionComposerStream)
 	s.mux.HandleFunc("GET /foxxycode/events", s.foxxycodeEventsStream)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls", s.foxxycodeToolCallsList)
@@ -825,6 +828,12 @@ func (s *Server) foxxycodeSessionActivityGet(w http.ResponseWriter, r *http.Requ
 }
 
 func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
+	return llmMsgsToFoxxyCodeOpenAIForSession("", msgs)
+}
+
+// llmMsgsToFoxxyCodeOpenAIForSession is the transcript serializer with a session id,
+// which is what a user row needs to point at its persisted image previews.
+func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -870,6 +879,26 @@ func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
 		if m.Compacted {
 			item["compacted"] = true
 		}
+		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
+			files := make([]map[string]interface{}, 0, len(m.ImageParts))
+			for _, part := range m.ImageParts {
+				name := strings.TrimSpace(part.Name)
+				if name == "" && part.FilePath != "" {
+					name = filepath.Base(part.FilePath)
+				}
+				file := map[string]interface{}{
+					"name":      name,
+					"mime_type": imagePartMIMEType(part),
+				}
+				if sessionID != "" && part.FilePath != "" && part.ThumbnailPath != "" {
+					assetName := filepath.Base(part.FilePath)
+					file["preview_url"] = "/foxxycode/sessions/" + url.PathEscape(sessionID) +
+						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
+				}
+				files = append(files, file)
+			}
+			item["files"] = files
+		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{
 				"slug":      m.PlanDocument.Slug,
@@ -887,6 +916,75 @@ func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
 	return out
 }
 
+// imagePartMIMEType names the media type of a persisted attachment: the data URI it
+// arrived with when available, else the extension of its name or on-disk path.
+func imagePartMIMEType(part llm.ImagePart) string {
+	if strings.HasPrefix(part.DataURL, "data:") {
+		end := strings.IndexAny(part.DataURL[5:], ";,")
+		if end >= 0 {
+			raw := part.DataURL[5 : 5+end]
+			if mediaType, _, err := mime.ParseMediaType(raw); err == nil && mediaType != "" {
+				return mediaType
+			}
+		}
+	}
+	for _, name := range []string{part.Name, part.FilePath} {
+		if mediaType := mime.TypeByExtension(filepath.Ext(name)); mediaType != "" {
+			if base, _, err := mime.ParseMediaType(mediaType); err == nil {
+				return base
+			}
+			return mediaType
+		}
+	}
+	return "application/octet-stream"
+}
+
+// foxxycodeSessionAssetThumbnailGet serves the bounded PNG preview of one uploaded
+// image. Only thumbnails are exposed: the original asset bytes stay off the HTTP
+// surface, and the name is constrained to a single path element.
+func (s *Server) foxxycodeSessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.foxxycodeEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
+		return
+	}
+	sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+	if sessionDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	path := session.AssetThumbnailPath(sessionDir, name)
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		s.log.Error("open session asset thumbnail", "error", err)
+		http.Error(w, `{"error":{"message":"thumbnail unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, name+".png", info.ModTime(), f)
+}
+
 func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -900,7 +998,7 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	out := map[string]interface{}{
 		"object":    "foxxycode.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToFoxxyCodeOpenAI(st.GetMessages()),
+		"messages":  llmMsgsToFoxxyCodeOpenAIForSession(id, st.GetMessages()),
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())

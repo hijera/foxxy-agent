@@ -21,8 +21,13 @@ export function UserMessage(props: {
   knownSkillNames?: Set<string>;
   /** Called when the user clicks the Edit button. */
   onEdit?: (content: string) => void;
-  /** Files attached to this message. */
-  files?: { name: string; mimeType: string; sizeBytes?: number }[];
+  /** Files attached to this message. `previewUrl` is a client-only blob URL (until reload). */
+  files?: {
+    name: string;
+    mimeType: string;
+    sizeBytes?: number;
+    previewUrl?: string;
+  }[];
 }) {
   const { t } = useT();
   const display = stripFoxxyCodeAttachmentsForUserDisplay(props.content);
@@ -48,8 +53,23 @@ export function UserMessage(props: {
               ? `${f.name}\n${label} · ${fmtBytes(f.sizeBytes)}`
               : `${f.name}\n${label}`;
             return (
-              <span key={idx} className="msg-user-file-chip" title={tip}>
-                <span className="msg-user-file-chip-icon" aria-hidden="true">{svg}</span>
+              <span
+                key={idx}
+                className={`msg-user-file-chip${f.previewUrl ? " msg-user-file-chip--image" : ""}`}
+                title={tip}
+              >
+                <span className="msg-user-file-chip-icon" aria-hidden="true">
+                  {f.previewUrl ? (
+                    <img
+                      className="msg-user-file-thumb"
+                      src={f.previewUrl}
+                      alt=""
+                      data-testid="msg-user-file-thumb"
+                    />
+                  ) : (
+                    svg
+                  )}
+                </span>
                 <span className="msg-user-file-chip-name">{f.name}</span>
               </span>
             );

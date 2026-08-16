@@ -656,7 +656,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		Metadata    json.RawMessage                `json:"metadata,omitempty"`
 		Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
 		// InlineFiles carries base64 data URIs from the browser file picker.
-		// Only supported for direct YAML model calls (not session profiles).
+		// It is forwarded only when the effective YAML model is multimodal.
 		InlineFiles []inlineFileJSON `json:"inline_files,omitempty"`
 	}
 
@@ -712,6 +712,17 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if len(body.Attachments) > 0 && !httpModelIsFoxxyCodeProfile(model) {
 		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, docs, or ask model"}}`, http.StatusBadRequest)
 		return
+	}
+	// Fail closed: a model that never declared multimodal must not be handed image
+	// bytes, whichever surface uploaded them. The composer already hides the control,
+	// but a stale tab or a script can still send them.
+	inlineFiles := body.InlineFiles
+	effectiveModel := model
+	if httpModelIsFoxxyCodeProfile(model) {
+		effectiveModel = effectiveYAMLModel(s.activeCfg(), st)
+	}
+	if !configuredModelMultimodal(s.activeCfg(), effectiveModel) {
+		inlineFiles = nil
 	}
 	// inline_files are supported for both direct YAML calls and session profiles.
 
@@ -776,9 +787,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			Prompt:    promptBlocks,
 			Meta:      sessionPromptMetaFromHTTP(body.Metadata),
 		}
-		if len(body.InlineFiles) > 0 {
-			promptParams.ImageParts = make([]acp.ImagePartRef, len(body.InlineFiles))
-			for i, f := range body.InlineFiles {
+		if len(inlineFiles) > 0 {
+			promptParams.ImageParts = make([]acp.ImagePartRef, len(inlineFiles))
+			for i, f := range inlineFiles {
 				promptParams.ImageParts[i] = acp.ImagePartRef{DataURL: f.DataURL, Name: f.Name}
 			}
 		}
@@ -822,6 +833,15 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var bridge *Sender
+	// Persist the direct-completion attachments too, so the transcript can show the
+	// same chips and thumbnails a profile turn gets.
+	imageParts := inlineFilesToImageParts(inlineFiles)
+	if err := session.SavePartsToAssets(imageParts, st.GetPersistedSessionDir()); err != nil {
+		s.log.Error("responses direct completion assets", "error", err)
+		http.Error(w, `{"error":{"message":"save inline files failed"}}`, http.StatusInternalServerError)
+		return
+	}
+
 	if body.Stream {
 		writeSSEHeaders(w)
 		bridge = NewSender(s.activeCfg(), w, true, model)
@@ -831,7 +851,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	st.AddMessage(llm.Message{
 		Role:       llm.RoleUser,
 		Content:    strings.TrimSpace(body.Input),
-		ImageParts: inlineFilesToImageParts(body.InlineFiles),
+		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)

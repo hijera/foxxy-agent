@@ -65,6 +65,32 @@ round-trips through the footer Save because the whole config doc is PUT back.
   **`locales.ts`**. The picker, cookie validation, **`?lang=`** parsing and
   **`messagesParity.test.ts`** all follow automatically.
 
+## Composer attachments
+
+- **Paste** — an image on the clipboard is attached instead of pasted as text
+  (**`onPaste`** in **`Composer.tsx`**). Browsers name every clipboard image the
+  same, so pasted files are renamed **`pasted-<n>.<ext>`**. Plain-text pastes are
+  left to the browser.
+- **Drop** — a file dropped anywhere on the page still inserts an **`@path`**
+  mention (see the file-drop rule in **`.claude/rules/ui-spa.md`**); it does not
+  attach the file. Use the paste path or the attach button for image uploads.
+- **Multimodal gate** — chips are always shown, but for a model without
+  **`multimodal: true`** they render disabled (dashed, greyed) and are excluded
+  from the request; a paste is refused with a transient
+  **`composer-attach-hint`** notice. The backend fails closed too: **`inline_files`**
+  for a non-multimodal model are dropped before the provider call.
+- **Attachment-only send** — an attachment with no text is a valid message.
+- **Lifetime** — the list lives in **`ChatScreen`** (**`attachedFiles`** /
+  **`onAttachedFilesChange`**), because hero and docked are two branches of one
+  ternary and the composer unmounts on the transition.
+- **Thumbnails** — image chips preview the file through an object URL. The sent
+  bubble shows the same preview optimistically (**`optimisticUserFiles`**), then
+  swaps to the durable **`files[].preview_url`** from
+  **`GET /foxxycode/sessions/{id}/messages`** once it arrives; the superseded
+  blob URL is revoked (**`revokeSupersededUserMessagePreviews`**). The backend
+  writes bounded PNG previews to **`assets/thumbnails/`** and serves them from
+  **`GET /foxxycode/sessions/{id}/assets/{name}/thumbnail`**.
+
 ## Settings: Codex OAuth
 
 - The first-run provider picker includes **Codex**. Selecting it replaces the API-key field with the same **Sign In with ChatGPT** device-flow card, keeps the optional proxy and model controls, and saves `type: codex` without credentials in the config document.

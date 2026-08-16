@@ -14,6 +14,8 @@ import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
+import { optimisticUserFiles } from "./chat/optimisticUserFiles";
+import { sessionMessageFiles } from "./chat/sessionMessageFiles";
 import { subscribeServerEvents } from "./chat/serverEvents";
 import {
   consumeComposerSseReader,
@@ -48,6 +50,7 @@ import {
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pinPlanDocumentsToTurnEnd } from "./chat/planDocumentPlacement";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
@@ -2637,7 +2640,10 @@ export function App() {
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
-        const parsedAssets = parseSessionAssetFiles(rawContent);
+        const parsedAssets = sessionMessageFiles(
+          (m as Record<string, unknown>).files,
+          rawContent,
+        );
         next.push({
           id: stableUserItemId(userTurnIdx),
           type: "user_message",
@@ -2822,8 +2828,13 @@ export function App() {
         : viewingTrim === sid
           ? itemsRef.current
           : undefined;
+    const mergedTranscript = mergeTranscriptPreferLocalSuffix(
+      next,
+      localForMerge,
+    );
+    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
-      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      mergedTranscript,
       localForMerge,
     );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
@@ -3953,11 +3964,7 @@ export function App() {
         createdAtUtc: new Date().toISOString(),
         ...(opts?.files && opts.files.length > 0
           ? {
-              files: opts.files.map((f) => ({
-                name: f.name,
-                mimeType: f.type || "application/octet-stream",
-                sizeBytes: f.size,
-              })),
+              files: optimisticUserFiles(opts.files),
             }
           : {}),
       };

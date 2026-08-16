@@ -62,6 +62,111 @@ import {
   DEFAULT_SEND_MODE,
 } from "../i18n/sendModeConfig";
 
+/** Extension for a clipboard image, so a pasted file gets a usable name. */
+function imageExtFromMime(mime: string): string {
+  const map: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/svg+xml": "svg",
+    "image/bmp": "bmp",
+  };
+  return map[mime.toLowerCase()] ?? "png";
+}
+
+/** Image files carried by a paste event, ignoring the text flavours beside them. */
+function clipboardImageFiles(dt: DataTransfer | null): File[] {
+  if (!dt) return [];
+  const out: File[] = [];
+  for (const item of Array.from(dt.items || [])) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (file) out.push(file);
+  }
+  return out;
+}
+
+/**
+ * Browsers name every clipboard image `image.png`, so a second paste would be
+ * indistinguishable from the first in the chip row and in the session assets.
+ */
+function renamePastedImages(files: File[], seq: { n: number }): File[] {
+  return files.map((f) => {
+    seq.n += 1;
+    const ext = imageExtFromMime(f.type);
+    return new File([f], `pasted-${seq.n}.${ext}`, { type: f.type });
+  });
+}
+
+/** Object URL for an image file, revoked when the file changes or the chip unmounts. */
+function useImageObjectUrl(file: File): string {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (
+      !file.type.startsWith("image/") ||
+      typeof URL === "undefined" ||
+      typeof URL.createObjectURL !== "function"
+    ) {
+      setUrl("");
+      return;
+    }
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  return url;
+}
+
+/** Live attachment chip; image files render a thumbnail instead of the generic icon. */
+function AttachedFileChip(props: {
+  file: File;
+  disabled: boolean;
+  tip: string;
+  removeLabel: string;
+  icon: React.ReactNode;
+  onRemove: () => void;
+}) {
+  const { file, disabled } = props;
+  const thumbUrl = useImageObjectUrl(file);
+  return (
+    <span
+      className={[
+        "composer-attachment-chip",
+        thumbUrl ? "composer-attachment-chip--image" : "",
+        disabled ? "composer-attachment-chip--disabled" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      title={props.tip}
+      aria-disabled={disabled ? true : undefined}
+      data-testid="composer-attachment-chip"
+    >
+      <span className="composer-attachment-chip-icon" aria-hidden="true">
+        {thumbUrl ? (
+          <img
+            className="composer-attachment-thumb"
+            src={thumbUrl}
+            alt=""
+            data-testid="composer-attachment-thumb"
+          />
+        ) : (
+          props.icon
+        )}
+      </span>
+      <span className="composer-attachment-chip-name">{file.name}</span>
+      <button
+        type="button"
+        className="composer-attachment-chip-remove"
+        aria-label={props.removeLabel}
+        onClick={props.onRemove}
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 function fmtBytes(n: number, t: (key: string, params?: Record<string, string | number>) => string): string {
   if (n < 1024) return t("composer.bytesB", { n });
   if (n < 1024 * 1024) return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
@@ -149,6 +254,9 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Attachment list owned by ChatScreen, so it survives the hero/docked swap. */
+  attachedFiles?: File[];
+  onAttachedFilesChange?: (files: File[]) => void;
   /** Reasoning levels offered by the current model; empty/omitted hides the selector. */
   llmReasoningLevels?: string[];
   /** Selected reasoning level (`metadata.reasoning`). */
@@ -185,7 +293,8 @@ export function Composer(props: {
   onSvnFolderToggle?: () => void;
 }) {
   const { t } = useT();
-  const idleSendDisabled = props.value.trim() === "";
+  const [attachHint, setAttachHint] = useState("");
+  const pastedSeqRef = useRef({ n: 0 });
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -220,7 +329,32 @@ export function Composer(props: {
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  // Falls back to local state so the component still works standalone (tests, embeds).
+  const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
+  const attachedFiles = props.attachedFiles ?? localAttachedFiles;
+  const onAttachedFilesChange = props.onAttachedFilesChange;
+  const setAttachedFiles = useCallback(
+    (next: File[] | ((prev: File[]) => File[])) => {
+      const resolve = (prev: File[]) =>
+        typeof next === "function" ? (next as (p: File[]) => File[])(prev) : next;
+      if (onAttachedFilesChange) {
+        onAttachedFilesChange(resolve(props.attachedFiles ?? []));
+        return;
+      }
+      setLocalAttachedFiles(resolve);
+    },
+    [onAttachedFilesChange, props.attachedFiles],
+  );
+  /** A model that never declared multimodal cannot receive attachments. */
+  const attachmentSendingEnabled = props.llmModelMultimodal === true;
+  const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
+  /** An attachment on its own is a valid message; text is not required. */
+  const idleSendDisabled =
+    props.value.trim() === "" && sendableAttachedFiles.length === 0;
+  const showAttachHint = useCallback(() => {
+    setAttachHint(t("composer.attachUnsupportedModel"));
+    window.setTimeout(() => setAttachHint(""), 4000);
+  }, [t]);
   /** True while a file drag hovers the composer field (drop-target highlight). */
   const [dropActive, setDropActive] = useState(false);
   const [composerScrollTop, setComposerScrollTop] = useState(0);
@@ -1212,17 +1346,25 @@ export function Composer(props: {
       return;
     }
     const txt = props.value.trim();
-    if (txt === "") {
+    // Attachments alone are a valid send; chips for a non-multimodal model are
+    // excluded here as well as from the request.
+    const files = attachmentSendingEnabled ? [...attachedFiles] : [];
+    if (txt === "" && files.length === 0) {
       return;
     }
-    if (attachedFiles.length > 0) {
-      const files = [...attachedFiles];
+    if (files.length > 0) {
       setAttachedFiles([]);
       props.onSend(txt, files);
     } else {
       props.onSend(txt);
     }
-  }, [props.generating, props.value, props.onSend, attachedFiles]);
+  }, [
+    props.generating,
+    props.value,
+    props.onSend,
+    attachedFiles,
+    attachmentSendingEnabled,
+  ]);
 
   const loadMoreSlash = () => {
     if (!slashOpen || slashLoading || !slashHasMore) {
@@ -1550,29 +1692,39 @@ export function Composer(props: {
               })}
               {attachedFiles.map((f, idx) => {
                 const { svg, label } = fileTypeIcon(f.type, f.name);
-                const tip = t("composer.attachmentTooltip", {
-                  fileName: f.name,
-                  label,
-                  size: fmtBytes(f.size, t),
-                });
+                const tip = attachmentSendingEnabled
+                  ? t("composer.attachmentTooltip", {
+                      fileName: f.name,
+                      label,
+                      size: fmtBytes(f.size, t),
+                    })
+                  : t("composer.attachUnsupportedModel");
                 return (
-                  <span key={idx} className="composer-attachment-chip" title={tip}>
-                    <span className="composer-attachment-chip-icon" aria-hidden="true">{svg}</span>
-                    <span className="composer-attachment-chip-name">{f.name}</span>
-                    <button
-                      type="button"
-                      className="composer-attachment-chip-remove"
-                      aria-label={t("composer.removeAttachment", { fileName: f.name })}
-                      onClick={() =>
-                        setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
-                      }
-                    >
-                      ×
-                    </button>
-                  </span>
+                  <AttachedFileChip
+                    key={idx}
+                    file={f}
+                    disabled={!attachmentSendingEnabled}
+                    tip={tip}
+                    removeLabel={t("composer.removeAttachment", {
+                      fileName: f.name,
+                    })}
+                    icon={svg}
+                    onRemove={() =>
+                      setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
+                    }
+                  />
                 );
               })}
             </div>
+          ) : null}
+          {attachHint ? (
+            <p
+              className="composer-attach-hint"
+              role="status"
+              data-testid="composer-attach-hint"
+            >
+              {attachHint}
+            </p>
           ) : null}
           <div
             className={
@@ -1637,6 +1789,21 @@ export function Composer(props: {
                   setEnhanceErr(null);
                   props.onChange(v);
                   updatePickerMenus(v, caret);
+                }}
+                onPaste={(ev) => {
+                  const images = clipboardImageFiles(ev.clipboardData);
+                  if (images.length === 0) {
+                    return;
+                  }
+                  ev.preventDefault();
+                  if (!attachmentSendingEnabled) {
+                    showAttachHint();
+                    return;
+                  }
+                  setAttachedFiles((prev) => [
+                    ...prev,
+                    ...renamePastedImages(images, pastedSeqRef.current),
+                  ]);
                 }}
                 onScroll={() => syncComposerScroll()}
                 onKeyUp={(ev) => {

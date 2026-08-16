@@ -22,6 +22,7 @@ export const messagesRu: Record<string, string> = {
   "composer.placeholderFollowUp": "Добавить уточнение",
   "composer.attachedFilesAriaLabel": "Прикреплённые файлы",
   "composer.removeAttachment": "Удалить {fileName}",
+  "composer.attachUnsupportedModel": "Выбранная модель не принимает вложения",
   "composer.attachFile": "Прикрепить файл",
   "composer.enhance": "Улучшить промпт",
   "composer.enhanceFailed": "Не удалось улучшить промпт. Черновик не изменён.",

@@ -2304,6 +2304,19 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
 }
 
+.msg-user-file-chip--image .msg-user-file-chip-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.msg-user-file-thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
 .msg-user-file-chip-name {
   flex: 1;
   overflow: hidden;
@@ -4743,6 +4756,45 @@ textarea#composer {
   align-items: center;
   justify-content: center;
   color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+/* Image attachments preview themselves instead of showing the generic type icon. */
+.composer-attachment-chip--image .composer-attachment-chip-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.composer-attachment-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* A chip the selected model cannot accept: kept visible, marked unusable. */
+.composer-attachment-chip--disabled {
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-style: dashed;
+}
+
+.composer-attachment-chip--disabled .composer-attachment-chip-icon {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.composer-attachment-chip--disabled:hover {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
+}
+
+/* Transient rejection notice for a paste the model cannot accept. */
+.composer-attach-hint {
+  padding: 6px 12px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
 }
 
 .composer-attachment-chip-name {

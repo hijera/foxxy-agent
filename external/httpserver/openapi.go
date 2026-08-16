@@ -1152,6 +1152,27 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/assets/{name}/thumbnail": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read a persisted session image thumbnail",
+					"description": "Returns the bounded PNG preview created for an uploaded image. The asset name comes from a user message **`files[].preview_url`**; arbitrary original asset bytes are not exposed by this route.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "name", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "PNG thumbnail",
+							"content": map[string]interface{}{
+								"image/png": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
@@ -2471,10 +2492,28 @@ func openAPISpec() map[string]interface{} {
 							"type":        "string",
 							"description": "YAML `models[].model` selector persisted on assistant replies (FoxxyCode extension).",
 						},
+						"files": map[string]interface{}{
+							"type":        "array",
+							"readOnly":    true,
+							"description": "FoxxyCode transcript extension for uploaded files on a user row.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeMessageFile"},
+						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
 					},
 					"required": []string{"role"},
+				},
+				"FoxxyCodeMessageFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":      map[string]string{"type": "string"},
+						"mime_type": map[string]string{"type": "string"},
+						"preview_url": map[string]interface{}{
+							"type":        "string",
+							"description": "Session-scoped URL for a bounded PNG preview; present only when the backend persisted a decodable image thumbnail.",
+						},
+					},
+					"required": []string{"name", "mime_type"},
 				},
 				"ChatCompletionRequest": map[string]interface{}{
 					"type": "object",
@@ -2553,7 +2592,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"inline_files": map[string]interface{}{
 							"type":        "array",
-							"description": "Supported for all modes. For **`agent`** / **`plan`** / **`docs`** / **`ask`**: each file is saved to `~/.foxxycode/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<foxxycode_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
+							"description": "Supported for all modes when the effective YAML model has **`multimodal: true`**. Entries sent for a non-multimodal model are ignored and never forwarded to its provider. Each accepted file is saved to `~/.foxxycode/sessions/<id>/assets/` with read-only permissions (0o444); decodable images also get a bounded PNG thumbnail for transcript history. For **`agent`** / **`plan`** / **`docs`** / **`ask`**, the model receives a `<foxxycode_session_assets>` annotation with the on-disk paths. For direct YAML model, each entry also becomes an image content part sent inline to the provider.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
 						},
 					},

@@ -22,6 +22,7 @@ export const messagesEn: Record<string, string> = {
   "composer.placeholderFollowUp": "Add a follow-up",
   "composer.attachedFilesAriaLabel": "Attached files",
   "composer.removeAttachment": "Remove {fileName}",
+  "composer.attachUnsupportedModel": "The selected model cannot accept attachments",
   "composer.attachFile": "Attach file",
   "composer.enhance": "Enhance prompt",
   "composer.enhanceFailed":
