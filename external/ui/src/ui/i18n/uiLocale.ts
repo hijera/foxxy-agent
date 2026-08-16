@@ -1,15 +1,17 @@
 import {
   readUiLocaleCookie,
-  type UiLocale,
   writeUiLocaleCookie,
   mapSystemLocaleToSupported,
   readNavigatorLanguage,
 } from "./localeCookie";
+import { isUiLocale, UI_LOCALE_DEFAULT, type UiLocale } from "./locales";
 
-export const UI_LOCALE_DEFAULT: UiLocale = "en";
+// Re-exported: the registry owns the default, but call sites have always read it
+// from here.
+export { UI_LOCALE_DEFAULT };
 
 export function resolveUiLocale(stored: UiLocale | null): UiLocale {
-  if (stored === "en" || stored === "ru") {
+  if (stored !== null && isUiLocale(stored)) {
     return stored;
   }
   return UI_LOCALE_DEFAULT;
@@ -27,13 +29,13 @@ export function readAppliedUiLocale(): UiLocale {
     return UI_LOCALE_DEFAULT;
   }
   const lang = document.documentElement.lang;
-  if (lang === "ru") {
-    return "ru";
+  if (isUiLocale(lang)) {
+    return lang;
   }
   return UI_LOCALE_DEFAULT;
 }
 
-/** Parse ?lang= from the current URL (en or ru). */
+/** Parse ?lang= from the current URL against the registered locales. */
 export function readUiLocaleFromUrl(): UiLocale | null {
   if (typeof window === "undefined") {
     return null;
@@ -43,11 +45,8 @@ export function readUiLocaleFromUrl(): UiLocale | null {
     return null;
   }
   const raw = decodeURIComponent(m[1].replace(/\+/g, " "));
-  if (raw === "ru") {
-    return "ru";
-  }
-  if (raw === "en") {
-    return "en";
+  if (isUiLocale(raw)) {
+    return raw;
   }
   return null;
 }

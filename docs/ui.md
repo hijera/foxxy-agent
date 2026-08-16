@@ -18,17 +18,16 @@ This page captures the original UI requirements and the intended end state. It i
 The Settings screen leads with two synthetic client-side tabs before the
 schema-derived config tabs:
 
-- **General** — the single app-wide **Language** picker (Auto / English / Russian).
-  It persists to the backend config (`ui.locale`) and is the only language
-  switcher across browser, desktop, and the VS Code / IntelliJ plugins (see
-  [`docs/intellij-embedding.md`](intellij-embedding.md)). The default tab.
-- **Appearance** — theme only (see below), plus the "Restart onboarding" button.
+- **General** — composer **send mode** and the live **status line** toggle.
+  The default tab.
+- **Appearance** — theme, the app-wide **Language** picker (see below), and the
+  "Restart onboarding" button.
 
 The raw `ui` config key is hidden from the schema-driven tabs (`HIDDEN_KEYS` in
-`settingsSections.ts`) so the language control is not duplicated; the key still
+`settingsSections.ts`) so the curated controls are not duplicated; the key still
 round-trips through the footer Save because the whole config doc is PUT back.
 
-## Appearance (light / dark theme)
+## Appearance (theme + language)
 
 - **Default:** dark theme on first visit.
 - **Cookie:** **`foxxycode_ui_theme`** with values **`dark`** or **`light`** (path **`/`**, **`SameSite=Lax`**).
@@ -38,6 +37,33 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **Settings sub-panels (Appearance / Skills) are mutually exclusive** — opening one closes the other. Only one sub-panel may be expanded at a time.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
+
+### Language picker
+
+- **Where:** one native **`<select>`** directly under the theme grid
+  (**`data-testid="appearance-language-select"`**, labelled by
+  **`appearance.languageLabel`**), rendered by **`AppearanceLanguagePicker`** in
+  **`external/ui/src/ui/theme/AppearanceModal.tsx`**. Options are **Auto**
+  followed by every locale registered in **`ui/i18n/locales.ts`** — the list is
+  derived, not hardcoded.
+- **Persistence:** unlike the theme picker beside it, this one writes the backend
+  config (**`ui.locale`**, values **`""`** = Auto, **`en`**, **`ru`**) through
+  **`persistUiLocalePreference`**. It is the only language switcher across
+  browser, desktop, and the VS Code / IntelliJ plugins (see
+  [`docs/intellij-embedding.md`](intellij-embedding.md)), which read that key.
+  With the Settings config doc loaded the pick is mirrored back via **`setDoc`**,
+  so a later footer **Save all** cannot restore a stale value.
+- **Auto** clears the **`foxxycode_ui_lang`** cookie so the next bootstrap
+  follows **`navigator.language`** again instead of the previously picked
+  language.
+- **Bootstrap precedence:** **`?lang=`** > config **`ui.locale`** >
+  **`foxxycode_ui_lang`** cookie > **`navigator.language`**.
+- **i18n engine:** **`external/ui/src/ui/i18n/`**. **`locales.ts`** is the single
+  registry (dictionary, label key, id); **`i18n.ts`** resolves keys against it and
+  falls back to the default locale, then to the key itself.
+- **Adding a language:** add **`messages/<id>.ts`** and one entry in
+  **`locales.ts`**. The picker, cookie validation, **`?lang=`** parsing and
+  **`messagesParity.test.ts`** all follow automatically.
 
 ## Settings: Codex OAuth
 

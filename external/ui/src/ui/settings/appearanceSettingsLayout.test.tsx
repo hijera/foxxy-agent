@@ -30,8 +30,10 @@ test("appearance renders outside the centered loading placeholder", async () => 
   await waitFor(() =>
     expect(container.querySelector(".appearance-swatch-grid")).toBeTruthy(),
   );
-  // The language picker moved to the General tab; Appearance is theme-only.
-  expect(container.querySelector('[data-testid="general-locale-picker"]')).toBeNull();
+  // The language picker sits in Appearance, directly under the theme grid.
+  expect(
+    container.querySelector('[data-testid="appearance-language-picker"]'),
+  ).toBeTruthy();
 
   // The swatch grid must not be nested inside the centered placeholder box.
   expect(
@@ -39,9 +41,14 @@ test("appearance renders outside the centered loading placeholder", async () => 
       ".settings-scroll-placeholder .appearance-swatch-grid",
     ),
   ).toBeNull();
+  expect(
+    container.querySelector(
+      '.settings-scroll-placeholder [data-testid="appearance-language-picker"]',
+    ),
+  ).toBeNull();
 });
 
-test("general (language) renders outside the centered loading placeholder", async () => {
+test("general renders outside the centered loading placeholder", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(() => new Promise<Response>(() => {})),
@@ -53,12 +60,16 @@ test("general (language) renders outside the centered loading placeholder", asyn
 
   await waitFor(() =>
     expect(
-      container.querySelector('[data-testid="general-locale-picker"]'),
+      container.querySelector('[data-testid="general-send-mode-picker"]'),
     ).toBeTruthy(),
   );
+  // General keeps the send-mode and status-line pickers; language is in Appearance.
+  expect(
+    container.querySelector('[data-testid="appearance-language-picker"]'),
+  ).toBeNull();
   expect(
     container.querySelector(
-      '.settings-scroll-placeholder [data-testid="general-locale-picker"]',
+      '.settings-scroll-placeholder [data-testid="general-send-mode-picker"]',
     ),
   ).toBeNull();
 });
