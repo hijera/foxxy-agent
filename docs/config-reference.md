@@ -89,7 +89,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | `temperature` | float | no | `0` | Sampling temperature. |
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
-| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. |
+| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series, `gpt-oss*`, `qwen3*` (qwen3, qwen3.5, qwen3.6, ...) and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. For `qwen3*` on OpenAI-compatible providers a selected level also sends `chat_template_kwargs` `{"enable_thinking": true}`. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
 ```yaml

@@ -2921,32 +2921,7 @@ a.rail-brand {
   border-radius: 0;
 }
 
-/* ── Diff view (apply_patch tool result) ────────────────────────────── */
-
-.diff-block {
-  padding: 0;
-  overflow: hidden;
-}
-
-.diff-file-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
-  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.diff-file-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* ── Diff rows (shared by the permission tool previews) ───────────── */
 
 .diff-hunk-header {
   display: block;
@@ -3034,7 +3009,7 @@ a.rail-brand {
   min-width: 0;
 }
 
-/* ── End diff view ──────────────────────────────────────────────────── */
+/* ── End diff rows ──────────────────────────────────────── */
 
 .thinking-row {
   max-width: 720px;
@@ -3296,20 +3271,6 @@ a.rail-brand {
 
 .foxxycode-tool-call-body .tool-block.tool-result-raw {
   background: transparent;
-}
-
-/* Diff-only body: body retains its padding (keeps correct left alignment with
-   summary text), but the diff-block breaks out via negative margins so the
-   diff rows sit edge-to-edge against the thinking-body border.  overflow:hidden
-   clips the diff to the parent's border-radius. */
-.foxxycode-tool-call-body--diff {
-  overflow: hidden;
-  padding: 0;
-  margin-left: 14px;
-}
-
-.foxxycode-tool-call-body--diff .diff-block {
-  /*margin: -10px -13px;*/
 }
 
 /* Interactive browser tool (foxxycode_browser_*) result card. */
