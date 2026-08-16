@@ -49,13 +49,20 @@ describe("parseSessionBusyResponse", () => {
 });
 
 describe("isNoLiveTurnRelayError", () => {
-  it("recognizes the relay's idle-session error", () => {
-    expect(isNoLiveTurnRelayError("no active composer stream")).toBe(true);
+  it("recognizes the relay's idle-session error code", () => {
+    expect(isNoLiveTurnRelayError("no_active_stream", null)).toBe(true);
+    expect(isNoLiveTurnRelayError("no_active_stream", "anything")).toBe(true);
+  });
+
+  // Servers older than the error.code field send the message alone.
+  it("still recognizes the message from a server without the code", () => {
+    expect(isNoLiveTurnRelayError(null, "no active composer stream")).toBe(true);
   });
 
   it("treats real failures as errors", () => {
-    expect(isNoLiveTurnRelayError("provider returned 500")).toBe(false);
-    expect(isNoLiveTurnRelayError(null)).toBe(false);
-    expect(isNoLiveTurnRelayError("")).toBe(false);
+    expect(isNoLiveTurnRelayError(null, "provider returned 500")).toBe(false);
+    expect(isNoLiveTurnRelayError("server_error", "boom")).toBe(false);
+    expect(isNoLiveTurnRelayError(null, null)).toBe(false);
+    expect(isNoLiveTurnRelayError("", "")).toBe(false);
   });
 });
