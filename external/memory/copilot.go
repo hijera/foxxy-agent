@@ -14,6 +14,7 @@ import (
 	memtools "github.com/hijera/foxxycode-agent/external/memory/tools"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -144,7 +145,7 @@ func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cw
 	toolDefs := memtools.ToolDefinitions(memTools)
 	toolEnv := &tooling.Env{CWD: cwd}
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: strings.TrimSpace(beforeTurnSystemPrompt)},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(beforeTurnSystemPrompt)},
 		{Role: llm.RoleUser, Content: "User message for this turn:\n" + userQuery},
 	}
 	maxTurns := cfg.Memory.PersistMaxTurns

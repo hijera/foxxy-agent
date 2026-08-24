@@ -13,6 +13,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -291,7 +292,7 @@ func buildCompactionRequest(head []llm.Message, instructions string) []llm.Messa
 		b.WriteString(s)
 	}
 	return []llm.Message{
-		{Role: llm.RoleSystem, Content: coddyCompactionSystemPrompt},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(coddyCompactionSystemPrompt)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}
 }
