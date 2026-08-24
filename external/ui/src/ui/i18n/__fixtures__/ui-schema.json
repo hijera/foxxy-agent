@@ -7,20 +7,26 @@
       "additionalProperties": false,
       "description": "Defaults for the main agent loop (model id and safety caps).",
       "properties": {
+        "llm_first_token_timeout_ms": {
+          "default": 30000,
+          "description": "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
+          "title": "LLM first token timeout ms",
+          "type": "integer"
+        },
         "llm_min_interval_ms": {
-          "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing).",
+          "description": "Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing).",
           "title": "LLM min interval ms",
           "type": "integer"
         },
         "llm_retry_base_ms": {
           "default": 1000,
-          "description": "Initial backoff between LLM retries in milliseconds.",
+          "description": "Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it.",
           "title": "LLM retry base ms",
           "type": "integer"
         },
         "llm_retry_max": {
           "default": 3,
-          "description": "Retries after retryable LLM errors such as HTTP 429 before failing the turn.",
+          "description": "Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries).",
           "title": "LLM retry max",
           "type": "integer"
         },
@@ -76,6 +82,7 @@
         "llm_retry_max",
         "llm_retry_base_ms",
         "llm_min_interval_ms",
+        "llm_first_token_timeout_ms",
         "loop_guard",
         "loop_tool_repeat_limit",
         "loop_stream_repeat_cycles",
@@ -794,6 +801,11 @@
             "title": "HTTP or SOCKS proxy",
             "type": "string"
           },
+          "timeout_ms": {
+            "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+            "title": "Request timeout ms",
+            "type": "integer"
+          },
           "type": {
             "default": "openai",
             "description": "Wire protocol for this provider entry.",
@@ -817,7 +829,8 @@
           "type",
           "api_base",
           "api_key",
-          "proxy"
+          "proxy",
+          "timeout_ms"
         ]
       },
       "title": "LLM providers",

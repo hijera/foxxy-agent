@@ -83,7 +83,7 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 		MaxTokens:     rm.MaxTokens,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 type saveCapture struct {

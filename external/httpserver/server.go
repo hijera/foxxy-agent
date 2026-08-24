@@ -173,7 +173,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		MaxTokens:     maxTok,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, error) {
@@ -199,7 +199,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		MaxTokens:     maxTok,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {

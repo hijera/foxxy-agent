@@ -398,16 +398,19 @@ func (a *Agent) runReActLoop(
 
 		sessionID := a.state.GetID()
 
-		// Cancel the stream if no output arrives before the silent-start guard. A model
-		// configured with stream: false produces nothing until the whole completion is
-		// ready, so the guard would cut every slow blocking answer: it is not armed for
-		// that transport, and the turn context remains the bound. firstTokenTimedOut
-		// records that this timer, and not the user or the loop guard, did the
-		// cancelling, which the error paths below cannot otherwise tell apart.
+		// Cancel the stream if no output arrives before the silent-start guard
+		// (agent.llm_first_token_timeout_ms). A model configured with stream: false
+		// produces nothing until the whole completion is ready, so the guard would cut
+		// every slow blocking answer: it is not armed for that transport, and the turn
+		// context remains the bound. An explicit 0 disables the guard for streaming
+		// too. firstTokenTimedOut records that this timer, and not the user or the loop
+		// guard, did the cancelling, which the error paths below cannot otherwise tell
+		// apart.
+		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
 		streamCtx, streamCancel := context.WithCancel(ctx)
 		var firstTokenTimedOut atomic.Bool
 		var firstTokenTimer *time.Timer
-		if transport.streaming {
+		if transport.streaming && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
 				firstTokenTimedOut.Store(true)
 				streamCancel()
@@ -546,7 +549,10 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
-			if errors.Is(streamErr, context.Canceled) && response != nil {
+			// A mid-generation truncation keeps its partial answer like a user
+			// stop: the user already watched the text stream in, so it must
+			// survive in the transcript next to the honest error below.
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
@@ -1275,7 +1281,8 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		MaxTokens:     rm.MaxTokens,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, a.cfg.Agent.LLMRetryMax, a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
+		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

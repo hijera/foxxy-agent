@@ -19,6 +19,9 @@ type ResolvedLLM struct {
 	// Used by auto-compaction to detect when history approaches the window.
 	MaxContextTokens int
 	Temperature      float64
+	// TimeoutMS, when positive, bounds each HTTP request to this provider
+	// (providers[].timeout_ms), including the streamed body read.
+	TimeoutMS int
 	// Stream is the transport chosen for this model (models[].stream); false means
 	// one blocking request instead of an SSE stream.
 	Stream bool
@@ -72,6 +75,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		MaxTokens:        entry.MaxTokens,
 		MaxContextTokens: entry.MaxContextTokens,
 		Temperature:      entry.Temperature,
+		TimeoutMS:        prov.TimeoutMS,
 		Stream:           entry.EffectiveStream(),
 	}, nil
 }

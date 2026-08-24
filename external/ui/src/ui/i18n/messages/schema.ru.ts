@@ -38,6 +38,9 @@ export const schemaTextRu: Record<string, string> = {
   "API key command": "Команда получения API-ключа",
   "Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable.":
     "Необязательная команда-помощник для получения учётных данных. Если api_key пуст, она запускается через определённый шелл хоста (pwsh, powershell или cmd в Windows; bash или sh в остальных системах), а её обрезанный stdout используется как ключ (как credential helpers в git/docker или AWS credential_process), позволяя получать короткоживущие или выданные при входе ключи без хранения статического секрета. При ошибке разрешение откатывается к стандартной переменной NAME_API_KEY.",
+  "Request timeout ms": "Таймаут запроса (мс)",
+  "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.":
+    "Необязательное ограничение на каждый HTTP-запрос к этому провайдеру, включая чтение потокового тела ответа. 0 (по умолчанию) означает отсутствие клиентского таймаута.",
   "HTTP or SOCKS proxy": "HTTP- или SOCKS-прокси",
   "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or connect directly when there is none.":
     "Необязательный исходящий прокси для конкретного провайдера. Используйте http:// или https:// для HTTP-прокси либо socks5:// / socks5h:// для SOCKS5 (socks5h разрешает имена хостов через прокси). Он переопределяет прокси, унаследованный из окружения или из настроек редактора. NO_PROXY по-прежнему учитывается, а локальные адреса всегда подключаются напрямую. Оставьте пустым, чтобы использовать прокси окружения/редактора (HTTP_PROXY/HTTPS_PROXY), либо прямое соединение, если его нет.",
@@ -129,14 +132,17 @@ export const schemaTextRu: Record<string, string> = {
   "Upper bound on total tokens (prompt + completion) the model may use in one agent step.":
     "Верхняя граница суммарных токенов (промпт + ответ), которые модель может использовать за один шаг агента.",
   "LLM retry max": "Макс. повторов LLM",
-  "Retries after retryable LLM errors such as HTTP 429 before failing the turn.":
-    "Число повторов после устранимых ошибок LLM (например, HTTP 429) до провала шага.",
+  "Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries).":
+    "Число повторов после устранимых ошибок LLM (например, HTTP 429) до провала шага (явный 0 отключает повторы).",
   "LLM retry base ms": "Базовая задержка повтора LLM (мс)",
-  "Initial backoff between LLM retries in milliseconds.":
-    "Начальная задержка между повторами LLM в миллисекундах.",
+  "Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it.":
+    "Начальная задержка между повторами LLM в миллисекундах; пауза, заданная сервером (Retry-After), имеет приоритет.",
   "LLM min interval ms": "Мин. интервал LLM (мс)",
-  "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing).":
-    "Минимальный промежуток между последовательными вызовами LLM в миллисекундах (0 отключает ограничение).",
+  "Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing).":
+    "Минимальный промежуток между последовательными вызовами LLM в миллисекундах, включая повторы (0 отключает ограничение).",
+  "LLM first token timeout ms": "Таймаут первого токена LLM (мс)",
+  "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).":
+    "Сколько потоковый вызов LLM может молчать, прежде чем ход его отменит (явный 0 отключает защиту).",
   "Loop guard": "Защита от зацикливания",
   "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.":
     "Останавливать ответ, выродившийся в повтор самого себя, и блокировать инструмент, который вызывают снова и снова с теми же аргументами.",
