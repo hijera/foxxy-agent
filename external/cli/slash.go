@@ -58,6 +58,9 @@ func (a *App) dispatchSlash(text string) bool {
 
 // applyMode switches the session mode through the manager.
 func (a *App) applyMode(mode string) {
+	if a.busyWithLocalShell() {
+		return
+	}
 	sessionID := a.sessionID
 	go func() {
 		if err := a.mgr.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: sessionID, ModeID: mode}); err != nil {
@@ -90,6 +93,9 @@ func (a *App) availableModes() []acp.SessionMode {
 }
 
 func (a *App) openModeSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
 	modes := a.availableModes()
 	items := make([]tui.SelectItem, 0, len(modes))
 	current := 0
@@ -145,6 +151,7 @@ func (a *App) switchTheme(name string) {
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
+	a.editor.OnChange = a.onEditorChange
 	a.editor.OnSubmit = a.onSubmit
 	provider := newCompletionProvider(a.cfg.Paths.CWD, a.slashCatalog)
 	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
@@ -167,6 +174,10 @@ func (a *App) switchTheme(name string) {
 }
 
 func (a *App) openResumeSelector() {
+	// Refuse before the picker opens, not after a session is chosen.
+	if a.busyWithLocalShell() {
+		return
+	}
 	sessionID := a.sessionID
 	go func() {
 		cwd := a.cfg.Paths.CWD
@@ -189,6 +200,7 @@ func (a *App) showHotkeys() {
 		"ctrl+l model selector · ctrl+p cycle models",
 		"shift+tab cycle reasoning · ctrl+t thinking · ctrl+o expand",
 		"up/down prompt history · / commands · @ file mention",
+		"!!<command> run it here, hidden from the agent",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
 }
@@ -198,6 +210,10 @@ type resumeList struct{ res *acp.SessionListResult }
 
 // openResumePicker shows the /resume selector over the fetched session list.
 func (a *App) openResumePicker(res *acp.SessionListResult) {
+	// The list arrives asynchronously: a command may have started since.
+	if a.busyWithLocalShell() {
+		return
+	}
 	if res == nil || len(res.Sessions) == 0 {
 		a.appendStatus(roleDim, "No sessions to resume in this folder")
 		return
@@ -230,6 +246,10 @@ func (a *App) openResumePicker(res *acp.SessionListResult) {
 // same way as /new: never while another switch runs, and only after a live
 // turn has ended.
 func (a *App) resumeInto(id string) {
+	if a.shellActive {
+		a.appendStatus(roleWarning, "A local command is running (escape to stop it)")
+		return
+	}
 	if a.switching {
 		a.appendStatus(roleWarning, "A session switch is already in progress")
 		return
