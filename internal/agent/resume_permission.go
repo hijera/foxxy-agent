@@ -166,7 +166,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	if ModeAllowsMCPTools(mode, askBasicOnly) {
 		toolDefs = append(toolDefs, a.mcpToolDefinitions(mode, askBasicOnly)...)
 	}
-	provider, err := a.getProvider(mode)
+	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
@@ -179,7 +179,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
-	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, false)
+	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, false)
 }
 
 func lastUserText(msgs []llm.Message) string {

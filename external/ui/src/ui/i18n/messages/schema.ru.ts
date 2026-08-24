@@ -69,6 +69,9 @@ export const schemaTextRu: Record<string, string> = {
   "Default reasoning level": "Уровень рассуждения по умолчанию",
   "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.":
     "Уровень рассуждения, выбранный по умолчанию для новых чатов с этой моделью. Должен быть одним из доступных уровней; иначе игнорируется.",
+  "Stream responses": "Потоковая выдача ответа",
+  "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.":
+    "Оставьте включённым, чтобы получать ответ по токенам через SSE. Выключите, чтобы отправлять один блокирующий запрос и ждать ответ целиком — для серверов и прокси, которые плохо работают с потоками событий; тогда транскрипт заполняется разом, а не печатается. Недоступно для моделей codex: их бэкенд работает только потоком.",
 
   // MCP servers (+ env / headers)
   "MCP servers": "Серверы MCP",

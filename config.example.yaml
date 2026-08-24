@@ -89,6 +89,13 @@ models:
   #   reasoning_default: medium
   #   multimodal: false
 
+  # Servers and proxies that handle SSE badly can be talked to without streaming:
+  # one blocking request, whole answer at once. Nothing appears until the model is
+  # done, and Stop during the call loses the answer. Not available for codex models.
+  # - model: "local/qwen3-30b"
+  #   max_tokens: 8192
+  #   stream: false
+
 agent:
   model: "openai/gpt-4o"
   max_turns: 30

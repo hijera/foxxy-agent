@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -184,7 +185,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 
 	// Get or create LLM provider.
-	provider, err := a.getProvider(mode)
+	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
@@ -255,7 +256,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 	a.wireFileEditHook(toolEnv)
 
-	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
+	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
 }
 
 // wireFileEditHook connects Env.OnFileEdit to the update sender so filesystem writes are
@@ -320,7 +321,7 @@ func (a *Agent) runReActLoop(
 	mode string,
 	messages []llm.Message,
 	toolDefs []llm.ToolDefinition,
-	provider llm.Provider,
+	transport llmTransport,
 	toolEnv *tools.Env,
 	sd, userText string,
 	contextFiles []string,
@@ -370,7 +371,7 @@ func (a *Agent) runReActLoop(
 			if turn > 0 && a.maybeAutoCompact(ctx) {
 				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
 			}
-		} else if did, err := a.maybeCompact(ctx, provider, lastInputTokens); err != nil {
+		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
 			}
@@ -397,9 +398,26 @@ func (a *Agent) runReActLoop(
 
 		sessionID := a.state.GetID()
 
-		// Cancel the stream if no output arrives before the silent-start guard.
+		// Cancel the stream if no output arrives before the silent-start guard. A model
+		// configured with stream: false produces nothing until the whole completion is
+		// ready, so the guard would cut every slow blocking answer: it is not armed for
+		// that transport, and the turn context remains the bound. firstTokenTimedOut
+		// records that this timer, and not the user or the loop guard, did the
+		// cancelling, which the error paths below cannot otherwise tell apart.
 		streamCtx, streamCancel := context.WithCancel(ctx)
-		firstTokenTimer := time.AfterFunc(firstTokenTimeout, streamCancel)
+		var firstTokenTimedOut atomic.Bool
+		var firstTokenTimer *time.Timer
+		if transport.streaming {
+			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
+				firstTokenTimedOut.Store(true)
+				streamCancel()
+			})
+		}
+		stopFirstTokenTimer := func() {
+			if firstTokenTimer != nil {
+				firstTokenTimer.Stop()
+			}
+		}
 
 		// One detector per streamed channel: a degenerating thinking channel burns
 		// exactly as many tokens as visible text while showing nothing in the
@@ -410,9 +428,14 @@ func (a *Agent) runReActLoop(
 		loopAbort := loopAbortNone
 
 		emitReason := func(d string, now time.Time) {
-			firstTokenTimer.Stop()
+			stopFirstTokenTimer()
 			reasoningBuf.WriteString(d)
-			if reasonClockStart.IsZero() {
+			// The clock measures wall time between the first reasoning delta and the
+			// first answer text. A blocking response replays both back to back once
+			// generation has already finished, so the only honest reading is none:
+			// leaving the clock unset omits reasoning_duration_ms instead of
+			// persisting a fabricated millisecond.
+			if transport.streaming && reasonClockStart.IsZero() {
 				reasonClockStart = now
 			}
 			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
@@ -421,7 +444,7 @@ func (a *Agent) runReActLoop(
 			})
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
-			firstTokenTimer.Stop()
+			stopFirstTokenTimer()
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -434,7 +457,7 @@ func (a *Agent) runReActLoop(
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
 		sendMessages := a.prunedForLLM(messages)
-		response, streamErr = provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -481,10 +504,10 @@ func (a *Agent) runReActLoop(
 					Kind:          toolKind(chunk.ToolCall.Name),
 					Status:        "pending",
 				})
-				firstTokenTimer.Stop()
+				stopFirstTokenTimer()
 			}
 		})
-		firstTokenTimer.Stop()
+		stopFirstTokenTimer()
 		streamCancel()
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
@@ -512,8 +535,9 @@ func (a *Agent) runReActLoop(
 		}
 
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
-		// surface a timeout error instead of a silent failure.
-		if streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
+		// surface a timeout error instead of a silent failure. The timer itself reports
+		// that it fired, so a cancellation from anywhere else is never mislabelled.
+		if firstTokenTimedOut.Load() && streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
 			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
 				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
 			if !hasAnyOutput {
@@ -649,7 +673,7 @@ func (a *Agent) runReActLoop(
 			titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			go func() {
 				defer titleCancel()
-				a.maybeGenerateTitle(titleCtx, provider)
+				a.maybeGenerateTitle(titleCtx, transport.provider)
 			}()
 		}
 
@@ -1206,16 +1230,25 @@ func reasoningForStorage(trimmed, exact string, response *llm.Response) (text, s
 	return trimmed, ""
 }
 
+// llmTransport pairs a provider with the transport it was built for. The ReAct
+// loop needs the distinction: a provider for a model with stream: false answers
+// in one piece after the whole completion is generated, so guards that expect
+// chunks to arrive progressively do not apply to it.
+type llmTransport struct {
+	provider  llm.Provider
+	streaming bool
+}
+
 // getProvider creates the LLM provider for the given mode.
-func (a *Agent) getProvider(mode string) (llm.Provider, error) {
+func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	modelID := a.state.EffectiveModelID(a.cfg)
 	if modelID == "" {
-		return nil, fmt.Errorf("no model configured")
+		return llmTransport{}, fmt.Errorf("no model configured")
 	}
 
 	rm, err := a.cfg.ResolveLLM(modelID)
 	if err != nil {
-		return nil, err
+		return llmTransport{}, err
 	}
 
 	mk := a.providerFactory
@@ -1224,19 +1257,24 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 	}
 	in := a.llmProviderInput(rm)
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
-	return mk(in)
+	provider, err := mk(in)
+	if err != nil {
+		return llmTransport{}, err
+	}
+	return llmTransport{provider: provider, streaming: rm.Stream}, nil
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	return llm.WithAgentResilience(llm.ProviderInput{
-		Type:        rm.ProviderType,
-		Model:       rm.Model,
-		APIKey:      rm.APIKey,
-		BaseURL:     rm.BaseURL,
-		ProxyURL:    rm.ProxyURL,
-		AuthPath:    rm.AuthPath,
-		MaxTokens:   rm.MaxTokens,
-		Temperature: rm.Temperature,
+		Type:          rm.ProviderType,
+		Model:         rm.Model,
+		APIKey:        rm.APIKey,
+		BaseURL:       rm.BaseURL,
+		ProxyURL:      rm.ProxyURL,
+		AuthPath:      rm.AuthPath,
+		MaxTokens:     rm.MaxTokens,
+		Temperature:   rm.Temperature,
+		DisableStream: !rm.Stream,
 	}, a.cfg.Agent.LLMRetryMax, a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
 }
 
