@@ -1665,20 +1665,42 @@ export function Composer(props: {
           {t("composer.messageLabel")}
         </label>
         <div className="composer-card" ref={composerCardRef}>
-          {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-            <WorkspaceChips
-              context={props.workspaceCtx ?? null}
-              worktreePref={props.worktreePref ?? false}
-              svnFolderPref={props.svnFolderPref ?? false}
-              onPickFolder={props.onWorkspacePickFolder}
-              onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-              onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-              onPickSvnBranch={props.onWorkspacePickSvnBranch ?? (() => {})}
-              onSvnFolderToggle={props.onSvnFolderToggle ?? (() => {})}
-              opensUp={!props.isEmpty}
-              locked={props.workspaceLocked ?? false}
-            />
-          ) : null}
+          <div className="composer-context-row">
+            {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
+              <WorkspaceChips
+                context={props.workspaceCtx ?? null}
+                worktreePref={props.worktreePref ?? false}
+                svnFolderPref={props.svnFolderPref ?? false}
+                onPickFolder={props.onWorkspacePickFolder}
+                onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
+                onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
+                onPickSvnBranch={props.onWorkspacePickSvnBranch ?? (() => {})}
+                onSvnFolderToggle={props.onSvnFolderToggle ?? (() => {})}
+                opensUp={!props.isEmpty}
+                locked={props.workspaceLocked ?? false}
+              />
+            ) : null}
+            <button
+              type="button"
+              className="composer-enhance-btn"
+              aria-label={t("composer.enhance")}
+              title={t("composer.enhance")}
+              data-testid="composer-enhance-btn"
+              disabled={enhancing || props.generating || idleSendDisabled}
+              onClick={() => void enhancePrompt()}
+            >
+              <svg
+                className={enhancing ? "composer-enhance-icon is-spinning" : "composer-enhance-icon"}
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                width="12"
+                height="12"
+                aria-hidden="true"
+              >
+                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+              </svg>
+            </button>
+          </div>
           {(props.editingFiles && props.editingFiles.length > 0) || attachedFiles.length > 0 ? (
             <div className="composer-attachments" aria-label={t("composer.attachedFilesAriaLabel")}>
               {(props.editingFiles || []).map((f, idx) => {
@@ -1948,26 +1970,6 @@ export function Composer(props: {
 
           <div className="composer-bar">
             <div className="composer-tabs" aria-label={t("composer.composerOptions")}>
-              <button
-                type="button"
-                className="composer-tab composer-enhance-btn"
-                aria-label={t("composer.enhance")}
-                title={t("composer.enhance")}
-                data-testid="composer-enhance-btn"
-                disabled={enhancing || props.generating || idleSendDisabled}
-                onClick={() => void enhancePrompt()}
-              >
-                <svg
-                  className={enhancing ? "composer-enhance-icon is-spinning" : "composer-enhance-icon"}
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  width="14"
-                  height="14"
-                  aria-hidden="true"
-                >
-                  <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
-                </svg>
-              </button>
               {props.llmModelMultimodal ? (
                 <>
                   <input

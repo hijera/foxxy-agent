@@ -4258,12 +4258,21 @@ textarea#composer {
   padding: 7px 9px;
 }
 
-.composer-context-chips {
+.composer-context-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 10px 12px 0;
+}
+
+/* display:contents dissolves this wrapper so the environment, folder, branch and
+   worktree chips become direct flex items of .composer-context-row. Without it
+   the chips form a nested flex box that wraps as one unit, so a long branch
+   pushed the whole group onto its own lines. Gap, alignment and padding come
+   from .composer-context-row. */
+.composer-context-chips {
+  display: contents;
 }
 
 .workspace-chip {
@@ -4692,10 +4701,33 @@ textarea#composer {
 }
 
 .composer-enhance-btn {
+  flex: 0 0 24px;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 7px 9px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text) 68%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+@media (max-width: 520px) {
+  .composer-context-row {
+    position: relative;
+    padding-right: 44px;
+  }
+
+  .composer-enhance-btn {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    margin-left: 0;
+  }
 }
 
 .composer-enhance-btn:disabled {
