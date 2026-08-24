@@ -792,7 +792,7 @@
           "name": {
             "default": "openai",
             "description": "Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).",
-            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_\\-]*$",
             "title": "Provider name",
             "type": "string"
           },
