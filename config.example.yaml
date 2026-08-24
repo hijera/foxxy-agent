@@ -51,6 +51,11 @@ providers:
 
   # NeuralDeep hub: OpenAI-compatible with a fixed endpoint, so api_base is
   # neither needed nor honoured (requests always go to https://api.neuraldeep.ru/v1).
+  # Instead of pasting a key, sign in with your hub account: `foxxycode providers
+  # login neuraldeep` (browser flow; --device for headless) or Sign In with
+  # NeuralDeep in the bundled web UI. The key lands under
+  # $FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json; an explicit api_key,
+  # api_key_command, or NEURALDEEP_API_KEY env var still wins when set.
   # - name: neuraldeep
   #   type: neuraldeep
   #   api_key: "${NEURALDEEP_API_KEY}"

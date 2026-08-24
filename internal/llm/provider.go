@@ -170,9 +170,25 @@ const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
 // default applies).
 func providerBaseURL(providerType, configured string) string {
 	if providerType == "neuraldeep" {
-		return neuralDeepBaseURL
+		// Pinned to the official endpoint; FOXXYCODE_NEURALDEEP_BASE_URL lets
+		// tests and stands redirect the process as a whole (config cannot).
+		return neuralDeepAPIBase()
 	}
 	return strings.TrimSpace(configured)
+}
+
+// neuralDeepEffectiveKey resolves the request credential for a neuraldeep
+// provider: an explicit api_key (or command/env, already merged into APIKey)
+// wins; otherwise the key stored by `foxxycode providers login` is used.
+func neuralDeepEffectiveKey(explicit, authPath string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
+	}
+	key, err := LoadNeuralDeepKey(authPath)
+	if err != nil {
+		return ""
+	}
+	return key
 }
 
 // NewProvider creates the appropriate Provider from a model definition.
@@ -194,7 +210,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "anthropic":
 		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless

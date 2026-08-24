@@ -130,6 +130,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)
