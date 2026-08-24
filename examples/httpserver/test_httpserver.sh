@@ -72,6 +72,8 @@ python3 "$HTTP_DIR/http_e2e_rules.py"
 python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
+# Stages, commits, and rolls back a config edit; leaves the server config unchanged.
+python3 "$HTTP_DIR/http_e2e_config.py"
 python3 "$HTTP_DIR/http_e2e_background.py"
 # Self-contained: boots its own foxxycode, kills it mid-task, and makes a fresh
 # one reap what the killed run left behind.

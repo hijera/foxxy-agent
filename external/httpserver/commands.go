@@ -144,6 +144,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 
 	var srv *acp.Server
 	var mgr *session.Manager
+	var s *Server
 	live := func() *config.Config {
 		if mgr != nil {
 			return mgr.Cfg()
@@ -154,6 +155,14 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		c := live()
 		loop := agent.NewAgent(c, st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			warnings, err := mgr.ReloadConfigForSession(ctx, st)
+			if err == nil && s != nil {
+				s.ReplaceConfig(mgr.Cfg())
+				s.invalidateSlashCache()
+			}
+			return warnings, err
+		})
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
@@ -175,7 +184,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		}
 	}
 
-	s := New(cfg, mgr, log, paths.CWD)
+	s = New(cfg, mgr, log, paths.CWD)
 
 	// Out-of-band bearer tokens (--auth-token, then FOXXYCODE_HTTP_TOKEN) enable auth without
 	// storing the secret in config.yaml; they union with httpserver.auth_token.

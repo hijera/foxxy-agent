@@ -160,12 +160,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	userText := lastUserText(a.state.GetMessages())
 	contextFiles := extractContextFiles(nil)
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
-	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
-	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
-	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if ModeAllowsMCPTools(mode, askBasicOnly) {
-		toolDefs = append(toolDefs, a.mcpToolDefinitions(mode, askBasicOnly)...)
-	}
+	toolDefs := a.currentToolDefinitions(mode)
 	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
