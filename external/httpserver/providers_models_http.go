@@ -15,6 +15,7 @@ func (s *Server) registerProvidersRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/providers/{name}/models", s.foxxycodeProviderModelsGet)
 	s.mux.HandleFunc("POST /foxxycode/providers/models-probe", s.foxxycodeProviderModelsProbe)
 	s.registerCodexAuthRoutes()
+	s.registerNeuralDeepAuthRoutes()
 }
 
 // foxxycodeProviderModelsGet fetches the model list advertised by a configured
@@ -52,7 +53,7 @@ func (s *Server) foxxycodeProviderModelsGet(w http.ResponseWriter, r *http.Reque
 		APIKey:   prov.EffectiveAPIKey(),
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
-		AuthPath: config.CodexAuthPath(c.Paths.Home, prov.Name),
+		AuthPath: config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 	})
 	writeProviderModelsResult(w, models, err)
 }
@@ -87,8 +88,13 @@ func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Req
 		BaseURL:  in.APIBase,
 		ProxyURL: in.Proxy,
 	}
-	if in.Type == "codex" {
-		probe := config.ProviderConfig{Name: strings.TrimSpace(in.ProviderName), Type: "codex"}
+	// Both managed-credential types are probed before the provider exists in
+	// config.yaml: onboarding signs in first and lists models second, so the
+	// catalog has to be readable from the stored credential alone. A neuraldeep
+	// probe that carries its own api_key needs no stored login, and therefore no
+	// provider name either - the explicit key wins in NewProvider as well.
+	if in.Type == "codex" || (in.Type == "neuraldeep" && strings.TrimSpace(in.APIKey) == "") {
+		probe := config.ProviderConfig{Name: strings.TrimSpace(in.ProviderName), Type: in.Type}
 		probe.Normalize()
 		if err := probe.Validate(); err != nil {
 			writeFoxxyCodeConfigErr(w, http.StatusBadRequest, err.Error())
@@ -99,7 +105,7 @@ func (s *Server) foxxycodeProviderModelsProbe(w http.ResponseWriter, r *http.Req
 			writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "config home unavailable")
 			return
 		}
-		providerInput.AuthPath = config.CodexAuthPath(c.Paths.Home, probe.Name)
+		providerInput.AuthPath = config.ProviderAuthPath(c.Paths.Home, probe.Name, probe.Type)
 	}
 
 	models, err := llm.ListModels(r.Context(), providerInput)

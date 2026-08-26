@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -73,6 +74,11 @@ type Agent struct {
 	registry        *tools.Registry
 	environment     platform.Environment
 	providerFactory func(llm.ProviderInput) (llm.Provider, error)
+	configReloader  func(context.Context) ([]string, error)
+
+	// titleOnce keeps the session-title pass to a single launch per turn, whichever
+	// exit path reaches it first.
+	titleOnce sync.Once
 
 	imgMu             sync.Mutex
 	pendingToolImages []llm.ImagePart
@@ -127,6 +133,14 @@ func (a *Agent) SetProviderFactory(mk func(llm.ProviderInput) (llm.Provider, err
 	a.providerFactory = mk
 }
 
+// SetConfigReloader wires config_commit and config_rollback to the process/session runtime owner.
+func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)) {
+	if a == nil {
+		return
+	}
+	a.configReloader = reload
+}
+
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
 	mode := a.state.GetMode()
@@ -176,15 +190,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
-	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
-	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if ModeAllowsMCPTools(mode, askBasicOnly) {
-		toolDefs = append(toolDefs, a.mcpToolDefinitions(mode, askBasicOnly)...)
-	}
+	toolDefs := a.currentToolDefinitions(mode)
 
 	// Get or create LLM provider.
-	provider, err := a.getProvider(mode)
+	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
@@ -243,9 +252,27 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
 		LoadSkillBody:     a.loadSkillBody,
+		ConfigPath:        a.cfg.Paths.ConfigPath,
+		ConfigHome:        a.cfg.Paths.Home,
+		ConfigCWD:         a.cfg.Paths.CWD,
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+	}
+	if a.configReloader != nil {
+		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
+			warnings, err := a.configReloader(ctx)
+			if err != nil {
+				return warnings, err
+			}
+			next, err := config.LoadWithPaths(a.cfg.Paths)
+			if err != nil {
+				return warnings, err
+			}
+			a.cfg = next
+			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			return warnings, nil
+		}
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -255,7 +282,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 	a.wireFileEditHook(toolEnv)
 
-	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
+	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
 }
 
 // wireFileEditHook connects Env.OnFileEdit to the update sender so filesystem writes are
@@ -282,10 +309,6 @@ func (a *Agent) wireFileEditHook(env *tools.Env) {
 // gpt-oss / harmony endpoints that leak a tool call into the reasoning channel — while
 // preventing an unbounded empty-turn loop.
 const maxEmptyAssistantContinuations = 2
-
-// firstTokenTimeout bounds a silent provider/proxy stall. It intentionally applies only until the
-// first streamed output; long-running responses remain unrestricted after data starts arriving.
-const firstTokenTimeout = 30 * time.Second
 
 // emptyAssistantContinuationNudge is injected into the LLM-facing message slice (never
 // persisted to the transcript) to prompt the model to produce its answer or a tool call
@@ -320,7 +343,7 @@ func (a *Agent) runReActLoop(
 	mode string,
 	messages []llm.Message,
 	toolDefs []llm.ToolDefinition,
-	provider llm.Provider,
+	transport llmTransport,
 	toolEnv *tools.Env,
 	sd, userText string,
 	contextFiles []string,
@@ -370,7 +393,7 @@ func (a *Agent) runReActLoop(
 			if turn > 0 && a.maybeAutoCompact(ctx) {
 				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
 			}
-		} else if did, err := a.maybeCompact(ctx, provider, lastInputTokens); err != nil {
+		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
 			}
@@ -397,9 +420,29 @@ func (a *Agent) runReActLoop(
 
 		sessionID := a.state.GetID()
 
-		// Cancel the stream if no output arrives before the silent-start guard.
+		// Cancel the stream if no output arrives before the silent-start guard
+		// (agent.llm_first_token_timeout_ms). A model configured with stream: false
+		// produces nothing until the whole completion is ready, so the guard would cut
+		// every slow blocking answer: it is not armed for that transport, and the turn
+		// context remains the bound. An explicit 0 disables the guard for streaming
+		// too. firstTokenTimedOut records that this timer, and not the user or the loop
+		// guard, did the cancelling, which the error paths below cannot otherwise tell
+		// apart.
+		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
 		streamCtx, streamCancel := context.WithCancel(ctx)
-		firstTokenTimer := time.AfterFunc(firstTokenTimeout, streamCancel)
+		var firstTokenTimedOut atomic.Bool
+		var firstTokenTimer *time.Timer
+		if transport.streaming && firstTokenTimeout > 0 {
+			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
+				firstTokenTimedOut.Store(true)
+				streamCancel()
+			})
+		}
+		stopFirstTokenTimer := func() {
+			if firstTokenTimer != nil {
+				firstTokenTimer.Stop()
+			}
+		}
 
 		// One detector per streamed channel: a degenerating thinking channel burns
 		// exactly as many tokens as visible text while showing nothing in the
@@ -410,9 +453,14 @@ func (a *Agent) runReActLoop(
 		loopAbort := loopAbortNone
 
 		emitReason := func(d string, now time.Time) {
-			firstTokenTimer.Stop()
+			stopFirstTokenTimer()
 			reasoningBuf.WriteString(d)
-			if reasonClockStart.IsZero() {
+			// The clock measures wall time between the first reasoning delta and the
+			// first answer text. A blocking response replays both back to back once
+			// generation has already finished, so the only honest reading is none:
+			// leaving the clock unset omits reasoning_duration_ms instead of
+			// persisting a fabricated millisecond.
+			if transport.streaming && reasonClockStart.IsZero() {
 				reasonClockStart = now
 			}
 			_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
@@ -421,7 +469,7 @@ func (a *Agent) runReActLoop(
 			})
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
-			firstTokenTimer.Stop()
+			stopFirstTokenTimer()
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -434,7 +482,7 @@ func (a *Agent) runReActLoop(
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
 		sendMessages := a.prunedForLLM(messages)
-		response, streamErr = provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -481,10 +529,10 @@ func (a *Agent) runReActLoop(
 					Kind:          toolKind(chunk.ToolCall.Name),
 					Status:        "pending",
 				})
-				firstTokenTimer.Stop()
+				stopFirstTokenTimer()
 			}
 		})
-		firstTokenTimer.Stop()
+		stopFirstTokenTimer()
 		streamCancel()
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
@@ -512,8 +560,9 @@ func (a *Agent) runReActLoop(
 		}
 
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
-		// surface a timeout error instead of a silent failure.
-		if streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
+		// surface a timeout error instead of a silent failure. The timer itself reports
+		// that it fired, so a cancellation from anywhere else is never mislabelled.
+		if firstTokenTimedOut.Load() && streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
 			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
 				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
 			if !hasAnyOutput {
@@ -522,7 +571,10 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
-			if errors.Is(streamErr, context.Canceled) && response != nil {
+			// A mid-generation truncation keeps its partial answer like a user
+			// stop: the user already watched the text stream in, so it must
+			// survive in the transcript next to the honest error below.
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
@@ -555,6 +607,13 @@ func (a *Agent) runReActLoop(
 				}
 			}
 			if errors.Is(streamErr, context.Canceled) {
+				// A stopped turn is still a conversation the user opened, and the title is
+				// built from their first message rather than from the answer - so it must
+				// not depend on the turn running to completion. Launched before the returns
+				// below, which are the paths a Stop actually takes.
+				if allowTitleGen {
+					a.startTitleGeneration(transport.provider)
+				}
 				// If output was already streamed, treat as a clean user-stop regardless.
 				hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
 					len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
@@ -642,15 +701,9 @@ func (a *Agent) runReActLoop(
 		a.refreshConversationContextUsage(true)
 
 		// After the first assistant response, generate a short session title off the hot path.
-		// Internal guards make this a no-op when the title is pinned or already generated, and it
-		// uses a detached context so it survives the turn ending. Non-fatal by design. Only the
-		// fresh-prompt path titles; resume/continue turns never do.
+		// Only the fresh-prompt path titles; resume/continue turns never do.
 		if allowTitleGen && turn == 0 {
-			titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			go func() {
-				defer titleCancel()
-				a.maybeGenerateTitle(titleCtx, provider)
-			}()
+			a.startTitleGeneration(transport.provider)
 		}
 
 		// If no tool calls, we're done — unless the model produced no visible answer at
@@ -721,6 +774,20 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
+		}
+		if toolEnv.ConfigReloaded {
+			// config_commit or config_rollback replaced the live configuration.
+			// Refresh everything the next model call depends on, at the safe
+			// boundary between two calls rather than mid-flight.
+			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
+			toolDefs = a.currentToolDefinitions(mode)
+			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
+			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
+			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
+			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
+			toolEnv.Background = a.backgroundPool(sd)
+			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
+			toolEnv.ConfigReloaded = false
 		}
 		// The model made progress (executed tool calls), so reset the empty-turn counter. The
 		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow
@@ -945,6 +1012,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				requiresPerm = true
 			}
 		}
+	} else if configWriteTool(tc.Name) {
+		// Committing or rolling back the agent's own configuration can start
+		// new MCP processes and change the permission policy itself, so
+		// accept_edits does NOT auto-approve it the way it approves project
+		// file writes. Only the explicit bypass mode skips the prompt.
+		requiresPerm = env.PermissionMode != config.PermModeBypass
 	} else if filesystemWriteTool(tc.Name) {
 		switch env.PermissionMode {
 		case config.PermModeBypass, config.PermModeAcceptEdits:
@@ -965,6 +1038,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	}
 
 	if requiresPerm && !skipPermission {
+		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
+		if tc.Name == "config_commit" {
+			// The commit call itself carries no arguments, so the dialog must
+			// show the staged commands it would apply (secrets redacted) -
+			// otherwise the operator confirms blindly.
+			if pending := tools.PendingConfigSummary(env); len(pending) > 0 {
+				promptBody += "\n\nStaged config commands to be committed:\n" + strings.Join(pending, "\n")
+			}
+		}
+		if tc.Name == "config_rollback" {
+			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
+				"changes committed after that snapshot leave the active file."
+		}
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -973,7 +1059,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				Kind:       toolKind(tc.Name),
 				Status:     "pending",
 				Content: []acp.ToolCallResultItem{
-					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: permission.PromptBody(tc.Name, tc.InputJSON)}},
+					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: promptBody}},
 				},
 			},
 			Options: permission.Options(tc.Name, tc.InputJSON),
@@ -1049,6 +1135,33 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	})
 
 	return result, execErr
+}
+
+// currentToolDefinitions builds the definition list for mode, reflecting the
+// configuration in force right now. It is called again after config_commit so a
+// tool the reload enabled or disabled reaches the model in the same turn.
+func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
+	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
+	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
+	available := a.registry.AllToolDefinitions()
+	if a.configReloader == nil {
+		// Without a runtime reloader the staged config flow cannot commit, so
+		// the whole editing family is hidden; config_get stays read-only.
+		filtered := available[:0]
+		for _, definition := range available {
+			switch definition.Name {
+			case "config_set", "config_changes", "config_commit", "config_revert", "config_rollback":
+			default:
+				filtered = append(filtered, definition)
+			}
+		}
+		available = filtered
+	}
+	defs := FilterToolDefinitions(available, toolSet)
+	if ModeAllowsMCPTools(mode, askBasicOnly) {
+		defs = append(defs, a.mcpToolDefinitions(mode, askBasicOnly)...)
+	}
+	return defs
 }
 
 // mcpToolDefinitions converts the tools of connected MCP clients into LLM tool
@@ -1206,16 +1319,39 @@ func reasoningForStorage(trimmed, exact string, response *llm.Response) (text, s
 	return trimmed, ""
 }
 
+// startTitleGeneration launches the session-title pass off the hot path, at most
+// once per turn. Internal guards in maybeGenerateTitle make it a no-op when the
+// title is pinned or already generated, and the detached context lets it outlive
+// the turn that started it - including a turn the user stopped. Non-fatal by design.
+func (a *Agent) startTitleGeneration(provider llm.Provider) {
+	a.titleOnce.Do(func() {
+		titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		go func() {
+			defer titleCancel()
+			a.maybeGenerateTitle(titleCtx, provider)
+		}()
+	})
+}
+
+// llmTransport pairs a provider with the transport it was built for. The ReAct
+// loop needs the distinction: a provider for a model with stream: false answers
+// in one piece after the whole completion is generated, so guards that expect
+// chunks to arrive progressively do not apply to it.
+type llmTransport struct {
+	provider  llm.Provider
+	streaming bool
+}
+
 // getProvider creates the LLM provider for the given mode.
-func (a *Agent) getProvider(mode string) (llm.Provider, error) {
+func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	modelID := a.state.EffectiveModelID(a.cfg)
 	if modelID == "" {
-		return nil, fmt.Errorf("no model configured")
+		return llmTransport{}, fmt.Errorf("no model configured")
 	}
 
 	rm, err := a.cfg.ResolveLLM(modelID)
 	if err != nil {
-		return nil, err
+		return llmTransport{}, err
 	}
 
 	mk := a.providerFactory
@@ -1224,20 +1360,26 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 	}
 	in := a.llmProviderInput(rm)
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
-	return mk(in)
+	provider, err := mk(in)
+	if err != nil {
+		return llmTransport{}, err
+	}
+	return llmTransport{provider: provider, streaming: rm.Stream}, nil
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	return llm.WithAgentResilience(llm.ProviderInput{
-		Type:        rm.ProviderType,
-		Model:       rm.Model,
-		APIKey:      rm.APIKey,
-		BaseURL:     rm.BaseURL,
-		ProxyURL:    rm.ProxyURL,
-		AuthPath:    rm.AuthPath,
-		MaxTokens:   rm.MaxTokens,
-		Temperature: rm.Temperature,
-	}, a.cfg.Agent.LLMRetryMax, a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
+		Type:          rm.ProviderType,
+		Model:         rm.Model,
+		APIKey:        rm.APIKey,
+		BaseURL:       rm.BaseURL,
+		ProxyURL:      rm.ProxyURL,
+		AuthPath:      rm.AuthPath,
+		MaxTokens:     rm.MaxTokens,
+		Temperature:   rm.Temperature,
+		DisableStream: !rm.Stream,
+		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
@@ -1325,11 +1467,12 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "keep_result", "glob", "grep", "websearch", "webfetch":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get", "config_changes":
 		return "read"
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv",
 		"svn_add", "svn_revert", "svn_resolve", "svn_update", "svn_commit",
-		"svn_switch", "svn_merge", "svn_checkout":
+		"svn_switch", "svn_merge", "svn_checkout",
+		"config_commit", "config_rollback":
 		return "write"
 	case "run_command":
 		return "run_command"
@@ -1343,6 +1486,18 @@ func filesystemWriteTool(name string) bool {
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv",
 		"svn_add", "svn_revert", "svn_resolve", "svn_update", "svn_commit",
 		"svn_switch", "svn_merge", "svn_checkout":
+		return true
+	default:
+		return false
+	}
+}
+
+// configWriteTool names the tools that write the agent's own configuration.
+// They get a stricter permission policy than project file writes: accept_edits
+// never auto-approves them (see executeToolCall).
+func configWriteTool(name string) bool {
+	switch name {
+	case "config_commit", "config_rollback":
 		return true
 	default:
 		return false

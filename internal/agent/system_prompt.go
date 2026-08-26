@@ -91,7 +91,13 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		Instructions:   instructionsMD,
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
-	full = languageDirective(a.cfg.UI.Locale) + "\n\n" + full
+	// The identity sentence has to fall inside the window a gateway inspects (see
+	// internal/prompts/identity.go), and this fork opens its prompts with a language
+	// directive long enough to push a template's own opening out of that window. So
+	// the identity is prepended in front of the directive rather than applied to the
+	// finished prompt, and the built-in templates stay generic - otherwise the line
+	// would appear twice.
+	full = prompts.WithIdentity(languageDirective(a.cfg.UI.Locale) + "\n\n" + full)
 	// Appended outside the configurable template so custom prompts cannot drop IDE metadata or platform facts.
 	full = joinNonEmptyPromptBlocks(full, intellijContextMD, a.environment.PromptContext())
 	if _, ok := a.state.(rulesState); ok {

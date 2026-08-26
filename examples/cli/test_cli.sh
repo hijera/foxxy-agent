@@ -51,6 +51,7 @@ CORE_SCRIPTS=(
   cli_e2e_resume.py
   cli_e2e_compact.py
   cli_e2e_toolcalls_persist.py
+  cli_e2e_config.py
 )
 ALL_SCRIPTS=(
   cli_smoke.py

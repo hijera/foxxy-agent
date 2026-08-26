@@ -358,6 +358,24 @@ export const messagesRu: Record<string, string> = {
   "settings.codexAuth.providerNameRequired":
     "Перед входом укажите имя провайдера.",
   "settings.mcp.legend": "Серверы MCP",
+  "settings.neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
+  "settings.neuralDeepAuth.error.incompleteResponse":
+    "Хаб вернул неполный ответ входа.",
+  "settings.neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
+  "settings.neuralDeepAuth.description":
+    "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для FoxxyCode. Ключ хранится на сервере FoxxyCode и не попадает в config.yaml. Модели тарифа добавьте в разделе Логические модели - пикер моделей подтянет каталог с этим входом.",
+  "settings.neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
+  "settings.neuralDeepAuth.shadowedByKey":
+    "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
+  "settings.neuralDeepAuth.enterCode": "Введите этот одноразовый код на странице NeuralDeep:",
+  "settings.neuralDeepAuth.openSignInPage": "Открыть страницу входа",
+  "settings.neuralDeepAuth.waiting": "Ожидание подтверждения…",
+  "settings.neuralDeepAuth.signingOut": "Выход…",
+  "settings.neuralDeepAuth.signOut": "Выйти",
+  "settings.neuralDeepAuth.waitingForHub": "Ожидание NeuralDeep…",
+  "settings.neuralDeepAuth.signIn": "Войти через NeuralDeep",
+  "settings.neuralDeepAuth.enterProviderName": "Введите имя провайдера перед входом.",
+
   "settings.mcp.description.start":
     "Серверы Model Context Protocol из трёх уровней:",
   "settings.mcp.description.global": "глобальный файл",

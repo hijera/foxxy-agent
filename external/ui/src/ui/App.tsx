@@ -80,6 +80,7 @@ import {
   pickRicherQuestionToolArgs,
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
+import { pickRicherToolArgs } from "./chat/toolCallArgs";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
@@ -2803,7 +2804,7 @@ export function App() {
           const pickedArgs =
             titleLower === "question"
               ? pickRicherQuestionToolArgs(cur.argsText, row.argsPreview)
-              : row.argsPreview;
+              : pickRicherToolArgs(cur.argsText, row.argsPreview);
           if (pickedArgs) merged.argsText = pickedArgs;
         }
         if (row.resultPreview) merged.resultText = row.resultPreview;

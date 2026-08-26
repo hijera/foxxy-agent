@@ -64,6 +64,99 @@ The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdo
 
 Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, FoxxyCode reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
 
+### Agent identity
+
+**Every system prompt FoxxyCode sends opens by naming the product.** The sentence lives in **`internal/prompts/identity.go`** as **`prompts.Identity`** (**`"You are FoxxyCode, an AI coding agent."`**), and **`prompts.WithIdentity`** is what puts it there.
+
+Why it exists: an LLM gateway cannot tell one OpenAI-compatible client from another by the wire protocol, so gateways attribute traffic by matching the **opening of the system prompt** against a table of known products (**`"You are Claude Code…"`**, **`"You are Cline…"`**). FoxxyCode used to open with a generic sentence and was therefore invisible in that kind of analytics. Treat **`prompts.Identity`** as a published contract: gateways key on the **`you are foxxycode`** substring, and rewording it silently drops FoxxyCode out of their reports until they catch up.
+
+Where it is applied:
+
+- **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), around the language directive and the rendered template — covers every mode, a user's own **`prompts.dir`** template, and the render fallback;
+- both compaction engines (`internal/agent/compact.go`, `internal/agent/compaction.go`) — a summarizer is its own request with its own system prompt;
+- the auxiliary prompts: session titles (`internal/agent/title.go`), chat-title descriptions (`external/httpserver/foxxycode_foxxycode.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory copilot (`external/memory/copilot.go`).
+
+Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):
+
+1. the marker lands within the **first 220 characters**, because that is the prefix a gateway inspects — a long **`{{.CWD}}`** must not push it out;
+2. the line appears **exactly once**. This fork keeps the built-in templates generic and opens every prompt with the **`## Response language`** directive, which is long enough to push a template's own opening past the 220-character window — so **`WithIdentity`** wraps the directive plus the template and contributes the only identity sentence there is. Branding the templates too would print the line twice.
+
+A custom **`prompts.dir`** template does **not** need to name FoxxyCode: the line is prepended for it automatically.
+
+### Tool Calling via Function Calling API
+
+Modern LLMs support native function/tool calling. The agent uses this instead of
+text-based ReAct prompting:
+
+1. Tools are defined as JSON Schema objects and passed to the LLM API
+2. LLM returns structured tool call requests (not raw text)
+3. Agent executes the requested tools
+4. Results are appended to conversation as `tool` role messages
+5. LLM continues reasoning with tool results in context
+
+This approach is more reliable than text parsing and supported by all major providers
+(OpenAI, Anthropic, Ollama with compatible models).
+
+### Conversation Message Structure
+
+```
+messages: [
+  { role: "system",    content: <system_prompt> },
+  { role: "user",      content: <user_prompt> },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_1", name: "read_file", args: {...} }] },
+  { role: "tool",      tool_call_id: "call_1", content: <file_contents> },
+  { role: "assistant", content: "", tool_calls: [{ id: "call_2", name: "write_file", args: {...} }] },
+  { role: "tool",      tool_call_id: "call_2", content: "OK" },
+  { role: "assistant", content: <final_answer> }
+]
+```
+
+### Loop Steps
+
+```
+1. BUILD_MESSAGES
+   - Load applicable skills and project rules for current context (separate prompt sections)
+   - Build system prompt (template + TemplateData incl. TodoList snapshot)
+   - For the last user message, detect `/name` invocations: prepend each matched skill's body to the message content before the LLM call. This augmentation is ephemeral — not persisted to session history, not shown in the chat transcript.
+   - Prepend system to session history (user turn already persisted on Run entry)
+
+2. LLM_CALL
+   - Send messages + tool definitions to LLM provider
+   - Receive response: may contain text + tool_calls
+
+3. STREAM_RESPONSE
+   - For each text chunk: send session/update(agent_message_chunk)
+   - For each tool_call: send session/update(tool_call, status=pending)
+
+4. EXECUTE_TOOLS (if any tool calls)
+   - For each tool_call sequentially inside one assistant message:
+     a. Send session/update(tool_call_update, status=in_progress)
+     b. If requires permission: session/request_permission -> wait for response
+     c. Execute tool (built-in or MCP)
+     d. Send session/update(tool_call_update, status=completed|failed, content=result)
+     e. Append tool result to conversation history
+
+5. REFRESH_SYSTEM
+   - Next loop iteration repeats from step 2 after rewriting messages[0] with a fresh **`Render`** (same session state, potentially new Plan rows)
+
+6. CHECK_COMPLETION
+   - If no tool calls in last response -> DONE (stopReason: end_turn)
+   - If turn_count >= max_turns -> DONE (stopReason: max_turns)
+   - Otherwise -> back to step 2
+
+   Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
+   - A streamed response repeating the same passage **`loop_stream_repeat_cycles`** times
+     in a row (answer text or reasoning) has its stream cancelled. The repeated run is
+     stripped from the stored message, so it is never replayed to the model.
+   - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
+     arguments is not executed; the model gets a result explaining why.
+   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
+     times, then -> DONE (stopReason: agent_refused) with a notice.
+
+7. FINAL_RESPONSE
+   - Send session/prompt response with stopReason
+```
+
 ### Tool Calling via Function Calling API
 
 Modern LLMs support native function/tool calling. The agent uses this instead of

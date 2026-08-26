@@ -10,6 +10,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
+import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
@@ -78,7 +79,26 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   if (ctx.path !== "api_base" || providerType !== "neuraldeep") {
     return null;
   }
-  return <NeuralDeepAPIBaseField ctx={ctx} />;
+  // The overrides stack: the read-only base URL keeps its slot, and the hub
+  // sign-in block renders below it. The manual api_key field above stays
+  // fully functional - an explicit key wins over the stored login, which the
+  // sign-in block reports instead of hiding.
+  const providerName =
+    ctx.parentObj?.name === undefined || ctx.parentObj.name === null
+      ? ""
+      : String(ctx.parentObj.name);
+  const hasExplicitKey =
+    String(ctx.parentObj?.api_key ?? "").trim() !== "" ||
+    String(ctx.parentObj?.api_key_command ?? "").trim() !== "";
+  return (
+    <>
+      <NeuralDeepAPIBaseField ctx={ctx} />
+      <NeuralDeepAuthField
+        providerName={providerName}
+        hasExplicitKey={hasExplicitKey}
+      />
+    </>
+  );
 }
 
 function providerFieldOverride(ctx: FieldOverrideContext) {

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -101,7 +102,7 @@ func (s *Server) foxxycodeEnhancePromptPost(w http.ResponseWriter, r *http.Reque
 
 	ctx := r.Context()
 	resp, err := provider.Complete(ctx, []llm.Message{
-		{Role: llm.RoleSystem, Content: enhancePromptInstruction},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(enhancePromptInstruction)},
 		{Role: llm.RoleUser, Content: "Draft prompt to enhance, not answer:\n\n" + raw},
 	}, nil)
 	if err != nil {

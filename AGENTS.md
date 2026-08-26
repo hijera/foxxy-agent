@@ -6,7 +6,7 @@ Short map for automation-friendly contributors.
 
 | Area | Responsibility |
 |------|------------------|
-| `cmd/foxxycode` | CLI entry (`acp`, `http`, `sessions`, `skills`, `mcp`, `codex login`, `rules list`, `update`). |
+| `cmd/foxxycode` | CLI entry (bare `foxxycode` console, `cli`, `acp`, `http`, `gateway`, `sessions`, `skills`, `plugin`, `mcp`, `codex login`, `providers login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.foxxycode/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
 | `internal/textenc` | The one place a file's encoding is decided: prompt attachments and every file tool. Guide: **`docs/architecture.md`**. |

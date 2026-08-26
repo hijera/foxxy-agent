@@ -356,6 +356,24 @@ export const messagesEn: Record<string, string> = {
   "settings.codexAuth.providerNameRequired":
     "Enter a provider name before signing in.",
   "settings.mcp.legend": "MCP servers",
+  "settings.neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
+  "settings.neuralDeepAuth.error.incompleteResponse":
+    "The hub returned an incomplete sign-in response.",
+  "settings.neuralDeepAuth.fieldLabel": "NeuralDeep account",
+  "settings.neuralDeepAuth.description":
+    "Sign in with your NeuralDeep hub account instead of pasting a key: the hub issues a personal key for FoxxyCode. The key is stored on the FoxxyCode server and is never added to config.yaml. To use your tier's models, add them under Logical models (the model picker fetches the catalog with this login).",
+  "settings.neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
+  "settings.neuralDeepAuth.shadowedByKey":
+    "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
+  "settings.neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
+  "settings.neuralDeepAuth.openSignInPage": "Open sign-in page",
+  "settings.neuralDeepAuth.waiting": "Waiting for confirmation…",
+  "settings.neuralDeepAuth.signingOut": "Signing Out…",
+  "settings.neuralDeepAuth.signOut": "Sign Out",
+  "settings.neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
+  "settings.neuralDeepAuth.signIn": "Sign In with NeuralDeep",
+  "settings.neuralDeepAuth.enterProviderName": "Enter a provider name before signing in.",
+
   "settings.mcp.description.start":
     "Model Context Protocol servers from three levels:",
   "settings.mcp.description.global": "the global file",

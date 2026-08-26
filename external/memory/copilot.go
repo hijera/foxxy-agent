@@ -14,6 +14,7 @@ import (
 	memtools "github.com/hijera/foxxycode-agent/external/memory/tools"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -74,15 +75,16 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 	cap := cfg.Memory.CopilotMaxTokens
 	clampProviderMax(rm, cap)
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
-		Type:        rm.ProviderType,
-		Model:       rm.Model,
-		APIKey:      rm.APIKey,
-		BaseURL:     rm.BaseURL,
-		ProxyURL:    rm.ProxyURL,
-		AuthPath:    rm.AuthPath,
-		MaxTokens:   rm.MaxTokens,
-		Temperature: rm.Temperature,
-	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+		Type:          rm.ProviderType,
+		Model:         rm.Model,
+		APIKey:        rm.APIKey,
+		BaseURL:       rm.BaseURL,
+		ProxyURL:      rm.ProxyURL,
+		AuthPath:      rm.AuthPath,
+		MaxTokens:     rm.MaxTokens,
+		Temperature:   rm.Temperature,
+		DisableStream: !rm.Stream,
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 type saveCapture struct {
@@ -143,7 +145,7 @@ func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cw
 	toolDefs := memtools.ToolDefinitions(memTools)
 	toolEnv := &tooling.Env{CWD: cwd}
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: strings.TrimSpace(beforeTurnSystemPrompt)},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(beforeTurnSystemPrompt)},
 		{Role: llm.RoleUser, Content: "User message for this turn:\n" + userQuery},
 	}
 	maxTurns := cfg.Memory.PersistMaxTurns

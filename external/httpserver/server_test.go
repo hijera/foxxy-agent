@@ -1938,9 +1938,9 @@ func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	// 3 skills (apples, zebra, bundled generate-rules) plus the built-in compact and
+	// 4 skills (apples, zebra, and the two bundled ones) plus the built-in compact and
 	// plugin commands, which lead the catalog (compact first while the coddy engine is on).
-	if r1.StatusCode != http.StatusOK || page1.Total != 5 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "compact" {
+	if r1.StatusCode != http.StatusOK || page1.Total != 6 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "compact" {
 		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
 	}
 

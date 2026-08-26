@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -142,12 +143,22 @@ type ProviderInput struct {
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
 	RetryMax int
+	// RetryDisabled turns retries off entirely (config llm_retry_max: 0). A zero
+	// RetryMax alone still falls back to the default.
+	RetryDisabled bool
 	// RetryBase is the initial backoff between retries (default 1s).
 	RetryBase time.Duration
 	// RetryMaxDelay caps retry backoff (default 60s).
 	RetryMaxDelay time.Duration
 	// MinInterval enforces a minimum gap between consecutive LLM calls (default 0).
 	MinInterval time.Duration
+	// DisableStream turns off the streaming transport (models[].stream: false):
+	// Stream then issues one blocking request and replays the finished response.
+	DisableStream bool
+	// Timeout, when positive, bounds the entire HTTP request including the
+	// streamed body read (providers[].timeout_ms). Zero means no client
+	// timeout; the turn context stays the only bound.
+	Timeout time.Duration
 }
 
 // neuralDeepBaseURL is the fixed OpenAI-compatible endpoint of the NeuralDeep hub.
@@ -159,9 +170,25 @@ const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
 // default applies).
 func providerBaseURL(providerType, configured string) string {
 	if providerType == "neuraldeep" {
-		return neuralDeepBaseURL
+		// Pinned to the official endpoint; FOXXYCODE_NEURALDEEP_BASE_URL lets
+		// tests and stands redirect the process as a whole (config cannot).
+		return neuralDeepAPIBase()
 	}
 	return strings.TrimSpace(configured)
+}
+
+// neuralDeepEffectiveKey resolves the request credential for a neuraldeep
+// provider: an explicit api_key (or command/env, already merged into APIKey)
+// wins; otherwise the key stored by `foxxycode providers login` is used.
+func neuralDeepEffectiveKey(explicit, authPath string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
+	}
+	key, err := LoadNeuralDeepKey(authPath)
+	if err != nil {
+		return ""
+	}
+	return key
 }
 
 // NewProvider creates the appropriate Provider from a model definition.
@@ -170,6 +197,12 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.Timeout > 0 {
+		if hc == nil {
+			hc = &http.Client{}
+		}
+		hc.Timeout = p.Timeout
+	}
 	var inner Provider
 	switch p.Type {
 	case "openai":
@@ -177,7 +210,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "anthropic":
 		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless
@@ -185,6 +218,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
+	}
+	if p.DisableStream {
+		// Inside the resilient wrap: a retry then re-issues a blocking call that has
+		// emitted nothing yet, instead of replaying deltas a caller already consumed.
+		inner = newBlockingProvider(inner)
 	}
 	return applyResilientWrap(inner, p), nil
 }

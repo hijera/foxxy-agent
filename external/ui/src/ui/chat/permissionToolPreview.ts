@@ -146,6 +146,7 @@ function questionForTool(
     case "ssh_run_command":
       return t("prompts.permissionQuestion.runCommand");
     case "write":
+    case "write_file":
       return t("prompts.permissionQuestion.write");
     case "edit":
       return t("prompts.permissionQuestion.edit");
@@ -309,8 +310,8 @@ export function buildToolCallPreview(
     };
   }
 
-  if (normalized === "write") {
-    const path = stringArg(args, "path");
+  if (normalized === "write" || normalized === "write_file") {
+    const path = stringArg(args, "path", "filePath");
     const content = stringArg(args, "content");
     return {
       toolName,

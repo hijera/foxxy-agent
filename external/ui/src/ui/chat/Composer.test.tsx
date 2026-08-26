@@ -1219,3 +1219,23 @@ test("in the IntelliJ embed the drop is claimed but left to the host", async () 
   expect(ta.value).toBe("");
   vi.unstubAllGlobals();
 });
+
+test("enhance button shares the composer context row with workspace controls", () => {
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const button = screen.getByTestId("composer-enhance-btn");
+  expect(button).toHaveAttribute("title", "Enhance prompt");
+  expect(button.closest(".composer-context-row")).not.toBeNull();
+  expect(button.closest(".composer-field-wrap")).toBeNull();
+  expect(button.closest(".composer-bar")).toBeNull();
+});

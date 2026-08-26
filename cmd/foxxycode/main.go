@@ -130,6 +130,8 @@ func main() {
 		err = runPlugin(args[1:])
 	case "codex":
 		err = runCodex(args[1:])
+	case "providers":
+		err = runProviders(args[1:])
 	case "rules":
 		err = runRules(args[1:])
 	case "mcp":
@@ -171,6 +173,7 @@ func printUsage(w *os.File) {
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s codex login | status | logout [--provider NAME] [--home DIR]
+  %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
@@ -278,6 +281,7 @@ func runACP(args []string) error {
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)
@@ -290,12 +294,22 @@ func runACP(args []string) error {
 	log.Info("session persistence enabled", "root", store.Root)
 
 	var srv *acp.Server
-	ref := &serverRef{p: &srv, cfg: cfg}
+	var mgr *session.Manager
+	live := func() *config.Config {
+		if mgr != nil {
+			return mgr.Cfg()
+		}
+		return cfg
+	}
+	ref := &serverRef{p: &srv, cfg: cfg, live: live}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
+		loop := agent.NewAgent(live(), st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			return mgr.ReloadConfigForSession(ctx, st)
+		})
 		return loop.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)
