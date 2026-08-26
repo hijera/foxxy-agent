@@ -34,9 +34,26 @@ func (resumePermissionSender) RequestQuestion(context.Context, acp.QuestionReque
 	return &acp.QuestionResult{}, nil
 }
 
+// The silent-start guard is configuration, not a constant: it bounds how long a
+// streamed call may produce nothing. The default has to clear a real prefill on a
+// large context - 30s used to cut healthy reasoning turns once a big tool result
+// entered the prompt - while an explicit 0 turns the guard off entirely.
 func TestFirstTokenTimeoutBoundsSilentProviderStartup(t *testing.T) {
-	if firstTokenTimeout != 30*time.Second {
-		t.Fatalf("firstTokenTimeout=%v want 30s", firstTokenTimeout)
+	var agentCfg config.Agent
+	if got := agentCfg.EffectiveLLMFirstTokenTimeout(); got != 90*time.Second {
+		t.Fatalf("default first-token timeout = %v, want 90s", got)
+	}
+
+	off := 0
+	agentCfg.LLMFirstTokenTimeoutMS = &off
+	if got := agentCfg.EffectiveLLMFirstTokenTimeout(); got != 0 {
+		t.Fatalf("explicit 0 = %v, want the guard disabled", got)
+	}
+
+	custom := 180000
+	agentCfg.LLMFirstTokenTimeoutMS = &custom
+	if got := agentCfg.EffectiveLLMFirstTokenTimeout(); got != 180*time.Second {
+		t.Fatalf("explicit 180000 = %v, want 180s", got)
 	}
 }
 

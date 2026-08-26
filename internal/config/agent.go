@@ -13,8 +13,11 @@ const (
 	AgentDefaultLLMRetryBaseMS   = 1000
 	// AgentDefaultLLMFirstTokenTimeoutMS is how long a streamed LLM call may
 	// stay silent before the turn cancels it (the API hang guard in the ReAct
-	// loop). Kept at the fork value of 30s rather than the upstream 90s.
-	AgentDefaultLLMFirstTokenTimeoutMS = 30000
+	// loop). It has to clear a real prefill, not just a healthy handshake: a
+	// reasoning model given a large tool result routinely needs more than half a
+	// minute before its first token, and 30s cut those turns as if the provider
+	// had hung.
+	AgentDefaultLLMFirstTokenTimeoutMS = 90000
 	// AgentDefaultLoopToolRepeatLimit is how many consecutive identical tool calls
 	// (same name, same canonical arguments) the loop guard tolerates.
 	AgentDefaultLoopToolRepeatLimit = 3
@@ -40,7 +43,7 @@ type Agent struct {
 	// LLMMinIntervalMS enforces a minimum gap between consecutive LLM calls in milliseconds (default 0).
 	LLMMinIntervalMS int `yaml:"llm_min_interval_ms"`
 	// LLMFirstTokenTimeoutMS is how long a streamed LLM call may stay silent before
-	// the turn cancels it. A nil pointer means the default (30000); an explicit 0
+	// the turn cancels it. A nil pointer means the default (90000); an explicit 0
 	// disables the guard, leaving the turn context as the only bound.
 	LLMFirstTokenTimeoutMS *int `yaml:"llm_first_token_timeout_ms"`
 	// LoopGuard toggles runaway-loop protection: aborting a streamed response that

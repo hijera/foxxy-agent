@@ -142,7 +142,7 @@
         "llm_first_token_timeout_ms": {
           "type": "integer",
           "description": "How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
-          "default": 30000,
+          "default": 90000,
           "minimum": 0
         },
         "loop_guard": {

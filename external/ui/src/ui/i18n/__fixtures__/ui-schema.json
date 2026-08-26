@@ -8,7 +8,7 @@
       "description": "Defaults for the main agent loop (model id and safety caps).",
       "properties": {
         "llm_first_token_timeout_ms": {
-          "default": 30000,
+          "default": 90000,
           "description": "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
           "title": "LLM first token timeout ms",
           "type": "integer"

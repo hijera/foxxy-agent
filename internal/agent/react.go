@@ -310,10 +310,6 @@ func (a *Agent) wireFileEditHook(env *tools.Env) {
 // preventing an unbounded empty-turn loop.
 const maxEmptyAssistantContinuations = 2
 
-// firstTokenTimeout bounds a silent provider/proxy stall. It intentionally applies only until the
-// first streamed output; long-running responses remain unrestricted after data starts arriving.
-const firstTokenTimeout = 30 * time.Second
-
 // emptyAssistantContinuationNudge is injected into the LLM-facing message slice (never
 // persisted to the transcript) to prompt the model to produce its answer or a tool call
 // after an empty turn.

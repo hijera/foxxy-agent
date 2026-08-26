@@ -27,6 +27,9 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 		{"together/qwen3-32b", []string{"low", "medium", "high"}},
 		{"neuraldeep/gpt-oss-120b", []string{"low", "medium", "high"}},
 		{"neuraldeep/gpt-oss-20b", []string{"low", "medium", "high"}},
+		{"neuraldeep/kimi-k2.6", []string{"low", "medium", "high"}},
+		{"moonshot/kimi-k2", []string{"low", "medium", "high"}},
+		{"moonshot/kimi-latest", []string{"low", "medium", "high"}},
 		// Non-reasoning models: no levels.
 		{"openai/gpt-4o", nil},
 		{"openai/gpt-4o-mini", nil},
