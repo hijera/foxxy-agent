@@ -76,6 +76,10 @@ type Agent struct {
 	providerFactory func(llm.ProviderInput) (llm.Provider, error)
 	configReloader  func(context.Context) ([]string, error)
 
+	// titleOnce keeps the session-title pass to a single launch per turn, whichever
+	// exit path reaches it first.
+	titleOnce sync.Once
+
 	imgMu             sync.Mutex
 	pendingToolImages []llm.ImagePart
 }
@@ -607,6 +611,13 @@ func (a *Agent) runReActLoop(
 				}
 			}
 			if errors.Is(streamErr, context.Canceled) {
+				// A stopped turn is still a conversation the user opened, and the title is
+				// built from their first message rather than from the answer - so it must
+				// not depend on the turn running to completion. Launched before the returns
+				// below, which are the paths a Stop actually takes.
+				if allowTitleGen {
+					a.startTitleGeneration(transport.provider)
+				}
 				// If output was already streamed, treat as a clean user-stop regardless.
 				hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
 					len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
@@ -694,15 +705,9 @@ func (a *Agent) runReActLoop(
 		a.refreshConversationContextUsage(true)
 
 		// After the first assistant response, generate a short session title off the hot path.
-		// Internal guards make this a no-op when the title is pinned or already generated, and it
-		// uses a detached context so it survives the turn ending. Non-fatal by design. Only the
-		// fresh-prompt path titles; resume/continue turns never do.
+		// Only the fresh-prompt path titles; resume/continue turns never do.
 		if allowTitleGen && turn == 0 {
-			titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			go func() {
-				defer titleCancel()
-				a.maybeGenerateTitle(titleCtx, transport.provider)
-			}()
+			a.startTitleGeneration(transport.provider)
 		}
 
 		// If no tool calls, we're done — unless the model produced no visible answer at
@@ -1316,6 +1321,20 @@ func reasoningForStorage(trimmed, exact string, response *llm.Response) (text, s
 		return exact, response.ReasoningSignature
 	}
 	return trimmed, ""
+}
+
+// startTitleGeneration launches the session-title pass off the hot path, at most
+// once per turn. Internal guards in maybeGenerateTitle make it a no-op when the
+// title is pinned or already generated, and the detached context lets it outlive
+// the turn that started it - including a turn the user stopped. Non-fatal by design.
+func (a *Agent) startTitleGeneration(provider llm.Provider) {
+	a.titleOnce.Do(func() {
+		titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		go func() {
+			defer titleCancel()
+			a.maybeGenerateTitle(titleCtx, provider)
+		}()
+	})
 }
 
 // llmTransport pairs a provider with the transport it was built for. The ReAct
