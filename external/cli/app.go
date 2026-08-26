@@ -973,6 +973,11 @@ func (a *App) newSession() {
 		a.appendStatus(roleWarning, "A session switch is already in progress")
 		return
 	}
+	if a.shellActive {
+		// The transcript reset would detach the running block and its output.
+		a.appendStatus(roleWarning, "A local command is running (escape to stop it)")
+		return
+	}
 	a.switching = true
 	a.deferUntilTurnEnd(func() { a.startNewSessionWorker(a.sessionID) })
 }

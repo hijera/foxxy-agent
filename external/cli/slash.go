@@ -58,9 +58,6 @@ func (a *App) dispatchSlash(text string) bool {
 
 // applyMode switches the session mode through the manager.
 func (a *App) applyMode(mode string) {
-	if a.busyWithLocalShell() {
-		return
-	}
 	sessionID := a.sessionID
 	go func() {
 		if err := a.mgr.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: sessionID, ModeID: mode}); err != nil {
@@ -123,6 +120,9 @@ func (a *App) openModeSelector() {
 }
 
 func (a *App) openThemeSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
 	items := []tui.SelectItem{
 		{Value: "dark", Label: "dark", Description: "FoxxyCode dark palette"},
 		{Value: "light", Label: "light", Description: "FoxxyCode light palette"},
