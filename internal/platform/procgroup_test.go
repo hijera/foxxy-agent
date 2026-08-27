@@ -61,6 +61,26 @@ func waitForProbe(pid int, startedAt time.Time, want bool) bool {
 	return ProcessGroupAlive(pid, startedAt) == want
 }
 
+// waitForExit reaps the helper without letting a failed kill become a
+// package-wide timeout. cmd.Wait blocks until the process actually exits, so
+// calling it bare turns "termination did not work" into a hang that reports
+// nothing: the helper sleeps for ten minutes, go test gives up long before that,
+// and the panic names a test that never got to assert anything.
+func waitForExit(t *testing.T, cmd *exec.Cmd, timeout time.Duration) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatalf("process %d was still running %v after it was terminated", cmd.Process.Pid, timeout)
+	}
+}
+
 func TestProcessGroupAliveRejectsNonPositivePIDs(t *testing.T) {
 	for _, pid := range []int{0, -1, -4242} {
 		if ProcessGroupAlive(pid, time.Now()) {
@@ -98,9 +118,51 @@ func TestProcessGroupAliveRejectsAProcessThatExited(t *testing.T) {
 	if err := TerminateProcessGroupByPID(pid, started, time.Second); err != nil {
 		t.Fatalf("TerminateProcessGroupByPID(): %v", err)
 	}
-	_ = cmd.Wait()
+	waitForExit(t, cmd, 10*time.Second)
 
 	if !waitForProbe(pid, started, false) {
 		t.Fatalf("ProcessGroupAlive(%d) = true for a process that exited", pid)
+	}
+}
+
+// A grace shorter than the kill itself is ordinary rather than exceptional: on
+// Windows the kill is taskkill, and simply starting it and letting it walk one
+// child costs about a second on an idle machine, so the three-second grace the
+// task pool passes is a coin flip on a loaded one. Termination that gives up
+// when its own grace expires is not termination, and reporting success for it is
+// worse than reporting failure - the caller stops looking at a process that is
+// still running. This pins the outcome rather than the mechanism: whatever the
+// grace, a nil error means the process is gone.
+func TestTerminateProcessGroupByPIDKillsWhenTheGraceExpiresFirst(t *testing.T) {
+	cmd, pid, started := startProbeHelper(t)
+
+	if err := TerminateProcessGroupByPID(pid, started, time.Millisecond); err != nil {
+		t.Fatalf("TerminateProcessGroupByPID(): %v", err)
+	}
+	waitForExit(t, cmd, 10*time.Second)
+
+	if !waitForProbe(pid, started, false) {
+		t.Fatalf("ProcessGroupAlive(%d) = true after a termination that returned nil", pid)
+	}
+}
+
+// The probe runs on every background_list, against processes that are meant to
+// keep running - a dev server, a watcher, a build. Asking the OS whether one of
+// those has exited must never be answered by waiting until it does. The margin
+// here is enormous on purpose: the helper sleeps for ten minutes, so anything
+// that blocks at all blows a one-second budget by orders of magnitude, and the
+// bound is nowhere near tight enough to trip on a slow runner.
+func TestProcessGroupAliveDoesNotWaitOnARunningProcess(t *testing.T) {
+	_, pid, started := startProbeHelper(t)
+
+	begin := time.Now()
+	alive := ProcessGroupAlive(pid, started)
+	elapsed := time.Since(begin)
+
+	if !alive {
+		t.Fatalf("ProcessGroupAlive(%d) = false for a process that is still running", pid)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("ProcessGroupAlive(%d) took %v; the probe must not wait on a running process", pid, elapsed)
 	}
 }
