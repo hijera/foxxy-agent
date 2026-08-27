@@ -214,8 +214,21 @@ export function SettingsSection(props: {
             ctx.path === "model" ? (
               <ModelField
                 value={ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)}
-                onChange={(v) => ctx.onChange(v)}
+                // Picking a listed model also seeds the sibling `multimodal`
+                // switch from the catalog's image-input flag, in the same update
+                // as the id. Without it the id is the only thing Settings can
+                // write, which is how a vision model ends up saved as
+                // multimodal:false. A hand-typed id reports no catalog entry, so
+                // the switch keeps whatever the operator set.
+                onChange={(v, picked) => {
+                  if (picked && ctx.patchParent) {
+                    ctx.patchParent({ model: v, multimodal: picked.vision === true });
+                    return;
+                  }
+                  ctx.onChange(v);
+                }}
                 providers={providerNames}
+                syncsMultimodal
                 label={tSchemaText(ctx.schema.title) || t("settings.modelIdLabel")}
               />
             ) : null
