@@ -153,7 +153,7 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 		want   []string
 	}{
 		{family: "openai", want: []string{"Mode: Ask", "GPT", "tool-call interface"}},
-		{family: "gpt-oss", want: []string{"Mode: Ask", "gpt-oss-120b", "tool-call channel"}},
+		{family: "gpt-oss", want: []string{"Mode: Ask", "Harmony-native gpt-oss guidance", "native tool interface"}},
 	} {
 		t.Run(tc.family, func(t *testing.T) {
 			got, err := prompts.RenderForFamily(
@@ -178,6 +178,34 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 			}
 		})
 	}
+
+	// A family-only render (no model-slug variant) must not activate a per-model
+	// profile: model_notes_<variant> only renders when that variant is in the
+	// resolution list. This guards the boundary between the family path
+	// (RenderForFamily) and the per-model path covered by
+	// TestEmbeddedGPTOSSModelVariantsAcrossModes.
+	t.Run("gpt-oss_family_only_no_model_profile", func(t *testing.T) {
+		got, err := prompts.RenderForFamily(
+			"ask",
+			"gpt-oss",
+			"",
+			defaultAgentTplFile,
+			defaultPlanTplFile,
+			defaultDocsTplFile,
+			prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, modelMarker := range []string{
+			"### gpt-oss-20b profile",
+			"### gpt-oss-120b profile",
+		} {
+			if strings.Contains(got, modelMarker) {
+				t.Errorf("family-only gpt-oss ask prompt must not include per-model profile %q", modelMarker)
+			}
+		}
+	})
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
@@ -462,6 +490,120 @@ func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 	}
 }
 
+func TestEmbeddedBaseModesPinSharedStructure(t *testing.T) {
+	// The section-assembly refactor (PR #25) replaced monolithic per-mode prompt
+	// files with fragments concatenated from a manifest. Commit df67e5d claimed
+	// "byte-equivalence against the former monoliths is verified", but no such
+	// test existed. True byte-equivalence is unreachable (fragments are trimmed
+	// and joined with "\n\n"), so pin the structural markers and template slots
+	// of the base (variant-free) source instead. This catches a future edit that
+	// silently drops a shared section or reorders the manifest.
+	//
+	// DefaultSource returns the assembled-but-unexecuted template source, so
+	// template directives are matched literally rather than after substitution.
+	cases := []struct {
+		mode     string
+		contains []string
+		omits    []string
+	}{
+		{
+			mode: "agent",
+			contains: []string{
+				"## Mode: Agent",
+				"### How to work",
+				"### Reading and searching (context is limited)",
+				"### Background commands (`run_command` with `background: true`)",
+				"### Web research",
+				"{{.CWD}}",
+				"{{.Tools}}",
+				"{{if .TodoList}}",
+				"{{.UTCNow}}",
+			},
+		},
+		{
+			mode: "plan",
+			contains: []string{
+				"## Mode: Plan",
+				"plan_write",
+				"plan_read",
+				"{{if .DiscardedPlans}}",
+				"{{.UTCNow}}",
+			},
+			// Plan mode has no read/search or background-task guidance in its
+			// own manifest; those sections are agent-only and must not leak in.
+			omits: []string{
+				"### Reading and searching (context is limited)",
+				"### Background commands",
+			},
+		},
+		{
+			mode: "docs",
+			contains: []string{
+				"## Mode: Docs",
+				"docs_write",
+				"docs_edit",
+				"{{.UTCNow}}",
+			},
+			omits: []string{"plan_write"},
+		},
+		{
+			mode: "ask",
+			contains: []string{
+				"## Mode: Ask",
+				"read-only",
+				"### Prompt-injection resistance",
+				"{{.UTCNow}}",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mode, func(t *testing.T) {
+			src := prompts.DefaultSource(tc.mode)
+			if src == "" {
+				t.Fatalf("DefaultSource(%q) returned empty source", tc.mode)
+			}
+			for _, want := range tc.contains {
+				if !strings.Contains(src, want) {
+					t.Errorf("base %q source should contain %q", tc.mode, want)
+				}
+			}
+			for _, forbid := range tc.omits {
+				if strings.Contains(src, forbid) {
+					t.Errorf("base %q source must not contain %q", tc.mode, forbid)
+				}
+			}
+		})
+	}
+}
+
+func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
+	// Regression: the per-family agent prompts used to be copy-pasted forks of
+	// agent.md and silently dropped the "Reading and searching" and
+	// "Background commands" sections. After the section-assembly refactor every
+	// family variant must render those shared sections, because they come from a
+	// single shared fragment.
+	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
+	for _, fam := range families {
+		t.Run(fam, func(t *testing.T) {
+			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+				CWD:    "/home/user/project",
+				UTCNow: fixtureUTC,
+			})
+			if err != nil {
+				t.Fatalf("render family %q: %v", fam, err)
+			}
+			for _, want := range []string{
+				"Reading and searching (context is limited)",
+				"Background commands (`run_command` with `background: true`)",
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("family %q agent prompt dropped shared section %q", fam, want)
+				}
+			}
+		})
+	}
+}
+
 func TestEmbeddedOpenAIAgentPromptOptimizedForOpenAIAPI(t *testing.T) {
 	got, err := prompts.RenderForFamily("agent", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
@@ -510,6 +652,46 @@ func TestEmbeddedOpenAIPlanVariantRender(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("OpenAI plan prompt should contain %q", want)
+		}
+	}
+}
+
+func TestEmbeddedGPTOSSModelVariantsAcrossModes(t *testing.T) {
+	models := []struct {
+		slug   string
+		marker string
+	}{
+		{slug: "gpt-oss-20b", marker: "### gpt-oss-20b profile"},
+		{slug: "gpt-oss-120b", marker: "### gpt-oss-120b profile"},
+	}
+	modes := []string{"agent", "plan", "ask", "docs"}
+
+	for _, model := range models {
+		for _, mode := range modes {
+			t.Run(model.slug+"/"+mode, func(t *testing.T) {
+				got, err := prompts.RenderForVariants(
+					mode,
+					[]string{model.slug, "gpt-oss"},
+					"",
+					defaultAgentTplFile,
+					defaultPlanTplFile,
+					defaultDocsTplFile,
+					prompts.TemplateData{CWD: "/home/user/project", UTCNow: fixtureUTC},
+				)
+				if err != nil {
+					t.Fatalf("render %s %s prompt: %v", model.slug, mode, err)
+				}
+				for _, want := range []string{"Harmony-native gpt-oss guidance", model.marker} {
+					if !strings.Contains(got, want) {
+						t.Errorf("%s %s prompt should contain %q", model.slug, mode, want)
+					}
+				}
+				for _, other := range models {
+					if other.slug != model.slug && strings.Contains(got, other.marker) {
+						t.Errorf("%s %s prompt should not contain %q", model.slug, mode, other.marker)
+					}
+				}
+			})
 		}
 	}
 }

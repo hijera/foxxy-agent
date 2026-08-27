@@ -534,6 +534,23 @@ func TestBuildSystemPromptPerModelFileFromDir(t *testing.T) {
 	}
 }
 
+func TestPromptVariantsIncludeResolvedAPIModel(t *testing.T) {
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "local/gpt-oss-20b", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "local/gpt-oss-20b"},
+	}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+
+	a := NewAgent(cfg, st, nil, nil)
+	want := []string{"local-gpt-oss-20b", "gpt-oss-20b", "gpt-oss"}
+	if got := a.promptVariants(); !slices.Equal(got, want) {
+		t.Fatalf("promptVariants() = %v, want %v", got, want)
+	}
+}
+
 // --- system_prompt.go: skills injection ------------------------------------
 
 // TestAugmentUserMessageWithInvokedSkills_bodyInjected verifies that when a user
