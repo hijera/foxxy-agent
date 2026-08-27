@@ -136,8 +136,9 @@ prompts:
   # Ask and Debug have no configurable filename: they always read ask.md and debug.md.
   # Per-provider prompts: when enabled (default), each mode can pick a prompt
   # tuned to the active model, resolved most-specific first:
-  #   <mode>.<model-slug>.md  per-model (model-list id, "/" -> "-": openai/gpt-4o
-  #                           -> agent.openai-gpt-4o.md or ask.openai-gpt-4o.md)
+  #   <mode>.<model-slug>.md  per-model. The configured model-list slug resolves first
+  #                           (openai/gpt-4o -> openai-gpt-4o), then the provider-neutral
+  #                           API-model slug (local/gpt-oss-20b -> gpt-oss-20b)
   #   <mode>.<family>.md      per-family (anthropic, openai, gemini, gpt-oss, qwen,
   #                           gemma, neuraldeep); family defaults are built in
   #   <mode>.md               shared fallback

@@ -260,6 +260,10 @@ export const messagesEn: Record<string, string> = {
   "onboarding.modelSelectPlaceholder": "Select a model…",
   "onboarding.modelsFetchFailed":
     "Couldn't fetch the model list — enter the model id manually.",
+  "onboarding.modelMultimodalOn":
+    "The provider catalog lists image input for this model, so it is saved with multimodal on. Change it in Settings if the model rejects images.",
+  "onboarding.modelMultimodalOff":
+    "The provider catalog lists no image input for this model, so it is saved with multimodal off. Turn it on in Settings if the model does accept images.",
   "onboarding.skip": "Skip for now",
   "onboarding.test": "Test connection",
   "onboarding.save": "Save and continue",
@@ -337,6 +341,11 @@ export const messagesEn: Record<string, string> = {
     "Couldn't fetch models: {error}. Type the model id manually below.",
   "settings.modelsFetchEmpty":
     "No models returned. Type the model id manually below.",
+  "settings.modelVisionOption": "{model} · vision",
+  "settings.modelMultimodalOn":
+    "The provider catalog lists image input for this model, so Multimodal below is on. Turn it off if the model rejects images.",
+  "settings.modelMultimodalOff":
+    "The provider catalog lists no image input for this model, so Multimodal below is off. Turn it on if the model does accept images.",
   "settings.codexAuth.signInFailed": "ChatGPT sign in failed.",
   "settings.codexAuth.incompleteResponse":
     "The OAuth server returned an incomplete sign-in response.",

@@ -1,7 +1,8 @@
 DejaVu Fonts (https://dejavu-fonts.github.io/)
 ==============================================
 
-The DejaVu fonts in this directory (DejaVuSans.ttf, DejaVuSans-Bold.ttf) are
+The DejaVu fonts in this directory (DejaVuSans.ttf, DejaVuSans-Bold.ttf,
+DejaVuSansMono.ttf, DejaVuSansMono-Bold.ttf) are
 derived from the Bitstream Vera Fonts and are released under a permissive
 license that permits free use, modification, and redistribution — including
 embedded in a binary. The full license text follows.

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 // foxxycodeSessionExportGet renders a session transcript into one of the
@@ -77,6 +78,11 @@ func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id 
 		return exportRendered{}, false
 	}
 	doc := buildExportDocument(id, title, msgs)
+	// The readable formats embed pictures the session stored on disk; a session
+	// that was never persisted simply has none to embed.
+	if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" {
+		doc.assetsDir = session.AssetsPath(sd)
+	}
 
 	body, contentType, ext, err := renderExport(doc, format)
 	if err != nil {

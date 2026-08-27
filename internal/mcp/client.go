@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // ToolInfo describes a tool provided by an MCP server.
@@ -398,6 +399,7 @@ func newStdioTransport(_ context.Context, name, command string, args []string, e
 	procCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(procCtx, command, args...)
 	cmd.Env = append(os.Environ(), env...)
+	platform.HideConsoleWindow(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

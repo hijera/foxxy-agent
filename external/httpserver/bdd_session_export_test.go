@@ -239,6 +239,98 @@ func (s *sessionExportFeatureState) seedLists() error {
 	return nil
 }
 
+// exportTableMarkdown is a GFM pipe table with a header, two body rows and one
+// explicitly aligned column — the shape that used to reach every readable format
+// as a paragraph of "|" characters.
+const exportTableMarkdown = "| Format | Editable | Notes |\n" +
+	"|--------|:--------:|-------|\n" +
+	"| pdf    | no       | fixed layout |\n" +
+	"| docx   | yes      | edit in Word |"
+
+func (s *sessionExportFeatureState) seedTable() error {
+	st, err := s.liveState()
+	if err != nil {
+		return err
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: exportUserQuestion})
+	st.AddMessage(llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: "Here is the comparison:\n\n" + exportTableMarkdown,
+	})
+	return nil
+}
+
+// tableLaidOutAsGrid asserts the table reached the document as a real grid, in
+// whatever way that format expresses one: markup for HTML and DOCX, drawn cell
+// rectangles for PDF.
+func (s *sessionExportFeatureState) tableLaidOutAsGrid(format string) error {
+	switch format {
+	case "html":
+		body := string(s.respBody)
+		if !strings.Contains(body, "<table>") || strings.Count(body, "<tr>") != 3 {
+			return fmt.Errorf("HTML export has no three-row table")
+		}
+		// Counted on the closing tag: "<th" would also match "<thead>".
+		if n := strings.Count(body, "</th>"); n != 3 {
+			return fmt.Errorf("HTML table has %d header cells, want 3", n)
+		}
+		return nil
+	case "docx":
+		body, err := s.docxPart("word/document.xml")
+		if err != nil {
+			return err
+		}
+		if strings.Count(body, "<w:tr>") != 3 || strings.Count(body, "<w:tc>") != 9 {
+			return fmt.Errorf("DOCX export has no 3x3 table, got %d rows and %d cells",
+				strings.Count(body, "<w:tr>"), strings.Count(body, "<w:tc>"))
+		}
+		if !strings.Contains(body, "<w:tblHeader/>") {
+			return fmt.Errorf("DOCX table header does not repeat across pages")
+		}
+		return nil
+	case "pdf":
+		// Every cell is drawn as its own rectangle; three rows of three columns.
+		if n := pdfDrawnRectCount(s.respBody); n != 9 {
+			return fmt.Errorf("PDF drew %d cell rectangles, want 9", n)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported format %q", format)
+}
+
+// tableShowsNoPipes asserts the source pipes did not survive as prose.
+func (s *sessionExportFeatureState) tableShowsNoPipes(format string) error {
+	text, err := s.exportedText()
+	if err != nil {
+		return err
+	}
+	if strings.Contains(text, "|") {
+		return fmt.Errorf("the %s export still shows raw pipe characters", format)
+	}
+	return nil
+}
+
+// pdfDrawnRectCount counts the rectangles drawn in a PDF's content streams.
+// Table cells and code boxes are the only things the export draws with them.
+func pdfDrawnRectCount(pdfBytes []byte) int {
+	count := 0
+	for _, m := range pdfStreamRe.FindAllSubmatch(pdfBytes, -1) {
+		zr, err := zlib.NewReader(bytes.NewReader(m[1]))
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(zr)
+		_ = zr.Close()
+		if err != nil {
+			continue
+		}
+		count += len(pdfRectRe.FindAll(content, -1))
+	}
+	return count
+}
+
+var pdfRectRe = regexp.MustCompile(`[0-9.]+ [0-9.]+ [0-9.]+ -?[0-9.]+ re`)
+
 // seedInjectedContext reproduces what the agent appends to a user turn each
 // time: the editor's ambient IDE state and a summary of the open terminals.
 // Shapes mirror internal/agent/react.go.
@@ -895,6 +987,7 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a chat whose question carries terminal escape codes$`, s.seedEscapeCodes)
 	sc.Step(`^a chat whose answer uses headings from level one to level six$`, s.seedDeepHeadings)
 	sc.Step(`^a chat whose answer contains a bullet list and a numbered list$`, s.seedLists)
+	sc.Step(`^a chat whose answer contains a markdown table$`, s.seedTable)
 	sc.Step(`^a chat titled "([^"]*)" with an assistant answer$`, s.seedTitled)
 	sc.Step(`^a chat whose question carries injected IDE and terminal context$`, s.seedInjectedContext)
 
@@ -920,6 +1013,8 @@ func initializeSessionExportScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^every paragraph style used by the document is defined in the style sheet$`, s.docxStylesResolved)
 	sc.Step(`^no list item repeats the marker glyph in its own text$`, s.docxNoLiteralMarker)
 	sc.Step(`^the numbered list is numbered by the document rather than bulleted$`, s.docxOrderedNumbering)
+	sc.Step(`^the (\w+) export lays the table out as a grid$`, s.tableLaidOutAsGrid)
+	sc.Step(`^the (\w+) export shows no raw pipe characters$`, s.tableShowsNoPipes)
 	sc.Step(`^the attachment offers the UTF-8 filename "([^"]*)"$`, s.dispositionUTF8Name)
 	sc.Step(`^the attachment keeps an ASCII filename fallback$`, s.dispositionASCIIFallback)
 

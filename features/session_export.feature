@@ -69,6 +69,20 @@ Feature: A chat can be exported to different document formats
     Then no list item repeats the marker glyph in its own text
     And the numbered list is numbered by the document rather than bulleted
 
+  # A pipe table used to parse as an ordinary paragraph, so every readable format
+  # printed it as a wall of "|" characters. It has to arrive as a real table.
+  Scenario Outline: A markdown table is exported as a table
+    Given a chat whose answer contains a markdown table
+    When the panel exports the chat as <format>
+    Then the <format> export lays the table out as a grid
+    And the <format> export shows no raw pipe characters
+
+    Examples:
+      | format |
+      | html   |
+      | pdf    |
+      | docx   |
+
   Scenario: A non-ASCII chat title survives the download
     Given a chat titled "Отчёт по задаче" with an assistant answer
     When the panel exports the chat as pdf

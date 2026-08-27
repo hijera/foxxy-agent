@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // DefaultTimeoutSeconds bounds a single svn invocation when Options leaves it unset.
@@ -82,15 +84,24 @@ func run(ctx context.Context, o Options, dir string, args ...string) (string, er
 	full := append([]string{"--non-interactive"}, args...)
 	cmd := exec.CommandContext(ctx, o.binary(), full...)
 	cmd.Dir = dir
+	platform.HideConsoleWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	out := strings.TrimRight(stdout.String(), "\r\n")
+	// The client writes in the system ANSI code page, so the captured bytes are
+	// not UTF-8 on a legacy Windows install and the model would read mojibake.
+	// SanitizeOutput is deliberately left out, unlike the shell tool: svn runs
+	// non-interactive and emits neither escape sequences nor carriage-return
+	// redraws, while collapsing carriage returns would drop content from a diff
+	// of a file that contains them.
+	stdoutText := platform.DecodeANSIOutput(stdout.Bytes())
+	stderrText := platform.DecodeANSIOutput(stderr.Bytes())
+	out := strings.TrimRight(stdoutText, "\r\n")
 	if err != nil {
-		detail := strings.TrimSpace(stderr.String())
+		detail := strings.TrimSpace(stderrText)
 		if detail == "" {
-			detail = strings.TrimSpace(stdout.String())
+			detail = strings.TrimSpace(stdoutText)
 		}
 		if ctx.Err() != nil {
 			return out, fmt.Errorf("svn %s timed out after %s: %s",

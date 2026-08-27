@@ -137,3 +137,46 @@ func TestListCodexModelsOnlineUsesManagedOAuth(t *testing.T) {
 		t.Fatalf("models = %+v", got)
 	}
 }
+
+// TestListModelsVisionCapability pins the two catalog shapes that advertise image
+// input. The hub's own flag is not authoritative (see docs/browser-tool.md), so
+// the parsed value only pre-fills a models[].multimodal default the user can
+// override - it never gates a request.
+func TestListModelsVisionCapability(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"a-caps-vision","capabilities":{"vision":true}},
+			{"id":"b-modalities-image","modalities":{"input":["text","image"]}},
+			{"id":"c-text-only","capabilities":{"vision":false},"modalities":{"input":["text"]}},
+			{"id":"d-no-fields"},
+			{"id":"e-odd-shapes","capabilities":["vision"],"modalities":"text"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	got, err := ListModels(context.Background(), ProviderInput{Type: "openai", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	want := map[string]bool{
+		"a-caps-vision":      true,
+		"b-modalities-image": true,
+		"c-text-only":        false,
+		"d-no-fields":        false,
+		// A provider publishing an unexpected shape must not fail the catalog.
+		"e-odd-shapes": false,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d models, want %d: %+v", len(got), len(want), got)
+	}
+	for _, m := range got {
+		w, ok := want[m.ID]
+		if !ok {
+			t.Fatalf("unexpected model %q", m.ID)
+		}
+		if m.Vision != w {
+			t.Errorf("model %q Vision = %v, want %v", m.ID, m.Vision, w)
+		}
+	}
+}

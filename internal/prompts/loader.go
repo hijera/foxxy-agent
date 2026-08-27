@@ -1,14 +1,28 @@
 // Package prompts manages system prompt templates for each agent mode.
-// Templates are markdown files embedded into the binary or loaded from a directory
-// configured under YAML key prompts (config.Prompts in internal/config/prompts.go). They use Go text/template for variable substitution.
 //
-// Template variables available in .md files:
+// Built-in (embedded) prompts are assembled from reusable Markdown section
+// fragments under sections/ (see sections.go): each (mode, variant) is an
+// ordered list of fragments that the loader concatenates into one template
+// source, then parses with Go text/template. This keeps a single source of
+// truth for every shared block (the agent body, the conditional footer, the
+// read/search and background guidance that used to drift out of per-family
+// forks) and reduces tuning an already-classified family to small fragments.
+//
+// Custom prompts loaded from a directory configured under YAML key prompts
+// (config.Prompts in internal/config/prompts.go) keep the legacy
+// one-file-per-mode shape and bypass section assembly entirely.
+//
+// Template variables available in the fragments / custom files:
 //
 //	{{.CWD}}      - session working directory
 //	{{.Tools}}    - readable list of tools available in the current mode (markdown)
 //	{{.Skills}}   - active skills markdown (slash catalog and bodies), built by the agent
+//	{{.Rules}}    - active project rules markdown (may be empty)
 //	{{.Memory}}   - session agent memory notes (may be empty)
 //	{{.TodoList}} - current session todo checklist rendered as markdown (empty until plan tools populate state)
+//	{{.PlanContext}}    - design plan text injected when the user runs a saved plan (agent mode, may be empty)
+//	{{.DiscardedPlans}} - plan-mode guidance when the user discarded design plan slugs (may be empty)
+//	{{.Instructions}}   - concatenated project instruction files (AGENTS.md etc., may be empty)
 //	{{.UTCNow}}   - current date and time in UTC (RFC3339), set each time the system prompt renders
 //
 // Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory, .TodoList) when sections should be omitted when empty.
@@ -16,7 +30,6 @@
 package prompts
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,17 +79,14 @@ type TemplateData struct {
 	UTCNow string
 }
 
-// Embedded default prompt template files. The glob covers the base per-mode
-// templates (agent.md, plan.md, docs.md, ask.md, debug.md) and any per-family variants
-// (for example agent.anthropic.md) selected by Family.
-//
-//go:embed *.md
-var embeddedPrompts embed.FS
+// Embedded default prompts are assembled from reusable section fragments in
+// sections/ (see sections.go). On-disk custom prompts keep the legacy
+// one-file-per-mode shape described by loadSource.
 
 // Render renders the prompt template for the given mode with the provided data.
 // promptsDir must be empty to use built-in templates; otherwise it is a directory that
-// contains the files named agentFile, planFile, and docsFile plus ask.md and debug.md.
-// mode must be "agent", "plan", "docs", "ask", or "debug". Unknown modes use the agent template file.
+// contains the files named agentFile, planFile, and docsFile plus ask.md.
+// mode must be "agent", "plan", "docs", or "ask". Unknown modes use the agent template file.
 func Render(mode, promptsDir, agentFile, planFile, docsFile string, data TemplateData) (string, error) {
 	return RenderForFamily(mode, "", promptsDir, agentFile, planFile, docsFile, data)
 }
@@ -89,9 +99,9 @@ func RenderForFamily(mode, family, promptsDir, agentFile, planFile, docsFile str
 }
 
 // RenderForVariants is Render with an ordered list of variant keys, most-specific first
-// (for example a per-model slug then a provider family). The first key whose template file
-// (agent.<key>.md) exists is used; otherwise the base per-mode template is rendered. A nil
-// or empty list behaves exactly like Render.
+// (for example model-reference slug, API-model slug, then provider family). Embedded prompts
+// resolve the manifest and each fragment across that list; custom prompt directories select
+// the first complete <mode>.<key>.md file. A nil or empty list behaves exactly like Render.
 func RenderForVariants(mode string, variants []string, promptsDir, agentFile, planFile, docsFile string, data TemplateData) (string, error) {
 	src, err := loadSource(mode, variants, promptsDir, agentFile, planFile, docsFile)
 	if err != nil {
@@ -139,28 +149,11 @@ func familyVariants(family string) []string {
 	return []string{family}
 }
 
-// DefaultSource returns the built-in template source for a mode.
-// Useful for displaying to the user so they can customize it.
+// DefaultSource returns the built-in template source for a mode, assembled from
+// the shared section fragments in sections/. Useful for displaying to the user
+// so they can customize it.
 func DefaultSource(mode string) string {
-	return defaultSourceForVariants(mode, nil)
-}
-
-// defaultSourceForVariants returns the embedded template for a mode, preferring the first
-// embedded variant that exists and falling back to the base per-mode file.
-func defaultSourceForVariants(mode string, variants []string) string {
-	base := fileNameForMode(mode)
-	for _, v := range variants {
-		if fam := familyFileName(base, v); fam != base {
-			if b, err := embeddedPrompts.ReadFile(fam); err == nil {
-				return string(b)
-			}
-		}
-	}
-	b, err := embeddedPrompts.ReadFile(base)
-	if err != nil {
-		return ""
-	}
-	return string(b)
+	return assembleEmbeddedSource(mode, nil)
 }
 
 // familyFileName inserts ".<family>" before the extension of base.
@@ -197,7 +190,7 @@ func fileNameForMode(mode string) string {
 func loadSource(mode string, variants []string, promptsDir, agentFile, planFile, docsFile string) (string, error) {
 	dir := strings.TrimSpace(promptsDir)
 	if dir == "" {
-		return defaultSourceForVariants(mode, variants), nil
+		return assembleEmbeddedSource(mode, variants), nil
 	}
 
 	base := strings.TrimSpace(agentFile)
