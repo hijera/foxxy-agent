@@ -41,6 +41,11 @@ type State struct {
 	Diff           string            `json:"diff"`
 	Log            string            `json:"log"`
 	Fail           map[string]string `json:"fail"`
+	// OutputCodePage encodes the fake client's plain-text output in a Windows
+	// code page instead of UTF-8, reproducing the bytes a real svn.exe writes on
+	// an install whose ANSI code page is not UTF-8. Zero means UTF-8; the XML
+	// documents stay UTF-8 either way, as they do with the real client.
+	OutputCodePage int `json:"output_code_page,omitempty"`
 }
 
 // Call is one recorded invocation of the fake client.
@@ -191,4 +196,29 @@ func NewState(repoRoot, wcPath string) State {
 		Diff:           "Index: src/main.go\n===================================================================\n--- src/main.go\t(revision 12)\n+++ src/main.go\t(working copy)\n@@ -1,3 +1,4 @@\n package main\n+// changed\n",
 		Log:            "------------------------------------------------------------------------\nr12 | dev | 2026-07-01 10:00:00 +0300 | 1 line\n\ninitial import\n------------------------------------------------------------------------",
 	}
+}
+
+// ANSICodePage reports the system ANSI code page, or 0 where there is none -
+// every platform but Windows. This is the page the real client converts its
+// output to, so a test that wants the fake to write what svn.exe writes points
+// State.OutputCodePage at it.
+func ANSICodePage() int {
+	if _, cp, ok := platform.DecodeANSI([]byte{0xC0}); ok {
+		return int(cp)
+	}
+	return 0
+}
+
+// NonASCIISample returns text the client on this machine can carry, and false
+// when there is none to offer. svn replaces whatever the ANSI code page cannot
+// hold - Cyrillic is lost on a Western install and umlauts on a Russian one - so
+// the sample has to follow the machine rather than the other way round.
+func NonASCIISample() (string, bool) {
+	switch ANSICodePage() {
+	case 0, 65001, 1251: // no legacy page, UTF-8, or the Cyrillic page
+		return "Привет-Мир", true
+	case 1252:
+		return "Grüße-Straße", true
+	}
+	return "", false
 }
