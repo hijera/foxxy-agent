@@ -50,7 +50,7 @@ Frontmatter fields:
 - **`schedule`** (string) - five-field crontab, UTC
 - **`cwd`** (string, optional) - empty means the FoxxyCode process cwd; relative paths resolve against process cwd at run time
 - **`model`** (string, optional) - session model override for the run
-- **`mode`** (string, optional) - **`agent`**, **`plan`**, **`docs`**, or **`ask`** (default **`agent`**)
+- **`mode`** (string, optional) - **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`** (default **`agent`**)
 - **`paused`** (bool, optional) - when true, the job does not execute
 
 Body - markdown used as the one-shot user instruction for that scheduler run.

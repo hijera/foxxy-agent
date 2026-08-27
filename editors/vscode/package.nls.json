@@ -29,7 +29,7 @@
   "walkthrough.step.apiKey.title": "Set your API key",
   "walkthrough.step.apiKey.description": "In the embedded UI open **Settings** and paste a provider API key, or set `OPENAI_API_KEY` before launching VS Code. Extension settings live under **Settings → Extensions → FoxxyCode**.",
   "walkthrough.step.firstMessage.title": "Send your first message",
-  "walkthrough.step.firstMessage.description": "Type a task in the composer at the bottom of the panel. Pick **Mode** (agent / plan / docs / ask) and a **Model** from the selector above the input, then press Enter.",
+  "walkthrough.step.firstMessage.description": "Type a task in the composer at the bottom of the panel. Pick **Mode** (agent / plan / docs / ask / debug) and a **Model** from the selector above the input, then press Enter.",
   "walkthrough.step.reviewEdits.title": "Review agent edits",
   "walkthrough.step.reviewEdits.description": "When the agent edits a file, VS Code shows green/red inline decorations with **Accept**, **Reject**, **Show diff**, or **Revert** buttons in a notification.",
   "walkthrough.step.toolbar.title": "Toolbar shortcuts",
