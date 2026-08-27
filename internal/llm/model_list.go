@@ -13,9 +13,42 @@ import (
 )
 
 // ModelEntry is one model advertised by a provider's model-listing endpoint.
+// Vision reports that the catalog advertises image input. It is advisory only -
+// hubs are known to under-report it - so it seeds a models[].multimodal default
+// the user can override rather than gating anything at request time.
 type ModelEntry struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	ID     string `json:"id"`
+	Name   string `json:"name,omitempty"`
+	Vision bool   `json:"vision,omitempty"`
+}
+
+// modelEntryVision reports whether one catalog entry advertises image input.
+// Two shapes are recognized: capabilities.vision (published by the NeuralDeep
+// hub) and modalities.input containing "image" (the OpenAI-compatible
+// convention). Both are decoded leniently on their own - a provider that puts an
+// unexpected shape in either key must not fail the whole catalog.
+func modelEntryVision(capabilities, modalities json.RawMessage) bool {
+	if len(capabilities) > 0 {
+		var caps struct {
+			Vision bool `json:"vision"`
+		}
+		if err := json.Unmarshal(capabilities, &caps); err == nil && caps.Vision {
+			return true
+		}
+	}
+	if len(modalities) > 0 {
+		var mods struct {
+			Input []string `json:"input"`
+		}
+		if err := json.Unmarshal(modalities, &mods); err == nil {
+			for _, in := range mods.Input {
+				if strings.EqualFold(strings.TrimSpace(in), "image") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // modelListTimeout bounds a single provider model-listing request.
@@ -112,9 +145,11 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 
 	var parsed struct {
 		Data []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			DisplayName string `json:"display_name"`
+			ID           string          `json:"id"`
+			Name         string          `json:"name"`
+			DisplayName  string          `json:"display_name"`
+			Capabilities json.RawMessage `json:"capabilities"`
+			Modalities   json.RawMessage `json:"modalities"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
@@ -136,7 +171,11 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		if name == "" {
 			name = strings.TrimSpace(m.DisplayName)
 		}
-		out = append(out, ModelEntry{ID: id, Name: name})
+		out = append(out, ModelEntry{
+			ID:     id,
+			Name:   name,
+			Vision: modelEntryVision(m.Capabilities, m.Modalities),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
