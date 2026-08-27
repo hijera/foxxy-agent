@@ -38,6 +38,7 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 	pid := strconv.Itoa(cmd.Process.Pid)
 
 	kill := exec.Command("taskkill", "/T", "/F", "/PID", pid)
+	HideConsoleWindow(kill)
 	if err := kill.Start(); err == nil {
 		done := make(chan error, 1)
 		go func() { done <- kill.Wait() }()
@@ -188,6 +189,7 @@ func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duratio
 	}
 
 	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
+	HideConsoleWindow(kill)
 	if err := kill.Start(); err != nil {
 		return err
 	}

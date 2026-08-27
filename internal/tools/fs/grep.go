@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -187,6 +188,7 @@ func systemRGArgs(args grepArgs, searchPath string, maxResults int) []string {
 
 func runSystemRipgrep(ctx context.Context, executable string, args []string) (string, int, error) {
 	cmd := exec.CommandContext(ctx, executable, args...)
+	platform.HideConsoleWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // DefaultTimeoutSeconds bounds a single svn invocation when Options leaves it unset.
@@ -82,6 +84,7 @@ func run(ctx context.Context, o Options, dir string, args ...string) (string, er
 	full := append([]string{"--non-interactive"}, args...)
 	cmd := exec.CommandContext(ctx, o.binary(), full...)
 	cmd.Dir = dir
+	platform.HideConsoleWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
