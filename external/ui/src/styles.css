@@ -2304,6 +2304,19 @@ a.rail-brand {
   color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
 }
 
+.msg-user-file-chip--image .msg-user-file-chip-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.msg-user-file-thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
 .msg-user-file-chip-name {
   flex: 1;
   overflow: hidden;
@@ -2921,32 +2934,7 @@ a.rail-brand {
   border-radius: 0;
 }
 
-/* ── Diff view (apply_patch tool result) ────────────────────────────── */
-
-.diff-block {
-  padding: 0;
-  overflow: hidden;
-}
-
-.diff-file-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
-  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.diff-file-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* ── Diff rows (shared by the permission tool previews) ───────────── */
 
 .diff-hunk-header {
   display: block;
@@ -3034,7 +3022,7 @@ a.rail-brand {
   min-width: 0;
 }
 
-/* ── End diff view ──────────────────────────────────────────────────── */
+/* ── End diff rows ──────────────────────────────────────── */
 
 .thinking-row {
   max-width: 720px;
@@ -3296,20 +3284,6 @@ a.rail-brand {
 
 .foxxycode-tool-call-body .tool-block.tool-result-raw {
   background: transparent;
-}
-
-/* Diff-only body: body retains its padding (keeps correct left alignment with
-   summary text), but the diff-block breaks out via negative margins so the
-   diff rows sit edge-to-edge against the thinking-body border.  overflow:hidden
-   clips the diff to the parent's border-radius. */
-.foxxycode-tool-call-body--diff {
-  overflow: hidden;
-  padding: 0;
-  margin-left: 14px;
-}
-
-.foxxycode-tool-call-body--diff .diff-block {
-  /*margin: -10px -13px;*/
 }
 
 /* Interactive browser tool (foxxycode_browser_*) result card. */
@@ -4284,12 +4258,21 @@ textarea#composer {
   padding: 7px 9px;
 }
 
-.composer-context-chips {
+.composer-context-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 10px 12px 0;
+}
+
+/* display:contents dissolves this wrapper so the environment, folder, branch and
+   worktree chips become direct flex items of .composer-context-row. Without it
+   the chips form a nested flex box that wraps as one unit, so a long branch
+   pushed the whole group onto its own lines. Gap, alignment and padding come
+   from .composer-context-row. */
+.composer-context-chips {
+  display: contents;
 }
 
 .workspace-chip {
@@ -4718,10 +4701,33 @@ textarea#composer {
 }
 
 .composer-enhance-btn {
+  flex: 0 0 24px;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 7px 9px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text) 68%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+@media (max-width: 520px) {
+  .composer-context-row {
+    position: relative;
+    padding-right: 44px;
+  }
+
+  .composer-enhance-btn {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    margin-left: 0;
+  }
 }
 
 .composer-enhance-btn:disabled {
@@ -4782,6 +4788,45 @@ textarea#composer {
   align-items: center;
   justify-content: center;
   color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+/* Image attachments preview themselves instead of showing the generic type icon. */
+.composer-attachment-chip--image .composer-attachment-chip-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.composer-attachment-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* A chip the selected model cannot accept: kept visible, marked unusable. */
+.composer-attachment-chip--disabled {
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-style: dashed;
+}
+
+.composer-attachment-chip--disabled .composer-attachment-chip-icon {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.composer-attachment-chip--disabled:hover {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
+}
+
+/* Transient rejection notice for a paste the model cannot accept. */
+.composer-attach-hint {
+  padding: 6px 12px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
 }
 
 .composer-attachment-chip-name {
@@ -7557,7 +7602,14 @@ textarea#composer {
 }
 
 .permission-preview-viewport {
-  border-radius: 0;
+  position: relative;
+  min-width: 0;
+  max-height: 190px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--foxxycode-surface-inset);
 }
 
 .permission-preview-viewport--scroll {
@@ -8905,6 +8957,61 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-top: 1px solid rgba(127, 127, 127, 0.12);
 }
 
+/* Language select, directly under the theme grid in the Appearance tab. */
+.appearance-lang-block {
+  margin-top: 22px;
+}
+
+.appearance-language-select-wrap {
+  position: relative;
+}
+
+/* CSS-drawn chevron: a background-image would need a data URI per theme, and
+   the native arrow is suppressed by appearance: none below. */
+.appearance-language-select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 15px;
+  top: calc(50% - 4px);
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.appearance-language-select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 8px 40px 8px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--foxxycode-surface-field);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.appearance-language-select:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.appearance-language-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.appearance-language-select option {
+  color: var(--text);
+  background: var(--foxxycode-surface-field);
+}
 
 .settings-appearance-swatch-dot {
   width: 12px;

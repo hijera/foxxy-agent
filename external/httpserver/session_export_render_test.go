@@ -6,6 +6,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"html"
 	"io"
 	"regexp"
 	"strings"
@@ -71,11 +72,20 @@ func TestReadableExportDocumentDropsAmbientContext(t *testing.T) {
 			t.Errorf("readable export still shows %q", gone)
 		}
 	}
-	// What the user typed, uploaded, or explicitly pulled in with @terminal stays.
-	for _, kept := range []string{"Why does it fail?", "shot.png", "FAIL"} {
+	// What the user typed, or explicitly pulled in with @terminal, stays.
+	for _, kept := range []string{"Why does it fail?", "FAIL"} {
 		if !strings.Contains(user, kept) {
 			t.Errorf("readable export dropped %q", kept)
 		}
+	}
+	// An upload is kept too, but as a structured attachment: the raw XML wrapper
+	// would otherwise be printed verbatim in the middle of the page.
+	if strings.Contains(user, "foxxycode_session_assets") {
+		t.Error("readable export still shows the raw uploads wrapper")
+	}
+	atts := readable.Messages[0].Attachments
+	if len(atts) != 1 || atts[0].Name != "shot.png" || atts[0].Path != "/tmp/shot.png" {
+		t.Errorf("uploads did not survive as attachments: %+v", atts)
 	}
 	if readable.Messages[1].Content != "Because of a typo." {
 		t.Errorf("assistant turn was altered: %q", readable.Messages[1].Content)
@@ -198,7 +208,9 @@ func TestRenderDOCXExport(t *testing.T) {
 	if err := readDocxPart(zr, "word/document.xml", &body); err != nil {
 		t.Fatalf("read document.xml: %v", err)
 	}
-	if !strings.Contains(body, `fmt.Println`) {
+	// Syntax highlighting splits a line into one run per token, so the source
+	// only reappears once the run markup is stripped back off.
+	if !strings.Contains(docxPlainText(body), `fmt.Println("hi")`) {
 		t.Fatalf("DOCX document.xml missing code-block content (got empty code block)")
 	}
 	// Named paragraph styles referenced from the body must be defined.
@@ -278,7 +290,7 @@ func TestRenderDOCXUnicode(t *testing.T) {
 // TestMarkdownToBlocksCodeContent guards the goldmark Lines() fix: fenced and
 // indented code blocks must surface their text, not an empty string.
 func TestMarkdownToBlocksCodeContent(t *testing.T) {
-	blocks := markdownToBlocks("```go\nfmt.Println(\"x\")\n```\n")
+	blocks := markdownToBlocks("```go\nfmt.Println(\"x\")\n```\n", nil)
 	if len(blocks) != 1 || blocks[0].kind != "code_block" {
 		t.Fatalf("expected one code block, got %+v", blocks)
 	}
@@ -408,11 +420,11 @@ func TestDocxEscapeSanitizes(t *testing.T) {
 func TestDocxHeadingStylesAreDefined(t *testing.T) {
 	for level := 1; level <= 6; level++ {
 		md := strings.Repeat("#", level) + " Title"
-		blocks := markdownToBlocks(md)
+		blocks := markdownToBlocks(md, nil)
 		if len(blocks) != 1 {
 			t.Fatalf("level %d: expected one block, got %d", level, len(blocks))
 		}
-		x := docxBlockXML(blocks[0], false)
+		x := newDocxDoc().blockXML(blocks[0], false)
 		m := regexp.MustCompile(`<w:pStyle w:val="([^"]+)"/>`).FindStringSubmatch(x)
 		if m == nil {
 			t.Fatalf("level %d: heading emitted no paragraph style: %s", level, x)
@@ -426,7 +438,7 @@ func TestDocxHeadingStylesAreDefined(t *testing.T) {
 // TestMarkdownToBlocksNumbersOrderedItems checks list items carry their ordinal
 // so the PDF can print real numbers instead of a dash.
 func TestMarkdownToBlocksNumbersOrderedItems(t *testing.T) {
-	blocks := markdownToBlocks("3. three\n4. four")
+	blocks := markdownToBlocks("3. three\n4. four", nil)
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 list items, got %d", len(blocks))
 	}
@@ -438,7 +450,7 @@ func TestMarkdownToBlocksNumbersOrderedItems(t *testing.T) {
 			t.Errorf("item %d numbered %d, want %d", i, blocks[i].number, want)
 		}
 	}
-	bullets := markdownToBlocks("- a\n- b")
+	bullets := markdownToBlocks("- a\n- b", nil)
 	for i := range bullets {
 		if bullets[i].ordered {
 			t.Errorf("bullet %d marked ordered", i)
@@ -451,8 +463,8 @@ func TestMarkdownToBlocksNumbersOrderedItems(t *testing.T) {
 // point at different numbering definitions.
 func TestDocxListsUseDocumentNumbering(t *testing.T) {
 	numIDs := map[string]bool{}
-	for _, b := range markdownToBlocks("- bullet\n\n1. step") {
-		x := docxBlockXML(b, false)
+	for _, b := range markdownToBlocks("- bullet\n\n1. step", nil) {
+		x := newDocxDoc().blockXML(b, false)
 		if strings.Contains(x, "•") || strings.Contains(x, "–") {
 			t.Errorf("list item repeats its marker in the text: %s", x)
 		}
@@ -488,7 +500,7 @@ func TestWriteRunsPDFKeepsOneParagraphOnOneLine(t *testing.T) {
 func TestWriteBlocksPDFSeparatesParagraphs(t *testing.T) {
 	pdf := newExportPDF("probe")
 	pdf.AddPage()
-	writeBlocksPDF(pdf, markdownToBlocks(strings.Repeat("alpha ", 40)+"\n\nBeta paragraph."))
+	writeBlocksPDF(pdf, markdownToBlocks(strings.Repeat("alpha ", 40)+"\n\nBeta paragraph.", nil))
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
 		t.Fatalf("pdf output: %v", err)
@@ -512,7 +524,7 @@ func pdfBlockHeight(t *testing.T, md string) float64 {
 	pdf := newExportPDF("probe")
 	pdf.AddPage()
 	before := pdf.GetY()
-	writeBlocksPDF(pdf, markdownToBlocks(md))
+	writeBlocksPDF(pdf, markdownToBlocks(md, nil))
 	if err := pdf.Error(); err != nil {
 		t.Fatalf("fpdf error: %v", err)
 	}
@@ -530,4 +542,14 @@ func TestIsValidExportFormat(t *testing.T) {
 			t.Errorf("%q should be invalid", bad)
 		}
 	}
+}
+
+// docxPlainText concatenates the text nodes of a WordprocessingML fragment, so a
+// test can assert on what the reader sees rather than on how it was marked up.
+func docxPlainText(xml string) string {
+	var sb strings.Builder
+	for _, m := range regexp.MustCompile(`<w:t[^>]*>([^<]*)</w:t>`).FindAllStringSubmatch(xml, -1) {
+		sb.WriteString(html.UnescapeString(m[1]))
+	}
+	return sb.String()
 }

@@ -22,6 +22,7 @@ export const messagesEn: Record<string, string> = {
   "composer.placeholderFollowUp": "Add a follow-up",
   "composer.attachedFilesAriaLabel": "Attached files",
   "composer.removeAttachment": "Remove {fileName}",
+  "composer.attachUnsupportedModel": "The selected model cannot accept attachments",
   "composer.attachFile": "Attach file",
   "composer.enhance": "Enhance prompt",
   "composer.enhanceFailed":
@@ -226,10 +227,10 @@ export const messagesEn: Record<string, string> = {
   "settings.themePickerLabel": "Theme",
   "settings.themePickerAriaLabel": "Theme",
   "settings.appearanceLabel": "Appearance",
-  "settings.general.locale": "Language",
-  "settings.locale.auto": "Auto",
-  "settings.locale.en": "English",
-  "settings.locale.ru": "Russian",
+  "appearance.languageLabel": "Language",
+  "appearance.locale.auto": "Auto",
+  "appearance.locale.en": "English",
+  "appearance.locale.ru": "Русский",
   "settings.general.sendMode": "Sending messages",
   "settings.sendMode.enter": "Enter",
   "settings.sendMode.ctrlEnter": "Ctrl+Enter",
@@ -258,6 +259,10 @@ export const messagesEn: Record<string, string> = {
   "onboarding.modelSelectPlaceholder": "Select a model…",
   "onboarding.modelsFetchFailed":
     "Couldn't fetch the model list — enter the model id manually.",
+  "onboarding.modelMultimodalOn":
+    "The provider catalog lists image input for this model, so it is saved with multimodal on. Change it in Settings if the model rejects images.",
+  "onboarding.modelMultimodalOff":
+    "The provider catalog lists no image input for this model, so it is saved with multimodal off. Turn it on in Settings if the model does accept images.",
   "onboarding.skip": "Skip for now",
   "onboarding.test": "Test connection",
   "onboarding.save": "Save and continue",
@@ -335,6 +340,11 @@ export const messagesEn: Record<string, string> = {
     "Couldn't fetch models: {error}. Type the model id manually below.",
   "settings.modelsFetchEmpty":
     "No models returned. Type the model id manually below.",
+  "settings.modelVisionOption": "{model} · vision",
+  "settings.modelMultimodalOn":
+    "The provider catalog lists image input for this model, so Multimodal below is on. Turn it off if the model rejects images.",
+  "settings.modelMultimodalOff":
+    "The provider catalog lists no image input for this model, so Multimodal below is off. Turn it on if the model does accept images.",
   "settings.codexAuth.signInFailed": "ChatGPT sign in failed.",
   "settings.codexAuth.incompleteResponse":
     "The OAuth server returned an incomplete sign-in response.",
@@ -355,6 +365,24 @@ export const messagesEn: Record<string, string> = {
   "settings.codexAuth.providerNameRequired":
     "Enter a provider name before signing in.",
   "settings.mcp.legend": "MCP servers",
+  "settings.neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
+  "settings.neuralDeepAuth.error.incompleteResponse":
+    "The hub returned an incomplete sign-in response.",
+  "settings.neuralDeepAuth.fieldLabel": "NeuralDeep account",
+  "settings.neuralDeepAuth.description":
+    "Sign in with your NeuralDeep hub account instead of pasting a key: the hub issues a personal key for FoxxyCode. The key is stored on the FoxxyCode server and is never added to config.yaml. To use your tier's models, add them under Logical models (the model picker fetches the catalog with this login).",
+  "settings.neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
+  "settings.neuralDeepAuth.shadowedByKey":
+    "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
+  "settings.neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
+  "settings.neuralDeepAuth.openSignInPage": "Open sign-in page",
+  "settings.neuralDeepAuth.waiting": "Waiting for confirmation…",
+  "settings.neuralDeepAuth.signingOut": "Signing Out…",
+  "settings.neuralDeepAuth.signOut": "Sign Out",
+  "settings.neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
+  "settings.neuralDeepAuth.signIn": "Sign In with NeuralDeep",
+  "settings.neuralDeepAuth.enterProviderName": "Enter a provider name before signing in.",
+
   "settings.mcp.description.start":
     "Model Context Protocol servers from three levels:",
   "settings.mcp.description.global": "the global file",
@@ -677,6 +705,11 @@ export const messagesEn: Record<string, string> = {
   "status.skill": "Loading a skill",
   "status.vcs": "Working with SVN",
   "status.schedule": "Updating the schedule",
+  "status.backgroundWait": "Waiting for a background task",
+  "status.backgroundList": "Checking background tasks",
+  "status.backgroundOutput": "Reading background output",
+  "status.backgroundStop": "Stopping a background task",
+  "status.backgroundReap": "Cleaning up background tasks",
   "status.tool": "Running a tool",
   "status.thinking": "Thinking…",
   "status.memory": "Working with memory",

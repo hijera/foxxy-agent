@@ -84,6 +84,18 @@ test("styles.css defines variable blocks for all 7 themes", () => {
   }
 });
 
+// The Appearance tab is narrow (and narrower still inside an editor panel). A
+// select sized by its longest option overflows the panel and clips the chevron,
+// so the width contract is pinned here rather than left to the browser default.
+test("language select fills narrow settings without overflow", () => {
+  const css = cssText();
+  const rule = css.match(/\.appearance-language-select\s*\{[^}]*\}/s);
+  expect(rule, ".appearance-language-select rule should exist").toBeTruthy();
+  expect(rule![0]).toContain("width: 100%");
+  expect(rule![0]).toContain("min-width: 0");
+  expect(rule![0]).toContain("min-height: 40px");
+});
+
 test("each theme block defines --accent", () => {
   const css = cssText();
   const themes = [

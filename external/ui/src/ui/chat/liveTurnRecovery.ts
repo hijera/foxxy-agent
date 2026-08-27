@@ -7,12 +7,23 @@
 /** Message the composer relay sends when there is nothing to attach to. */
 export const NO_LIVE_COMPOSER_STREAM = "no active composer stream";
 
+/** `error.code` the composer relay uses for "no turn is running for this session". */
+export const NO_ACTIVE_STREAM_CODE = "no_active_stream";
+
 /**
  * True when a relay stream ended because the turn is not (or no longer) live,
  * rather than because the model or a tool failed. Such a stream must not surface
  * as a red error in the transcript - the caller falls back to the persisted rows.
+ *
+ * The code is authoritative; the message check stays for servers that predate it.
  */
-export function isNoLiveTurnRelayError(message: string | null): boolean {
+export function isNoLiveTurnRelayError(
+  code: string | null | undefined,
+  message?: string | null,
+): boolean {
+  if (typeof code === "string" && code.trim() === NO_ACTIVE_STREAM_CODE) {
+    return true;
+  }
   if (!message) return false;
   return message.trim().toLowerCase().includes(NO_LIVE_COMPOSER_STREAM);
 }

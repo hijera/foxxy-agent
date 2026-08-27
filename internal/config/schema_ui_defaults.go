@@ -17,6 +17,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	loopToolRepeatLimit := AgentDefaultLoopToolRepeatLimit
 	loopStreamRepeatCycles := AgentDefaultLoopStreamRepeatCycles
 	loopNudgeMax := AgentDefaultLoopNudgeMax
+	llmRetryMax := AgentDefaultLLMRetryMax
+	llmFirstTokenTimeoutMS := AgentDefaultLLMFirstTokenTimeoutMS
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
 			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
@@ -33,8 +35,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Model:                  "openai/gpt-4o",
 			MaxTurns:               AgentDefaultMaxTurns,
 			MaxTokensPerTurn:       AgentDefaultMaxTokensPerTurn,
-			LLMRetryMax:            AgentDefaultLLMRetryMax,
+			LLMRetryMax:            &llmRetryMax,
 			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
+			LLMFirstTokenTimeoutMS: &llmFirstTokenTimeoutMS,
 			LoopGuard:              &loopGuard,
 			LoopToolRepeatLimit:    &loopToolRepeatLimit,
 			LoopStreamRepeatCycles: &loopStreamRepeatCycles,

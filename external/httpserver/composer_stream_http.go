@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +53,7 @@ func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	lastEventID := parseLastEventID(r)
 	deadline := time.NewTimer(composerStreamWaitDeadline)
 	defer deadline.Stop()
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -61,7 +63,7 @@ func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.R
 		if rel := s.peekComposerRelay(id); rel != nil {
 			deadline.Stop()
 			ticker.Stop()
-			err := rel.serveSubscriber(r.Context(), w)
+			err := rel.serveSubscriberFrom(r.Context(), w, lastEventID)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				s.log.Warn("composer stream subscriber", "session", id, "error", err)
 			}
@@ -82,6 +84,24 @@ func (s *Server) foxxycodeSessionComposerStream(w http.ResponseWriter, r *http.R
 			fl.Flush()
 		}
 	}
+}
+
+// parseLastEventID reads the frame a reconnecting client last saw, from the standard SSE
+// header or from the query parameter EventSource clients have to use instead. Anything
+// unparseable means "replay whatever is still buffered", which is the pre-resume behavior.
+func parseLastEventID(r *http.Request) uint64 {
+	raw := strings.TrimSpace(r.Header.Get("Last-Event-ID"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.URL.Query().Get("last_event_id"))
+	}
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // writeSSEHeaders prepares a response for Server-Sent Events.
@@ -112,7 +132,8 @@ func (s *Server) sessionTurnActive(id string) bool {
 
 // writeComposerStreamError reports "no relay to attach to" in the OpenAI error shape the
 // SPA's stream reader understands; a bare {"message":...} reads to it as a dropped stream.
+// The code lets a client tell "nothing is running" apart from a real streaming failure.
 func writeComposerStreamError(w http.ResponseWriter, fl http.Flusher) {
-	_, _ = io.WriteString(w, "event: error\ndata: {\"error\":{\"message\":\"no active composer stream\"}}\n\n")
+	_, _ = io.WriteString(w, "event: error\ndata: {\"error\":{\"message\":\"no active composer stream\",\"code\":\"no_active_stream\"}}\n\n")
 	fl.Flush()
 }

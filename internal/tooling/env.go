@@ -1,6 +1,7 @@
 package tooling
 
 import (
+	"context"
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -77,6 +78,22 @@ type Env struct {
 	// name, plus the list of available command names, backing the model-driven
 	// load_skill tool. Optional; nil when skills auto-discovery is disabled.
 	LoadSkillBody func(name string) (body string, available []string, found bool)
+
+	// ConfigPath is the active FoxxyCode YAML file exposed to the config_* tool family.
+	ConfigPath string
+
+	// ConfigHome and ConfigCWD preserve the path-expansion context used to load ConfigPath.
+	ConfigHome string
+	ConfigCWD  string
+
+	// ReloadConfig applies ConfigPath to the live process and current session.
+	// config_commit and config_rollback refuse to write when this hook is unavailable.
+	ReloadConfig func(ctx context.Context) (warnings []string, err error)
+
+	// ConfigReloaded is set after a successful config_commit or config_rollback
+	// so the ReAct loop can refresh definitions before the next model call in
+	// the same user turn.
+	ConfigReloaded bool
 
 	// Background is the session's background task pool, backing run_command's
 	// background option and the background_* tools. Optional; nil when the

@@ -1,14 +1,17 @@
+import {
+  isUiLocale,
+  UI_LOCALE_DEFAULT,
+  UI_LOCALE_IDS,
+  type UiLocale,
+} from "./locales";
+
 export const FOXXYCODE_UI_LANG_COOKIE = "foxxycode_ui_lang";
 
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
-export type UiLocale = "en" | "ru";
-
-export const UI_LOCALE_IDS: UiLocale[] = ["en", "ru"];
-
-function isValidLocale(v: string): v is UiLocale {
-  return (UI_LOCALE_IDS as string[]).includes(v);
-}
+// Re-exported so the many call sites that already import the locale type and id
+// list from here keep working now that the registry owns both.
+export { UI_LOCALE_IDS, type UiLocale };
 
 export function readUiLocaleCookie(): UiLocale | null {
   if (typeof document === "undefined") {
@@ -23,7 +26,7 @@ export function readUiLocaleCookie(): UiLocale | null {
     const v = decodeURIComponent(
       s.slice(FOXXYCODE_UI_LANG_COOKIE.length + 1).trim(),
     );
-    if (isValidLocale(v)) {
+    if (isUiLocale(v)) {
       return v;
     }
     return null;
@@ -32,11 +35,15 @@ export function readUiLocaleCookie(): UiLocale | null {
 }
 
 export function mapSystemLocaleToSupported(lang: string): UiLocale {
-  const base = lang.trim().toLowerCase().split("-")[0];
-  if (base === "ru") {
-    return "ru";
+  const normalized = lang.trim().toLowerCase().replace(/_/g, "-");
+  if (isUiLocale(normalized)) {
+    return normalized;
   }
-  return "en";
+  const base = normalized.split("-")[0] ?? "";
+  if (isUiLocale(base)) {
+    return base;
+  }
+  return UI_LOCALE_DEFAULT;
 }
 
 export function readNavigatorLanguage(): string {
@@ -55,4 +62,16 @@ export function writeUiLocaleCookie(locale: UiLocale): void {
       ? "; Secure"
       : "";
   document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=${encodeURIComponent(locale)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+}
+
+/**
+ * Drop the stored locale so the next bootstrap falls back to navigator.language.
+ * "Auto" in the picker means exactly that, and leaving a stale cookie behind
+ * would pin the previously chosen language across a reload.
+ */
+export function clearUiLocaleCookie(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  document.cookie = `${FOXXYCODE_UI_LANG_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 }

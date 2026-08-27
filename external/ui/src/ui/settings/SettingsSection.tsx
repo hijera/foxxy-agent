@@ -1,6 +1,5 @@
 import { AppearanceThemePicker } from "../theme/AppearanceModal";
 import {
-  GeneralLocalePicker,
   GeneralSendModePicker,
   GeneralStatusLinePicker,
 } from "./GeneralSection";
@@ -11,6 +10,7 @@ import { CodexAuthField } from "./CodexAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
+import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
@@ -79,7 +79,26 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   if (ctx.path !== "api_base" || providerType !== "neuraldeep") {
     return null;
   }
-  return <NeuralDeepAPIBaseField ctx={ctx} />;
+  // The overrides stack: the read-only base URL keeps its slot, and the hub
+  // sign-in block renders below it. The manual api_key field above stays
+  // fully functional - an explicit key wins over the stored login, which the
+  // sign-in block reports instead of hiding.
+  const providerName =
+    ctx.parentObj?.name === undefined || ctx.parentObj.name === null
+      ? ""
+      : String(ctx.parentObj.name);
+  const hasExplicitKey =
+    String(ctx.parentObj?.api_key ?? "").trim() !== "" ||
+    String(ctx.parentObj?.api_key_command ?? "").trim() !== "";
+  return (
+    <>
+      <NeuralDeepAPIBaseField ctx={ctx} />
+      <NeuralDeepAuthField
+        providerName={providerName}
+        hasExplicitKey={hasExplicitKey}
+      />
+    </>
+  );
 }
 
 function providerFieldOverride(ctx: FieldOverrideContext) {
@@ -106,8 +125,8 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
  * SettingsSection renders the active settings tab. Object sections render their
  * sub-schema fields directly (the tab already names the section); array sections
  * become master–detail lists; the System group stacks its child object sections;
- * Skills, General (language) and Appearance are special tabs. Model fields
- * receive custom editors via the SchemaForm fieldOverride hook.
+ * Skills, General and Appearance (theme + language) are special tabs. Model
+ * fields receive custom editors via the SchemaForm fieldOverride hook.
  */
 export function SettingsSection(props: {
   section: SectionDescriptor;
@@ -132,7 +151,6 @@ export function SettingsSection(props: {
   if (section.kind === "general") {
     return (
       <>
-        <GeneralLocalePicker doc={doc} setDoc={setDoc} />
         <GeneralSendModePicker doc={doc} setDoc={setDoc} />
         <GeneralStatusLinePicker doc={doc} setDoc={setDoc} />
       </>
@@ -142,7 +160,7 @@ export function SettingsSection(props: {
   if (section.kind === "appearance") {
     return (
       <>
-        <AppearanceThemePicker />
+        <AppearanceThemePicker doc={doc} setDoc={setDoc} />
         {props.onRestartOnboarding ? (
           <div className="appearance-onboarding-restart">
             <button
@@ -196,8 +214,21 @@ export function SettingsSection(props: {
             ctx.path === "model" ? (
               <ModelField
                 value={ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)}
-                onChange={(v) => ctx.onChange(v)}
+                // Picking a listed model also seeds the sibling `multimodal`
+                // switch from the catalog's image-input flag, in the same update
+                // as the id. Without it the id is the only thing Settings can
+                // write, which is how a vision model ends up saved as
+                // multimodal:false. A hand-typed id reports no catalog entry, so
+                // the switch keeps whatever the operator set.
+                onChange={(v, picked) => {
+                  if (picked && ctx.patchParent) {
+                    ctx.patchParent({ model: v, multimodal: picked.vision === true });
+                    return;
+                  }
+                  ctx.onChange(v);
+                }}
                 providers={providerNames}
+                syncsMultimodal
                 label={tSchemaText(ctx.schema.title) || t("settings.modelIdLabel")}
               />
             ) : null

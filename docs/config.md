@@ -47,6 +47,7 @@ providers:
     # api_base: ""                    # optional override for OpenAI-compatible base URL
     # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
     # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
+    # timeout_ms: 300000               # optional bound on each LLM request incl. streamed read (0 = no client timeout)
 
   - name: "anthropic"
     type: "anthropic"
@@ -102,9 +103,14 @@ agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
-  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3)
-  llm_retry_base_ms: 1000      # initial backoff between LLM retries
-  llm_min_interval_ms: 0       # min gap between consecutive LLM calls; e.g. 12000 on strict free tiers
+  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3; an explicit 0 disables retries)
+  llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided
+                               # pause (Retry-After-Ms / Retry-After headers, "Limit resets
+                               # at" / "retry in Ns" body phrases) overrides the backoff,
+                               # capped at 60s
+  llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
+  llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard);
+                                     # a reasoning model given a large tool result can need most of it
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
   loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
@@ -417,7 +423,7 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (ignored for fixed-endpoint `neuraldeep` and `codex` providers), optional **`proxy`**. Codex credentials are managed out of band through the UI or `foxxycode codex`.
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`**, optional **`multimodal`**, optional **`reasoning_levels`**, and optional **`reasoning_default`**. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`**, optional **`multimodal`**, optional **`reasoning_levels`** (omitted: auto-detected from the API model id — **`gpt-5*`** → **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, ...) and Claude extended-thinking models → **`low,medium,high`**), and optional **`reasoning_default`**. For **`qwen3*`** models on OpenAI-compatible providers a selected level also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`**, because Qwen thinking is a chat-template switch rather than an effort tier. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

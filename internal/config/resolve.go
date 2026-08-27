@@ -19,6 +19,12 @@ type ResolvedLLM struct {
 	// Used by auto-compaction to detect when history approaches the window.
 	MaxContextTokens int
 	Temperature      float64
+	// TimeoutMS, when positive, bounds each HTTP request to this provider
+	// (providers[].timeout_ms), including the streamed body read.
+	TimeoutMS int
+	// Stream is the transport chosen for this model (models[].stream); false means
+	// one blocking request instead of an SSE stream.
+	Stream bool
 }
 
 // FindProvider returns the provider with the given name, or nil.
@@ -65,10 +71,12 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		APIKey:           prov.EffectiveAPIKey(),
 		BaseURL:          prov.APIBase,
 		ProxyURL:         prov.Proxy,
-		AuthPath:         CodexAuthPath(c.Paths.Home, prov.Name),
+		AuthPath:         ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		MaxTokens:        entry.MaxTokens,
 		MaxContextTokens: entry.MaxContextTokens,
 		Temperature:      entry.Temperature,
+		TimeoutMS:        prov.TimeoutMS,
+		Stream:           entry.EffectiveStream(),
 	}, nil
 }
 
@@ -97,8 +105,15 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 		}
 		seenModel[c.Models[i].Model] = struct{}{}
 		pn := c.Models[i].ProviderName()
-		if c.FindProvider(pn) == nil {
+		prov := c.FindProvider(pn)
+		if prov == nil {
 			return fmt.Errorf("models[%s]: unknown provider %q", c.Models[i].Model, pn)
+		}
+		// The Codex backend serves the Responses API over SSE only, so it cannot honor
+		// the documented meaning of stream: false (one blocking request). Refuse the
+		// combination instead of quietly buffering a stream and calling it non-streaming.
+		if prov.Type == "codex" && !c.Models[i].EffectiveStream() {
+			return fmt.Errorf("models[%s]: stream: false is unsupported by the codex provider, whose backend is streaming-only", c.Models[i].Model)
 		}
 	}
 

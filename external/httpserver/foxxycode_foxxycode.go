@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -16,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
@@ -121,6 +124,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/workspace/folders", s.foxxycodeWorkspaceFoldersGet)
 	s.mux.HandleFunc("POST /foxxycode/workspace/relativize", s.foxxycodeWorkspaceRelativizePost)
 	s.mux.HandleFunc("GET /foxxycode/slash-commands", s.foxxycodeSlashCommandsGet)
+	s.mux.HandleFunc("GET /foxxycode/commands", s.foxxycodeCommandsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions", s.foxxycodeSessionsList)
 	s.mux.HandleFunc("POST /foxxycode/describe", s.foxxycodeDescribePost)
 	s.mux.HandleFunc("POST /foxxycode/enhance-prompt", s.foxxycodeEnhancePromptPost)
@@ -128,7 +132,9 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", s.foxxycodeSessionMessagesGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/export", s.foxxycodeSessionExportGet)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/export/file", s.foxxycodeSessionExportFilePost)
+	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}/thumbnail", s.foxxycodeSessionAssetThumbnailGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/composer-stream", s.foxxycodeSessionComposerStream)
+	s.mux.HandleFunc("GET /foxxycode/events", s.foxxycodeEventsStream)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls", s.foxxycodeToolCallsList)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}", s.foxxycodeToolCallGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}", s.foxxycodeSessionAssetGet)
@@ -344,10 +350,10 @@ func (s *Server) foxxycodeDescribePost(w http.ResponseWriter, r *http.Request) {
 	resp, err := provider.Complete(ctx, []llm.Message{
 		{
 			Role: llm.RoleSystem,
-			Content: "You generate short descriptions for chat titles and command labels. " +
+			Content: prompts.WithIdentity("You generate short descriptions for chat titles and command labels. " +
 				"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
 				"Match the user's language when possible. " +
-				"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase.",
+				"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase."),
 		},
 		{Role: llm.RoleUser, Content: raw},
 	}, nil)
@@ -826,6 +832,12 @@ func (s *Server) foxxycodeSessionActivityGet(w http.ResponseWriter, r *http.Requ
 }
 
 func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
+	return llmMsgsToFoxxyCodeOpenAIForSession("", msgs)
+}
+
+// llmMsgsToFoxxyCodeOpenAIForSession is the transcript serializer with a session id,
+// which is what a user row needs to point at its persisted image previews.
+func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -871,6 +883,26 @@ func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
 		if m.Compacted {
 			item["compacted"] = true
 		}
+		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
+			files := make([]map[string]interface{}, 0, len(m.ImageParts))
+			for _, part := range m.ImageParts {
+				name := strings.TrimSpace(part.Name)
+				if name == "" && part.FilePath != "" {
+					name = filepath.Base(part.FilePath)
+				}
+				file := map[string]interface{}{
+					"name":      name,
+					"mime_type": imagePartMIMEType(part),
+				}
+				if sessionID != "" && part.FilePath != "" && part.ThumbnailPath != "" {
+					assetName := filepath.Base(part.FilePath)
+					file["preview_url"] = "/foxxycode/sessions/" + url.PathEscape(sessionID) +
+						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
+				}
+				files = append(files, file)
+			}
+			item["files"] = files
+		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{
 				"slug":      m.PlanDocument.Slug,
@@ -888,6 +920,75 @@ func llmMsgsToFoxxyCodeOpenAI(msgs []llm.Message) []map[string]interface{} {
 	return out
 }
 
+// imagePartMIMEType names the media type of a persisted attachment: the data URI it
+// arrived with when available, else the extension of its name or on-disk path.
+func imagePartMIMEType(part llm.ImagePart) string {
+	if strings.HasPrefix(part.DataURL, "data:") {
+		end := strings.IndexAny(part.DataURL[5:], ";,")
+		if end >= 0 {
+			raw := part.DataURL[5 : 5+end]
+			if mediaType, _, err := mime.ParseMediaType(raw); err == nil && mediaType != "" {
+				return mediaType
+			}
+		}
+	}
+	for _, name := range []string{part.Name, part.FilePath} {
+		if mediaType := mime.TypeByExtension(filepath.Ext(name)); mediaType != "" {
+			if base, _, err := mime.ParseMediaType(mediaType); err == nil {
+				return base
+			}
+			return mediaType
+		}
+	}
+	return "application/octet-stream"
+}
+
+// foxxycodeSessionAssetThumbnailGet serves the bounded PNG preview of one uploaded
+// image. Only thumbnails are exposed: the original asset bytes stay off the HTTP
+// surface, and the name is constrained to a single path element.
+func (s *Server) foxxycodeSessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.foxxycodeEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
+		return
+	}
+	sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+	if sessionDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	path := session.AssetThumbnailPath(sessionDir, name)
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		s.log.Error("open session asset thumbnail", "error", err)
+		http.Error(w, `{"error":{"message":"thumbnail unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, name+".png", info.ModTime(), f)
+}
+
 func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -901,12 +1002,15 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 	out := map[string]interface{}{
 		"object":    "foxxycode.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToFoxxyCodeOpenAI(st.GetMessages()),
+		"messages":  llmMsgsToFoxxyCodeOpenAIForSession(id, st.GetMessages()),
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		// The session profile, so a remote client restores it on load instead of
+		// dropping every reopened session back to agent.
+		out["mode"] = string(st.GetMode())
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
@@ -1022,6 +1126,12 @@ func (s *Server) foxxycodeSessionDelete(w http.ResponseWriter, r *http.Request) 
 	// task logs inside it) go away.
 	bgtask.Default().StopSession(id)
 	s.mgr.ForgetLiveSession(id)
+	// Retract the session from the branch file of whatever it forked from, so the
+	// branch navigator stops offering a thread that no longer exists. Read-side
+	// filtering covers the failure case, so a prune error must not block delete.
+	if err := s.mgr.PruneBranchRefs(id); err != nil {
+		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
+	}
 	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
 		if !os.IsNotExist(err) {
 			s.log.Error("foxxycode session delete", "error", err)

@@ -12,6 +12,32 @@ VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automa
 
 Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
 
+## Agent self-configuration
+
+Agent sessions expose a typed configuration tool family with staged, uci-like semantics:
+
+- `config_get` reads a dotted path from the active YAML file. Secret-shaped fields (including `api_key_command`), MCP environment values, and HTTP header values are returned as `<redacted>`.
+- `config_set` **stages** UCI-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file. Unknown schema paths and commands that would make the config invalid are rejected at staging time. Echoed command lists mask secret-shaped values as `<redacted>`; the staged store keeps the original values.
+- `config_changes` lists the staged commands that a commit would apply (secrets redacted).
+- `config_commit` applies the staged batch: validates, snapshots the previous file to `config.yaml.prev` (an empty document when the config file did not exist yet, so the first commit stays reversible), writes atomically, and hot-reloads skills, rules, built-in tools, and configured MCP servers. Because a commit can start MCP processes and change the permission policy itself, it prompts for tool permission in both `ask` and `accept_edits` modes - only `tools.permission_mode: bypass` skips the dialog - and the prompt lists the staged commands with secrets redacted. The agent is additionally instructed to ask the user to confirm saving first. If runtime reload fails, the file is restored and the staged commands are kept; if even that restore fails, the staged list stays consumed so a blind retry cannot replay it.
+- `config_revert` discards staged commands (all of them, or those under one path).
+- `config_rollback` restores the pre-commit snapshot over the active file (swapping the two, so a second rollback undoes the first) and hot-reloads. It carries the same permission policy as `config_commit`, and the agent warns the user before calling it.
+
+Commands and paths are dotted like OpenWrt's `uci` CLI, with a selector for named sequence entries:
+
+| Command | Meaning |
+|---|---|
+| `set agent.max_turns=40` | Set a mapping field |
+| `set mcp_servers[name=context7]={"command":"npx"}` | Select a sequence object by scalar field; append it when setting if absent |
+| `add_list skills.dirs=/opt/skills` | Append a sequence entry |
+| `del_list skills.dirs=/opt/skills` | Remove a matching sequence entry |
+| `delete mcp_servers[name=context7]` | Delete a field or entry |
+| `skills.dirs.0` (path form) | Sequence index |
+
+The root path (`.` or `/`) is read-only. Values are JSON for objects and arrays; string-typed fields take the literal text. Staged commands persist in the session bundle, so they survive restarts and HTTP permission resumes.
+
+The bundled `/configure-foxxycode` skill teaches the agent this syntax, the confirm-then-commit workflow, and the safe discovery/install workflow for MCP servers and skills; it also carries the agent-facing catalog of configuration areas and must be updated together with this reference on any schema change. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and global MCP clients.
+
 ## Top-level keys
 
 | Key | Type | Purpose | Build tag |
@@ -45,7 +71,7 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
 | `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints; `neuraldeep` uses its fixed endpoint; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
 | `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep` and `type: codex`, which use fixed official endpoints. |
-| `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
+| `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). For `type: neuraldeep`, when the key is empty from all three sources the key stored by `foxxycode providers login <name>` (`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`) is used - an explicit key always wins over the stored login. |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | environment proxy | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Overrides a proxy inherited from the environment (`HTTP_PROXY`/`HTTPS_PROXY` — the IDE plugin forwards the editor's proxy this way); `NO_PROXY` is still honored and local addresses always connect directly. When empty, the environment proxy is used, or a direct connection when there is none. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 
@@ -63,6 +89,15 @@ providers:
   - name: codex
     type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
+
+### llama.cpp as an OpenAI-compatible provider
+
+`llama-server` works as a `type: openai` provider (`api_base: "http://host:8080/v1"`). Recommended launch flags:
+
+- `--jinja` — enables the model's chat template on the server, which is required for **tool calling**. Without it llama.cpp silently ignores the `tools` parameter and the agent loop degrades to plain text answers.
+- `-c <n>` — set the context window large enough for an agent prompt (system prompt plus tool schemas plus history; 16k is a practical minimum, more is better). When a request exceeds the server context, llama.cpp reports `the request exceeds the available context size` — raise `-c` or trim `max_context_tokens`.
+
+llama.cpp builds through 2025 report mid-stream failures with a non-standard SSE `error:` field; FoxxyCode understands both that dialect and the current `data: {"error": ...}` shape and surfaces the server's message in the error.
 
 For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or use the terminal flow:
 
@@ -89,7 +124,8 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | `temperature` | float | no | `0` | Sampling temperature. |
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
-| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. |
+| `stream` | bool | no | `true` | Transport. Omitted or `true` streams the answer over SSE. `false` sends one blocking completion request and delivers the whole answer at once. Rejected for `type: codex` providers, whose backend is streaming-only. |
+| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series, `gpt-oss*`, `qwen3*` (qwen3, qwen3.5, qwen3.6, ...) and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. For `qwen3*` on OpenAI-compatible providers a selected level also sends `chat_template_kwargs` `{"enable_thinking": true}`. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
 ```yaml
@@ -101,7 +137,14 @@ models:
   - model: "openai/gpt-5"
     max_tokens: 8192
     reasoning_default: medium
+  - model: "local/qwen3-30b"
+    max_tokens: 8192
+    stream: false
 ```
+
+**Non-streaming models.** `stream: false` changes one thing: FoxxyCode sends a single blocking `POST /chat/completions` instead of asking for SSE, and hands the finished answer to the rest of the runtime in one piece. Everything downstream is unchanged, so the transcript, tool calls, and session bundle look the same; what differs is that nothing appears until the model is done, and the thinking row shows no live duration. Two consequences are worth knowing before turning it on. Pressing **Stop** during a blocking call loses the whole answer, because the server has sent nothing yet, whereas a streamed turn keeps the tokens that already arrived. And a client asking for an SSE stream still gets one - the switch governs the connection to the LLM, not the connection to the client - which is why a streaming HTTP response now carries a keepalive comment every 15 s so proxies do not drop a turn that stays silent for minutes.
+
+The switch is rejected for `type: codex` providers. The Codex Responses backend has no blocking mode, so honoring the key there would mean streaming anyway and only pretending not to.
 
 ## `agent`
 
@@ -112,9 +155,10 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `model` | string | required when `models` is non-empty | — | Default `models[].model` id until the client overrides per session. |
 | `max_turns` | int | no | `30` | Max LLM calls per prompt turn. |
 | `max_tokens_per_turn` | int | no | `200000` | Max tokens across all calls in one turn. |
-| `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). |
-| `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. |
-| `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms (e.g. `12000` on strict free tiers). |
+| `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). An explicit `0` disables retries. |
+| `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. A server-provided pause (`Retry-After-Ms` / `Retry-After` headers, `Limit resets at` / `retry in Ns` body phrases) overrides the exponential backoff, capped at 60s. |
+| `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms, retry attempts included (e.g. `12000` on strict free tiers). |
+| `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
 | `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
 | `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
 | `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |

@@ -71,7 +71,7 @@ FoxxyCode — совместимая с distroless **среда выполнен
 - **Интеграция MCP-серверов** — подключение любого MCP-сервера для доступа к дополнительным инструментам
 - **Несколько LLM-провайдеров** — OpenAI, Anthropic, Ollama и любой OpenAI-совместимый API
 - **Мультимодальность и вложения** — изображения и файлы можно прикреплять через поле ввода (📎), если в настройках модели указано `multimodal: true`; файлы сохраняются в `~/.foxxycode/sessions/<id>/assets/`, передаются в контекст агента и отображаются в сообщении пользователя
-- **Уровень рассуждения** — для моделей с рассуждением (gpt-5, серия o, модели Claude с thinking) выпадающий список в поле ввода задаёт уровень (`minimal`/`low`/`medium`/`high`), который преобразуется в OpenAI `reasoning_effort` или Anthropic extended-thinking `budget_tokens`; поддержка определяется автоматически по идентификатору модели и настраивается для каждой модели — см. [Настройку](docs/config.md)
+- **Уровень рассуждения** — для моделей с рассуждением (gpt-5, серия o, gpt-oss, qwen3, модели Claude с thinking) выпадающий список в поле ввода задаёт уровень (`minimal`/`low`/`medium`/`high`), который преобразуется в OpenAI `reasoning_effort` или Anthropic extended-thinking `budget_tokens`; поддержка определяется автоматически по идентификатору модели и настраивается для каждой модели — см. [Настройку](docs/config.md)
 - **Протокол ACP** — FoxxyCode работает как **ACP-сервер** (`foxxycode acp`); его можно подключить к редактору или скрипту с ACP-клиентом (см. [Интеграцию с редакторами и IDE](#интеграция-с-редакторами-и-ide))
 - **Удалённое выполнение по SSH** — встроенный инструмент `ssh_run_command` выполняет команды на удалённых узлах через реализацию SSH на чистом Go, без внешнего исполняемого файла; аутентификация использует SSH-агент (`SSH_AUTH_SOCK`) или ключи из `~/.ssh` — см. [Настройку](docs/config.md#ssh-remote-execution)
 - **Поддержка Subversion наравне с git** — когда в рабочей папке найдена рабочая копия SVN, рядом с чипом git появляется чип SVN (ветка `trunk` / `branches/<имя>` и ревизия): ветку можно переключить на месте (`svn switch`) или выгрузить в отдельную папку-ветку. Агент работает через отдельные инструменты `svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout` — изменяющие спрашивают разрешение. Определение git и svn независимо, поэтому папка-ветка SVN с git-репозиторием внутри работает с обеими системами. Отключается в настройках (`vcs.svn.enabled`); без установленного клиента svn всё просто скрыто — см. [Настройку](docs/config-reference.md#vcssvn)
@@ -94,7 +94,7 @@ FoxxyCode работает как **ACP-сервер** (`foxxycode acp`). **Obsi
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory miniapps"
+make build TAGS="http ui scheduler memory miniapps cli"
 make install   # копирует build/foxxycode в ~/.local/bin или /usr/local/bin
 ```
 
@@ -138,7 +138,7 @@ go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```bash
 make ui-build
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory,miniapps \
+go build -tags=http,ui,scheduler,memory,miniapps,cli \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
   -o build/foxxycode \
   ./cmd/foxxycode/
@@ -162,7 +162,7 @@ make build-desktop
 
 ### Теги сборки
 
-В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory miniapps"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory,miniapps`**).
+В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory miniapps cli"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory,miniapps,cli`**).
 
 | Тег | Что включает | Документация |
 |-----|--------------|--------------|
@@ -172,6 +172,7 @@ make build-desktop
 | **`scheduler`** | Демон планировщика и инструменты **`foxxycode_scheduler_*`**; вместе с **`http`** — REST **`/foxxycode/scheduler`** | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
 | **`miniapps`** | Версионируемые процессы из успешных сессий с инструментами; вместе с **`http`** и **`ui`** — редактор, каталог и запуск | [`docs/mini-apps-implementation-plan.md`](docs/mini-apps-implementation-plan.md), [`docs/http-api.md`](docs/http-api.md#mini-apps-rest--tagshttpminiapps) |
 | **`browser`** | Интерактивные браузерные инструменты (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate), управляющие локальным Chrome/Chromium через chromedp; модель видит снимки страницы (**`browser.enabled`** в YAML) | [`docs/browser-tool.md`](docs/browser-tool.md) |
+| **`cli`** | Интерактивная консоль-TUI — голый **`foxxycode`** в терминале (или **`foxxycode cli`**): чат с потоковым выводом, карточки инструментов, диалоги разрешений, **`!!<команда>`** выполняет команду локально, и агент её не видит; **`foxxycode -c`** продолжает последнюю сессию, **`foxxycode -p "..."`** выполняет один промпт неинтерактивно, **`--remote <имя|host:port|url>`** (плюс `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) работает против удалённого `foxxycode http` — те же флаги принимает `foxxycode acp`. Визуальное оформление вдохновлено TUI [pi coding agent](https://github.com/badlogic/pi-mono) (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
 | **`gateway.telegram`** | Адаптер Telegram-бота — подкоманда **`foxxycode gateway`**, отдельные сессии пользователей и контроль доступа | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | Все адаптеры мессенджеров (надмножество `gateway.telegram`; позволяет добавлять Discord и Slack без изменений ядра) | [`docs/gateway.md`](docs/gateway.md) |
 | **`desktop`** | Настольное приложение Windows на WebView2 (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; требует **`http`**, **`ui`** и Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
@@ -180,7 +181,7 @@ make build-desktop
 
 ### Docker
 
-Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Стандартный образ включает **`http`**, **`ui`**, **`scheduler`**, **`memory`** и **`miniapps`** — тот же набор функций, что и **`make build TAGS="http ui scheduler memory miniapps"`**.
+Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Стандартный образ включает **`http`**, **`ui`**, **`scheduler`**, **`memory`** и **`miniapps`** — тот же набор функций, что и **`make build TAGS="http ui scheduler memory miniapps cli"`**.
 
 **1. Конфигурация и рабочий каталог** (из корня репозитория или другого каталога, в котором хранится **`config.yaml`**):
 
@@ -231,7 +232,7 @@ mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 
 **Провайдеры и модели**
 
-- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для хаба NeuralDeep, **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode codex login`** в терминале; `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI.
+- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для хаба NeuralDeep, **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode codex login`** в терминале; `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** открывает браузер (loopback-callback; **`--device`** для машин без браузера), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
 - **`models`** — доступные для выбора модели. Строка **`model`** имеет вид **`<provider_name>/<api_model_id>`**, где **`provider_name`** совпадает с `providers[].name`. Доступные параметры: **`max_tokens`**, **`temperature`** и опциональный **`max_context_tokens`**.
 - **`agent`** — поле **`model`** выбирает стандартную модель ReAct и должно совпадать с одной из записей **`models[].model`**. Параметры **`max_turns`** и **`max_tokens_per_turn`** ограничивают один пользовательский запрос. Поверх этих ограничений работает защита от зацикливания **`loop_guard`** (по умолчанию **`true`**): поток ответа, выродившийся в повтор одного и того же фрагмента, обрывается (**`loop_stream_repeat_cycles`**), а инструмент, который запрашивают снова и снова с теми же аргументами, перестаёт выполняться (**`loop_tool_repeat_limit`**). Сначала модель подталкивают вернуться к задаче; ход, который продолжает зацикливаться после **`loop_nudge_max`** подсказок, завершается уведомлением.
 
@@ -264,7 +265,7 @@ export OPENAI_API_KEY="sk-..."
 
 ## Обновление
 
-Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory miniapps"`**.
+Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory miniapps cli"`**.
 
 Команда **`foxxycode update`** загружает архив для текущей ОС и архитектуры и заменяет запущенный исполняемый файл с разрешением символических ссылок. Обычно так обновляют установку после **`make install`** (**`~/.local/bin/foxxycode`**) или локальный артефакт командой **`./build/foxxycode update`**.
 
@@ -596,7 +597,7 @@ make test
 # ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Полнофункциональная локальная сборка (HTTP + UI + планировщик), как в Docker
-make build TAGS="http ui scheduler memory miniapps"
+make build TAGS="http ui scheduler memory miniapps cli"
 
 ./build/foxxycode -v    # то же, что --version
 

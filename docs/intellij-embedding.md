@@ -100,7 +100,8 @@ attribute on `<html>`, persisted in the `foxxycode_ui_lang` cookie.
 
 **Single source of truth:** the UI language is stored once, in the backend
 config (`ui.locale` in `config.yaml`, values `""` = auto, `"en"`, `"ru"`), and
-edited from one place only — the SPA **Settings → General** language picker. The
+edited from one place only — the SPA **Settings → Appearance** language select,
+under the theme grid. The
 IntelliJ and VS Code plugins no longer have their own language setting; they read
 `ui.locale` from the backend and follow live changes made in the SPA.
 
@@ -127,7 +128,7 @@ not the active locale.
   a change relayed from the SPA), it injects
   `window.foxxycodeUi.setLocale('<en|ru>')` after each page load. The SPA updates
   without a full reload.
-- **SPA → plugin:** when the user flips the language in **Settings → General**, the
+- **SPA → plugin:** when the user flips the language in **Settings → Appearance**, the
   SPA notifies the host. In JCEF the plugin subscribes via
   `window.foxxycodeUi.onLocaleChange(...)` wired to a `JBCefJSQuery`; the callback
   adopts the new locale and publishes `FoxxyCodeLanguageListener.TOPIC` so the

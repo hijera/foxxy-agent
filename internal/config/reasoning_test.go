@@ -22,10 +22,19 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 		{"anthropic/claude-sonnet-4-5", []string{"low", "medium", "high"}},
 		{"anthropic/claude-opus-4-1", []string{"low", "medium", "high"}},
 		{"anthropic/claude-3-7-sonnet", []string{"low", "medium", "high"}},
+		{"neuraldeep/qwen3.6-35b-a3b", []string{"low", "medium", "high"}},
+		{"neuraldeep/qwen3.8-27b", []string{"low", "medium", "high"}},
+		{"together/qwen3-32b", []string{"low", "medium", "high"}},
+		{"neuraldeep/gpt-oss-120b", []string{"low", "medium", "high"}},
+		{"neuraldeep/gpt-oss-20b", []string{"low", "medium", "high"}},
+		{"neuraldeep/kimi-k2.6", []string{"low", "medium", "high"}},
+		{"moonshot/kimi-k2", []string{"low", "medium", "high"}},
+		{"moonshot/kimi-latest", []string{"low", "medium", "high"}},
 		// Non-reasoning models: no levels.
 		{"openai/gpt-4o", nil},
 		{"openai/gpt-4o-mini", nil},
 		{"anthropic/claude-3-5-sonnet", nil},
+		{"openai/qwen2.5-72b-instruct", nil},
 	}
 	for _, c := range cases {
 		m := config.ModelEntry{Model: c.model}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -62,7 +63,7 @@ func (a *Agent) maybeGenerateTitle(ctx context.Context, provider llm.Provider) {
 
 	p := a.titleProvider(provider)
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: titleSystemPrompt},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(titleSystemPrompt)},
 		{Role: llm.RoleUser, Content: "Generate a title for this conversation:\n" + firstUser},
 	}
 	resp, err := p.Complete(ctx, msgs, nil)

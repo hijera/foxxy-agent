@@ -103,6 +103,9 @@ export function ChatScreen(props: {
 }) {
   const { t } = useT();
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  // Hero and docked are two branches of one ternary, so the composer unmounts on
+  // the transition. Attachments live here to survive it.
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
   const showSkeleton = isEmpty && !!props.sessionLoading;
@@ -248,6 +251,8 @@ export function ChatScreen(props: {
           <div className="hero-composer">
             <Composer
               value={props.draft}
+              attachedFiles={attachedFiles}
+              onAttachedFilesChange={setAttachedFiles}
               isEmpty={true}
               focusEpoch={props.heroComposerFocusEpoch}
               sessionId={props.sessionId}
@@ -412,6 +417,8 @@ export function ChatScreen(props: {
             <div className="chat-bottom-inner" ref={composerHostRef}>
               <Composer
                 value={props.draft}
+                attachedFiles={attachedFiles}
+                onAttachedFilesChange={setAttachedFiles}
                 isEmpty={false}
                 sessionId={props.sessionId}
                 contextIdle={false}
