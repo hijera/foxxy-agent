@@ -31,6 +31,7 @@ type miniAppsFeatureState struct {
 	sessionID, jobID, appID       string
 	draft                         map[string]any
 	releaseRunID                  string
+	testJobID, confirmationID     string
 }
 
 func (s *miniAppsFeatureState) reset() error {
@@ -226,7 +227,188 @@ func (s *miniAppsFeatureState) testDraft() error {
 	return err
 }
 
+// ensureDraft fetches the generated draft on demand so a scenario that never
+// asserts its shape can still edit, release, and run it.
+func (s *miniAppsFeatureState) ensureDraft() error {
+	if s.draft != nil {
+		return nil
+	}
+	response, err := http.Get(s.ts.URL + "/foxxycode/miniapps/" + s.appID + "/draft")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("draft status %d", response.StatusCode)
+	}
+	return json.NewDecoder(response.Body).Decode(&s.draft)
+}
+
+// addConfirmationCheckpoint is the author edit an operator makes in the editor
+// when a generated workflow should pause before it touches anything.
+func (s *miniAppsFeatureState) addConfirmationCheckpoint() error {
+	if err := s.ensureDraft(); err != nil {
+		return err
+	}
+	revision, _ := s.draft["revision"].(string)
+	if revision == "" {
+		return fmt.Errorf("draft revision missing")
+	}
+	workflow, _ := s.draft["workflow"].([]any)
+	checkpoint := map[string]any{
+		"id": "approve-write", "kind": "confirm", "title": "Approve the write",
+		"message": "Write the greeting file?",
+	}
+	s.draft["workflow"] = append([]any{checkpoint}, workflow...)
+	response, err := s.do(http.MethodPut, "/foxxycode/miniapps/"+s.appID+"/draft", s.draft,
+		map[string]string{"If-Match": revision})
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("draft update status %d: %s", response.StatusCode, response.Body)
+	}
+	s.draft = nil
+	return json.Unmarshal([]byte(response.Body), &s.draft)
+}
+
+func (s *miniAppsFeatureState) startTestRun() error {
+	response, err := s.post("/foxxycode/miniapps/"+s.appID+"/test-runs", map[string]any{"inputs": map[string]any{}})
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("test run status %d: %s", response.StatusCode, response.Body)
+	}
+	var job map[string]any
+	if err := json.Unmarshal([]byte(response.Body), &job); err != nil {
+		return err
+	}
+	s.testJobID, _ = job["id"].(string)
+	if s.testJobID == "" {
+		return fmt.Errorf("test run job id missing")
+	}
+	return nil
+}
+
+func (s *miniAppsFeatureState) testRunWaitsForApproval() error {
+	job, err := s.waitRunJob(s.testJobID, "waiting_for_confirmation")
+	if err != nil {
+		return err
+	}
+	confirmation, _ := job["confirmation"].(map[string]any)
+	s.confirmationID, _ = confirmation["id"].(string)
+	if s.confirmationID == "" {
+		return fmt.Errorf("waiting run exposed no confirmation id: %v", job["confirmation"])
+	}
+	return nil
+}
+
+func (s *miniAppsFeatureState) approvePendingConfirmation() error {
+	response, err := s.post("/foxxycode/miniapp-runs/"+s.testJobID+"/confirmation",
+		map[string]any{"approved": true, "confirmation_id": s.confirmationID})
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("confirmation status %d: %s", response.StatusCode, response.Body)
+	}
+	return nil
+}
+
+func (s *miniAppsFeatureState) testRunFinishesSuccessfully() error {
+	_, err := s.waitRunJob(s.testJobID, "succeeded")
+	return err
+}
+
+func (s *miniAppsFeatureState) catalogListsReleasedVersion(version string) error {
+	response, err := http.Get(s.ts.URL + "/foxxycode/miniapps")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("catalog status %d", response.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		return err
+	}
+	items, _ := body["apps"].([]any)
+	if items == nil {
+		items, _ = body["items"].([]any)
+	}
+	for _, value := range items {
+		entry, _ := value.(map[string]any)
+		if entry["id"] != s.appID {
+			continue
+		}
+		if entry["state"] != "released" || entry["version"] != version {
+			return fmt.Errorf("catalog entry state=%v version=%v", entry["state"], entry["version"])
+		}
+		return nil
+	}
+	return fmt.Errorf("catalog does not list %q", s.appID)
+}
+
+func (s *miniAppsFeatureState) runHistoryListsRun() error {
+	response, err := http.Get(s.ts.URL + "/foxxycode/miniapps/" + s.appID + "/runs")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("run history status %d", response.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		return err
+	}
+	items, _ := body["items"].([]any)
+	for _, value := range items {
+		run, _ := value.(map[string]any)
+		if run["id"] == s.releaseRunID {
+			return nil
+		}
+	}
+	return fmt.Errorf("run history does not list %q", s.releaseRunID)
+}
+
+func (s *miniAppsFeatureState) retestAndRelease(version string) error {
+	// A release is bound to a passing test for the current revision, so the
+	// second version is tested again before it is cut.
+	if err := s.testDraft(); err != nil {
+		return err
+	}
+	return s.release(version)
+}
+
+func (s *miniAppsFeatureState) bothReleasesRetrievable() error {
+	for _, version := range []string{"1.0.0", "1.1.0"} {
+		response, err := http.Get(s.ts.URL + "/foxxycode/miniapps/" + s.appID + "/versions/" + version)
+		if err != nil {
+			return err
+		}
+		var released map[string]any
+		decodeErr := json.NewDecoder(response.Body).Decode(&released)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return fmt.Errorf("release %s status %d", version, response.StatusCode)
+		}
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if released["version"] != version || released["state"] != "released" {
+			return fmt.Errorf("release %s reports version=%v state=%v", version, released["version"], released["state"])
+		}
+	}
+	return nil
+}
+
 func (s *miniAppsFeatureState) release(version string) error {
+	if err := s.ensureDraft(); err != nil {
+		return err
+	}
 	revision, _ := s.draft["revision"].(string)
 	response, err := s.post("/foxxycode/miniapps/"+s.appID+"/release", map[string]any{"version": version, "approved": true, "expected_revision": revision})
 	if err != nil {
@@ -239,6 +421,9 @@ func (s *miniAppsFeatureState) release(version string) error {
 }
 
 func (s *miniAppsFeatureState) runReleased(version string) error {
+	if err := s.ensureDraft(); err != nil {
+		return err
+	}
 	release, err := http.Get(s.ts.URL + "/foxxycode/miniapps/" + s.appID + "/versions/" + version)
 	if err != nil {
 		return err
@@ -293,32 +478,32 @@ func (s *miniAppsFeatureState) runReleased(version string) error {
 	return nil
 }
 
-func (s *miniAppsFeatureState) post(path string, payload any) (struct {
+type miniAppsResponse struct {
 	StatusCode int
 	Body       string
-}, error) {
+}
+
+func (s *miniAppsFeatureState) post(path string, payload any) (miniAppsResponse, error) {
+	return s.do(http.MethodPost, path, payload, nil)
+}
+
+func (s *miniAppsFeatureState) do(method, path string, payload any, headers map[string]string) (miniAppsResponse, error) {
 	data, _ := json.Marshal(payload)
-	request, err := http.NewRequest(http.MethodPost, s.ts.URL+path, strings.NewReader(string(data)))
+	request, err := http.NewRequest(method, s.ts.URL+path, strings.NewReader(string(data)))
 	if err != nil {
-		return struct {
-			StatusCode int
-			Body       string
-		}{}, err
+		return miniAppsResponse{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return struct {
-			StatusCode int
-			Body       string
-		}{}, err
+		return miniAppsResponse{}, err
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
-	return struct {
-		StatusCode int
-		Body       string
-	}{response.StatusCode, string(body)}, nil
+	return miniAppsResponse{response.StatusCode, string(body)}, nil
 }
 
 func (s *miniAppsFeatureState) waitDistillationJob(id, want string) (map[string]any, error) {
@@ -369,6 +554,15 @@ func initializeMiniAppsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I release the tested draft as version "([^"]+)"$`, s.release)
 	sc.Step(`^I run released version "([^"]+)" with a different greeting$`, s.runReleased)
 	sc.Step(`^the released run writes the different greeting$`, func() error { return nil })
+	sc.Step(`^I add a confirmation checkpoint to the generated draft$`, s.addConfirmationCheckpoint)
+	sc.Step(`^I start a test run of the draft$`, s.startTestRun)
+	sc.Step(`^the test run waits for my approval$`, s.testRunWaitsForApproval)
+	sc.Step(`^I approve the pending confirmation$`, s.approvePendingConfirmation)
+	sc.Step(`^the test run finishes successfully$`, s.testRunFinishesSuccessfully)
+	sc.Step(`^the catalog lists the Mini App as released at version "([^"]+)"$`, s.catalogListsReleasedVersion)
+	sc.Step(`^the run history for the Mini App lists that run$`, s.runHistoryListsRun)
+	sc.Step(`^I retest and release the draft as version "([^"]+)"$`, s.retestAndRelease)
+	sc.Step(`^both released versions stay retrievable$`, s.bothReleasesRetrievable)
 }
 
 func TestMiniAppsFeature(t *testing.T) {

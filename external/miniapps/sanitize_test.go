@@ -54,6 +54,55 @@ func TestSanitizeRejectsSensitiveExtensionKeysWithoutAssignmentSyntax(t *testing
 	}
 }
 
+// Windows is a first-class host, so the release gate has to reject the paths it
+// actually produces: one backslash after the drive letter, and a two-backslash
+// UNC prefix. The document is scanned after JSON decoding, so the doubled form
+// only shows up inside bundled file bytes.
+func TestSanitizeRejectsWindowsAbsolutePaths(t *testing.T) {
+	cases := map[string]string{
+		"drive path":       `C:\Users\alice\project\notes.txt`,
+		"unc share":        `\\fileserver\share\project\notes.txt`,
+		"escaped in text":  `C:\\Users\\alice\\project`,
+		"lowercase drive":  `d:\work\repo\out.txt`,
+		"quoted mid-value": `wrote "C:\Users\alice\out.txt" successfully`,
+	}
+	for name, leaked := range cases {
+		t.Run(name, func(t *testing.T) {
+			app := coreValidApp()
+			app.Workflow[0].Arguments = map[string]any{"note": leaked}
+			if report := Sanitize(app); report.Clean {
+				t.Fatalf("absolute path %q passed the release gate", leaked)
+			}
+		})
+	}
+}
+
+func TestSanitizeFilesRejectsWindowsAbsolutePaths(t *testing.T) {
+	files := map[string][]byte{"run.log": []byte("wrote C:\\Users\\alice\\out.txt\n")}
+	if report := SanitizeFiles(files); report.Clean {
+		t.Fatal("Windows path in bundled content was accepted")
+	}
+}
+
+// Relative paths and ordinary prose must stay releasable, otherwise the gate is
+// unusable rather than strict.
+func TestSanitizeAllowsRelativePathsAndProse(t *testing.T) {
+	for name, safe := range map[string]string{
+		"relative path":  `docs\build.md`,
+		"posix relative": "docs/build.md",
+		"prose colon":    "note: see the report",
+		"clock":          "finished at 12:30",
+	} {
+		t.Run(name, func(t *testing.T) {
+			app := coreValidApp()
+			app.Workflow[0].Arguments = map[string]any{"note": safe}
+			if report := Sanitize(app); !report.Clean {
+				t.Fatalf("safe value %q was rejected: %+v", safe, report.Findings)
+			}
+		})
+	}
+}
+
 func TestSanitizeEvidenceAllowsPrivateProvenanceButRejectsCredentials(t *testing.T) {
 	evidence := SourceEvidence{
 		SessionID:     "session-private",

@@ -399,7 +399,7 @@ func (s *Store) ReleaseWithOptions(id, version string, options ReleaseOptions) (
 	dir, _ := s.appDir(id)
 	var test Run
 	if err := readJSON(filepath.Join(dir, "draft", "passing-test.json"), &test); err != nil ||
-		test.AppID != id || test.Test != true || test.Status != RunSucceeded || test.Revision != app.Revision {
+		test.AppID != id || !test.Test || test.Status != RunSucceeded || test.Revision != app.Revision {
 		return MiniApp{}, fmt.Errorf("%w: current draft requires a passing test", ErrReleaseGate)
 	}
 	releaseDir := filepath.Join(dir, "releases", version)

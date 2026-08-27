@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -145,7 +144,7 @@ func VerifyReplay(_ context.Context, app MiniApp, evidence SourceEvidence, run R
 		return report
 	}
 	report.Status = VerificationFailed
-	if !valuesMatch && !(artifactCount > 0 && artifactOK) {
+	if !valuesMatch && (artifactCount == 0 || !artifactOK) {
 		report.Discrepancies = append(report.Discrepancies, Discrepancy{
 			Path: "/outputs/result", Kind: "result_mismatch", Severity: "error",
 			Message:  "replay result differs from the accepted source result",
@@ -498,39 +497,4 @@ func applyRepairOperation(app *MiniApp, operation RepairOperation) error {
 		}
 	}
 	return nil
-}
-
-// compareJSONNumbers avoids false discrepancies caused by JSON decoding
-// integers into float64 in source fixtures.
-func compareJSONNumbers(left, right any) bool {
-	leftNumber, leftOK := numericValue(left)
-	rightNumber, rightOK := numericValue(right)
-	return leftOK && rightOK && leftNumber == rightNumber
-}
-
-func numericValue(value any) (float64, bool) {
-	switch typed := value.(type) {
-	case json.Number:
-		parsed, err := typed.Float64()
-		return parsed, err == nil
-	case float64:
-		return typed, true
-	case float32:
-		return float64(typed), true
-	case int:
-		return float64(typed), true
-	case int64:
-		return float64(typed), true
-	case int32:
-		return float64(typed), true
-	case uint:
-		return float64(typed), true
-	case uint64:
-		return float64(typed), true
-	case string:
-		parsed, err := strconv.ParseFloat(typed, 64)
-		return parsed, err == nil
-	default:
-		return 0, false
-	}
 }

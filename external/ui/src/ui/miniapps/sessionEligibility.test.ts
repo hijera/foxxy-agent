@@ -12,20 +12,28 @@ const items: TranscriptItem[] = [
   },
 ];
 
-test.each([
+// Typed as a plain tuple array rather than `as const`: a readonly union of
+// literal tuples makes each row its own call signature, which no single
+// callback shape satisfies.
+const uncapableStates: Array<[boolean | null, string]> = [
   [null, "not-yet-probed"],
   [false, "HTTP surface unavailable"],
-] as const)("hides create action when Mini Apps capability is %s", (linked) => {
-  expect(
-    isMiniAppSessionEligible({
-      miniAppsHttpLinked: linked,
-      editorEmbed: false,
-      sessionId: "session-1",
-      generating: false,
-      items,
-    }),
-  ).toBe(false);
-});
+];
+
+test.each(uncapableStates)(
+  "hides create action when Mini Apps capability is %s (%s)",
+  (linked) => {
+    expect(
+      isMiniAppSessionEligible({
+        miniAppsHttpLinked: linked,
+        editorEmbed: false,
+        sessionId: "session-1",
+        generating: false,
+        items,
+      }),
+    ).toBe(false);
+  },
+);
 
 test("allows a completed tool-driven session when the capability is linked", () => {
   expect(

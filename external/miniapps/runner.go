@@ -551,11 +551,10 @@ func (e *runExecution) emit(ctx context.Context, event RunEvent) error {
 	}
 	event.Message = redactString(event.Message, e.secretVals)
 	if e.runner.executors.Events != nil {
-		if err := e.runner.executors.Events.Emit(ctx, event); err != nil && e.persistErr == nil {
-			// Event sinks are observability extensions; a slow or unavailable
-			// sink must not turn an otherwise valid tool run into a side effect
-			// rollback. The persisted Run remains authoritative.
-		}
+		// Event sinks are observability extensions; a slow or unavailable sink
+		// must not turn an otherwise valid tool run into a side effect rollback.
+		// The persisted Run remains authoritative, so the error is dropped.
+		_ = e.runner.executors.Events.Emit(ctx, event)
 	}
 	if e.eventsPath != "" && e.app.Runtime.LogScope != "local" {
 		e.fileMu.Lock()

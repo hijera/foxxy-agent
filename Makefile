@@ -156,16 +156,19 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 # Run the linter (requires golangci-lint).
-# The second pass compiles the cli-tagged console surface, which the untagged
-# pass never sees.
+# The untagged pass cannot see code behind a build tag, so every optional
+# package needs its own pass or it ships unlinted. cli covers the console
+# surface; miniapps covers external/miniapps.
 lint:
 	golangci-lint run ./...
 	golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
+	golangci-lint run --build-tags miniapps ./external/miniapps/...
 
 # Run the linter against the Windows build, which lint above never compiles.
 lint-windows:
 	GOOS=windows golangci-lint run ./...
 	GOOS=windows golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
+	GOOS=windows golangci-lint run --build-tags miniapps ./external/miniapps/...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify

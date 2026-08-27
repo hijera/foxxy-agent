@@ -20,9 +20,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/external/miniapps"
 	"github.com/hijera/foxxycode-agent/internal/llm"
-	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
-	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
 const miniAppsJSONLimit = 2 << 20
@@ -64,15 +62,16 @@ func (s *Server) miniAppsHTTPState() *miniAppsHTTPState {
 	root := filepath.Join(home, "miniapps")
 	runRoot := filepath.Join(home, "apps")
 	store := miniapps.NewStoreWithRunRoot(root, runRoot)
-	registry := tools.NewRegistryForEnvironment(cfg, platform.CurrentEnvironment())
-	allowlist := make([]string, 0, len(registry.AllToolDefinitions()))
-	for _, definition := range registry.AllToolDefinitions() {
-		allowlist = append(allowlist, definition.Name)
-	}
+	// The executors resolve the configuration per call rather than closing over
+	// the one that happened to be live here, so a provider, key, model, or MCP
+	// change saved in Settings (ReplaceConfig) applies to the next Mini App step.
+	// Only the store stays pinned: it owns persisted jobs and running workspaces,
+	// which a mid-flight home change cannot follow.
+	source := miniapps.ConfigSource(s.activeCfg)
 	runner := miniapps.NewRunner(store, miniapps.Executors{
-		Tool:  miniapps.NewBuiltinToolExecutor(registry, allowlist),
-		Model: miniapps.NewProviderModelExecutor(cfg),
-		Agent: miniapps.NewReActAgentExecutor(cfg),
+		Tool:  miniapps.NewLiveBuiltinToolExecutor(source),
+		Model: miniapps.NewLiveProviderModelExecutor(source),
+		Agent: miniapps.NewLiveReActAgentExecutor(source),
 	}).WithWorkspaceRoot(runRoot)
 	state := &miniAppsHTTPState{
 		store: store, service: miniapps.NewService(store, runner),

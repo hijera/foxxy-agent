@@ -31,7 +31,11 @@ var secretPatterns = []struct {
 	{"credential assignment", regexp.MustCompile(`(?i)(api[_-]?key|access[_-]?token|token|password|secret|cookie)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}`)},
 }
 
-var absolutePathPattern = regexp.MustCompile(`(?i)(^|[\s"'=:(])(?:/home/|/users/|/private/|/var/folders/|[a-z]:\\\\|\\\\\\\\)[^\s"'<>]+`)
+// absolutePathPattern matches user-specific roots. The Windows alternatives are
+// quantified rather than doubled: values are scanned after JSON decoding, so a
+// drive path arrives with a single separator (`C:\Users\...`) and only bundled
+// file bytes can still carry the escaped form.
+var absolutePathPattern = regexp.MustCompile(`(?i)(^|[\s"'=:(])(?:/home/|/users/|/private/|/var/folders/|[a-z]:\\+|\\{2,})[^\s"'<>]+`)
 
 // Sanitize scans the complete portable JSON document before release. It does
 // not inspect SourceEvidence because evidence is private authoring data and is

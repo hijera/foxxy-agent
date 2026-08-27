@@ -18,12 +18,33 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/tools"
 )
 
+// ConfigSource resolves the configuration a Mini App step should run against.
+// The HTTP transport passes the server's live accessor, so a provider, key,
+// model, or MCP change saved in Settings reaches the next step instead of the
+// next restart. A nil source, or one that returns nil, is treated as "no
+// configuration" rather than panicking mid-run.
+type ConfigSource func() *config.Config
+
+func staticConfigSource(cfg *config.Config) ConfigSource {
+	return func() *config.Config { return cfg }
+}
+
+func (source ConfigSource) resolve() *config.Config {
+	if source == nil {
+		return nil
+	}
+	return source()
+}
+
 // BuiltinToolExecutor adapts the registered FoxxyCode tools to deterministic
 // Mini App steps. The allowlist is always enforced, including when a caller
 // accidentally constructs it with a nil slice. Permission-bearing tools are
 // rejected because a background Mini App run has no interactive ACP approval.
 type BuiltinToolExecutor struct {
+	// registry pins one prebuilt registry; it stays nil for the live variant,
+	// which rebuilds from source on every call.
 	registry        *tooling.Registry
+	source          ConfigSource
 	allowlist       map[string]struct{}
 	allowRestricted bool
 }
@@ -43,15 +64,38 @@ func NewConfiguredBuiltinToolExecutor(cfg *config.Config, allowlist []string) *B
 	return NewBuiltinToolExecutor(tools.NewRegistryForEnvironment(cfg, platform.CurrentEnvironment()), allowlist)
 }
 
+// NewLiveBuiltinToolExecutor builds the tool registry from the currently active
+// configuration on every call. Its allowlist is that live registry, which is
+// exactly what the HTTP transport used to enumerate and pass in by hand; the
+// per-Mini-App reviewed permission list still gates each individual call.
+func NewLiveBuiltinToolExecutor(source ConfigSource) *BuiltinToolExecutor {
+	return &BuiltinToolExecutor{source: source}
+}
+
+func (e *BuiltinToolExecutor) currentRegistry() *tooling.Registry {
+	if e == nil {
+		return nil
+	}
+	if e.registry != nil {
+		return e.registry
+	}
+	cfg := e.source.resolve()
+	if cfg == nil {
+		return nil
+	}
+	return tools.NewRegistryForEnvironment(cfg, platform.CurrentEnvironment())
+}
+
 func (e *BuiltinToolExecutor) ValidateMiniAppCapabilities(app MiniApp) error {
-	if e == nil || e.registry == nil {
+	registry := e.currentRegistry()
+	if registry == nil {
 		return errors.New("builtin tool registry is unavailable")
 	}
 	for _, name := range app.Permissions.Tools {
 		if _, allowed := e.allowlist[name]; e.allowRestricted && !allowed {
 			return fmt.Errorf("tool %q is not enabled for Mini Apps", name)
 		}
-		tool, found := e.registry.Get(name)
+		tool, found := registry.Get(name)
 		if !found || tool == nil {
 			return fmt.Errorf("tool %q is not registered", name)
 		}
@@ -66,7 +110,8 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if e == nil || e.registry == nil {
+	registry := e.currentRegistry()
+	if registry == nil {
 		return nil, errors.New("builtin tool registry is unavailable")
 	}
 	name := strings.TrimSpace(req.Tool)
@@ -78,7 +123,7 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 			return nil, fmt.Errorf("tool %q is not declared in Mini App allowlist", name)
 		}
 	}
-	tool, ok := e.registry.Get(name)
+	tool, ok := registry.Get(name)
 	if !ok || tool == nil {
 		return nil, fmt.Errorf("unknown builtin tool %q", name)
 	}
@@ -87,7 +132,7 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 	}
 	workspace := strings.TrimSpace(req.Workspace)
 	if workspace == "" {
-		return nil, errors.New("Mini App tool workspace is required")
+		return nil, errors.New("workspace is required for a Mini App tool step")
 	}
 	argsJSON, err := miniAppArgumentsJSON(req.Arguments)
 	if err != nil {
@@ -101,24 +146,34 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 		PermissionMode: config.PermModeAsk,
 		SessionID:      req.RunID,
 	}
-	result, err := e.registry.Execute(ctx, name, argsJSON, env)
+	result, err := registry.Execute(ctx, name, argsJSON, env)
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
+// builtinToolNeedsInteractivePermission names the tools a background Mini App
+// run must never reach, on top of the registry's own RequiresPermission flag.
+// Names are matched as the registry actually registers them, so the foxxycode_
+// prefix the browser family carries is normalized away first.
 func builtinToolNeedsInteractivePermission(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
-	switch name {
-	case "run_command", "ssh_run_command", "browser_click", "browser_fill", "browser_evaluate", "browser_hover",
-		"browser_navigate", "browser_scroll":
-		return true
-	}
+	// Namespaced MCP calls are never Mini App builtins.
 	if strings.Contains(name, "__") {
 		return true
 	}
-	return strings.HasSuffix(name, "_create") || strings.HasSuffix(name, "_update") || strings.HasSuffix(name, "_delete")
+	bare := strings.TrimPrefix(name, "foxxycode_")
+	switch bare {
+	case "run_command", "ssh_run_command":
+		return true
+	}
+	// The whole browser family drives the operator's shared browser session, so
+	// even its read-only members stay out of an unattended run.
+	if strings.HasPrefix(bare, "browser_") {
+		return true
+	}
+	return strings.HasSuffix(bare, "_create") || strings.HasSuffix(bare, "_update") || strings.HasSuffix(bare, "_delete")
 }
 
 func validateBuiltinToolPaths(name string, args any, workspace string) error {
@@ -235,12 +290,18 @@ func miniAppArgumentsJSON(value any) (string, error) {
 // ProviderModelExecutor is the bounded tool-free model adapter used by llm
 // steps and model-backed success checks.
 type ProviderModelExecutor struct {
-	config  *config.Config
+	source  ConfigSource
 	factory func(llm.ProviderInput) (llm.Provider, error)
 }
 
 func NewProviderModelExecutor(cfg *config.Config) *ProviderModelExecutor {
-	return &ProviderModelExecutor{config: cfg, factory: llm.NewProvider}
+	return NewLiveProviderModelExecutor(staticConfigSource(cfg))
+}
+
+// NewLiveProviderModelExecutor resolves the configuration on every step, so a
+// model or key edited in Settings applies to the next llm step.
+func NewLiveProviderModelExecutor(source ConfigSource) *ProviderModelExecutor {
+	return &ProviderModelExecutor{source: source, factory: llm.NewProvider}
 }
 
 func (e *ProviderModelExecutor) SetProviderFactory(factory func(llm.ProviderInput) (llm.Provider, error)) {
@@ -250,11 +311,15 @@ func (e *ProviderModelExecutor) SetProviderFactory(factory func(llm.ProviderInpu
 }
 
 func (e *ProviderModelExecutor) ValidateMiniAppCapabilities(app MiniApp) error {
-	if e == nil || e.config == nil {
+	if e == nil {
+		return errors.New("model configuration is unavailable")
+	}
+	cfg := e.source.resolve()
+	if cfg == nil {
 		return errors.New("model configuration is unavailable")
 	}
 	for _, binding := range app.Requirements.ModelBindings {
-		if _, _, err := modelConfigForBinding(e.config, binding); err != nil {
+		if _, _, err := modelConfigForBinding(cfg, binding); err != nil {
 			return err
 		}
 	}
@@ -262,10 +327,14 @@ func (e *ProviderModelExecutor) ValidateMiniAppCapabilities(app MiniApp) error {
 }
 
 func (e *ProviderModelExecutor) ExecuteModel(ctx context.Context, req ModelRequest) (any, error) {
-	if e == nil || e.config == nil {
+	if e == nil {
 		return nil, errors.New("model configuration is unavailable")
 	}
-	modelCfg, modelRef, err := modelConfigForBinding(e.config, req.Binding)
+	cfg := e.source.resolve()
+	if cfg == nil {
+		return nil, errors.New("model configuration is unavailable")
+	}
+	modelCfg, modelRef, err := modelConfigForBinding(cfg, req.Binding)
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -552,12 +551,6 @@ func (s *Service) launchWorker(id string, work func()) {
 	}()
 }
 
-func (s *Service) workerDone(id string) <-chan struct{} {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.workers[id]
-}
-
 func (s *Service) updateJob(id string, update func(*AsyncJob)) {
 	s.mu.Lock()
 	job, ok := s.jobs[id]
@@ -883,7 +876,7 @@ func readJobEvents(path string) []JobEvent {
 	if err != nil {
 		return nil
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var events []JobEvent
 	decoder := json.NewDecoder(bufio.NewReader(file))
 	for {
@@ -901,9 +894,4 @@ func readJobEvents(path string) []JobEvent {
 func mustJSONLine(value any) string {
 	data, _ := json.Marshal(value)
 	return string(append(data, '\n'))
-}
-
-// sortJobs is used by transports that need deterministic catalog ordering.
-func sortJobs(items []AsyncJob) {
-	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
 }

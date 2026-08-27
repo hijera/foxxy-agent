@@ -85,19 +85,6 @@ func (m *runnerTestModel) ExecuteModel(ctx context.Context, req ModelRequest) (a
 	return m.fn(ctx, req)
 }
 
-type runnerTestAgent struct {
-	calls int
-	fn    func(context.Context, AgentRequest) (any, error)
-}
-
-func (a *runnerTestAgent) ExecuteAgent(ctx context.Context, req AgentRequest) (any, error) {
-	a.calls++
-	if a.fn == nil {
-		return req.Prompt, nil
-	}
-	return a.fn(ctx, req)
-}
-
 type runnerTestEvents struct {
 	mu     sync.Mutex
 	events []RunEvent

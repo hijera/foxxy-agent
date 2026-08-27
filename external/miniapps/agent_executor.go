@@ -23,12 +23,18 @@ import (
 // ephemeral session. Only non-interactive registered tools are eligible for
 // guarded one-time approval, so the reviewed allowlist cannot bypass policy.
 type ReActAgentExecutor struct {
-	config  *config.Config
+	source  ConfigSource
 	factory func(llm.ProviderInput) (llm.Provider, error)
 }
 
 func NewReActAgentExecutor(cfg *config.Config) *ReActAgentExecutor {
-	return &ReActAgentExecutor{config: cfg, factory: llm.NewProvider}
+	return NewLiveReActAgentExecutor(staticConfigSource(cfg))
+}
+
+// NewLiveReActAgentExecutor resolves the configuration on every agent step, so
+// the tool registry and model binding follow what Settings currently holds.
+func NewLiveReActAgentExecutor(source ConfigSource) *ReActAgentExecutor {
+	return &ReActAgentExecutor{source: source, factory: llm.NewProvider}
 }
 
 // NewAgentExecutor is a concise alias for callers wiring the runtime.
@@ -43,12 +49,16 @@ func (e *ReActAgentExecutor) SetProviderFactory(factory func(llm.ProviderInput) 
 }
 
 func (e *ReActAgentExecutor) ValidateMiniAppCapabilities(app MiniApp) error {
-	if e == nil || e.config == nil {
+	if e == nil {
 		return errors.New("agent configuration is unavailable")
 	}
-	registry := tools.NewRegistryForEnvironment(e.config, platform.CurrentEnvironment())
+	cfg := e.source.resolve()
+	if cfg == nil {
+		return errors.New("agent configuration is unavailable")
+	}
+	registry := tools.NewRegistryForEnvironment(cfg, platform.CurrentEnvironment())
 	for _, binding := range app.Requirements.ModelBindings {
-		if _, _, err := modelConfigForBinding(e.config, binding); err != nil {
+		if _, _, err := modelConfigForBinding(cfg, binding); err != nil {
 			return err
 		}
 	}
@@ -80,7 +90,11 @@ func flattenMiniAppSteps(steps []Step) []Step {
 }
 
 func (e *ReActAgentExecutor) ExecuteAgent(ctx context.Context, req AgentRequest) (any, error) {
-	if e == nil || e.config == nil {
+	if e == nil {
+		return nil, errors.New("agent configuration is unavailable")
+	}
+	cfg := e.source.resolve()
+	if cfg == nil {
 		return nil, errors.New("agent configuration is unavailable")
 	}
 	if err := ctx.Err(); err != nil {
@@ -88,12 +102,12 @@ func (e *ReActAgentExecutor) ExecuteAgent(ctx context.Context, req AgentRequest)
 	}
 	workspace := strings.TrimSpace(req.Workspace)
 	if workspace == "" {
-		return nil, errors.New("Mini App agent workspace is required")
+		return nil, errors.New("workspace is required for a Mini App agent step")
 	}
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return nil, fmt.Errorf("create agent workspace: %w", err)
 	}
-	modelCfg, modelRef, err := modelConfigForBinding(e.config, req.Binding)
+	modelCfg, modelRef, err := modelConfigForBinding(cfg, req.Binding)
 	if err != nil {
 		return nil, err
 	}

@@ -106,8 +106,12 @@ export function MiniAppsPage(props: {
   const selectedCatalog = apps.find(
     (app) => app.id === (props.selectedAppId || "").trim(),
   );
+  // null rather than undefined: the editor prop is optional, and under
+  // exactOptionalPropertyTypes an explicit undefined is not assignable to it.
   const releasedVersion =
-    selectedCatalog?.state === "released" ? selectedCatalog.version : undefined;
+    selectedCatalog?.state === "released"
+      ? (selectedCatalog.version ?? null)
+      : null;
 
   const runReleased = async () => {
     if (!selected || !releasedVersion) return;

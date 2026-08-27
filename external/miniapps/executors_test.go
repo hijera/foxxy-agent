@@ -159,6 +159,66 @@ func TestModelBindingRejectsUnconfiguredProviderEndpoint(t *testing.T) {
 	}
 }
 
+// Settings reach a running server through ReplaceConfig, so every executor has
+// to resolve the configuration per call. Capturing it once pinned each run to
+// whatever happened to be live when the first Mini Apps request arrived, which
+// meant a changed provider, key, or model only applied after a restart.
+func TestExecutorsResolveConfigurationPerCall(t *testing.T) {
+	active := &config.Config{}
+	source := ConfigSource(func() *config.Config { return active })
+
+	app := coreValidApp()
+	app.Requirements.ModelBindings = []ModelBinding{{
+		ID: "binding", Selection: "fixed", Model: "test/fake-model",
+		Provider: ProviderIdentity{Type: "openai", BaseURL: "https://example.test"},
+	}}
+
+	model := NewLiveProviderModelExecutor(source)
+	agentExecutor := NewLiveReActAgentExecutor(source)
+	if err := model.ValidateMiniAppCapabilities(app); err == nil {
+		t.Fatal("model binding validated against a configuration without the provider")
+	}
+	if err := agentExecutor.ValidateMiniAppCapabilities(app); err == nil {
+		t.Fatal("agent binding validated against a configuration without the provider")
+	}
+
+	active = miniAppModelTestConfig() // the operator saves the provider in Settings
+
+	if err := model.ValidateMiniAppCapabilities(app); err != nil {
+		t.Fatalf("model executor kept the stale configuration: %v", err)
+	}
+	if err := agentExecutor.ValidateMiniAppCapabilities(app); err != nil {
+		t.Fatalf("agent executor kept the stale configuration: %v", err)
+	}
+}
+
+func TestLiveBuiltinToolExecutorResolvesRegistryPerCall(t *testing.T) {
+	var active *config.Config
+	executor := NewLiveBuiltinToolExecutor(func() *config.Config { return active })
+
+	app := coreValidApp()
+	app.Permissions = Permissions{Tools: []string{"write"}}
+	if err := executor.ValidateMiniAppCapabilities(app); err == nil {
+		t.Fatal("tool executor validated without a configuration")
+	}
+
+	active = miniAppModelTestConfig()
+
+	if err := executor.ValidateMiniAppCapabilities(app); err != nil {
+		t.Fatalf("tool executor kept the stale registry: %v", err)
+	}
+	workspace := t.TempDir()
+	if _, err := executor.ExecuteTool(context.Background(), ToolRequest{
+		RunID: "run", Tool: "write", Workspace: workspace,
+		Arguments: map[string]any{"path": "live.txt", "content": "ok"},
+	}); err != nil {
+		t.Fatalf("reviewed write against the live registry failed: %v", err)
+	}
+	if raw, err := os.ReadFile(filepath.Join(workspace, "live.txt")); err != nil || string(raw) != "ok" {
+		t.Fatalf("workspace output = %q, err=%v", raw, err)
+	}
+}
+
 func miniAppModelTestConfig() *config.Config {
 	return &config.Config{
 		Providers: []config.ProviderConfig{{Name: "test", Type: "openai", APIBase: "https://example.test"}},
@@ -176,5 +236,29 @@ func TestMiniAppAgentGuardRejectsEveryPermissionBearingTool(t *testing.T) {
 	}
 	if err := guardMiniAppAgentToolCall(registry, "write", `{"path":"inside.txt","content":"ok"}`, workspace); err != nil {
 		t.Fatalf("reviewed confined write was rejected: %v", err)
+	}
+}
+
+// The registry namespaces the browser family as foxxycode_browser_*, so matching
+// the bare names left this guard inert for every tool it was written to stop.
+// The whole family is out of reach: it drives the operator's shared browser
+// session, which an unattended run must not touch even to read.
+func TestBuiltinToolNeedsInteractivePermissionMatchesRegisteredNames(t *testing.T) {
+	unavailable := []string{
+		"run_command", "ssh_run_command",
+		"foxxycode_browser_click", "foxxycode_browser_fill", "foxxycode_browser_evaluate",
+		"foxxycode_browser_hover", "foxxycode_browser_navigate", "foxxycode_browser_scroll",
+		"foxxycode_browser_screenshot", "foxxycode_browser_close",
+		"mcp__github__create_issue", "job_create", "job_update", "job_delete",
+	}
+	for _, name := range unavailable {
+		if !builtinToolNeedsInteractivePermission(name) {
+			t.Errorf("%q must be unavailable to unattended Mini App execution", name)
+		}
+	}
+	for _, name := range []string{"read", "write", "edit", "glob", "grep", "print_tree", "mkdir"} {
+		if builtinToolNeedsInteractivePermission(name) {
+			t.Errorf("%q must stay available to a reviewed Mini App step", name)
+		}
 	}
 }
