@@ -88,20 +88,22 @@ class FoxxyCodeConfigurable : Configurable {
         return panel
     }
 
-    private fun currentBinary(): File? {
-        val p = pathField.text.trim()
-        return if (p.isBlank()) FoxxyCodeBinaryResolver.resolveExisting() else File(p).takeIf { it.isFile }
-    }
-
     private fun verify() {
-        val bin = currentBinary()
-        if (bin == null) {
-            statusLabel.text = FoxxyCodeBundle.message("settings.status.noBinary")
-            return
-        }
+        // Read the Swing field here, on the EDT; everything after it resolves and runs the
+        // binary, which may stage a copy out of the plugin directory first and take seconds.
+        val override = pathField.text.trim()
         ProgressManager.getInstance().runProcessWithProgressSynchronously({
-            val v = FoxxyCodeBinaryResolver.validate(bin)
-            ApplicationManager.getApplication().invokeLater { statusLabel.text = v.message }
+            val bin = if (override.isNotBlank()) {
+                File(override).takeIf { it.isFile }
+            } else {
+                FoxxyCodeBinaryResolver.resolveForLaunch()
+            }
+            val text = if (bin == null) {
+                FoxxyCodeBundle.message("settings.status.noBinary")
+            } else {
+                FoxxyCodeBinaryResolver.validate(bin).message
+            }
+            ApplicationManager.getApplication().invokeLater { statusLabel.text = text }
         }, FoxxyCodeBundle.message("settings.status.verifying"), true, null)
     }
 

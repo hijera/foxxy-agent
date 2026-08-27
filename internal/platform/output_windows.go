@@ -60,8 +60,8 @@ func childOutputCodePage() uint32 {
 
 // DecodeANSI converts bytes in the system ANSI code page (1251 on a Russian
 // install, 1252 on a Western one) to a Go string, reporting the code page it
-// used. It is the last-resort reading for a file a local editor saved without a
-// byte-order mark; ok is false when there is no usable code page.
+// used. It is the local-editor reading for a file saved without a byte-order
+// mark; ok is false when there is no usable code page.
 //
 // This is the ANSI code page, not the console one DecodeOutput uses: a file
 // written by Notepad and the output of a console child use different code pages

@@ -1,0 +1,38 @@
+DejaVu Fonts (https://dejavu-fonts.github.io/)
+==============================================
+
+The DejaVu fonts in this directory (DejaVuSans.ttf, DejaVuSans-Bold.ttf,
+DejaVuSansMono.ttf, DejaVuSansMono-Bold.ttf) are
+derived from the Bitstream Vera Fonts and are released under a permissive
+license that permits free use, modification, and redistribution — including
+embedded in a binary. The full license text follows.
+
+License
+-------
+
+Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved. Bitstream Vera is a
+trademark of Bitstream, Inc.
+Copyright (c) 2006 by Tavmjong Bah. All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+the fonts accompanying this license ("Fonts") and associated documentation files
+(the "Font Software"), to deal in the Font Software without restriction,
+including without limitation the rights to use, copy, merge, publish, distribute,
+sublicense, and/or sell copies of the Font Software, and to permit persons to
+whom the Font Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright and trademark notices and this permission notice shall be
+included in all copies of one or more of the Font Software typefaces.
+
+The Font Software may be modified, but the font name(s) and trademark(s) may not
+be modified. The Font Software may be sold as part of a larger software package
+but no permission is granted to distribute naked font files for a fee.
+
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE FONT SOFTWARE OR THE USE OR OTHER DEALINGS IN THE FONT
+SOFTWARE.

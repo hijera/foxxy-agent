@@ -22,6 +22,7 @@ export const messagesRu: Record<string, string> = {
   "composer.placeholderFollowUp": "Добавить уточнение",
   "composer.attachedFilesAriaLabel": "Прикреплённые файлы",
   "composer.removeAttachment": "Удалить {fileName}",
+  "composer.attachUnsupportedModel": "Выбранная модель не принимает вложения",
   "composer.attachFile": "Прикрепить файл",
   "composer.enhance": "Улучшить промпт",
   "composer.enhanceFailed": "Не удалось улучшить промпт. Черновик не изменён.",
@@ -139,6 +140,15 @@ export const messagesRu: Record<string, string> = {
   "chat.heroVerb.plan": "спланировать",
   "chat.newChat": "Новый чат",
   "chat.chatTitleAriaLabel": "Заголовок чата",
+  "chat.exportLabel": "Скачать сессию",
+  "chat.exportPdf": "PDF-документ",
+  "chat.exportDocx": "Документ Word",
+  "chat.exportHtml": "HTML-страница",
+  "chat.exportJson": "Данные JSON",
+  "chat.exportFailed": "Не удалось экспортировать эту сессию.",
+  "chat.exportSaved": "Файл сохранён: {path}",
+  "chat.exportNameTaken":
+    "Невозможно создать файл с таким именем — экспортированный документ ещё открыт. Закройте его и попробуйте снова.",
   "chat.contextTitle": "Контекст",
   "chat.contextClose": "Закрыть",
   "chat.contextCloseBreakdown": "Закрыть разбор контекста",
@@ -218,10 +228,10 @@ export const messagesRu: Record<string, string> = {
   "settings.themePickerLabel": "Тема",
   "settings.themePickerAriaLabel": "Тема",
   "settings.appearanceLabel": "Оформление",
-  "settings.general.locale": "Язык",
-  "settings.locale.auto": "Авто",
-  "settings.locale.en": "English",
-  "settings.locale.ru": "Русский",
+  "appearance.languageLabel": "Язык",
+  "appearance.locale.auto": "Авто",
+  "appearance.locale.en": "English",
+  "appearance.locale.ru": "Русский",
   "settings.general.sendMode": "Отправка сообщений",
   "settings.sendMode.enter": "Enter",
   "settings.sendMode.ctrlEnter": "Ctrl+Enter",
@@ -250,6 +260,10 @@ export const messagesRu: Record<string, string> = {
   "onboarding.modelSelectPlaceholder": "Выберите модель…",
   "onboarding.modelsFetchFailed":
     "Не удалось получить список моделей — введите id модели вручную.",
+  "onboarding.modelMultimodalOn":
+    "Каталог провайдера указывает, что эта модель принимает изображения, поэтому она сохраняется с включённой мультимодальностью. Измените в настройках, если модель отклоняет картинки.",
+  "onboarding.modelMultimodalOff":
+    "Каталог провайдера не указывает ввод изображений для этой модели, поэтому она сохраняется с выключенной мультимодальностью. Включите в настройках, если модель всё же принимает изображения.",
   "onboarding.skip": "Пропустить пока",
   "onboarding.test": "Проверить подключение",
   "onboarding.save": "Сохранить и продолжить",
@@ -328,6 +342,11 @@ export const messagesRu: Record<string, string> = {
     "Не удалось получить модели: {error}. Введите идентификатор модели вручную ниже.",
   "settings.modelsFetchEmpty":
     "Модели не найдены. Введите идентификатор модели вручную ниже.",
+  "settings.modelVisionOption": "{model} · изображения",
+  "settings.modelMultimodalOn":
+    "Каталог провайдера указывает, что эта модель принимает изображения, поэтому «Мультимодальность» ниже включена. Выключите, если модель отклоняет картинки.",
+  "settings.modelMultimodalOff":
+    "Каталог провайдера не указывает ввод изображений для этой модели, поэтому «Мультимодальность» ниже выключена. Включите, если модель всё же принимает изображения.",
   "settings.codexAuth.signInFailed": "Не удалось войти через ChatGPT.",
   "settings.codexAuth.incompleteResponse":
     "OAuth-сервер вернул неполный ответ для входа.",
@@ -348,6 +367,24 @@ export const messagesRu: Record<string, string> = {
   "settings.codexAuth.providerNameRequired":
     "Перед входом укажите имя провайдера.",
   "settings.mcp.legend": "Серверы MCP",
+  "settings.neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
+  "settings.neuralDeepAuth.error.incompleteResponse":
+    "Хаб вернул неполный ответ входа.",
+  "settings.neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
+  "settings.neuralDeepAuth.description":
+    "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для FoxxyCode. Ключ хранится на сервере FoxxyCode и не попадает в config.yaml. Модели тарифа добавьте в разделе Логические модели - пикер моделей подтянет каталог с этим входом.",
+  "settings.neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
+  "settings.neuralDeepAuth.shadowedByKey":
+    "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
+  "settings.neuralDeepAuth.enterCode": "Введите этот одноразовый код на странице NeuralDeep:",
+  "settings.neuralDeepAuth.openSignInPage": "Открыть страницу входа",
+  "settings.neuralDeepAuth.waiting": "Ожидание подтверждения…",
+  "settings.neuralDeepAuth.signingOut": "Выход…",
+  "settings.neuralDeepAuth.signOut": "Выйти",
+  "settings.neuralDeepAuth.waitingForHub": "Ожидание NeuralDeep…",
+  "settings.neuralDeepAuth.signIn": "Войти через NeuralDeep",
+  "settings.neuralDeepAuth.enterProviderName": "Введите имя провайдера перед входом.",
+
   "settings.mcp.description.start":
     "Серверы Model Context Protocol из трёх уровней:",
   "settings.mcp.description.global": "глобальный файл",
@@ -586,6 +623,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.cron.empty": "Введите cron-выражение (5 полей, UTC).",
   "scheduler.cron.invalid": "Некорректное cron-выражение",
   "scheduler.confirmDelete": "Удалить задачу планировщика «{jobId}»?",
+  "scheduler.confirmDeleteBody": "Задача и её расписание будут удалены навсегда.",
   "scheduler.pause": "Пауза",
   "scheduler.resume": "Возобновить",
   "scheduler.delete": "Удалить",
@@ -670,6 +708,11 @@ export const messagesRu: Record<string, string> = {
   "status.skill": "Загружаю навык",
   "status.vcs": "Работаю с SVN",
   "status.schedule": "Обновляю расписание",
+  "status.backgroundWait": "Жду фоновую задачу",
+  "status.backgroundList": "Проверяю фоновые задачи",
+  "status.backgroundOutput": "Читаю вывод фоновой задачи",
+  "status.backgroundStop": "Останавливаю фоновую задачу",
+  "status.backgroundReap": "Убираю фоновые задачи",
   "status.tool": "Работаю с инструментом",
   "status.thinking": "Думаю…",
   "status.memory": "Работаю с памятью",
@@ -747,8 +790,17 @@ export const messagesRu: Record<string, string> = {
   "theme.nord": "Nord",
   "theme.rosePine": "Rosé Pine",
 
-  "app.confirmDeleteDraft": "Удалить черновик",
-  "app.confirmDeleteChat": "Удалить чат",
+  // Общий диалог подтверждения (ui/components/ConfirmDialog.tsx)
+  "confirm.cancel": "Отмена",
+  "confirm.confirm": "Подтвердить",
+  "confirm.ariaLabel": "Подтверждение действия",
+
+  "app.confirmDeleteDraft": "Удалить черновик?",
+  "app.confirmDeleteDraftBody":
+    "Этот чат ни разу не отправлялся, на сервере ничего не сохранено.",
+  "app.confirmDeleteChat": "Удалить чат?",
+  "app.confirmDeleteChatBody": "Чат и всё его содержимое будут удалены навсегда.",
+  "app.delete": "Удалить",
   "app.chatBusy":
     "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.chatBusyReattached":

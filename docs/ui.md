@@ -13,22 +13,26 @@ This page captures the original UI requirements and the intended end state. It i
 - **`color-mix()`** is allowed in `styles.css` **sources** only in the build-resolvable form (**`in srgb`**, arguments statically resolvable per theme — hex/rgb()/`transparent`/`var()` chains). `external/ui/postcss-resolve-color-mix.mjs` compiles every occurrence to Chromium-104-safe literals or per-theme **`--cmix-*`** variables; the build fails on unresolvable expressions.
 - **`npm --prefix external/ui run check:compat`** (part of **`build:go`**) scans the built bundle and fails on baseline regressions.
 
+## Composer context row
+
+- **Wrapping**: the workspace chips share one **`flex-wrap`** row (**`.composer-context-row`**) with the environment chip and the improve-prompt control; **`.composer-context-chips`** is **`display: contents`** so each chip wraps on its own. On a narrow viewport only the overflow moves down (e.g. environment+folder, then branch+worktree), and the worktree checkbox stays beside the branch until the branch name is long enough to push it.
+- **Improve prompt**: the compact **24×24px** wand button (**`data-testid="composer-enhance-btn"`**) lives at the **right edge** of that row, next to the environment / folder / branch / worktree controls — not in the textarea or the lower composer bar. At **≤520px** it is pinned to the row's **top-right corner** above the wrapped chips. Its label is translated (**`composer.enhance`**), it is disabled for a blank draft and while a request or generation is active, calls **`POST /foxxycode/enhance-prompt`**, and replaces the draft only on success. **Ctrl+Z** / **⌘Z** restores the pre-improvement draft; a failure leaves it unchanged and shows an inline error.
+
 ## Settings sections: General & Appearance
 
 The Settings screen leads with two synthetic client-side tabs before the
 schema-derived config tabs:
 
-- **General** — the single app-wide **Language** picker (Auto / English / Russian).
-  It persists to the backend config (`ui.locale`) and is the only language
-  switcher across browser, desktop, and the VS Code / IntelliJ plugins (see
-  [`docs/intellij-embedding.md`](intellij-embedding.md)). The default tab.
-- **Appearance** — theme only (see below), plus the "Restart onboarding" button.
+- **General** — composer **send mode** and the live **status line** toggle.
+  The default tab.
+- **Appearance** — theme, the app-wide **Language** picker (see below), and the
+  "Restart onboarding" button.
 
 The raw `ui` config key is hidden from the schema-driven tabs (`HIDDEN_KEYS` in
-`settingsSections.ts`) so the language control is not duplicated; the key still
+`settingsSections.ts`) so the curated controls are not duplicated; the key still
 round-trips through the footer Save because the whole config doc is PUT back.
 
-## Appearance (light / dark theme)
+## Appearance (theme + language)
 
 - **Default:** dark theme on first visit.
 - **Cookie:** **`foxxycode_ui_theme`** with values **`dark`** or **`light`** (path **`/`**, **`SameSite=Lax`**).
@@ -39,6 +43,59 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
 
+### Language picker
+
+- **Where:** one native **`<select>`** directly under the theme grid
+  (**`data-testid="appearance-language-select"`**, labelled by
+  **`appearance.languageLabel`**), rendered by **`AppearanceLanguagePicker`** in
+  **`external/ui/src/ui/theme/AppearanceModal.tsx`**. Options are **Auto**
+  followed by every locale registered in **`ui/i18n/locales.ts`** — the list is
+  derived, not hardcoded.
+- **Persistence:** unlike the theme picker beside it, this one writes the backend
+  config (**`ui.locale`**, values **`""`** = Auto, **`en`**, **`ru`**) through
+  **`persistUiLocalePreference`**. It is the only language switcher across
+  browser, desktop, and the VS Code / IntelliJ plugins (see
+  [`docs/intellij-embedding.md`](intellij-embedding.md)), which read that key.
+  With the Settings config doc loaded the pick is mirrored back via **`setDoc`**,
+  so a later footer **Save all** cannot restore a stale value.
+- **Auto** clears the **`foxxycode_ui_lang`** cookie so the next bootstrap
+  follows **`navigator.language`** again instead of the previously picked
+  language.
+- **Bootstrap precedence:** **`?lang=`** > config **`ui.locale`** >
+  **`foxxycode_ui_lang`** cookie > **`navigator.language`**.
+- **i18n engine:** **`external/ui/src/ui/i18n/`**. **`locales.ts`** is the single
+  registry (dictionary, label key, id); **`i18n.ts`** resolves keys against it and
+  falls back to the default locale, then to the key itself.
+- **Adding a language:** add **`messages/<id>.ts`** and one entry in
+  **`locales.ts`**. The picker, cookie validation, **`?lang=`** parsing and
+  **`messagesParity.test.ts`** all follow automatically.
+
+## Composer attachments
+
+- **Paste** — an image on the clipboard is attached instead of pasted as text
+  (**`onPaste`** in **`Composer.tsx`**). Browsers name every clipboard image the
+  same, so pasted files are renamed **`pasted-<n>.<ext>`**. Plain-text pastes are
+  left to the browser.
+- **Drop** — a file dropped anywhere on the page still inserts an **`@path`**
+  mention (see the file-drop rule in **`.claude/rules/ui-spa.md`**); it does not
+  attach the file. Use the paste path or the attach button for image uploads.
+- **Multimodal gate** — chips are always shown, but for a model without
+  **`multimodal: true`** they render disabled (dashed, greyed) and are excluded
+  from the request; a paste is refused with a transient
+  **`composer-attach-hint`** notice. The backend fails closed too: **`inline_files`**
+  for a non-multimodal model are dropped before the provider call.
+- **Attachment-only send** — an attachment with no text is a valid message.
+- **Lifetime** — the list lives in **`ChatScreen`** (**`attachedFiles`** /
+  **`onAttachedFilesChange`**), because hero and docked are two branches of one
+  ternary and the composer unmounts on the transition.
+- **Thumbnails** — image chips preview the file through an object URL. The sent
+  bubble shows the same preview optimistically (**`optimisticUserFiles`**), then
+  swaps to the durable **`files[].preview_url`** from
+  **`GET /foxxycode/sessions/{id}/messages`** once it arrives; the superseded
+  blob URL is revoked (**`revokeSupersededUserMessagePreviews`**). The backend
+  writes bounded PNG previews to **`assets/thumbnails/`** and serves them from
+  **`GET /foxxycode/sessions/{id}/assets/{name}/thumbnail`**.
+
 ## Settings: Codex OAuth
 
 - The first-run provider picker includes **Codex**. Selecting it replaces the API-key field with the same **Sign In with ChatGPT** device-flow card, keeps the optional proxy and model controls, and saves `type: codex` without credentials in the config document.
@@ -48,6 +105,13 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - Connected state comes from **`GET /foxxycode/providers/{name}/codex-auth`**. **Sign Out** deletes only the FoxxyCode-managed credential; a server-side Codex CLI login may still appear as a compatibility connection.
 - OAuth tokens never enter the settings document or browser. The server stores them under **`$FOXXYCODE_HOME/providers/<name>/codex-auth.json`**.
 
+
+## Settings: NeuralDeep sign-in
+
+- In **Settings → LLM Providers**, a row with **`type: neuraldeep`** keeps the manual **API key** field and additionally renders **Sign In with NeuralDeep** below the read-only API base (**`NeuralDeepAuthField`**). Signing in is the no-paste alternative; an explicit key always wins and the widget says so instead of pretending the login is active (**`source`** from the status endpoint).
+- The button starts **`POST /foxxycode/providers/{name}/neuraldeep-auth/device`** (the hub's RFC 8628 device flow for client **`foxxycode`** — the browser and the FoxxyCode server may be different machines), opens the returned portal page with the pre-filled code, displays the one-time code, and polls **`GET .../device/{loginID}`** until completion or failure.
+- Connected state comes from **`GET /foxxycode/providers/{name}/neuraldeep-auth`** (masked key only). **Sign Out** best-effort revokes the key on the hub, then deletes the local credential through **`DELETE`**.
+- The key never enters the settings document or browser; it is stored by the server under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**. Tier models are added under **Logical models** (the model picker fetches the provider catalog using this login); the CLI flow (**`foxxycode providers login neuraldeep`**) appends them to the config automatically.
 ## Layout
 
 Desktop layout
@@ -119,7 +183,7 @@ Session title
 
 ### Per-session reasoning level
 
-- A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
+- A **Reasoning** selector appears in the composer next to **Model** **only** when the active model exposes **`reasoning_levels`** from **`GET /v1/models`** (reasoning models such as gpt-5 / o-series / gpt-oss / qwen3 / Claude thinking models). Levels are derived from **`models[].reasoning_levels`** (auto-detected from the model id when unset) and propagated through **`ModelInfo.reasoningLevels`** → **`llmReasoningLevels`** in **`App.tsx`** → **`Composer`**.
 - **New chat** defaults the level from cookie **`foxxycode_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /foxxycode/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
@@ -220,6 +284,8 @@ Regression
 - **Direct YAML model turns**: each file becomes an **`image_url`** content part sent inline to the provider.
 - The user bubble strips the XML annotation via **`stripFoxxyCodeAttachmentsForUserDisplay`** in **`stripFoxxyCodeAttachments.ts`** and shows file chips (**`msg-user-files`** / **`msg-user-file-chip`** CSS classes). **`parseSessionAssetFiles`** re-derives chip metadata on page reload.
 - After a **`PUT /foxxycode/config`** save in Settings, **`App.tsx`** bumps **`modelsEpoch`** → re-fetches **`/v1/models`** so the attachment button appears or disappears without a page reload.
+- **Setting `models[].multimodal` from the provider catalog** — in **Settings → Logical models**, **Fetch models** returns an advisory **`vision`** flag per entry (see `docs/http-api.md`). Options that carry it are suffixed **`· vision`** in the dropdown, and picking a listed model writes **`multimodal`** from that flag in the same document update as the id (**`ModelField`** reports the catalog entry through **`onChange`**; **`SettingsSection`** applies both keys via the **`FieldOverride`** **`patchParent`** seam, because **`multimodal`** is a sibling field rendered from the Go schema). A note under the field says where the value came from. Hub catalogs under-report vision (**`gpt-oss-120b`** advertises **`vision: false`** and still reads images), so the flag is a **default, never a gate** — the switch stays editable, and an id typed by hand leaves it alone.
+- **Same flag in onboarding** — the provider picker probes the catalog through **`POST /foxxycode/providers/models-probe`**, badges its vision entries the same way, and writes **`models[].multimodal`** from the picked entry instead of the per-provider **`preset.multimodal`** constant (**`catalogEntry`** in **`ProviderPickerDialog.tsx`** matches both the bare id the combobox writes and the prefixed id the fixed-endpoint presets pre-fill). The preset value is the fallback for a model the catalog does not list. A hint under the field says which way the flag will be saved.
 
 | Case | Expected | Automated check |
 |------|----------|-----------------|
@@ -311,11 +377,11 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | --- | --- |
 | Component | **`ToolCallMessage.tsx`** - **`thinking-row foxxycode-tool-call-row`**, **`details.thinking-details.foxxycode-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
 | Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**, **`thinking-label`**, **`thinking-dur`**), **`aria-label="Tool summary"`** |
-| Args | **`pre.tool-block`**, **`aria-label="Tool arguments"`** (inside **`thinking-body foxxycode-tool-call-body`**) |
+| Args | Shared **`PermissionToolPreview`** (no copy / approval actions); large **write** / **write_file**, **apply_patch**, and **edit** bodies keep measured **More…** (**`data-testid="tool-preview-more"`**) / **Less** (**`data-testid="tool-preview-less"`**) overflow controls |
 | Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /foxxycode/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
-| Full text | First **More…** only - **`GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
+| Full text | First result **More…**, or automatic incomplete-args recovery for restored **`apply_patch`** / **`write`** / **`write_file`** / **`edit`** cards in any status - **`GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, using JSON **`result`** and **`args`** (same object includes **`meta`**). Transcript reconciles never replace complete args with the truncated 200-char **`argsPreview`** (**`pickRicherToolArgs`**), so live cards keep full previews across permission answers |
 | CSS | **`styles.css`**: **`.foxxycode-tool-call-row`**, transparent **`.foxxycode-tool-call-body`**, shared **`.permission-preview*`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` body hidden**, plus result viewport / toggle classes above |
 
 - `assistant_message`
@@ -370,6 +436,37 @@ Automated checks:
 - Counters update when SSE event `token_usage` arrives.
 - Update granularity is per completed backend model call, not per generated token.
 - UI restores token counters after restart via `GET /foxxycode/sessions/{id}/stats`.
+- **What the number means: tokens spent by this chat since it was created.** `/stats` reports
+  `tokenUsageTotal` cumulative for the session; the SSE `token_usage` of the running turn is
+  cumulative for that turn and is added on top of the baseline read **before** it started.
+  The two must not be mixed: `applySessionStatsPayload` (`App.tsx`) routes the payload through
+  **`planSessionStatsApply`** (`chat/sessionTokenTotals.ts`), which refuses to reseed the
+  baseline while a composer stream is attached to that session — the poll runs every 800ms, so
+  reseeding from a total that already counts the turn double-counted it, and compounded on
+  every poll. Regression: **`chat/sessionTokenTotals.test.ts`**.
+- **The context breakdown is exempt from that gate** and is applied whenever it arrives: it is a
+  live estimate, not an accumulator, and it is the only thing that reports compaction shrinking
+  the window, so the ring has to be able to drop mid-turn.
+- **The poll follows the session, not this client.** Stats refresh while `generating` **or**
+  `viewedTurnActive` (raised by the `turnActive` probes in `startDiskFallbackPoll` and
+  `reconnectLiveStreamIfActive`). A turn that outlived its request, or the autonomous turn a
+  finished background task woke, burns context the same way; keying the poll on `generating`
+  alone left the ring frozen until the turn ended.
+
+## Live status line
+
+- The row next to the typing dots (`TypingDotsMessage`, phrase from `chat/liveStatus.ts`) is
+  derived from the transcript, so it is only as fresh as the transcript is.
+- **While re-attaching, the transcript is stale by construction.** `rejoinComposerLiveStream`
+  therefore keeps the session flagged through `markReconnecting` until the relay delivers its
+  first byte, and only then calls `markConnected`; `deriveLiveStatus` shows
+  `status.reconnecting` meanwhile. `addActiveComposer` clears that flag on attach, which is
+  correct for a fresh `POST /v1/responses` (its baseline is the message just sent) and wrong for
+  a rejoin — a rejoin that showed the pre-turn transcript's last tool is what froze the row for
+  the whole time the server held the request open with no relay to attach to.
+- The `background_*` tool family has phrases of its own (`status.backgroundWait` and friends).
+  `background_wait` parks for up to a minute, and the generic "Running a tool" read as a status
+  line that had stopped moving.
 
 ## Markdown rendering
 

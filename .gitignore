@@ -77,5 +77,11 @@ coddy-agent/
 coddy/
 NeuralDeskApp-main/
 NeuralDeskApp/
+
+# ZCode local session state (plans, transcripts). Shared, versioned config
+# (.zcode/config.json, .zcode/hooks/) is added to git explicitly.
+.zcode/plans/
+.zcode/sessions/
+
 UPSTREAM_SYNC.md	
 codex-main/

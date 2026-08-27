@@ -1903,6 +1903,94 @@ a.rail-brand {
   background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
 }
 
+/* Per-session export action rendered beside the chat title. The toggle is an
+   icon button styled to match .chat-title-btn; the dropdown mirrors the
+   provider-import-menu pattern. */
+.session-export {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.session-export-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 80%, var(--foxxycode-blend-base));
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.session-export-toggle:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.session-export-toggle:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.session-export-spin {
+  transform-origin: 12px 12px;
+  animation: foxxycode-export-spin 0.8s linear infinite;
+}
+
+@keyframes foxxycode-export-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.session-export-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  /* Same layer as the composer dropdowns: this floats over the sticky header
+     and the transcript underneath it. */
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  /* Opaque theme base first, shared panel tint layered on top. The tint alone
+     (--foxxycode-surface-fieldset) is a translucent overlay meant for a fieldset
+     sitting on a solid card; over the transcript it let the chat title and the
+     messages read straight through the menu. */
+  background-color: var(--bg);
+  background-image: linear-gradient(
+    var(--foxxycode-glass-panel-bg),
+    var(--foxxycode-glass-panel-bg)
+  );
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.session-export-item {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.session-export-item:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.session-export-item:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
 /* Match .chat-title-btn padding so view/edit heights stay aligned; full width of .chat-title */
 .chat-title-input {
   display: block;
@@ -2214,6 +2302,19 @@ a.rail-brand {
   display: flex;
   align-items: center;
   color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
+}
+
+.msg-user-file-chip--image .msg-user-file-chip-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.msg-user-file-thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 6px;
 }
 
 .msg-user-file-chip-name {
@@ -2833,32 +2934,7 @@ a.rail-brand {
   border-radius: 0;
 }
 
-/* ── Diff view (apply_patch tool result) ────────────────────────────── */
-
-.diff-block {
-  padding: 0;
-  overflow: hidden;
-}
-
-.diff-file-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
-  background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.diff-file-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* ── Diff rows (shared by the permission tool previews) ───────────── */
 
 .diff-hunk-header {
   display: block;
@@ -2946,7 +3022,7 @@ a.rail-brand {
   min-width: 0;
 }
 
-/* ── End diff view ──────────────────────────────────────────────────── */
+/* ── End diff rows ──────────────────────────────────────── */
 
 .thinking-row {
   max-width: 720px;
@@ -3208,20 +3284,6 @@ a.rail-brand {
 
 .foxxycode-tool-call-body .tool-block.tool-result-raw {
   background: transparent;
-}
-
-/* Diff-only body: body retains its padding (keeps correct left alignment with
-   summary text), but the diff-block breaks out via negative margins so the
-   diff rows sit edge-to-edge against the thinking-body border.  overflow:hidden
-   clips the diff to the parent's border-radius. */
-.foxxycode-tool-call-body--diff {
-  overflow: hidden;
-  padding: 0;
-  margin-left: 14px;
-}
-
-.foxxycode-tool-call-body--diff .diff-block {
-  /*margin: -10px -13px;*/
 }
 
 /* Interactive browser tool (foxxycode_browser_*) result card. */
@@ -4196,12 +4258,21 @@ textarea#composer {
   padding: 7px 9px;
 }
 
-.composer-context-chips {
+.composer-context-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 10px 12px 0;
+}
+
+/* display:contents dissolves this wrapper so the environment, folder, branch and
+   worktree chips become direct flex items of .composer-context-row. Without it
+   the chips form a nested flex box that wraps as one unit, so a long branch
+   pushed the whole group onto its own lines. Gap, alignment and padding come
+   from .composer-context-row. */
+.composer-context-chips {
+  display: contents;
 }
 
 .workspace-chip {
@@ -4420,6 +4491,168 @@ textarea#composer {
   cursor: default;
 }
 
+/* ConfirmDialog — shared destructive-action confirmation popup. Shares the
+   frosted-glass token family and z-index 120 modal layer with WorkspaceFolderModal. */
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--foxxycode-overlay-scrim-bg);
+  padding: 16px;
+  animation: chat-fade-in 0.18s ease-out both;
+}
+
+.confirm-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(400px, calc(100vw - 32px));
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  -webkit-backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  color: var(--text);
+  padding: 20px 20px 16px;
+}
+
+.confirm-dialog-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.confirm-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+}
+
+.confirm-dialog-icon--danger {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.16);
+}
+
+.confirm-dialog-icon--primary {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.confirm-dialog-text {
+  min-width: 0;
+}
+
+.confirm-dialog-title {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  /* Titles interpolate ids ("Delete scheduler job "<id>"?"), which can be one
+     long unbroken token — break it instead of overflowing the card. */
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog-message {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-dialog-btn {
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  line-height: 1.2;
+  transition: background 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease, transform 80ms ease;
+}
+
+.confirm-dialog-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.confirm-dialog-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.confirm-dialog-btn--cancel {
+  background: color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 16%, transparent);
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+}
+
+.confirm-dialog-btn--cancel:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+}
+
+.confirm-dialog-btn--primary {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.confirm-dialog-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 34%, var(--foxxycode-blend-base));
+}
+
+.confirm-dialog-btn--danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.18);
+  color: #fecaca;
+}
+
+.confirm-dialog-btn--danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.3);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
+[data-theme="light"] .confirm-dialog-btn--danger {
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #b91c1c;
+}
+
+[data-theme="light"] .confirm-dialog-btn--danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.14);
+  border-color: rgba(220, 38, 38, 0.6);
+}
+
+[data-theme="light"] .confirm-dialog-icon--danger {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-dialog-backdrop {
+    animation: none;
+  }
+  .confirm-dialog-btn {
+    transition: none;
+  }
+}
+
 .workspace-menu {
   min-width: 220px;
   max-width: min(340px, 92vw);
@@ -4468,10 +4701,33 @@ textarea#composer {
 }
 
 .composer-enhance-btn {
+  flex: 0 0 24px;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 7px 9px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text) 68%, var(--foxxycode-blend-base));
+  background: var(--foxxycode-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+@media (max-width: 520px) {
+  .composer-context-row {
+    position: relative;
+    padding-right: 44px;
+  }
+
+  .composer-enhance-btn {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    margin-left: 0;
+  }
 }
 
 .composer-enhance-btn:disabled {
@@ -4532,6 +4788,45 @@ textarea#composer {
   align-items: center;
   justify-content: center;
   color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+/* Image attachments preview themselves instead of showing the generic type icon. */
+.composer-attachment-chip--image .composer-attachment-chip-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.composer-attachment-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* A chip the selected model cannot accept: kept visible, marked unusable. */
+.composer-attachment-chip--disabled {
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--foxxycode-blend-base));
+  border-color: color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-style: dashed;
+}
+
+.composer-attachment-chip--disabled .composer-attachment-chip-icon {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.composer-attachment-chip--disabled:hover {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
+}
+
+/* Transient rejection notice for a paste the model cannot accept. */
+.composer-attach-hint {
+  padding: 6px 12px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
 }
 
 .composer-attachment-chip-name {
@@ -7307,7 +7602,14 @@ textarea#composer {
 }
 
 .permission-preview-viewport {
-  border-radius: 0;
+  position: relative;
+  min-width: 0;
+  max-height: 190px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--foxxycode-surface-inset);
 }
 
 .permission-preview-viewport--scroll {
@@ -8655,6 +8957,61 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-top: 1px solid rgba(127, 127, 127, 0.12);
 }
 
+/* Language select, directly under the theme grid in the Appearance tab. */
+.appearance-lang-block {
+  margin-top: 22px;
+}
+
+.appearance-language-select-wrap {
+  position: relative;
+}
+
+/* CSS-drawn chevron: a background-image would need a data URI per theme, and
+   the native arrow is suppressed by appearance: none below. */
+.appearance-language-select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 15px;
+  top: calc(50% - 4px);
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.appearance-language-select {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 8px 40px 8px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--foxxycode-surface-field);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.appearance-language-select:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.appearance-language-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.appearance-language-select option {
+  color: var(--text);
+  background: var(--foxxycode-surface-field);
+}
 
 .settings-appearance-swatch-dot {
   width: 12px;

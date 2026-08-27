@@ -17,6 +17,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
@@ -77,6 +78,16 @@ func main() {
 
 	args := os.Args[1:]
 	if len(args) == 0 {
+		// Bare `foxxycode` on a terminal opens the interactive console (builds with
+		// -tags cli). The desktop shell keeps the no-argument slot in its own build:
+		// it links with -H=windowsgui and therefore has no tty for this probe.
+		if cliInteractiveDefault() {
+			if err := runCLI(nil); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 		if err := defaultRun(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -88,10 +99,23 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Flag-looking arguments belong to the console surface: `foxxycode -c`,
+	// `foxxycode -p "..."` mirror the claude/pi ergonomics. Lean builds answer
+	// with the cli_stub rebuild hint.
+	if strings.HasPrefix(args[0], "-") {
+		if err := runCLI(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	var err error
 	switch args[0] {
 	case "acp":
 		err = runACP(args[1:])
+	case "cli":
+		err = runCLI(args[1:])
 	case "http":
 		err = runHTTP(args[1:])
 	case "desktop":
@@ -106,6 +130,8 @@ func main() {
 		err = runPlugin(args[1:])
 	case "codex":
 		err = runCodex(args[1:])
+	case "providers":
+		err = runProviders(args[1:])
 	case "rules":
 		err = runRules(args[1:])
 	case "mcp":
@@ -125,8 +151,12 @@ func main() {
 
 func printUsage(w *os.File) {
 	_, _ = fmt.Fprintf(w, `Usage:
+  %[1]s (no arguments on a terminal: interactive console, build tag cli)
+  %[1]s -c | --continue (console: continue the latest session here)
+  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
   %[1]s -h | --help
   %[1]s -v | --version
+  %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s http [flags] (OpenAI-compatible HTTP)
   %[1]s desktop [flags] (Windows desktop app with embedded UI)
@@ -143,6 +173,7 @@ func printUsage(w *os.File) {
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s codex login | status | logout [--provider NAME] [--home DIR]
+  %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
@@ -163,6 +194,8 @@ func runACP(args []string) error {
 	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (FOXXYCODE_CWD, default process cwd)")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.foxxycode/sessions)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
+	remoteFlag := fs.String("remote", "", "serve ACP against a remote foxxycode http server (configured remote name, host:port, or http(s) URL)")
+	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from FOXXYCODE_REMOTE_TOKEN)")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
@@ -219,8 +252,36 @@ func runACP(args []string) error {
 	}
 	defer func() { _ = logCloser.Close() }()
 
+	ropts, err := remote.Resolve(cfg, *remoteFlag, *remoteToken)
+	if err != nil {
+		return err
+	}
+	if ropts != nil {
+		// Remote client mode: no local store, scheduler, or agent loop; every
+		// session call proxies to the remote foxxycode http server.
+		ropts.Log = log
+		if ropts.Insecure && ropts.Token != "" {
+			log.Warn("sending the bearer token over plain http", "remote", ropts.BaseURL, "hint", "prefer https or a trusted network")
+		}
+		h, err := remote.NewHandler(*ropts)
+		if err != nil {
+			return err
+		}
+		if pid := strings.TrimSpace(*persistedSession); pid != "" {
+			if err := session.ValidateFolderSessionID(pid); err != nil {
+				return fmt.Errorf("--session-id: %w", err)
+			}
+			h.SetPreferredSessionID(pid)
+		}
+		log.Info("starting ACP server (remote)", "version", version.Get(), "remote", h.BaseURL())
+		srv := acp.NewServer(h, log)
+		h.SetServer(srv)
+		return srv.Run(context.Background(), os.Stdin)
+	}
+
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)
@@ -233,12 +294,22 @@ func runACP(args []string) error {
 	log.Info("session persistence enabled", "root", store.Root)
 
 	var srv *acp.Server
-	ref := &serverRef{p: &srv, cfg: cfg}
+	var mgr *session.Manager
+	live := func() *config.Config {
+		if mgr != nil {
+			return mgr.Cfg()
+		}
+		return cfg
+	}
+	ref := &serverRef{p: &srv, cfg: cfg, live: live}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
+		loop := agent.NewAgent(live(), st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			return mgr.ReloadConfigForSession(ctx, st)
+		})
 		return loop.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)

@@ -44,6 +44,54 @@ Captured at **1920×1080** via Playwright MCP (`vite` + `foxxycode http`, `FOXXY
 
 - `ref-image-098475fd-f1e8-4722-9975-67890f85a2c8.png` - mobile rail states and expanded menu
 
+## ConfirmDialog (verification)
+
+Captures of the shared confirmation dialog that replaced the native `confirm()`.
+Ported from upstream with the wave `0f2dbf1 → fa7ecf1`, so they show that build's
+English UI rather than a FoxxyCode capture; the fork's own run is the source of
+truth for how the dialog reads in Russian.
+
+- `pw-confirm-delete-chat-1280-{dark,light}.png` - delete a persisted chat
+- `pw-confirm-delete-chat-390-dark.png` - the same at the narrow breakpoint
+- `pw-confirm-delete-draft-1280-dark.png` - delete a client-side draft
+- `pw-confirm-escape-{before,after}-1280-dark.png` - Escape cancels the dialog without collapsing the drawer underneath
+- `pw-confirm-history-before-1280-dark.png` - the sessions list the dialog returns to
+- `pw-confirm-scheduler-before-1280-dark.png` - the scheduler job sheet before deleting
+- `pw-confirm-scheduler-delete-1280-{dark,light}.png` - delete a scheduler job
+
+## Upstream wave fa7ecf1 -> 12897ba (PR #34)
+
+Captured from a headless Chrome against a real `-tags "http ui"` build; the
+`-before-` frames come from a second build at `origin/main`, so each pair is a
+readable visual diff. The UI is Russian because that is what the host locale
+resolves to.
+
+- `pr-34-appearance-{before,after}-1280-{dark,light}.png` - the language select lands under the theme grid
+- `pr-34-appearance-{before,after}-390-dark.png` - the same at the narrow breakpoint
+- `pr-34-general-{before,after}-1280-dark.png` - language leaves the General tab; send mode and status line stay
+- `pr-34-composer-attachment-1280-{dark,light}.png` - a pasted image as a chip with a live thumbnail
+- `pr-34-composer-attachment-390-dark.png` - the same at the narrow breakpoint
+- `pr-34-composer-attach-refused-1280-dark.png` - the paste refused by a model without `multimodal: true`
+- `pr-34-bubble-thumbnail-1280-{dark,light}.png` - the sent bubble carrying the persisted thumbnail
+
+## Model vision flag (PR #37)
+
+Captured from a headless Chrome against a real `-tags "http ui"` build serving a
+stub catalog that publishes both advertised shapes (`capabilities.vision` and
+`modalities.input`); the `-before-` frames come from a second build at `d66a8d3`,
+so each pair is a readable visual diff. English unless the name says `ru`.
+
+- `pr-37-settings-{before,after}-1280-dropdown.png` - Fetch models badges the entries that accept images
+- `pr-37-settings-{before,after}-1280-vision-picked.png` - picking a vision model ticks Multimodal and explains why
+- `pr-37-settings-{before,after}-1280-textonly-picked.png` - picking a text-only model clears it again
+- `pr-37-settings-{before,after}-390-dropdown.png` - the same list at the narrow breakpoint
+- `pr-37-settings-{before,after}-1280-ru-vision-picked.png` - the Russian strings for the same edit
+- `pr-37-onboarding-{before,after}-1280-dropdown.png` - the provider picker's model list, badged the same way
+- `pr-37-onboarding-{before,after}-1280-vision-picked.png` - the hint naming the flag the config will be saved with
+- `pr-37-onboarding-{before,after}-1280-textonly-picked.png` - the same for a model the catalog lists as text-only
+- `pr-37-onboarding-{before,after}-390-dropdown.png` - the dialog at the narrow breakpoint
+- `pr-37-onboarding-{before,after}-1280-ru-vision-picked.png` - the Russian strings for the same pick
+
 ## Batch uploads
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.

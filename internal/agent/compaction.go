@@ -8,6 +8,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -183,7 +184,7 @@ func (a *Agent) maybeCompact(ctx context.Context, provider llm.Provider, lastInp
 func (a *Agent) summarize(ctx context.Context, provider llm.Provider, old []llm.Message) (string, error) {
 	p := a.compactionProvider(provider)
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: compactionSystemPrompt},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(compactionSystemPrompt)},
 		{Role: llm.RoleUser, Content: conversationText(old)},
 	}
 	resp, err := p.Complete(ctx, msgs, nil)

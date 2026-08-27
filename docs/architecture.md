@@ -178,6 +178,15 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   what this layer always did unconditionally. Prompt attachments do **not** get that rung: an
   undecodable attachment is refused with **`ErrNotDecodableText`** rather than inlined as noise.
 - **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
+  It also starts every child process windowless on Windows (**`HideConsoleWindow`**,
+  **`hidewindow_windows.go`**). The desktop shell links with **`-H=windowsgui`** and owns no console, so
+  Windows hands each console child one of its own - with a visible window and a taskbar button. A turn
+  starts those in bursts (git for the workspace chips, ripgrep behind a search tool, the shell behind
+  **`run_command`**, an MCP stdio server), which is why a row of windows used to blink open and shut on
+  the desktop. **`CREATE_NO_WINDOW`** keeps the console and drops the window, so the code page
+  **`DecodeOutput`** reads is unchanged; it is a deliberate no-op when this process does own a console,
+  where the child inherits the terminal the operator is watching. Every spawn site calls it, and
+  **`hidewindow_guard_test.go`** walks the tree to fail a new **`exec.Command`** that forgets to.
 - **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
   A **foreground** command that outlives its timeout is **not** killed: **`foreground.go`** starts it in a detached process group with its own **`cmd.Wait`**, and at the deadline **`bgtask.Pool.Adopt`** takes it over, **`switchwriter.go`** redirects its output into the task sink with everything captured so far flushed in first, and the tool answers with the task id followed by that output. Killing was wrong twice over: a dev server is doing exactly what was asked, and a grandchild holding the output pipe kept **`cmd.Wait`** from ever returning. The result is **`(string, nil)`**, not an error, because the agent loop discards the result string when a tool errors - which is what used to throw the captured output away.
 - **`internal/tools/svn`** - Subversion working copy tools (**`svn_info`**, **`svn_status`**, **`svn_diff`**,

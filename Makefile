@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon test lint clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
+.PHONY: build build-acp build-desktop icon test test-opencode-rules check-windows lint lint-windows clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -9,11 +9,13 @@
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
+#     cli      interactive console TUI (bare `foxxycode` on a terminal; see external/cli/)
 #     desktop         Windows WebView2 desktop shell (foxxycode desktop; combine with http ui)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
+#             make build TAGS=cli
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory gateway"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
@@ -34,7 +36,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory
+FULL_TAGS := http ui scheduler memory cli
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -94,10 +96,17 @@ install:
 	cp $(BINARY) $(INSTALL_DIR)/foxxycode
 	@echo "Installed to $(INSTALL_DIR)/foxxycode"
 
+# Test the project plugin that attaches Cursor rules to OpenCode sessions.
+test-opencode-rules:
+	node --test .opencode/tests/project-rules.test.js
+
 # Run all tests.
-test:
+test: test-opencode-rules
 	go test ./...
 	go test -tags=memory ./...
+	go test -tags=cli ./...
+	go test -tags=cli,scheduler,memory ./...
+	go test -tags=http,cli ./...
 	go test -tags=http ./...
 	go test -tags=http,memory ./...
 	go test -tags=scheduler ./...
@@ -110,13 +119,46 @@ test:
 	go test -tags=http,scheduler,ui ./...
 	go test -tags=http,scheduler,ui,memory ./...
 
+# Type-check the Windows build without a Windows machine.
+#
+# The suite above runs on the host only, so every file behind //go:build windows
+# — the process group probe, console output decoding, the shell detector — is
+# invisible to it and to the linter. A change to a shared signature therefore
+# compiles here and breaks there, which is exactly the kind of drift nobody sees
+# until a user reports it. go vet builds test files too, so this covers the
+# Windows-only tests as well.
+#
+# The ui tag is deliberately absent: it embeds assets that only exist after
+# ui-build, and it carries no platform-specific code.
+check-windows:
+	GOOS=windows go build ./...
+	GOOS=windows go build -tags=cli ./...
+	GOOS=windows go vet ./...
+	GOOS=windows go vet -tags=cli ./...
+	GOOS=windows go vet -tags=cli,scheduler,memory ./...
+	GOOS=windows go vet -tags=memory ./...
+	GOOS=windows go vet -tags=http ./...
+	GOOS=windows go vet -tags=http,memory ./...
+	GOOS=windows go vet -tags=scheduler ./...
+	GOOS=windows go vet -tags=scheduler,memory ./...
+	GOOS=windows go vet -tags=http,scheduler ./...
+	GOOS=windows go vet -tags=http,scheduler,memory ./...
+
 # Clean build artifacts.
 clean:
 	rm -rf $(BUILD_DIR)
 
 # Run the linter (requires golangci-lint).
+# The second pass compiles the cli-tagged console surface, which the untagged
+# pass never sees.
 lint:
 	golangci-lint run ./...
+	golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
+
+# Run the linter against the Windows build, which lint above never compiles.
+lint-windows:
+	GOOS=windows golangci-lint run ./...
+	GOOS=windows golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify

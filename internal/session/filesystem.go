@@ -85,6 +85,17 @@ func AssetsPath(sessionDir string) string {
 	return filepath.Join(sessionDir, "assets")
 }
 
+// AssetThumbnailsPath is the directory containing bounded PNG previews for
+// image assets. Thumbnail files are UI-only and are not exposed to the agent.
+func AssetThumbnailsPath(sessionDir string) string {
+	return filepath.Join(AssetsPath(sessionDir), "thumbnails")
+}
+
+// AssetThumbnailPath returns the preview path corresponding to one saved asset.
+func AssetThumbnailPath(sessionDir, assetName string) string {
+	return filepath.Join(AssetThumbnailsPath(sessionDir), assetName+".png")
+}
+
 // EnsureLayout creates session.json (if missing), messages.json, assets/, todos/, todos/archive/.
 func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	dir = f.SessionPath(sessionID)
@@ -92,6 +103,9 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 		return "", err
 	}
 	if err := os.MkdirAll(AssetsPath(dir), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(AssetThumbnailsPath(dir), 0o755); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, toolCallsDirName), 0o755); err != nil {
@@ -105,7 +119,7 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 		m := SessionMeta{
 			Version:   sessionFileLayout,
 			ID:        sessionID,
-			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		}
 		if wErr := writeJSONAtomic(metaPath, m); wErr != nil {
 			return "", wErr
@@ -188,7 +202,7 @@ type LoadedSnapshot struct {
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	dir := f.SessionPath(sessionID)
 	metaPath := filepath.Join(dir, sessionMetaFile)
-	metaBytes, err := os.ReadFile(metaPath)
+	metaBytes, err := readFileWithRetry(metaPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("session not found on disk: %s", sessionID)
@@ -201,7 +215,7 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	}
 	var msgs []llm.Message
 	msgPath := filepath.Join(dir, messagesFile)
-	if b, readErr := os.ReadFile(msgPath); readErr == nil {
+	if b, readErr := readFileWithRetry(msgPath); readErr == nil {
 		var wrap messagesFileData
 		if jsonErr := json.Unmarshal(b, &wrap); jsonErr == nil {
 			msgs = wrap.Messages
@@ -421,7 +435,7 @@ func (f *FileStore) Save(state *State) error {
 		bytes.Equal(oldMsgBytes, newMsgBytes) &&
 		newActivitySeq == prevMeta.ActivitySeq
 
-	updatedAt := time.Now().UTC().Format(time.RFC3339)
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
 		updatedAt = prevMeta.UpdatedAt
 	}
@@ -522,22 +536,37 @@ func deriveSessionTitle(s *State) string {
 	return ""
 }
 
-// injectedContextTags are the agent-injected <foxxycode_*> environment wrapper tags appended to
-// user messages each turn (see internal/agent/react.go). They carry IDE/terminal/asset context
-// that must be removed before deriving a human-readable session title.
+// The agent-injected <foxxycode_*> environment wrapper tags appended to user messages each turn
+// (see internal/agent/react.go). Exported because callers that render a transcript for a human
+// need to drop the ambient ones — TagIDEContext and TagTerminalContext are editor state nobody
+// typed, while TagSessionAssets and TagTerminalOutput record something the user actually did.
+const (
+	TagSessionAssets   = "foxxycode_session_assets"
+	TagIDEContext      = "foxxycode_ide_context"
+	TagTerminalContext = "foxxycode_terminal_context"
+	TagTerminalOutput  = "foxxycode_terminal_output"
+)
+
+// injectedContextTags carries every wrapper tag, for callers that want the user's bare text.
 var injectedContextTags = []string{
-	"foxxycode_session_assets",
-	"foxxycode_ide_context",
-	"foxxycode_terminal_context",
-	"foxxycode_terminal_output",
+	TagSessionAssets,
+	TagIDEContext,
+	TagTerminalContext,
+	TagTerminalOutput,
 }
 
-// StripInjectedContextBlocks removes agent-injected <foxxycode_*> environment blocks
+// StripInjectedContextBlocks removes every agent-injected <foxxycode_*> environment block
 // (session_assets, ide_context, terminal_context, terminal_output) so a clean title can be
-// derived from the user's actual message text. Matching is case-insensitive and tolerates
-// attributes on the opening tag (e.g. <foxxycode_terminal_output name="...">).
+// derived from the user's actual message text.
 func StripInjectedContextBlocks(s string) string {
-	for _, tag := range injectedContextTags {
+	return StripContextBlocks(s, injectedContextTags...)
+}
+
+// StripContextBlocks removes the named agent-injected <foxxycode_*> blocks from s, leaving any
+// other wrapper in place. Matching is case-insensitive and tolerates attributes on the opening
+// tag (e.g. <foxxycode_terminal_output name="...">).
+func StripContextBlocks(s string, tags ...string) string {
+	for _, tag := range tags {
 		s = stripXMLBlock(s, tag)
 	}
 	return s
@@ -630,18 +659,38 @@ func writeBytesAtomic(path string, data []byte) error {
 
 // renameWithRetry renames tmpPath over path, retrying briefly on transient
 // Windows sharing errors that occur when another handle holds the destination
-// open. On POSIX isRetryableRenameError is always false, so this is a single
+// open. On POSIX isRetryableFileLockError is always false, so this is a single
 // os.Rename with no behavior change.
 func renameWithRetry(tmpPath, path string) error {
 	const maxAttempts = 20
 	var err error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err = os.Rename(tmpPath, path); err == nil || !isRetryableRenameError(err) {
+		if err = os.Rename(tmpPath, path); err == nil || !isRetryableFileLockError(err) {
 			return err
 		}
 		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
 	}
 	return err
+}
+
+// readFileWithRetry reads path, retrying briefly on the transient Windows sharing
+// errors that an in-flight atomic write of the same file produces. Readers are not
+// only tests: the session list and activity endpoints read a bundle while its turn
+// keeps persisting. On POSIX isRetryableFileLockError is always false, so this is a
+// single os.ReadFile with no behavior change.
+func readFileWithRetry(path string) ([]byte, error) {
+	const maxAttempts = 20
+	var (
+		b   []byte
+		err error
+	)
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if b, err = os.ReadFile(path); err == nil || !isRetryableFileLockError(err) {
+			return b, err
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return b, err
 }
 
 func writeJSONAtomic(path string, v interface{}) error {

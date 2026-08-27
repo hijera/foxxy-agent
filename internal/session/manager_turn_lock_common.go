@@ -34,7 +34,7 @@ const turnLockRetryInterval = 25 * time.Millisecond
 func (m *Manager) AcquireComposerTurnLockWaiting(ctx context.Context, sessionID string, st *State, maxWait time.Duration) (unlock func(), err error) {
 	deadline := time.Now().Add(maxWait)
 	for {
-		unlock, err = m.acquirePromptTurnLock(sessionID, st)
+		unlock, err = m.acquireTurnLockWithReloadDrain(sessionID, st)
 		if err == nil || !errors.Is(err, ErrSessionTurnBusy) {
 			return unlock, err
 		}

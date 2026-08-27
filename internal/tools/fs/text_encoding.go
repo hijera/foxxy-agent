@@ -20,6 +20,10 @@ type textEncoding = textenc.Encoding
 // is what this layer always did unconditionally, and keeping it as the last rung
 // makes the file tools behave identically on a Linux CI box, where DecodeANSI
 // has no code page to offer.
+//
+// It is the third Cyrillic path, not the second: since textenc lets the system
+// ANSI reading overrule a detected Latin one, a short cp1251 file on a Russian
+// Windows install is named upstream of here and never reaches this rung.
 var fallbackEncoding = textEncoding{Charset: "windows-1251"}
 
 // errNotText is returned for content that has no text reading at all. It is a

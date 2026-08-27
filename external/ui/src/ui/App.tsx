@@ -14,6 +14,9 @@ import { markConnected, markReconnecting } from "./chat/liveConnectionState";
 import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
+import { optimisticUserFiles } from "./chat/optimisticUserFiles";
+import { sessionMessageFiles } from "./chat/sessionMessageFiles";
+import { subscribeServerEvents } from "./chat/serverEvents";
 import {
   consumeComposerSseReader,
   type ContextUsageUpdate,
@@ -27,6 +30,7 @@ import {
   type QuestionResolvedState,
 } from "./chat/questionTypes";
 import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import { planSessionStatsApply } from "./chat/sessionTokenTotals";
 import { stripCompactionPreamble } from "./chat/compactionSummary";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import {
@@ -46,6 +50,7 @@ import {
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pinPlanDocumentsToTurnEnd } from "./chat/planDocumentPlacement";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
@@ -75,6 +80,7 @@ import {
   pickRicherQuestionToolArgs,
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
+import { pickRicherToolArgs } from "./chat/toolCallArgs";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
@@ -120,10 +126,7 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
-import {
-  armSessionDeleteBackdropSuppressUntil,
-  shouldSuppressShellBackdropClose,
-} from "./sessions/sessionDeleteBackdropSuppress";
+import { useConfirm } from "./components/useConfirm";
 import type { SessionRow } from "./sessions/types";
 import {
   isClientDraftSessionId,
@@ -192,10 +195,20 @@ import { tasksPollIntervalMs } from "./tasks/taskStatus";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
+import { downloadBlob } from "./settings/transferIO";
 import { t } from "./i18n/i18n";
 import { useT } from "./i18n/I18nProvider";
+import type { ExportFormat } from "./chat/SessionExportMenu";
 
 const HDR = "X-FoxxyCode-Session-ID";
+
+/**
+ * How often the open chat is asked whether it is working, while this client is not
+ * streaming it. Slow enough to be invisible on an idle chat, quick enough that a turn
+ * started without us - a background task waking the agent - shows up as progress rather
+ * than as a chat that sat still and then jumped.
+ */
+const VIEWED_ACTIVITY_POLL_MS = 4000;
 
 async function markFoxxyCodeSessionActivityRead(id: string): Promise<void> {
   const t = id.trim();
@@ -663,10 +676,31 @@ function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * Parse the filename from a `Content-Disposition: attachment; filename="..."`
+ * header, decoding the percent-encoded form the server uses for non-ASCII
+ * names. Returns null when the header is missing or carries no filename.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const m = /filename="([^"]+)"/i.exec(header);
+  if (!m || !m[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
 export function App() {
   // Only the active locale id is needed here: memoized labels below must recompute when the user
   // switches language. Translations themselves go through the module-level t().
   const { locale } = useT();
+  const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
@@ -682,6 +716,7 @@ export function App() {
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
@@ -734,30 +769,43 @@ export function App() {
     () => new Set(),
   );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
+  /**
+   * The viewed session has a turn running that this client is not streaming: a turn that
+   * outlived its request, or the autonomous turn a finished background task woke. The
+   * context ring has to keep updating through those, and `generating` cannot say so - it
+   * only means "a composer stream is attached here".
+   */
+  const [viewedTurnActive, setViewedTurnActive] = useState(false);
   const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
     SessionStats["contextBreakdown"]
   > | null>(null);
 
   const applySessionStatsPayload = useCallback(
-    (stats: SessionStats | null | undefined, viewing: boolean) => {
+    (
+      stats: SessionStats | null | undefined,
+      viewing: boolean,
+      sessionKey?: string,
+    ) => {
       if (!viewing) {
         return;
       }
-      if (stats?.tokenUsageTotal) {
-        const t = stats.tokenUsageTotal;
+      // While this client streams the turn, tokenUsage is baseline + the turn's live
+      // deltas. Reseeding the baseline from a total that already counts the turn would
+      // add it twice, so only the context breakdown is refreshed then.
+      const key = (sessionKey ?? viewedSessionIdRef.current).trim();
+      const plan = planSessionStatsApply(stats, {
+        liveStreamAttached: key !== "" && activeComposerSidRef.current.has(key),
+      });
+      if (plan.tokenUsage) {
         tokenBaselineRef.current = {
-          input: t.inputTokens || 0,
-          output: t.outputTokens || 0,
-          total: t.totalTokens || 0,
+          input: plan.tokenUsage.inputTokens,
+          output: plan.tokenUsage.outputTokens,
+          total: plan.tokenUsage.totalTokens,
         };
-        setTokenUsage({
-          inputTokens: tokenBaselineRef.current.input,
-          outputTokens: tokenBaselineRef.current.output,
-          totalTokens: tokenBaselineRef.current.total,
-        });
+        setTokenUsage(plan.tokenUsage);
       }
-      if (stats?.contextBreakdown) {
-        setContextBreakdown(stats.contextBreakdown);
+      if (plan.contextBreakdown) {
+        setContextBreakdown(plan.contextBreakdown);
       }
     },
     [],
@@ -779,6 +827,7 @@ export function App() {
       applySessionStatsPayload(
         statsRes.data?.stats,
         viewedSessionIdRef.current.trim() === key,
+        key,
       );
     },
     [applySessionStatsPayload],
@@ -807,6 +856,8 @@ export function App() {
   const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
+  const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
@@ -829,8 +880,12 @@ export function App() {
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
-  /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
-  const sessionDeleteBackdropSuppressUntilRef = useRef(0);
+  /** True while GET /foxxycode/events is connected; gates the fallback sessions poll. */
+  const [serverEventsConnected, setServerEventsConnected] = useState(false);
+  const serverEventHandlersRef = useRef<{
+    turnStarted: (sid: string) => void;
+    turnEnded: (sid: string) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {} });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -910,9 +965,12 @@ export function App() {
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
 
+  // Poll while the session is working, not merely while this client streams it: a turn
+  // recovered from disk, or an autonomous turn woken by a background task, burns context
+  // just the same, and stopping here is what left the ring frozen until the turn ended.
   useEffect(() => {
     const sid = sessionId.trim();
-    if (!sid || !generating) {
+    if (!sid || (!generating && !viewedTurnActive)) {
       return;
     }
     void refreshSessionStats(sid);
@@ -920,7 +978,13 @@ export function App() {
       void refreshSessionStats(sid);
     }, 800);
     return () => window.clearInterval(timer);
-  }, [sessionId, generating, refreshSessionStats]);
+  }, [sessionId, generating, viewedTurnActive, refreshSessionStats]);
+
+  // A session switch must not carry the previous chat's "still working" flag; the probes
+  // below re-raise it within a couple of seconds if the new one is in fact busy.
+  useEffect(() => {
+    setViewedTurnActive(false);
+  }, [sessionId]);
 
   // Arm audio unlock once so the first desktop chime is not swallowed by the
   // browser autoplay policy.
@@ -1362,6 +1426,85 @@ export function App() {
     setSessions((prev) =>
       prev.map((s) => (s.id === id ? { ...s, title: t } : s)),
     );
+  }
+
+  /**
+   * Export the current session transcript as a document. The server renders the
+   * chosen format and returns a binary attachment; we stream it to a Blob and
+   * trigger a browser download, recovering the filename from the
+   * Content-Disposition header when the server supplies one.
+   */
+  async function exportSession(format: ExportFormat) {
+    if (!sessionId || exportBusy) {
+      return;
+    }
+    const sid = sessionId;
+    // A failed export must say so: the spinner stopping on its own reads as a
+    // finished download that never arrived. Network errors are caught here too,
+    // otherwise the rejected promise escapes the `void exportSession(...)` call
+    // site as an unhandled rejection.
+    const notice = (level: "error" | "info", message: string) => {
+      applyStreamItemsForSession(sid, (prev) => [
+        ...prev,
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level,
+          message,
+          createdAtUtc: new Date().toISOString(),
+        },
+      ]);
+    };
+    const fail = () => notice("error", t("chat.exportFailed"));
+    setExportBusy(true);
+    try {
+      if (isEditorEmbed()) {
+        // An editor webview cannot save a blob: IntelliJ's JCEF drops downloads
+        // no CefDownloadHandler claims, and the VS Code panel hosts this SPA in
+        // a cross-origin iframe with no download permission. Have the server
+        // write the document out instead; a connected plugin reveals it.
+        const res = await fetch(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/export/file?format=${format}`,
+          { method: "POST", headers: { [HDR]: sid } },
+        );
+        if (!res.ok) {
+          // 409: every candidate name was held by something the server could not
+          // replace — on Windows that is the exported document still open.
+          notice(
+            "error",
+            res.status === 409
+              ? t("chat.exportNameTaken")
+              : t("chat.exportFailed"),
+          );
+          return;
+        }
+        const saved = (await res.json()) as { path?: string };
+        const path = (saved.path ?? "").trim();
+        if (path === "") {
+          fail();
+          return;
+        }
+        notice("info", t("chat.exportSaved", { path }));
+        return;
+      }
+      const res = await fetch(
+        `/foxxycode/sessions/${encodeURIComponent(sid)}/export?format=${format}`,
+        { headers: { [HDR]: sid } },
+      );
+      if (!res.ok) {
+        fail();
+        return;
+      }
+      const blob = await res.blob();
+      const filename =
+        filenameFromDisposition(res.headers.get("Content-Disposition")) ??
+        `session.${format}`;
+      downloadBlob(filename, blob);
+    } catch {
+      fail();
+    } finally {
+      setExportBusy(false);
+    }
   }
 
   const headers = useMemo(
@@ -2304,14 +2447,25 @@ export function App() {
       (s) => !!s.turnActive && s.id !== sessionId,
     );
     const anyLocalComposer = activeComposerSidRef.current.size > 0;
-    if (!anyLocalComposer && !hasBackgroundTurn) {
+    // With the events stream up, a background turn announces itself, so the poll only
+    // has to keep a local composer's stats and unread flags fresh. When it is down (an
+    // older server, a proxy that eats SSE) the previous behaviour is restored verbatim
+    // rather than leaving the sidebar frozen.
+    const pollForBackground = hasBackgroundTurn && !serverEventsConnected;
+    if (!anyLocalComposer && !pollForBackground) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
+  }, [
+    composerActivityEpoch,
+    sessions,
+    sessionId,
+    loadSessionsList,
+    serverEventsConnected,
+  ]);
 
   useEffect(() => {
     if (!sessionsOpen) {
@@ -2487,7 +2641,10 @@ export function App() {
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
-        const parsedAssets = parseSessionAssetFiles(rawContent);
+        const parsedAssets = sessionMessageFiles(
+          (m as Record<string, unknown>).files,
+          rawContent,
+        );
         next.push({
           id: stableUserItemId(userTurnIdx),
           type: "user_message",
@@ -2647,7 +2804,7 @@ export function App() {
           const pickedArgs =
             titleLower === "question"
               ? pickRicherQuestionToolArgs(cur.argsText, row.argsPreview)
-              : row.argsPreview;
+              : pickRicherToolArgs(cur.argsText, row.argsPreview);
           if (pickedArgs) merged.argsText = pickedArgs;
         }
         if (row.resultPreview) merged.resultText = row.resultPreview;
@@ -2672,8 +2829,13 @@ export function App() {
         : viewingTrim === sid
           ? itemsRef.current
           : undefined;
+    const mergedTranscript = mergeTranscriptPreferLocalSuffix(
+      next,
+      localForMerge,
+    );
+    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
-      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      mergedTranscript,
       localForMerge,
     );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
@@ -2859,13 +3021,15 @@ export function App() {
 
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
-      const ok = window.confirm(t("app.confirmDeleteDraft"));
+      const ok = await confirm({
+        title: t("app.confirmDeleteDraft"),
+        message: t("app.confirmDeleteDraftBody"),
+        confirmLabel: t("app.delete"),
+        variant: "danger",
+      });
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(
-        sessionDeleteBackdropSuppressUntilRef,
-      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2874,13 +3038,15 @@ export function App() {
       }
       return;
     }
-    const ok = window.confirm(t("app.confirmDeleteChat"));
+    const ok = await confirm({
+      title: t("app.confirmDeleteChat"),
+      message: t("app.confirmDeleteChatBody"),
+      confirmLabel: t("app.delete"),
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(
-      sessionDeleteBackdropSuppressUntilRef,
-    );
     clearQuestionPromptRecords(id);
     await fetch(`/foxxycode/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -3088,6 +3254,7 @@ export function App() {
         applySessionStatsPayload(
           statsRes.data.stats,
           viewedSessionIdRef.current.trim() === sessionId,
+          sessionId,
         );
       }
 
@@ -3216,6 +3383,7 @@ export function App() {
         { headers: { [HDR]: key } },
       );
       active = !!(act.ok && act.data?.turnActive);
+      noteViewedTurnActive(key, active);
     } catch {
       markConnected(key);
       return;
@@ -3269,6 +3437,13 @@ export function App() {
     }, delayMs);
   }
 
+  /** Record a turnActive probe, but only for the chat the user is actually looking at. */
+  function noteViewedTurnActive(rawSid: string, active: boolean): void {
+    const key = rawSid.trim();
+    if (!key || viewedSessionIdRef.current.trim() !== key) return;
+    setViewedTurnActive(active);
+  }
+
   function stopDiskFallbackPoll(rawSid: string): void {
     const key = rawSid.trim();
     const h = diskFallbackTimerRef.current.get(key);
@@ -3307,6 +3482,7 @@ export function App() {
           );
           if (!act.ok) return;
           active = !!act.data?.turnActive;
+          noteViewedTurnActive(key, active);
         } catch {
           return;
         }
@@ -3337,6 +3513,40 @@ export function App() {
   };
   scheduleLiveStreamReconnectRef.current = scheduleLiveStreamReconnect;
 
+  // Handlers are read through a ref so the subscription below can mount once: it must
+  // survive re-renders, and the callbacks it needs are redefined on every one of them.
+  serverEventHandlersRef.current = {
+    turnStarted: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      // Reuse the fork's re-attach path rather than opening a relay here: it keeps the
+      // user-stopped guard, the activity probe and the reconnect bookkeeping in one place.
+      reconnectLiveStreamRef.current(key);
+    },
+    turnEnded: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void loadMessages(key, { preserveOnError: true });
+      void refreshSessionStats(key);
+    },
+  };
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    void subscribeServerEvents({
+      onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
+      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onConnectedChange: setServerEventsConnected,
+      signal: ctl.signal,
+    });
+    return () => ctl.abort();
+  }, []);
+
+
   // On return to foreground (alt-tab back, tool window shown), re-attach to any
   // in-flight turn whose live stream was cut while the webview was backgrounded.
   useEffect(() => {
@@ -3353,6 +3563,55 @@ export function App() {
     };
   }, []);
 
+  /**
+   * Heartbeat on the open chat while this client is not streaming it.
+   *
+   * Every other re-attach path needs an event we do not get here: a send, a session
+   * switch, a window focus. A turn can start with none of those - the autonomous turn a
+   * finished background task wakes is the ordinary case - and the user sitting on that
+   * chat would see nothing move until they clicked away and back. One HEAD-sized GET
+   * every few seconds is what makes such a turn appear at all, and what keeps the context
+   * ring honest while it runs.
+   */
+  useEffect(() => {
+    const sid = sessionId.trim();
+    if (!sid || generating) {
+      return;
+    }
+    let stopped = false;
+    const probe = async () => {
+      if (stopped) return;
+      // A stream of our own took over, or the user pressed Stop and must not be
+      // re-attached behind their back (that flag is consumed by the reconnect path,
+      // so this one only reads it).
+      if (
+        activeComposerSidRef.current.has(sid) ||
+        userStoppedSidRef.current.has(sid)
+      ) {
+        return;
+      }
+      try {
+        const act = await fetchJSON<{ turnActive?: boolean }>(
+          `/foxxycode/sessions/${encodeURIComponent(sid)}/activity`,
+          { headers: { [HDR]: sid } },
+        );
+        if (stopped || !act.ok) return;
+        const active = !!act.data?.turnActive;
+        noteViewedTurnActive(sid, active);
+        if (active && !activeComposerSidRef.current.has(sid)) {
+          reconnectLiveStreamRef.current(sid);
+        }
+      } catch {
+        // Server not reachable right now; the next tick retries.
+      }
+    };
+    const id = window.setInterval(() => void probe(), VIEWED_ACTIVITY_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [sessionId, generating]);
+
   async function rejoinComposerLiveStream(
     sid: string,
     baseline: TranscriptItem[],
@@ -3366,6 +3625,18 @@ export function App() {
     relayAbortBySidRef.current.set(key, fetchCtl);
 
     addActiveComposer(key);
+    // addActiveComposer clears the reconnecting flag, and until the relay actually says
+    // something we have nothing but the transcript as it was before this turn started.
+    // Deriving a status line from that is how the row froze on the previous turn's last
+    // tool for the whole time the server held the request open with no relay to attach
+    // to - the case a background task's autonomous turn used to produce.
+    markReconnecting(key);
+    let relayDelivered = false;
+    const noteRelayByte = () => {
+      if (relayDelivered) return;
+      relayDelivered = true;
+      markConnected(key);
+    };
     const assistantId = newId("a");
     streamingAssistantBySidRef.current.set(key, assistantId);
     streamShadowBySidRef.current.set(key, [...baseline]);
@@ -3381,10 +3652,12 @@ export function App() {
     const trimOnFirstReplayByte = createTurnReplayTrimGate();
     const applyStreamItems = (
       fn: (prev: TranscriptItem[]) => TranscriptItem[],
-    ) =>
+    ) => {
+      noteRelayByte();
       applyStreamItemsForSession(key, (prev) =>
         fn(trimOnFirstReplayByte(prev)),
       );
+    };
 
     // Give up on the live stream and let the disk poller show the turn's progress.
     // (The finally block below clears the abort controller and reconciles.)
@@ -3394,14 +3667,18 @@ export function App() {
       startDiskFallbackPoll(key);
     };
 
+    // Usage events carry no transcript rows, so they clear the flag on their own:
+    // a turn whose first sign of life is a token count is attached all the same.
     const branchTokenUsage = (u: TokenUsage | null) => {
       if (u === null) return;
+      noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
         debouncedRefreshSessionStats(key);
       }
     };
     const branchContextUsage = (u: ContextUsageUpdate) => {
+      noteRelayByte();
       if (viewedSessionIdRef.current.trim() === key) {
         setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
         debouncedRefreshSessionStats(key);
@@ -3410,9 +3687,16 @@ export function App() {
 
     let reconcileOnExit = true;
     try {
+      // Resume after the last frame this tab consumed, so a dropped connection costs
+      // a gap rather than a replay of the whole turn.
+      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+      const headers: Record<string, string> = { [HDR]: key };
+      if (resumeFrom) {
+        headers["Last-Event-ID"] = resumeFrom;
+      }
       const res = await fetch(
         `/foxxycode/sessions/${encodeURIComponent(key)}/composer-stream`,
-        { headers: { [HDR]: key }, signal: fetchCtl.signal },
+        { headers, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
         // No relay to attach to (auth, restart, session gone). Keep the transcript
@@ -3425,6 +3709,9 @@ export function App() {
       const carry = { buf: "" };
       const {
         streamErrorMessage,
+        streamErrorCode,
+        lastEventId,
+        desynced,
         endedWithoutDone,
         finalAssistantId,
         flushToolQueue,
@@ -3491,7 +3778,19 @@ export function App() {
         }
       };
 
-      if (isNoLiveTurnRelayError(streamErrorMessage)) {
+      if (lastEventId) {
+        relayLastEventIdBySidRef.current.set(key, lastEventId);
+      }
+      // The relay had already dropped frames this tab never saw, so the transcript on
+      // screen has a hole in it. The persisted messages are the source of truth.
+      if (desynced) {
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          preserveOnError: true,
+        });
+      }
+
+      if (isNoLiveTurnRelayError(streamErrorCode, streamErrorMessage)) {
         // The relay has nothing to attach to. That is a state, not a failure: the
         // turn may have finished while we reconnected, or it runs somewhere this
         // process cannot see. Reconcile from disk and keep watching if it is live.
@@ -3666,11 +3965,7 @@ export function App() {
         createdAtUtc: new Date().toISOString(),
         ...(opts?.files && opts.files.length > 0
           ? {
-              files: opts.files.map((f) => ({
-                name: f.name,
-                mimeType: f.type || "application/octet-stream",
-                sizeBytes: f.size,
-              })),
+              files: optimisticUserFiles(opts.files),
             }
           : {}),
       };
@@ -4412,13 +4707,6 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (
-              shouldSuppressShellBackdropClose(
-                sessionDeleteBackdropSuppressUntilRef,
-              )
-            ) {
-              return;
-            }
             if (shellBackdropOpen) {
               closeAllShellDrawers();
             }
@@ -4549,6 +4837,8 @@ export function App() {
           heroAccentVerb={heroAccentVerb}
           heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+          onExportSession={(f: ExportFormat) => void exportSession(f)}
+          exportBusy={exportBusy}
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}

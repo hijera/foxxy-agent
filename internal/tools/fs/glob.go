@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
 
@@ -82,6 +83,7 @@ func executeGlob(ctx context.Context, argsJSON string, env *tooling.Env) (string
 	var paths []string
 	if rgPath, lookupErr := exec.LookPath("rg"); lookupErr == nil {
 		cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
+		platform.HideConsoleWindow(cmd)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr

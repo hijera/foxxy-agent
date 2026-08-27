@@ -43,6 +43,11 @@ type startedCommand struct {
 	writer    *switchWriter
 	startedAt time.Time
 
+	// processStartedAt is the OS creation time of the process, read once at
+	// launch like the background runner does. It is what proves a persisted pid
+	// still belongs to this command if the command is later adopted.
+	processStartedAt time.Time
+
 	// waited is closed, never sent on, so a tool call that returns without
 	// reading it cannot leave the wait goroutine parked forever.
 	waited  chan struct{}
@@ -54,23 +59,38 @@ type startedCommand struct {
 // call, and a command that outlives its timeout is precisely the one that must
 // survive it to be adopted.
 func startForeground(command string, env *tooling.Env, commandShell platform.Shell) (*startedCommand, error) {
+	return startForegroundInto(command, env, commandShell, nil)
+}
+
+// startForegroundInto is startForeground with the output sink attached before
+// the child starts. A sink handed over afterwards would leave a window in
+// which output still lands in the unbounded buffer, which is the whole thing a
+// bounded sink exists to prevent.
+func startForegroundInto(command string, env *tooling.Env, commandShell platform.Shell, sink io.Writer) (*startedCommand, error) {
 	executable, commandArgs := commandShell.Command(command)
 	cmd := exec.Command(executable, commandArgs...) // #nosec G204 -- the command is operator-approved shell input, same as the background runner
 	if env != nil {
 		cmd.Dir = env.CWD
 	}
 
-	writer := &switchWriter{}
+	writer := &switchWriter{target: sink}
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 	cmd.WaitDelay = waitPipeDrainDelay
 	platform.DetachProcessGroup(cmd)
+	platform.HideConsoleWindow(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 
-	sc := &startedCommand{cmd: cmd, writer: writer, startedAt: time.Now(), waited: make(chan struct{})}
+	sc := &startedCommand{
+		cmd:              cmd,
+		writer:           writer,
+		startedAt:        time.Now(),
+		processStartedAt: platform.ProcessStartedAt(cmd.Process.Pid),
+		waited:           make(chan struct{}),
+	}
 	go func() {
 		sc.exitErr = cmd.Wait()
 		close(sc.waited)
@@ -170,6 +190,10 @@ func (h *adoptedHandle) Stop(grace time.Duration) error {
 
 func (h *adoptedHandle) PID() int {
 	return h.sc.pid()
+}
+
+func (h *adoptedHandle) ProcessStartedAt() time.Time {
+	return h.sc.processStartedAt
 }
 
 // adoption is what the pool gave back for a command it took over.

@@ -112,9 +112,13 @@ func detectReasoningLevels(apiModel string) []string {
 	switch {
 	case strings.HasPrefix(id, "gpt-5"):
 		return append([]string(nil), reasoningWithMinimal...)
-	case isOpenAIOSeries(id):
+	case isOpenAIOSeries(id), strings.HasPrefix(id, "gpt-oss"):
 		return append([]string(nil), reasoningStandard...)
 	case isAnthropicThinking(id):
+		return append([]string(nil), reasoningStandard...)
+	case isQwenThinking(id):
+		return append([]string(nil), reasoningStandard...)
+	case isKimiThinking(id):
 		return append([]string(nil), reasoningStandard...)
 	default:
 		return nil
@@ -139,4 +143,23 @@ func isAnthropicThinking(id string) bool {
 		}
 	}
 	return false
+}
+
+// isQwenThinking matches Qwen3-family hybrid thinking models (qwen3, qwen3.5,
+// qwen3.6, qwen3.8, qwen3-vl, ...). Qwen2.5 has no thinking mode.
+func isQwenThinking(id string) bool {
+	return strings.HasPrefix(id, "qwen3")
+}
+
+// isKimiThinking matches Moonshot Kimi K2 and later, which stream their thinking
+// on the reasoning_content channel. Detection covers the bare vendor ids
+// (kimi-k2, kimi-k2.6) and the rolling kimi-latest alias.
+//
+// Detection only offers the levels; it does not by itself change the request.
+// The wire shape follows the level actually in effect (session pick, else
+// models[].reasoning_default), because that is what buildParams reads: with a
+// level set the call carries reasoning_effort and max_completion_tokens, and
+// without one it stays on max_tokens exactly as before.
+func isKimiThinking(id string) bool {
+	return strings.HasPrefix(id, "kimi-")
 }

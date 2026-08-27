@@ -24,6 +24,8 @@ python3 "$ACP_DIR/acp_e2e_web.py"
 python3 "$ACP_DIR/acp_e2e_todo.py"
 python3 "$ACP_DIR/acp_e2e_skills_slash.py"
 python3 "$ACP_DIR/acp_e2e_rules.py"
+# Stages a config edit into a temp config copy, confirm-commits, then rolls back.
+python3 "$ACP_DIR/acp_e2e_config.py"
 python3 "$ACP_DIR/acp_e2e_memory.py"
 python3 "$ACP_DIR/acp_e2e_toolcalls_persist.py"
 python3 "$ACP_DIR/acp_e2e_scheduler_agent.py"

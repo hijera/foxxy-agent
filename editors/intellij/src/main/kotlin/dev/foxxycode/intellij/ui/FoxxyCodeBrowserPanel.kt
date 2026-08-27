@@ -43,6 +43,9 @@ import org.cef.browser.CefBrowser
 import org.cef.callback.CefDragData
 import org.cef.handler.CefDragHandler
 import org.cef.browser.CefFrame
+import org.cef.callback.CefBeforeDownloadCallback
+import org.cef.callback.CefDownloadItem
+import org.cef.handler.CefDownloadHandlerAdapter
 import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.BorderLayout
 import java.awt.datatransfer.DataFlavor
@@ -182,6 +185,21 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
             Disposer.register(it, drop)
             dropQuery = drop
             installBrowserDragHandler(it)
+            // CEF drops every download nobody claims, which is why a plain
+            // `<a download>` in the panel used to do nothing at all. Claiming it
+            // with showDialog=true hands the user the IDE's native Save As box.
+            it.jbCefClient.addDownloadHandler(object : CefDownloadHandlerAdapter() {
+                override fun onBeforeDownload(
+                    browser: CefBrowser?,
+                    item: CefDownloadItem?,
+                    suggestedName: String?,
+                    callback: CefBeforeDownloadCallback?,
+                ) {
+                    // Empty path + showDialog: CEF picks the download directory and
+                    // opens the save dialog seeded with the suggested name.
+                    callback?.Continue(suggestedName ?: "", true)
+                }
+            }, it.cefBrowser)
             // After each page load: install compatibility shims/error overlay, then sync theme + locale.
             it.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(b: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {

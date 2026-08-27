@@ -28,7 +28,7 @@ python scripts/build.py
 **Non-interactive** (CI or scripts):
 
 ```bash
-# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory")
+# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory cli")
 python scripts/build.py --target cli --preset full
 
 # Lean ACP-only binary (no npm step)
@@ -74,7 +74,7 @@ Build with **`memory`** to link long-term memory (`external/memory`). Enable beh
 The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory cli"
 ```
 
 Output: **`build/foxxycode`**.
@@ -84,7 +84,7 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory \
+go build -tags=http,ui,scheduler,memory,cli \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
   -o build/foxxycode \
   ./cmd/foxxycode/
@@ -96,14 +96,14 @@ The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via
 
 **`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
 
-- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory"`** first.
+- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory cli"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli"`** first.
 
 - **root** - **`/usr/local/bin/foxxycode`**
 - **non-root** - **`~/.local/bin/foxxycode`** (ensure that directory is on **`PATH`**)
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory cli"
 make install
 ```
 
@@ -139,7 +139,7 @@ Manual one-liner aligned with **`make build`**:
 
 ```bash
 go build \
-  -tags=http,ui,scheduler,memory \
+  -tags=http,ui,scheduler,memory,cli \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=$(make -s print-version)" \
   -o build/foxxycode \
   ./cmd/foxxycode/
@@ -150,13 +150,13 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory cli"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
 
 ```bash
-go build -tags=http,ui,scheduler,memory ...
+go build -tags=http,ui,scheduler,memory,cli ...
 ```
 
 Order does not matter for these tags.
@@ -190,7 +190,7 @@ Or cross-compile from Linux/macOS (pure Go, **`CGO_ENABLED=0`**):
 python scripts/build.py --target cli --preset desktop
 ```
 
-**Requirements:** Windows 10+, [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most Win10/11 images). Logs go to **`~/.foxxycode/desktop.log`** because **`-H=windowsgui`** hides stdout/stderr.
+**Requirements:** Windows 10+, [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most Win10/11 images). Logs go to **`~/.foxxycode/desktop.log`** because **`-H=windowsgui`** hides stdout/stderr. Owning no console also means every console tool a turn runs (git, ripgrep, the shell behind **`run_command`**) would be given a console window of its own, so they are all started windowless through **`platform.HideConsoleWindow`**; see **`docs/architecture.md`**.
 
 **First run:** double-click opens **`/#/chat`** with a provider picker modal (pattern inspired by NeuralDeskApp). Save writes **`config.yaml`** via **`PUT /foxxycode/config`**.
 
@@ -223,4 +223,4 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory cli"`** (or **`go build -tags=...`** as above).

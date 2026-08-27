@@ -215,7 +215,8 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 
 func TestManagerSetConfigOptionMode(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+	sender := &captureSender{}
+	m := session.NewManager(cfg, sender, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -245,6 +246,25 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	// No explicit model override: effective model stays agent.model (p1/gpt-4o).
 	if modelCur != "p1/gpt-4o" {
 		t.Fatalf("expected effective model p1/gpt-4o for plan mode without override, got %q", modelCur)
+	}
+	var modeWire map[string]interface{}
+	for _, update := range sender.ups {
+		if _, ok := update.(acp.ModeUpdate); !ok {
+			continue
+		}
+		data, err := json.Marshal(update)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &modeWire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if modeWire["currentModeId"] != "plan" {
+		t.Fatalf("currentModeId = %#v, want plan in %#v", modeWire["currentModeId"], modeWire)
+	}
+	if _, ok := modeWire["modeId"]; ok {
+		t.Fatalf("deprecated modeId emitted in %#v", modeWire)
 	}
 }
 
@@ -468,19 +488,46 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 }
 
-func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testing.T) {
+func TestHandleSessionPromptWithSenderDetachFromRequestSurvivesParentCancel(t *testing.T) {
+	res, perr, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{
+		SkipTurnLock:      true,
+		DetachFromRequest: true,
+	})
+	if perr != nil {
+		t.Fatalf("prompt: %v", perr)
+	}
+	if ctxErr != nil {
+		t.Fatalf("a detached turn must not see its parent's cancellation: %v", ctxErr)
+	}
+	if res == nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("unexpected %+v err=%v", res, perr)
+	}
+}
+
+// Holding the turn lock outside the manager says nothing about who owns the turn's
+// lifetime. A caller that only sets SkipTurnLock - a non-streaming composer POST, which
+// can be stopped only by hanging up - keeps request-scoped cancellation.
+func TestHandleSessionPromptWithSenderStaysRequestScopedWithoutDetach(t *testing.T) {
+	_, _, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{SkipTurnLock: true})
+	if ctxErr == nil {
+		t.Fatal("turn context outlived the cancelled parent without DetachFromRequest")
+	}
+}
+
+// runPromptWithCancelledParent runs one turn whose parent context is cancelled while the
+// runner blocks, and reports what the runner saw of its own context.
+func runPromptWithCancelledParent(t *testing.T, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error, error) {
+	t.Helper()
 	runBlock := make(chan struct{})
 	cont := make(chan struct{})
+	var ctxErr error
 	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		close(runBlock)
 		<-cont
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		ctxErr = ctx.Err()
 		return string(acp.StopReasonEndTurn), nil
 	}
-	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
 	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
 		t.Fatal(err)
@@ -495,18 +542,13 @@ func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testin
 		res, perr = m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sn.SessionID,
 			Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
-		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+		}, noopSender{}, opts)
 	}()
 	<-runBlock
 	cancel()
 	close(cont)
 	wg.Wait()
-	if perr != nil {
-		t.Fatalf("prompt: %v", perr)
-	}
-	if res == nil || res.StopReason != acp.StopReasonEndTurn {
-		t.Fatalf("unexpected %+v err=%v", res, perr)
-	}
+	return res, perr, ctxErr
 }
 
 func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
@@ -563,7 +605,7 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSessionNew: %v", err)
 	}
-	_ = res
+	m.HandleSessionReady(res.SessionID)
 	var slash *acp.AvailableCommandsUpdate
 	for _, u := range snd.ups {
 		if v, ok := u.(acp.AvailableCommandsUpdate); ok && v.SessionUpdate == acp.UpdateTypeAvailableCommandsUpdate {
@@ -575,17 +617,17 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
 		return
 	}
-	// Skills (demo + bundled generate-rules) plus the built-in compact command
+	// Skills (demo + the two bundled ones) plus the built-in compact command
 	// (coddy compaction engine) and the always-present plugin command.
-	if len(slash.AvailableCommands) != 4 {
+	if len(slash.AvailableCommands) != 5 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] || !names["compact"] || !names["plugin"] {
-		t.Fatalf("expected demo, generate-rules, compact and plugin, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] || !names["configure-foxxycode"] || !names["compact"] || !names["plugin"] {
+		t.Fatalf("expected demo, generate-rules, configure-foxxycode, compact and plugin, got %+v", slash.AvailableCommands)
 	}
 }
 
