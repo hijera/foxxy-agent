@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // Env var names the fake client reads. Tests set them with t.Setenv; the client
@@ -70,6 +72,7 @@ func Build(dir string) (Fake, error) {
 	cmd := exec.Command("go", "build", "-o", f.Binary,
 		"github.com/hijera/foxxycode-agent/internal/svnws/svntest/fakesvn")
 	cmd.Dir = moduleDir()
+	platform.HideConsoleWindow(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return Fake{}, fmt.Errorf("build fake svn: %w: %s", err, strings.TrimSpace(string(out)))
 	}

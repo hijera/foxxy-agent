@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // footer renders the two status lines under the editor (pi FooterComponent):
@@ -117,6 +118,7 @@ func (f *footer) Render(width int) []string {
 func detectGitBranch(cwd string) string {
 	cmd := exec.Command("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
 	cmd.Stderr = nil // never inherit the tty; raw mode must stay clean
+	platform.HideConsoleWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
