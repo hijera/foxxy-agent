@@ -91,6 +91,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 		{id: string(session.ModePlan), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModeDocs), ownedBy: ownedByFoxxyCodeSession},
 		{id: string(session.ModeAsk), ownedBy: ownedByFoxxyCodeSession},
+		{id: string(session.ModeDebug), ownedBy: ownedByFoxxyCodeSession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -196,6 +197,47 @@ func TestResponsesAskProfileSetsSessionMode(t *testing.T) {
 	}
 }
 
+func TestResponsesDebugProfileSetsSessionMode(t *testing.T) {
+	cfg := &config.Config{
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+	}
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		if st.GetMode() != string(session.ModeDebug) {
+			t.Errorf("runner mode: want %q got %q", session.ModeDebug, st.GetMode())
+		}
+		return "ok", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sn, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(`{"model":"debug","input":"why does this panic","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-FoxxyCode-Session-ID", sn.SessionID)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d body %s", res.StatusCode, body)
+	}
+	if got := mgr.SessionByID(sn.SessionID).GetMode(); got != string(session.ModeDebug) {
+		t.Fatalf("session mode: want debug got %q", got)
+	}
+}
+
 func TestGETModelsMultimodalField(t *testing.T) {
 	cfg := &config.Config{
 		Agent: config.Agent{Model: "openai/gpt-4o"},
@@ -237,6 +279,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 		{id: string(session.ModePlan)},
 		{id: string(session.ModeDocs)},
 		{id: string(session.ModeAsk)},
+		{id: string(session.ModeDebug)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}

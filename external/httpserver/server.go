@@ -22,6 +22,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/bgtask"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -32,9 +33,13 @@ var errInvalidSessionHeader = errors.New("invalid X-FoxxyCode-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
-	cfgAt                atomic.Pointer[config.Config]
-	mgr                  *session.Manager
-	log                  *slog.Logger
+	cfgAt atomic.Pointer[config.Config]
+	mgr   *session.Manager
+	log   *slog.Logger
+	// logLevel backs the process logger's slog.LevelVar so PUT /foxxycode/config can
+	// flip verbosity at runtime (debug.enabled forces debug level). Nil when the server
+	// was constructed by a caller that did not hand one in (tests).
+	logLevel             *slog.LevelVar
 	defaultCWD           string
 	mux                  *http.ServeMux
 	providerFactory      func(*config.Config) (llm.Provider, error)
@@ -94,10 +99,18 @@ func (s *Server) Drain() {
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).
-func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
+// An optional logLevel lets ReplaceConfig change the process log level at runtime
+// (the debug.enabled toggle forces debug verbosity); tests and callers that do not
+// need runtime toggling may omit it.
+func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string, logLevel ...*slog.LevelVar) *Server {
+	var lv *slog.LevelVar
+	if len(logLevel) > 0 {
+		lv = logLevel[0]
+	}
 	s := &Server{
 		mgr:                  mgr,
 		log:                  log,
+		logLevel:             lv,
 		defaultCWD:           defaultCWD,
 		mux:                  http.NewServeMux(),
 		providerFactory:      defaultProviderFromAgentModel,
@@ -145,10 +158,16 @@ func (s *Server) activeCfg() *config.Config {
 	return s.cfgAt.Load()
 }
 
-// ReplaceConfig updates the in-memory config used by HTTP handlers.
+// ReplaceConfig updates the in-memory config used by HTTP handlers. It also reapplies
+// the diagnostics layer — flipping the process log level and the raw LLM capture flag —
+// so toggling debug.enabled through PUT /foxxycode/config takes effect without a restart.
 func (s *Server) ReplaceConfig(c *config.Config) {
 	if c != nil {
 		s.cfgAt.Store(c)
+		if s.logLevel != nil {
+			s.logLevel.Set(logger.EffectiveLevel(c.Debug.Enabled, c.Logger.Level))
+		}
+		llm.SetDebugCapture(c.Debug.EffectiveCapture())
 	}
 }
 
@@ -249,7 +268,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	maxCtx := maxContextDefault(s)
-	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeDocs, session.ModeAsk} {
+	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeDocs, session.ModeAsk, session.ModeDebug} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
@@ -722,7 +741,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Attachments) > 0 && !httpModelIsFoxxyCodeProfile(model) {
-		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, docs, or ask model"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, docs, ask, or debug model"}}`, http.StatusBadRequest)
 		return
 	}
 	// Fail closed: a model that never declared multimodal must not be handed image
