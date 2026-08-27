@@ -71,14 +71,14 @@ Handles:
 - `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
-- `session/set_mode` - switch between `agent`, `plan`, `docs`, and `ask` modes (legacy, kept in sync with config options)
+- `session/set_mode` - switch between `agent`, `plan`, `docs`, `ask`, and `debug` modes (legacy, kept in sync with config options)
 - `session/set_config_option` - change mode or model for the session (preferred ACP API)
 
 ### Session Manager (`internal/session`)
 
 Maintains the state for each conversation session:
 - Conversation history (messages, tool results)
-- Current operating mode (`agent` / `plan` / `docs` / `ask`)
+- Current operating mode (`agent` / `plan` / `docs` / `ask` / `debug`)
 - Optional model override per session (when the user selects a model via ACP)
 - Connected MCP server clients
 - Working directory
@@ -89,8 +89,8 @@ Maintains the state for each conversation session:
 
 The core reasoning engine (**`react.go`**):
 
-1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`** and **`plan`**. Ask receives only MCP tools annotated with **`readOnlyHint: true`**, unless **`tools.ask_disable_extended_tools`** is enabled. Docs has a closed tool surface with no MCP.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`**. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`**. Model-specific and family-specific variants use **`<mode>.<model-slug>.md`** and **`<mode>.<family>.md`**. The built-ins include **`ask.openai.md`** for GPT/OpenAI models and **`ask.gpt-oss.md`** for gpt-oss-120b. Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`**, **`plan`**, and **`debug`**. Ask receives only MCP tools annotated with **`readOnlyHint: true`**, unless **`tools.ask_disable_extended_tools`** is enabled. Docs has a closed tool surface with no MCP.
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`**. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`** and Debug uses **`debug.md`** (neither has a configurable filename). Model-specific and family-specific variants use **`<mode>.<model-slug>.md`** and **`<mode>.<family>.md`**. The built-ins include **`ask.openai.md`** for GPT/OpenAI models and **`ask.gpt-oss.md`** for gpt-oss-120b. Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
@@ -247,6 +247,18 @@ When the session CWD contains `.idea/`, readable UTF-8 files below that director
 
 YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.foxxycode`**), **`FOXXYCODE_CWD`**, **`FOXXYCODE_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$FOXXYCODE_HOME/config.yaml`** is absent, and CLI flags (see **`docs/config.md`** and **`README.md`**).
 
+### Diagnostics (`debug`)
+
+An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enabled` forces the process logger to debug level, turns on raw LLM HTTP capture, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/debugging.md`**.
+
+The three moving parts:
+
+- **Runtime log level.** The logger is built once over a shared **`slog.LevelVar`** (**`internal/logger`**), so **`PUT /foxxycode/config`** re-levels the live handler through **`Server.ReplaceConfig`** instead of rebuilding the logger. Toggling diagnostics needs no restart.
+- **Raw LLM capture.** A debug **`http.RoundTripper`** wraps every provider client in **`HTTPClientForOptionalProxy`** (**`internal/llm/debug_transport.go`**), so openai, anthropic, codex, and neuraldeep are covered uniformly. Bodies are capped at 16 KB for the log while the provider still receives them whole, and the response is **teed as it is read** so SSE streams are not buffered. Request **headers are never logged**, which keeps provider API keys out of the log; request **bodies are**, and they carry the whole conversation.
+- **Trace.** The ReAct loop emits `turn_start` / `llm_request` / `llm_response` / `tool_start` / `tool_finish` through **`internal/agent/debug_emit.go`**. Each event is appended to **`<session>/debug_trace.jsonl`** (**`internal/session/debug_trace.go`**) and forwarded as an ACP **`DebugUpdate`**, which the HTTP bridge emits as SSE **`event: debug`**. **`GET /foxxycode/sessions/{id}/debug`** returns the persisted timeline. Tracing is best-effort: a write error is logged and never breaks a turn.
+
+This is unrelated to the **`debug`** session mode below; the mode changes the model's behaviour, this layer changes what FoxxyCode records.
+
 ## Session Modes
 
 ### `agent` mode (default)
@@ -267,6 +279,13 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 - No shell, MCP, general filesystem mutators, plan tools, todo tools, scheduler tools, or memory tools
 - Suitable for: evidence-based documentation reviews and explicit Markdown documentation updates without code changes
 
+### `debug` mode
+- Same unrestricted tool surface as **`agent`**: **`ToolSetForMode("debug")`** returns the empty (unrestricted) set, and MCP tools are exposed exactly as in agent mode
+- The difference is the prompt (**`internal/prompts/debug.md`**): enumerate 5-7 possible sources, distill to the 1-2 most likely, validate with logging or a focused test before changing behavior, then confirm the diagnosis through the **`question`** tool before applying a fix
+- Fixes stay minimal and targeted, and the temporary diagnostics are removed afterwards
+- Ported from kilocode's **`debug`** primary agent, which likewise registers full permissions and keeps the discipline prompt-level
+- Suitable for: root-cause analysis, intermittent failures, regressions, and any bug where a guessed fix is worse than none
+
 ### `ask` mode
 - Read-only question-answering surface enforced by **`internal/agent.ToolSetForMode("ask")`** and execution-time guards
 - Basic tools: repository read/search/tree, interactive questions, and skills
@@ -277,7 +296,7 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 - Suitable for: repository-grounded explanations, reviews, investigation, and user questions without changing project state
 
 Mode switching:
-- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, `docs`, or `ask`
+- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, `docs`, `ask`, or `debug`
 - Agent sends `current_mode_update` and `config_option_update` when mode changes
 
 ## Directory Structure

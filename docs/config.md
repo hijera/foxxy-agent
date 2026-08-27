@@ -133,6 +133,7 @@ prompts:
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
+  # Ask and Debug have no configurable filename: they always read ask.md and debug.md.
   # Per-provider prompts: when enabled (default), each mode can pick a prompt
   # tuned to the active model, resolved most-specific first:
   #   <mode>.<model-slug>.md  per-model (model-list id, "/" -> "-": openai/gpt-4o
@@ -246,6 +247,27 @@ logger:
 
 ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`** (stdout, stderr, file, both), **`--log-file`**, **`--log-format`**. Empty flag values keep the YAML (or built-in) defaults.
 
+## Diagnostics
+
+```yaml
+# Diagnostics master switch (Go: config.Debug, internal/config/debug.go)
+debug:
+  # Off by default and free when off. When true: forces the process logger to
+  # debug level (overriding logger.level), captures raw LLM HTTP request and
+  # response bodies, and writes <session>/debug_trace.jsonl.
+  enabled: false
+  # Gates only the raw body capture. Omit to follow `enabled`. Set to false to
+  # keep debug logs and the trace while suppressing bodies, which carry the whole
+  # conversation including the contents of every file the agent read.
+  # capture_llm: false
+```
+
+**`--debug`** on **`foxxycode acp`**, **`foxxycode http`**, and **`foxxycode gateway`** forces **`enabled: true`** for that process; it only ever turns the layer on, never off. **`foxxycode desktop`** and the console have no flag but honour **`debug.enabled`** from the config. **`PUT /foxxycode/config`** applies the toggle without a restart.
+
+The timeline is readable at **`GET /foxxycode/sessions/{id}/debug`** and streamed live as SSE **`event: debug`**. Full guide: **[docs/debugging.md](debugging.md)**.
+
+This is **not** the **`debug`** session mode (the diagnose-before-fixing persona selected with **`model: "debug"`**); the two are independent.
+
 If the older two-field style had **`file`** set under **`logger`** but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
 
 ## SSH remote execution
@@ -290,7 +312,7 @@ Full guide in [docs/mcp-integration.md](mcp-integration.md).
 
 The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`foxxycode acp -scheduler-enabled`** / **`foxxycode http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
 
-Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`foxxycode`** was started), **`model`**, **`mode`** (`agent`, `plan`, `docs`, or `ask`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
+Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`foxxycode`** was started), **`model`**, **`mode`** (`agent`, `plan`, `docs`, `ask`, or `debug`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
 **`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
 

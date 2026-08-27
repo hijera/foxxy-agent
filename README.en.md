@@ -66,7 +66,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
-- **Four operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), and `ask` (read-only answers and investigation)
+- **Five operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), `ask` (read-only answers and investigation), and `debug` (systematic root-cause diagnosis before a fix)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
@@ -207,7 +207,7 @@ To **build the image locally** instead, use **`docker-compose.dev.yml`**: **`doc
 http://127.0.0.1:12345/
 ```
 
-The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, **docs**, or **ask** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
+The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, **docs**, **ask**, or **debug** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
 
 Sanity check without a browser: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
 
@@ -360,6 +360,20 @@ Read-only question-answering and investigation mode:
 The **Disable extended Ask tools** checkbox in Settings → Tools sets **`tools.ask_disable_extended_tools`**. It is off by default. When enabled, Ask hides shell, MCP, web, and scheduler tools while retaining repository read/search/tree, questions, and skills.
 
 Best for: answering repository questions, code reviews, and evidence-based investigation without changing project state.
+
+### Debug Mode
+
+Systematic diagnosis mode. The tool surface is the same as **agent** - the fix has to land somewhere - but the prompt changes how the agent works:
+
+- Establish the actual failure first: reproduce it, or pin down the command, input, error text, and versions
+- Reflect on 5-7 distinct possible sources across layers, then distill to the 1-2 most likely and say why the rest are ruled out
+- Validate the leading hypothesis with logging, a diagnostic print, or a focused failing test **before** changing behavior
+- Confirm the diagnosis with you through the **`question`** tool before applying a fix
+- Fix minimally, verify the original failure is gone, and remove the temporary diagnostics afterwards
+
+Ported from kilocode's **`debug`** agent, which registers the same full permissions and keeps the discipline in the prompt.
+
+Best for: root-cause analysis, regressions, intermittent failures, and any bug where a guessed fix is worse than no fix.
 
 Use your editor session mode selector (or **`session/set_config_option`**).
 
@@ -519,6 +533,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.foxxycode/rules`, …)
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
+- [Diagnostics](docs/debugging.md) - opt-in `debug:` layer: raw LLM capture, per-session turn trace, `GET /foxxycode/sessions/{id}/debug`, runtime toggle
 - [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 
 ## Examples (ACP over stdio)
@@ -537,7 +552,7 @@ By default, `foxxycode acp` and `foxxycode http` store each session bundle under
 
 The foxxycode_todo_* tools keep the active checklist mirrored to `todos/active.md`. A wholesale **`foxxycode_todo_plan_replace`** while items are incomplete is rejected until you finish rows or run **`foxxycode_todo_plan_archive`**; replacing when every row is **`completed`** moves the prior `active.md` into **`todos/archive/`** (`todo-<nanos>.md`). **`foxxycode_todo_plan_archive`** finishes open rows to **`completed`**, writes **`todos/archive/plan_<unix_seconds>.md`**, then clears the session plan when persistence is on.
 
-When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template. Embedded or **`prompts.dir`** templates use configurable **`agent.md`**, **`plan.md`**, and **`docs.md`** names plus **`ask.md`** for Ask; Ask ships tuned **`ask.openai.md`** and **`ask.gpt-oss.md`** variants. The todo block uses `{{if .TodoList}}` … `{{end}}` and is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
+When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template. Embedded or **`prompts.dir`** templates use configurable **`agent.md`**, **`plan.md`**, and **`docs.md`** names plus **`ask.md`** for Ask and **`debug.md`** for Debug; Ask ships tuned **`ask.openai.md`** and **`ask.gpt-oss.md`** variants. The todo block uses `{{if .TodoList}}` … `{{end}}` and is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
 
 ## Development
 
