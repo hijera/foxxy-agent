@@ -3,6 +3,7 @@ import { useT } from "../i18n/I18nProvider";
 import { Combobox } from "../settings/Combobox";
 import { CodexAuthField } from "../settings/CodexAuthField";
 import { useProbeModels } from "./useProbeModels";
+import type { FetchedModel } from "../settings/useProviderModels";
 
 export type ProviderPresetId =
   | "openai"
@@ -118,6 +119,7 @@ function buildConfigBody(
   proxy: string,
   modelId: string,
   baseDoc: Record<string, unknown>,
+  fetchedModels: FetchedModel[] = [],
 ): Record<string, unknown> {
   const provider: Record<string, unknown> = {
     name: preset.providerName,
@@ -151,6 +153,13 @@ function buildConfigBody(
     // to satisfy the required provider/model_id config format.
     model = `${preset.providerName}/${rawModel}`;
   }
+  // A hub serves vision and text-only models under one provider, so the picked
+  // model's advertised capability beats the provider-wide preset flag. The preset
+  // stays the fallback for a hand-typed id or a catalog that lists no modalities.
+  const picked = fetchedModels.find(
+    (m) => m.id === rawModel || `${preset.providerName}/${m.id}` === model,
+  );
+  const multimodal = picked?.vision ?? preset.multimodal;
   return {
     ...baseDoc,
     providers: [provider],
@@ -159,7 +168,7 @@ function buildConfigBody(
         model,
         max_tokens: 8192,
         temperature: 0.2,
-        multimodal: preset.multimodal,
+        multimodal,
       },
     ],
     agent: {
@@ -281,8 +290,17 @@ export function ProviderPickerDialog(props: {
   }, [props.open, probeInput, preset.providerType, probeModels]);
 
   const configBody = useMemo(
-    () => buildConfigBody(preset, apiKey, apiBase, proxy, modelId, baseDoc),
-    [preset, apiKey, apiBase, proxy, modelId, baseDoc],
+    () =>
+      buildConfigBody(
+        preset,
+        apiKey,
+        apiBase,
+        proxy,
+        modelId,
+        baseDoc,
+        fetchedModels,
+      ),
+    [preset, apiKey, apiBase, proxy, modelId, baseDoc, fetchedModels],
   );
 
   const testConnection = useCallback(async () => {

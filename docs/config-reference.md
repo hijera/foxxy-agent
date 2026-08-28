@@ -430,6 +430,7 @@ Interactive browser automation tool (`config.BrowserConfig`, `internal/config/br
 |---|---|---|---|---|---|
 | `enabled` | bool | no | `false` | — | Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for builds compiled with the `browser` tag. |
 | `headless` | bool | no | `true` | — | Run the browser without a visible window. Set to `false` to watch the automated session. |
+| `screenshots` | bool | no | `true` | — | Capture a screenshot after each action and show it to the model. Set to `false` to drive the browser text-only: actions still report the URL and the page log, and `foxxycode_browser_read_page` plus `foxxycode_browser_evaluate` read the page as text. Useful for a model without vision, and it drops the base64 image from every request. |
 | `executable_path` | string | no | `""` (auto) | — | Path to a specific Chrome/Chromium binary; empty lets chromedp auto-detect an installed browser. |
 | `timeout_seconds` | int | no | `30` | — | Per-action timeout for navigation, clicks, and other browser operations. |
 

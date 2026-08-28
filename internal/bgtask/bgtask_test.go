@@ -113,29 +113,11 @@ func waitForStatus(t *testing.T, p *Pool, sessionID, taskID string, want Status)
 	return last
 }
 
-func TestResolveTimeoutSeconds(t *testing.T) {
-	cfg := Config{DefaultTimeoutSeconds: 900, MaxTimeoutSeconds: 3600}.normalised()
-
-	cases := []struct {
-		name string
-		spec Spec
-		want int
-	}{
-		{name: "explicit timeout wins over estimate", spec: Spec{TimeoutSeconds: 5, ExpectedSeconds: 600}, want: 5},
-		{name: "no estimate falls back to default", spec: Spec{}, want: 900},
-		{name: "small estimate is floored", spec: Spec{ExpectedSeconds: 4}, want: minEstimatedTimeoutSeconds},
-		{name: "estimate buys a multiple of itself", spec: Spec{ExpectedSeconds: 120}, want: 360},
-		{name: "estimate is capped by the ceiling", spec: Spec{ExpectedSeconds: 100000}, want: 3600},
-		{name: "explicit timeout is capped by the ceiling", spec: Spec{TimeoutSeconds: 100000}, want: 3600},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := resolveTimeoutSeconds(tc.spec, cfg); got != tc.want {
-				t.Fatalf("resolveTimeoutSeconds() = %d, want %d", got, tc.want)
-			}
-		})
-	}
-}
+// Timeout resolution is covered by TestEstimateNeverShortensTheHardTimeout in
+// timeout_test.go. The table that used to live here asserted the old rule —
+// that expected_seconds bought the hard timeout — which is the bug that killed
+// dev servers mid-session; it was removed rather than updated so there is one
+// statement of the contract, not two.
 
 func TestSnapshotElapsedAndOverdue(t *testing.T) {
 	start := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)

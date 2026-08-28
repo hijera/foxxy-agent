@@ -282,6 +282,66 @@ describe("ProviderPickerDialog", () => {
     expect(body.agent.model).toBe("neuraldeep/qwen-3");
   });
 
+  // A hub serves vision and text-only models side by side under one provider, so
+  // the per-provider preset flag is the wrong granularity: the model the user
+  // actually picked has to decide. Getting this wrong is how a vision-capable
+  // model ends up saved with multimodal: false and silently refuses screenshots.
+  it.each([
+    ["vision-model", true],
+    ["text-only-model", false],
+  ])("seeds multimodal from the picked model's advertised vision (%s)", async (
+    modelId,
+    wantMultimodal,
+  ) => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/foxxycode/providers/models-probe") {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            models: [
+              { id: "vision-model", vision: true },
+              { id: "text-only-model", vision: false },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "/foxxycode/config" && init?.method === "PUT") {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url === "/foxxycode/config/validate") {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    // neuraldeep's preset declares multimodal: true for the whole provider.
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    const modelInput = await waitFor(() =>
+      screen.getByTestId("provider-model-id"),
+    );
+    fireEvent.focus(modelInput);
+    const option = await waitFor(() =>
+      screen.getByRole("option", { name: modelId }),
+    );
+    fireEvent.mouseDown(option);
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.models[0].model).toBe(`neuraldeep/${modelId}`);
+    expect(body.models[0].multimodal).toBe(wantMultimodal);
+  });
+
   it("sends the proxy in the probe and saves it on the provider", async () => {
     const onSaved = vi.fn();
     renderPicker({ onSaved });

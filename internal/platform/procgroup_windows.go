@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -154,6 +155,17 @@ func processStartedAt(handle windows.Handle) (time.Time, error) {
 	return time.Unix(0, creation.Nanoseconds()), nil
 }
 
+const (
+	// defaultTerminateGrace applies when the caller names no budget.
+	defaultTerminateGrace = 5 * time.Second
+	// minTaskkillWait is the floor for taskkill's own runtime. Spawning a process
+	// on Windows can take the better part of a second under load, and cutting the
+	// helper short leaves the target alive - the failure this floor exists for.
+	minTaskkillWait = 5 * time.Second
+	// terminatePollInterval paces the "is it gone yet" probe.
+	terminatePollInterval = 20 * time.Millisecond
+)
+
 // TerminateProcessGroupByPID kills a tree this process did not start, which is
 // what reaping survivors of a previous run needs. startedAt is the identity the
 // record persisted, and it is checked here rather than trusted from the caller's
@@ -168,6 +180,10 @@ func processStartedAt(handle windows.Handle) (time.Time, error) {
 //
 // Liveness is deliberately not required: a leader that has already exited can
 // still have running children, and those are exactly what reaping is for.
+//
+// grace is how long the leader is given to disappear, and a nil return means it
+// did. It is not a budget for taskkill's own runtime - applying it there is what
+// made this function report success over a process that was still running.
 func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duration) error {
 	if pid <= 0 {
 		return nil
@@ -187,23 +203,35 @@ func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duratio
 		return fmt.Errorf("pid %d is not the process the task recorded", pid)
 	}
 
-	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
-	if err := kill.Start(); err != nil {
-		return err
-	}
-	done := make(chan struct{})
-	go func() {
-		_ = kill.Wait()
-		close(done)
-	}()
 	if grace <= 0 {
-		grace = 5 * time.Second
+		grace = defaultTerminateGrace
 	}
-	select {
-	case <-done:
-		return nil
-	case <-time.After(grace):
-		_ = kill.Process.Kill()
-		return nil
+
+	// grace bounds how long the TARGET may take to die, not how long taskkill may
+	// run. Those are not the same thing, and conflating them is what made this
+	// function lie: taskkill.exe cold-starting under load routinely needs more
+	// than a second, the helper was killed mid-flight, and the caller was told the
+	// group was gone while it went on running. `/F` has no graceful phase to wait
+	// out, so the helper gets a floor of its own.
+	killWait := grace
+	if killWait < minTaskkillWait {
+		killWait = minTaskkillWait
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), killWait)
+	defer cancel()
+	// taskkill's exit status is not evidence: it reports "not found" for a process
+	// that died on its own, and success before the kernel has finished tearing the
+	// tree down. The probe below is the only thing that settles it.
+	_ = exec.CommandContext(ctx, "taskkill", "/T", "/F", "/PID", strconv.Itoa(pid)).Run()
+
+	deadline := time.Now().Add(grace)
+	for {
+		if !ProcessGroupAlive(pid, startedAt) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("pid %d is still running %s after taskkill /T /F", pid, grace)
+		}
+		time.Sleep(terminatePollInterval)
 	}
 }

@@ -881,6 +881,11 @@
           "type": "integer",
           "description": "Per-action timeout for navigation, clicks, and other browser operations.",
           "default": 30
+        },
+        "screenshots": {
+          "type": "boolean",
+          "description": "Capture a screenshot after each browser action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and foxxycode_browser_read_page plus foxxycode_browser_evaluate read the page as text - which is all a model without vision can use anyway, and it saves the base64 image on every request.",
+          "default": true
         }
       }
     },

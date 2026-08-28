@@ -74,6 +74,11 @@ type Spec struct {
 	ExpectedSeconds int
 	// TimeoutSeconds is the hard limit. Zero asks the pool to derive one.
 	TimeoutSeconds int
+	// NoTimeout marks work with no natural end — a dev server, a file watcher,
+	// a daemon. Any finite limit is wrong for it: the process is meant to outlive
+	// the turn and be ended by background_stop, so the pool arms no timer at all.
+	// An explicit TimeoutSeconds still wins; this only replaces the default.
+	NoTimeout bool
 	// NotifyOnFinish asks the pool to wake the agent when this task reaches a
 	// terminal state. It is opt-in per task: the model decides which work is
 	// worth an autonomous turn, so a batch of quick commands cannot each start

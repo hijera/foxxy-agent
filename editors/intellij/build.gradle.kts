@@ -80,7 +80,9 @@ fun Test.stripIntellijPlatformJvmArguments() {
 // ----------------------------------------------------------------------------------
 // foxxycode-agent: build the bundled `foxxycode` binary from source on every plugin build.
 // Mirrors the root `Makefile`: `npm --prefix external/ui run build:go` (SPA for
-// go:embed, tag `ui`) then `go build -tags "http ui scheduler memory"`.
+// go:embed, tag `ui`) then `go build -tags "http ui scheduler memory browser"`.
+// Tags track the Makefile FULL_TAGS set minus `cli` (the plugin speaks ACP, never the
+// console TUI); TestBundledBinaryTagsMatchShippedTagSet keeps the two from drifting.
 //
 // The Go source is the repo root: this plugin lives at editors/intellij, so the root
 // is two levels up. There is no nested clone.
@@ -159,7 +161,7 @@ val buildTargets = (binTargets + hostTarget).distinct()
 val foxxycodeBuildTasks = buildTargets.associateWith { t ->
     tasks.register<Exec>("foxxycodeGoBuild_${t.goos}_${t.goarch}") {
         group = "foxxycode"
-        description = "Build the foxxycode binary for ${t.dirName} (http/ui/scheduler/memory)."
+        description = "Build the foxxycode binary for ${t.dirName} (http/ui/scheduler/memory/browser)."
         dependsOn(foxxycodeUiBuild)
         workingDir(foxxycodeDir)
         val outFile = foxxycodeBinRoot.get().dir(t.dirName).file(t.binName)
@@ -168,7 +170,7 @@ val foxxycodeBuildTasks = buildTargets.associateWith { t ->
         environment("CGO_ENABLED", "0")
         commandLine(
             "go", "build",
-            "-tags", "http ui scheduler memory",
+            "-tags", "http ui scheduler memory browser",
             "-trimpath",
             "-ldflags", "-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${project.version}",
             "-o", outFile.asFile.absolutePath,

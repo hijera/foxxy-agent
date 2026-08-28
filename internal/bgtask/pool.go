@@ -17,15 +17,11 @@ import (
 
 // Defaults used when the configuration leaves a knob unset.
 const (
-	defaultMaxConcurrent      = 5
-	defaultTimeoutSeconds     = 900
-	defaultMaxTimeoutSeconds  = 3600
-	defaultOutputBufferBytes  = 256 * 1024
-	defaultStopGrace          = 3 * time.Second
-	timeoutEstimateMultiplier = 3
-	// minEstimatedTimeoutSeconds keeps an estimate-derived timeout from being so
-	// tight that a slightly slow command is killed for no good reason.
-	minEstimatedTimeoutSeconds = 60
+	defaultMaxConcurrent     = 5
+	defaultTimeoutSeconds    = 900
+	defaultMaxTimeoutSeconds = 3600
+	defaultOutputBufferBytes = 256 * 1024
+	defaultStopGrace         = 3 * time.Second
 )
 
 // ErrPoolFull is returned when a session already runs its maximum number of
@@ -372,20 +368,26 @@ func (p *Pool) start(spec Spec, launch AdoptFunc) (Snapshot, error) {
 // a hard limit.
 //
 // An explicit timeout always wins, including a deliberately tight one. Otherwise
-// a stated estimate buys a multiple of itself, floored so that a wildly
-// optimistic guess does not kill work that was only a little slow, and the
-// result is capped by the configured ceiling. With no estimate at all the
-// configured default applies.
+// an explicit TimeoutSeconds is honoured (capped by the ceiling), work marked
+// NoTimeout gets no limit at all, and everything else gets the configured
+// default.
+//
+// ExpectedSeconds deliberately plays no part. It is the model's guess, and a
+// guess that turned into a hard kill punished exactly the work it cannot
+// describe: a dev server estimated at 30s was terminated 90 seconds in, so the
+// browser reached a dead port. A low estimate must never be more dangerous than
+// no estimate — which is also what the Spec doc and the run_command schema
+// promise the caller.
+//
+// A non-positive result means "no hard timeout"; supervise arms no timer for it.
 func resolveTimeoutSeconds(spec Spec, cfg Config) int {
-	seconds := spec.TimeoutSeconds
-	switch {
-	case seconds > 0:
-	case spec.ExpectedSeconds > 0:
-		seconds = max(spec.ExpectedSeconds*timeoutEstimateMultiplier, minEstimatedTimeoutSeconds)
-	default:
-		seconds = cfg.DefaultTimeoutSeconds
+	if spec.TimeoutSeconds > 0 {
+		return min(spec.TimeoutSeconds, cfg.MaxTimeoutSeconds)
 	}
-	return min(seconds, cfg.MaxTimeoutSeconds)
+	if spec.NoTimeout {
+		return 0
+	}
+	return min(cfg.DefaultTimeoutSeconds, cfg.MaxTimeoutSeconds)
 }
 
 // registerLocked must be called with the pool lock held.
@@ -411,13 +413,20 @@ func (p *Pool) supervise(t *task, timeout time.Duration) {
 		exited <- exitResult{code: code, err: err}
 	}()
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	// A non-positive timeout means the work has no deadline (see
+	// resolveTimeoutSeconds). Leave the channel nil so that arm of the select can
+	// never fire and only the process exiting — or an explicit stop — ends it.
+	var fired <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		fired = timer.C
+	}
 
 	var result exitResult
 	select {
 	case result = <-exited:
-	case <-timer.C:
+	case <-fired:
 		if handle, ok := t.claimTermination(StatusTimedOut); ok && handle != nil {
 			_ = handle.Stop(defaultStopGrace)
 		}

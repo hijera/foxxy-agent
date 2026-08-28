@@ -16,6 +16,10 @@ import (
 type ModelEntry struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
+	// Vision reports that the catalog advertises image input for this model.
+	// Absence is not a denial: a plain OpenAI catalog says nothing about
+	// modalities, so false only means "not advertised".
+	Vision bool `json:"vision,omitempty"`
 }
 
 // modelListTimeout bounds a single provider model-listing request.
@@ -115,6 +119,14 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 			ID          string `json:"id"`
 			Name        string `json:"name"`
 			DisplayName string `json:"display_name"`
+			// Image-input capability, as advertised by hubs that publish one.
+			// api.neuraldeep.ru fills both; other gateways fill either.
+			Capabilities struct {
+				Vision bool `json:"vision"`
+			} `json:"capabilities"`
+			Modalities struct {
+				Input []string `json:"input"`
+			} `json:"modalities"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
@@ -136,7 +148,14 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		if name == "" {
 			name = strings.TrimSpace(m.DisplayName)
 		}
-		out = append(out, ModelEntry{ID: id, Name: name})
+		vision := m.Capabilities.Vision
+		for _, modality := range m.Modalities.Input {
+			if strings.EqualFold(strings.TrimSpace(modality), "image") {
+				vision = true
+				break
+			}
+		}
+		out = append(out, ModelEntry{ID: id, Name: name, Vision: vision})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil

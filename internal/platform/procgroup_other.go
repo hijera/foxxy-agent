@@ -4,6 +4,7 @@ package platform
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -86,6 +87,11 @@ func ProcessStartedAt(int) time.Time {
 	return time.Time{}
 }
 
+// sigkillSettleWindow is how long the group is given to disappear after SIGKILL
+// before the caller is told it is still there. The signal cannot be caught, so
+// this only covers the kernel finishing its work.
+const sigkillSettleWindow = 2 * time.Second
+
 // TerminateProcessGroupByPID kills a group this process did not start, which is
 // what reaping survivors of a previous run needs: after a crash there is no
 // exec.Cmd left to ask, only the leader pid the bundle recorded.
@@ -112,7 +118,14 @@ func TerminateProcessGroupByPID(pid int, _ time.Time, grace time.Duration) error
 	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
-	return nil
+	// Confirm rather than assume, so that returning nil means the same thing here
+	// as it does on Windows: the group is gone. SIGKILL cannot be caught, but the
+	// kernel still needs a moment to tear the group down, and a caller told
+	// "stopped" while it runs will rebind its port or double-write.
+	if waitForProcessGroupExit(pgid, sigkillSettleWindow) {
+		return nil
+	}
+	return fmt.Errorf("process group %d is still running after SIGKILL", pid)
 }
 
 // waitForProcessGroupExit polls the group until signal 0 stops reaching it or
