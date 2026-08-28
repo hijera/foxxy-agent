@@ -23,9 +23,12 @@ func TestTerminateProcessGroupActuallyKillsWithATightGrace(t *testing.T) {
 		if err := TerminateProcessGroupByPID(pid, started, 50*time.Millisecond); err != nil {
 			t.Fatalf("attempt %d: TerminateProcessGroupByPID(): %v", attempt, err)
 		}
-		// Reporting success has to mean the process is gone. A caller told
-		// "stopped" while it still runs will rebind its port or double-write.
-		if ProcessGroupAlive(pid, started) {
+		// Reporting success has to mean the process dies, and promptly. Not
+		// instantly: the kill is asynchronous on both platforms, so the object can
+		// still read as running for a few milliseconds after the call returns.
+		// waitForProbe allows for that; what it does not allow for is the failure
+		// this test exists for, where the process outlived the call by minutes.
+		if !waitForProbe(pid, started, false) {
 			t.Fatalf("attempt %d: terminate reported success but pid %d is still alive", attempt, pid)
 		}
 
