@@ -32,6 +32,7 @@ type miniAppsFeatureState struct {
 	draft                         map[string]any
 	releaseRunID                  string
 	testJobID, confirmationID     string
+	assistantProposal             map[string]any
 }
 
 func (s *miniAppsFeatureState) reset() error {
@@ -77,6 +78,9 @@ func (s *miniAppsFeatureState) boot() error {
 		Paths:  config.Paths{Home: s.home, CWD: s.cwd},
 		Agent:  config.Agent{Model: "openai/gpt-4o"},
 		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 128}},
+		// The assistant binding resolves a provider; the scenario stubs the
+		// factory, so nothing reaches the network.
+		Providers: []config.ProviderConfig{{Name: "openai", Type: "openai", APIKey: "test"}},
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return string(acp.StopReasonEndTurn), nil
@@ -233,15 +237,28 @@ func (s *miniAppsFeatureState) ensureDraft() error {
 	if s.draft != nil {
 		return nil
 	}
-	response, err := http.Get(s.ts.URL + "/foxxycode/miniapps/" + s.appID + "/draft")
+	draft, err := s.fetchDraft()
 	if err != nil {
 		return err
 	}
+	s.draft = draft
+	return nil
+}
+
+func (s *miniAppsFeatureState) fetchDraft() (map[string]any, error) {
+	response, err := http.Get(s.ts.URL + "/foxxycode/miniapps/" + s.appID + "/draft")
+	if err != nil {
+		return nil, err
+	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("draft status %d", response.StatusCode)
+		return nil, fmt.Errorf("draft status %d", response.StatusCode)
 	}
-	return json.NewDecoder(response.Body).Decode(&s.draft)
+	draft := map[string]any{}
+	if err := json.NewDecoder(response.Body).Decode(&draft); err != nil {
+		return nil, err
+	}
+	return draft, nil
 }
 
 // addConfirmationCheckpoint is the author edit an operator makes in the editor
@@ -270,6 +287,105 @@ func (s *miniAppsFeatureState) addConfirmationCheckpoint() error {
 	}
 	s.draft = nil
 	return json.Unmarshal([]byte(response.Body), &s.draft)
+}
+
+// askAssistantForProjectInput stubs the model so the scenario stays offline and
+// deterministic, then drives the real editor-assistant round trip.
+func (s *miniAppsFeatureState) askAssistantForProjectInput() error {
+	if err := s.ensureDraft(); err != nil {
+		return err
+	}
+	proposed := map[string]any{}
+	for key, value := range s.draft {
+		proposed[key] = value
+	}
+	inputs, _ := s.draft["inputs"].([]any)
+	proposed["inputs"] = append(append([]any{}, inputs...), map[string]any{
+		"id": "project", "type": "string", "title": "Project", "required": false,
+		"ui": map[string]any{"control": "text"},
+	})
+	reply, err := json.Marshal(map[string]any{
+		"reply":   "Added a project input.",
+		"changes": []string{"Added the project input"},
+		"draft":   proposed,
+	})
+	if err != nil {
+		return err
+	}
+	s.srv.miniAppsHTTPState().assistant.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) {
+		return &httpMiniAppAssistantTestProvider{content: string(reply)}, nil
+	})
+
+	response, err := s.post("/foxxycode/miniapps/"+s.appID+"/assistant", map[string]any{
+		"message": "Add a project input",
+		"draft":   s.draft,
+	})
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("assistant status %d: %s", response.StatusCode, response.Body)
+	}
+	s.assistantProposal = map[string]any{}
+	return json.Unmarshal([]byte(response.Body), &s.assistantProposal)
+}
+
+func (s *miniAppsFeatureState) assistantProposedWithoutSaving() error {
+	if strings.TrimSpace(fmt.Sprint(s.assistantProposal["reply"])) == "" {
+		return fmt.Errorf("assistant returned no reply: %v", s.assistantProposal)
+	}
+	proposed, _ := s.assistantProposal["draft"].(map[string]any)
+	if !miniAppsDraftHasInput(proposed, "project") {
+		return fmt.Errorf("proposal does not carry the project input: %v", proposed)
+	}
+	stored, err := s.fetchDraft()
+	if err != nil {
+		return err
+	}
+	if miniAppsDraftHasInput(stored, "project") {
+		return fmt.Errorf("the assistant saved its proposal")
+	}
+	return nil
+}
+
+func (s *miniAppsFeatureState) saveProposedDraft() error {
+	proposed, _ := s.assistantProposal["draft"].(map[string]any)
+	if proposed == nil {
+		return fmt.Errorf("there is no assistant proposal to save")
+	}
+	revision, _ := proposed["revision"].(string)
+	response, err := s.do(http.MethodPut, "/foxxycode/miniapps/"+s.appID+"/draft", proposed,
+		map[string]string{"If-Match": revision})
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("draft update status %d: %s", response.StatusCode, response.Body)
+	}
+	s.draft = nil
+	return nil
+}
+
+func (s *miniAppsFeatureState) storedDraftCarriesProjectInput() error {
+	stored, err := s.fetchDraft()
+	if err != nil {
+		return err
+	}
+	if !miniAppsDraftHasInput(stored, "project") {
+		return fmt.Errorf("stored draft has no project input: %v", stored["inputs"])
+	}
+	return nil
+}
+
+func miniAppsDraftHasInput(draft map[string]any, id string) bool {
+	inputs, _ := draft["inputs"].([]any)
+	for _, value := range inputs {
+		input, _ := value.(map[string]any)
+		if input["id"] == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *miniAppsFeatureState) startTestRun() error {
@@ -563,6 +679,10 @@ func initializeMiniAppsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the run history for the Mini App lists that run$`, s.runHistoryListsRun)
 	sc.Step(`^I retest and release the draft as version "([^"]+)"$`, s.retestAndRelease)
 	sc.Step(`^both released versions stay retrievable$`, s.bothReleasesRetrievable)
+	sc.Step(`^I ask the editor assistant to add a project input$`, s.askAssistantForProjectInput)
+	sc.Step(`^the assistant answers with a proposal and leaves the draft untouched$`, s.assistantProposedWithoutSaving)
+	sc.Step(`^I save the proposed draft$`, s.saveProposedDraft)
+	sc.Step(`^the stored draft carries the project input$`, s.storedDraftCarriesProjectInput)
 }
 
 func TestMiniAppsFeature(t *testing.T) {

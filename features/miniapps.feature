@@ -24,6 +24,15 @@ Feature: Distill and run a reusable Mini App
     When I approve the pending confirmation
     Then the test run finishes successfully
 
+  Scenario: The editor assistant proposes a change the author applies
+    Given a completed FoxxyCode session that wrote a greeting file
+    When I start Mini App distillation for the session
+    And I confirm the selected greeting-file scenario
+    And I ask the editor assistant to add a project input
+    Then the assistant answers with a proposal and leaves the draft untouched
+    When I save the proposed draft
+    Then the stored draft carries the project input
+
   Scenario: A released Mini App keeps its catalog entry and run history
     Given a completed FoxxyCode session that wrote a greeting file
     When I start Mini App distillation for the session

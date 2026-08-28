@@ -10,13 +10,17 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
 const (
 	maxAssistantHistoryMessages = 12
-	maxAssistantMessageLength   = 4000
+	// Lengths are counted in runes, not bytes: a byte cut inside a multi-byte
+	// rune would hand the provider invalid UTF-8.
+	maxAssistantMessageLength = 4000
+	maxAssistantPromptLength  = 4000
 )
 
 // DraftAssistantMessage is one unsaved editor conversation turn. The UI owns
@@ -52,6 +56,13 @@ func (e *ProviderModelExecutor) AssistDraft(ctx context.Context, req DraftAssist
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return DraftAssistantResponse{}, errors.New("assistant prompt is required")
+	}
+	// History is truncated because it is replayed context, but the prompt is the
+	// operator's actual instruction: silently cutting it would change the request,
+	// so an oversized one is refused instead.
+	if utf8.RuneCountInString(prompt) > maxAssistantPromptLength {
+		return DraftAssistantResponse{}, fmt.Errorf("assistant prompt is too long (%d characters, limit %d)",
+			utf8.RuneCountInString(prompt), maxAssistantPromptLength)
 	}
 
 	draftJSON, err := json.Marshal(assistantSafeDraft(req.Draft))
@@ -129,8 +140,8 @@ func recentAssistantHistory(history []DraftAssistantMessage) []DraftAssistantMes
 		if content == "" {
 			continue
 		}
-		if len(content) > maxAssistantMessageLength {
-			content = content[:maxAssistantMessageLength]
+		if utf8.RuneCountInString(content) > maxAssistantMessageLength {
+			content = string([]rune(content)[:maxAssistantMessageLength])
 		}
 		result = append(result, DraftAssistantMessage{Role: role, Content: content})
 	}
@@ -209,7 +220,10 @@ func normalizeAssistantInputs(raw json.RawMessage) (json.RawMessage, error) {
 	if err := json.Unmarshal(raw, &keyedInputs); err != nil {
 		return nil, err
 	}
-	if _, singularInput := keyedInputs["type"]; singularInput {
+	// A lone input object carries "type" as a string ("string", "file", ...).
+	// A map keyed by input id can also hold a "type" key, but its value is the
+	// input object itself, so the value's shape is what tells the two apart.
+	if singular, ok := keyedInputs["type"]; ok && bytes.HasPrefix(bytes.TrimSpace(singular), []byte(`"`)) {
 		return json.Marshal([]json.RawMessage{raw})
 	}
 	ids := make([]string, 0, len(keyedInputs))

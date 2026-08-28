@@ -17,6 +17,9 @@ import type {
   MiniAppStep,
 } from "./types";
 
+/** Mirrors maxAssistantHistoryMessages in external/miniapps/assistant.go. */
+const ASSISTANT_HISTORY_TURNS = 12;
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -360,7 +363,9 @@ export function MiniAppEditor(props: {
   const askAssistant = async () => {
     const message = assistantPrompt.trim();
     if (!message || busy) return;
-    const history = assistantMessages;
+    // The server replays at most this many turns, so sending the whole
+    // conversation only grows the request body until it trips the 2 MB cap.
+    const history = assistantMessages.slice(-ASSISTANT_HISTORY_TURNS);
     setAssistantMessages((current) => [
       ...current,
       { role: "user", content: message },

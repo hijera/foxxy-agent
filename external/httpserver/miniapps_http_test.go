@@ -60,6 +60,44 @@ func (*httpMiniAppAssistantTestProvider) Stream(context.Context, []llm.Message, 
 	return nil, nil
 }
 
+// A supplied draft without a revision used to skip the staleness check and
+// silently adopt the stored one, so the assistant could reason about an editor
+// snapshot that no longer matched what was saved.
+func TestMiniAppsAssistantRequiresARevisionWithASuppliedDraft(t *testing.T) {
+	ts, srv := newMiniAppsHTTPTestServer(t)
+	body, _ := json.Marshal(miniAppsTestDocument())
+	created, err := http.Post(ts.URL+"/foxxycode/miniapps", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := created.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Stubbed so a regression fails on the status code instead of quietly
+	// reaching the real provider endpoint.
+	provider := &httpMiniAppAssistantTestProvider{content: `{"reply":"ok"}`}
+	srv.miniAppsHTTPState().assistant.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return provider, nil })
+
+	draft := miniAppsTestDocument()
+	delete(draft, "revision")
+	requestBody, _ := json.Marshal(map[string]any{"message": "Добавь поле", "draft": draft})
+	request, _ := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/miniapps/greeting-app/assistant", strings.NewReader(string(requestBody)))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusBadRequest {
+		data, _ := io.ReadAll(response.Body)
+		t.Fatalf("assistant status %d: %s", response.StatusCode, data)
+	}
+	data, _ := io.ReadAll(response.Body)
+	if !strings.Contains(string(data), "revision_required") {
+		t.Fatalf("error body = %s", data)
+	}
+}
+
 func TestMiniAppsAssistantProposesWithoutSaving(t *testing.T) {
 	ts, srv := newMiniAppsHTTPTestServer(t)
 	body, _ := json.Marshal(miniAppsTestDocument())

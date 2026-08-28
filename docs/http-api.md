@@ -215,8 +215,12 @@ Catalog and review routes:
 - **`POST .../{id}/assistant`** opens one editor-assistant turn. It accepts the
   current draft, a short conversation history, and a requested change; the
   response contains a validated proposal and a human-readable summary. The
-  proposal is never saved automatically, and a stale draft revision returns
-  **`409 revision_conflict`**.
+  proposal is never saved automatically. A supplied draft must carry the
+  **`revision`** it was taken from — omitting it returns **`400
+  revision_required`**, and a stale one returns **`409 revision_conflict`**.
+  The history is trimmed to the last 12 turns of at most 4000 characters each;
+  a request whose own message exceeds 4000 characters is rejected rather than
+  silently truncated.
 - **`POST .../{id}/validate`** and **`POST .../{id}/sanitize`** return the exact
   release review reports. **`POST .../{id}/release`** requires
   **`{version, approved: true, expected_revision}`**, a passing test bound to

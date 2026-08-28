@@ -394,16 +394,20 @@ func (s *Server) miniAppsAssistantPost(w http.ResponseWriter, r *http.Request) {
 			writeMiniAppsError(w, http.StatusBadRequest, "draft_id_mismatch", "draft id does not match the URL")
 			return
 		}
-		if body.Draft.Revision != "" && body.Draft.Revision != stored.Revision {
+		// A supplied editor snapshot must name the revision it was taken from.
+		// Defaulting a missing one to the stored revision would let a stale
+		// snapshot pass the staleness check it exists to fail.
+		if strings.TrimSpace(body.Draft.Revision) == "" {
+			writeMiniAppsError(w, http.StatusBadRequest, "revision_required", "draft revision is required")
+			return
+		}
+		if body.Draft.Revision != stored.Revision {
 			writeMiniAppsError(w, http.StatusConflict, "revision_conflict", "draft revision is stale")
 			return
 		}
 		draft = *body.Draft
 		if draft.ID == "" {
 			draft.ID = id
-		}
-		if draft.Revision == "" {
-			draft.Revision = stored.Revision
 		}
 	}
 	result, err := state.assistant.AssistDraft(r.Context(), miniapps.DraftAssistantRequest{
