@@ -261,11 +261,11 @@ func (e *ProviderModelExecutor) ValidateMiniAppCapabilities(app MiniApp) error {
 	return nil
 }
 
-func (e *ProviderModelExecutor) ExecuteModel(ctx context.Context, req ModelRequest) (any, error) {
+func (e *ProviderModelExecutor) providerForBinding(binding ModelBinding) (llm.Provider, error) {
 	if e == nil || e.config == nil {
 		return nil, errors.New("model configuration is unavailable")
 	}
-	modelCfg, modelRef, err := modelConfigForBinding(e.config, req.Binding)
+	modelCfg, modelRef, err := modelConfigForBinding(e.config, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -282,6 +282,14 @@ func (e *ProviderModelExecutor) ExecuteModel(ctx context.Context, req ModelReque
 		BaseURL: resolved.BaseURL, ProxyURL: resolved.ProxyURL, AuthPath: resolved.AuthPath,
 		MaxTokens: resolved.MaxTokens, Temperature: resolved.Temperature,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return provider, nil
+}
+
+func (e *ProviderModelExecutor) ExecuteModel(ctx context.Context, req ModelRequest) (any, error) {
+	provider, err := e.providerForBinding(req.Binding)
 	if err != nil {
 		return nil, err
 	}

@@ -36,8 +36,9 @@ type miniAppRunRequest struct {
 }
 
 type miniAppsHTTPState struct {
-	store   *miniapps.Store
-	service *miniapps.Service
+	store     *miniapps.Store
+	service   *miniapps.Service
+	assistant *miniapps.ProviderModelExecutor
 
 	mu   sync.Mutex
 	runs map[string]miniAppRunRequest
@@ -69,13 +70,14 @@ func (s *Server) miniAppsHTTPState() *miniAppsHTTPState {
 	for _, definition := range registry.AllToolDefinitions() {
 		allowlist = append(allowlist, definition.Name)
 	}
+	modelExecutor := miniapps.NewProviderModelExecutor(cfg)
 	runner := miniapps.NewRunner(store, miniapps.Executors{
 		Tool:  miniapps.NewBuiltinToolExecutor(registry, allowlist),
-		Model: miniapps.NewProviderModelExecutor(cfg),
+		Model: modelExecutor,
 		Agent: miniapps.NewReActAgentExecutor(cfg),
 	}).WithWorkspaceRoot(runRoot)
 	state := &miniAppsHTTPState{
-		store: store, service: miniapps.NewService(store, runner),
+		store: store, service: miniapps.NewService(store, runner), assistant: modelExecutor,
 		runs: make(map[string]miniAppRunRequest), jobs: make(map[string]struct{}),
 	}
 	s.miniAppsState = state
@@ -96,6 +98,7 @@ func (s *Server) registerMiniAppsRoutes() {
 	s.mux.HandleFunc("PATCH /foxxycode/miniapps/{id}", s.miniAppsPatch)
 	s.mux.HandleFunc("GET /foxxycode/miniapps/{id}/draft", s.miniAppsDraftGet)
 	s.mux.HandleFunc("PUT /foxxycode/miniapps/{id}/draft", s.miniAppsDraftPut)
+	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/assistant", s.miniAppsAssistantPost)
 	s.mux.HandleFunc("GET /foxxycode/miniapps/{id}/authoring/source", s.miniAppsAuthoringSourceGet)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/authoring/patches", s.miniAppsAuthoringPatchPost)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/authoring/patches/{patch_id}/accept", s.miniAppsAuthoringPatchAcceptPost)
@@ -367,6 +370,50 @@ func (s *Server) miniAppsDraftPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeMiniAppsJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) miniAppsAssistantPost(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	state := s.miniAppsHTTPState()
+	stored, err := state.store.GetDraft(id)
+	if err != nil {
+		s.writeMiniAppsServiceError(w, err)
+		return
+	}
+	var body struct {
+		Message string                           `json:"message"`
+		History []miniapps.DraftAssistantMessage `json:"history"`
+		Draft   *miniapps.MiniApp                `json:"draft"`
+	}
+	if err := decodeMiniAppsJSON(w, r, &body); err != nil {
+		return
+	}
+	draft := stored
+	if body.Draft != nil {
+		if body.Draft.ID != "" && body.Draft.ID != id {
+			writeMiniAppsError(w, http.StatusBadRequest, "draft_id_mismatch", "draft id does not match the URL")
+			return
+		}
+		if body.Draft.Revision != "" && body.Draft.Revision != stored.Revision {
+			writeMiniAppsError(w, http.StatusConflict, "revision_conflict", "draft revision is stale")
+			return
+		}
+		draft = *body.Draft
+		if draft.ID == "" {
+			draft.ID = id
+		}
+		if draft.Revision == "" {
+			draft.Revision = stored.Revision
+		}
+	}
+	result, err := state.assistant.AssistDraft(r.Context(), miniapps.DraftAssistantRequest{
+		Draft: draft, History: body.History, Prompt: body.Message,
+	})
+	if err != nil {
+		writeMiniAppsError(w, http.StatusUnprocessableEntity, "assistant_error", err.Error())
+		return
+	}
+	writeMiniAppsJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) miniAppsAuthoringSourceGet(w http.ResponseWriter, r *http.Request) {

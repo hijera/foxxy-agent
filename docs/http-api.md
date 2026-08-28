@@ -204,6 +204,11 @@ Catalog and review routes:
   **`POST .../authoring/patches`** proposes bounded repairs and **`POST
   .../patches/{patch_id}/accept`** applies one explicitly against its base
   revision.
+- **`POST .../{id}/assistant`** opens one editor-assistant turn. It accepts the
+  current draft, a short conversation history, and a requested change; the
+  response contains a validated proposal and a human-readable summary. The
+  proposal is never saved automatically, and a stale draft revision returns
+  **`409 revision_conflict`**.
 - **`POST .../{id}/validate`** and **`POST .../{id}/sanitize`** return the exact
   release review reports. **`POST .../{id}/release`** requires
   **`{version, approved: true, expected_revision}`**, a passing test bound to

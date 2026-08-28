@@ -127,3 +127,114 @@ test("selected app renders typed run form and sends values", async () => {
     ),
   );
 });
+
+test("mini-agent proposes a draft change that can be applied locally", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch");
+  fetchMock.mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path === "/foxxycode/miniapps")
+      return json({
+        apps: [{ id: "hello", name: "Greeting", state: "draft" }],
+      });
+    if (path.includes("/assistant")) {
+      const body = JSON.parse(String(init?.body)) as {
+        draft: Record<string, unknown>;
+      };
+      const draft = body.draft as {
+        inputs?: unknown[];
+      };
+      return json({
+        reply: "Добавил обязательное поле проекта.",
+        changes: ["Added project input"],
+        draft: {
+          ...body.draft,
+          inputs: [
+            ...(draft.inputs ?? []),
+            { id: "project", type: "string", title: "Project", required: true },
+          ],
+        },
+      });
+    }
+    if (path.includes("/draft"))
+      return json({
+        id: "hello",
+        state: "draft",
+        revision: "r1",
+        metadata: { name: "Greeting", goal: "Write greeting" },
+        inputs: [],
+        workflow: [],
+        success: {},
+      });
+    if (path.includes("/authoring/source")) return json({});
+    if (path.includes("/runs")) return json({ runs: [] });
+    return json({});
+  });
+
+  render(
+    <MiniAppsPage
+      selectedAppId="hello"
+      onNavigate={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Mini App assistant" }),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Message to the Mini App assistant"), {
+    target: { value: "Добавь поле проекта" },
+  });
+  fireEvent.click(screen.getByText("Ask agent"));
+  expect(
+    await screen.findByText("Добавил обязательное поле проекта."),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByText("Apply changes"));
+  expect(screen.getByDisplayValue("Project")).toBeInTheDocument();
+  expect(screen.getByText("Changes applied to the draft")).toBeInTheDocument();
+});
+
+test("mini-agent errors are announced as errors", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch");
+  fetchMock.mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/foxxycode/miniapps")
+      return json({
+        apps: [{ id: "hello", name: "Greeting", state: "draft" }],
+      });
+    if (path.includes("/assistant"))
+      return json(
+        { error: { message: "Assistant response is invalid" } },
+        422,
+      );
+    if (path.includes("/draft"))
+      return json({
+        id: "hello",
+        state: "draft",
+        revision: "r1",
+        metadata: { name: "Greeting", goal: "Write greeting" },
+        inputs: [],
+        workflow: [],
+        success: {},
+      });
+    if (path.includes("/authoring/source")) return json({});
+    if (path.includes("/runs")) return json({ runs: [] });
+    return json({});
+  });
+
+  render(
+    <MiniAppsPage
+      selectedAppId="hello"
+      onNavigate={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Mini App assistant" }),
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Message to the Mini App assistant"), {
+    target: { value: "Add a file name" },
+  });
+  fireEvent.click(screen.getByText("Ask agent"));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Assistant response is invalid",
+  );
+});

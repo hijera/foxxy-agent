@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import {
   acceptRepairPatch,
+  assistMiniApp,
   releaseDraft,
   sanitizeDraft,
   updateDraft,
@@ -9,6 +10,8 @@ import {
 } from "./api";
 import type {
   MiniAppDocument,
+  MiniAppAssistantMessage,
+  MiniAppAssistantResponse,
   MiniAppInput,
   MiniAppPatch,
   MiniAppStep,
@@ -283,7 +286,10 @@ export function MiniAppEditor(props: {
     "design" | "permissions" | "evidence" | "json"
   >("design");
   const [busy, setBusy] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    message: string;
+    error: boolean;
+  } | null>(null);
   const [validation, setValidation] = useState<Record<string, unknown> | null>(
     null,
   );
@@ -310,6 +316,14 @@ export function MiniAppEditor(props: {
     JSON.stringify(props.initial, null, 2),
   );
   const [rawJsonError, setRawJsonError] = useState<string | null>(null);
+  const [assistantMessages, setAssistantMessages] = useState<
+    MiniAppAssistantMessage[]
+  >([]);
+  const [assistantPrompt, setAssistantPrompt] = useState("");
+  const [assistantProposal, setAssistantProposal] =
+    useState<MiniAppAssistantResponse | null>(null);
+  const showNotice = (message: string, error = false) =>
+    setNotice({ message, error });
 
   useEffect(() => {
     setDraft(clone(props.initial));
@@ -319,6 +333,9 @@ export function MiniAppEditor(props: {
     setSavedRevision(props.initial.revision || "");
     setValidatedRevision(null);
     setSanitizedRevision(null);
+    setAssistantMessages([]);
+    setAssistantPrompt("");
+    setAssistantProposal(null);
     props.onChecksReset?.();
   }, [props.initial]);
   useEffect(() => {
@@ -331,6 +348,7 @@ export function MiniAppEditor(props: {
   const update = (patch: Partial<MiniAppDocument>) => {
     setDirty(true);
     setValidatedRevision(null);
+    setAssistantProposal(null);
     props.onChecksReset?.();
     setDraft((current) => {
       const next = { ...current, ...patch };
@@ -339,16 +357,44 @@ export function MiniAppEditor(props: {
       return next;
     });
   };
+  const askAssistant = async () => {
+    const message = assistantPrompt.trim();
+    if (!message || busy) return;
+    const history = assistantMessages;
+    setAssistantMessages((current) => [
+      ...current,
+      { role: "user", content: message },
+    ]);
+    setAssistantPrompt("");
+    setAssistantProposal(null);
+    setBusy("assistant");
+    setNotice(null);
+    const result = await assistMiniApp(draft.id, draft, history, message);
+    if (result.ok) {
+      setAssistantMessages((current) => [
+        ...current,
+        { role: "assistant", content: result.data.reply },
+      ]);
+      setAssistantProposal(result.data);
+    } else showNotice(result.message, true);
+    setBusy("");
+  };
+  const applyAssistantProposal = () => {
+    if (!assistantProposal) return;
+    update(assistantProposal.draft);
+    setAssistantProposal(null);
+    showNotice(t("miniapps.assistantApplied"));
+  };
   const save = async () => {
     if (rawJsonError) {
-      setNotice(rawJsonError);
+      showNotice(rawJsonError, true);
       return;
     }
     setBusy("save");
     setNotice(null);
     const result = await updateDraft(draft.id, draft, draft.revision);
     if (!result.ok) {
-      setNotice(result.message);
+      showNotice(result.message, true);
       setBusy("");
       return;
     }
@@ -360,7 +406,7 @@ export function MiniAppEditor(props: {
     setSavedRevision(saved.revision || "");
     setValidatedRevision(null);
     props.onSaved?.(saved);
-    setNotice(t("miniapps.saved"));
+    showNotice(t("miniapps.saved"));
     setBusy("");
   };
   const validate = async () => {
@@ -371,8 +417,8 @@ export function MiniAppEditor(props: {
       setValidation(result.data);
       setValidatedRevision(draft.revision || savedRevision);
       props.onValidated?.(draft.revision || savedRevision);
-      setNotice(t("miniapps.validationComplete"));
-    } else setNotice(result.message);
+      showNotice(t("miniapps.validationComplete"));
+    } else showNotice(result.message, true);
     setBusy("");
   };
   const sanitize = async () => {
@@ -386,8 +432,8 @@ export function MiniAppEditor(props: {
         setSanitizedRevision(draft.revision || savedRevision);
         props.onSanitized?.(draft.revision || savedRevision);
       }
-      setNotice(t("miniapps.sanitizationComplete"));
-    } else setNotice(result.message);
+      showNotice(t("miniapps.sanitizationComplete"));
+    } else showNotice(result.message, true);
     setBusy("");
   };
   const release = async () => {
@@ -405,8 +451,8 @@ export function MiniAppEditor(props: {
       setRawJsonError(null);
       setDirty(false);
       props.onSaved?.(result.data);
-      setNotice(t("miniapps.releaseComplete"));
-    } else setNotice(result.message);
+      showNotice(t("miniapps.releaseComplete"));
+    } else showNotice(result.message, true);
     setBusy("");
   };
   const acceptPatch = async (patch: MiniAppPatch, index: number) => {
@@ -421,8 +467,8 @@ export function MiniAppEditor(props: {
       setRawJsonError(null);
       props.onSaved?.(result.data);
       setPatches((current) => current.filter((_, i) => i !== index));
-      setNotice(t("miniapps.patchAccepted"));
-    } else setNotice(result.message);
+      showNotice(t("miniapps.patchAccepted"));
+    } else showNotice(result.message, true);
     setBusy("");
   };
   const workflow = draft.workflow ?? [];
@@ -500,6 +546,99 @@ export function MiniAppEditor(props: {
           ) : null}
         </div>
       </div>
+      <section
+        className="miniapps-assistant"
+        aria-labelledby="miniapps-assistant-heading"
+      >
+        <div className="miniapps-assistant-head">
+          <div>
+            <p className="miniapps-eyebrow">{t("miniapps.assistantEyebrow")}</p>
+            <h3 id="miniapps-assistant-heading">
+              {t("miniapps.assistantTitle")}
+            </h3>
+            <p className="miniapps-muted">
+              {t("miniapps.assistantDescription")}
+            </p>
+          </div>
+        </div>
+        <div className="miniapps-assistant-messages" aria-live="polite">
+          {assistantMessages.length === 0 ? (
+            <p className="miniapps-assistant-empty">
+              {t("miniapps.assistantNoMessages")}
+            </p>
+          ) : (
+            assistantMessages.map((message, index) => (
+              <div
+                className={`miniapps-assistant-message is-${message.role}`}
+                key={`${message.role}-${index}`}
+              >
+                <span>
+                  {message.role === "user"
+                    ? t("miniapps.assistantYou")
+                    : t("miniapps.assistantAgent")}
+                </span>
+                <p>{message.content}</p>
+              </div>
+            ))
+          )}
+        </div>
+        {assistantProposal ? (
+          <div className="miniapps-assistant-proposal">
+            <h4>{t("miniapps.assistantProposal")}</h4>
+            {assistantProposal.changes?.length ? (
+              <ul>
+                {assistantProposal.changes.map((change, index) => (
+                  <li key={`${change}-${index}`}>{change}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>{assistantProposal.reply}</p>
+            )}
+            <div className="miniapps-action-row">
+              <button
+                type="button"
+                className="miniapps-primary"
+                onClick={applyAssistantProposal}
+              >
+                {t("miniapps.assistantApply")}
+              </button>
+              <button
+                type="button"
+                className="miniapps-secondary"
+                onClick={() => setAssistantProposal(null)}
+              >
+                {t("miniapps.assistantDiscard")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <form
+          className="miniapps-assistant-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void askAssistant();
+          }}
+        >
+          <textarea
+            className="miniapps-assistant-input"
+            rows={3}
+            value={assistantPrompt}
+            onChange={(event) => setAssistantPrompt(event.target.value)}
+            placeholder={t("miniapps.assistantPlaceholder")}
+            aria-label={t("miniapps.assistantInputLabel")}
+            disabled={busy !== ""}
+          />
+          <button
+            type="submit"
+            className="miniapps-primary"
+            disabled={!assistantPrompt.trim() || busy !== ""}
+          >
+            {busy === "assistant"
+              ? t("miniapps.assistantThinking")
+              : t("miniapps.assistantSend")}
+          </button>
+        </form>
+      </section>
       <nav className="miniapps-tabs" aria-label={t("miniapps.editorSections")}>
         {(["design", "permissions", "evidence", "json"] as const).map((id) => (
           <button
@@ -747,8 +886,11 @@ export function MiniAppEditor(props: {
       ) : null}
       <div className="miniapps-editor-footer">
         {notice ? (
-          <p className="miniapps-status" role="status">
-            {notice}
+          <p
+            className={notice.error ? "miniapps-error" : "miniapps-status"}
+            role={notice.error ? "alert" : "status"}
+          >
+            {notice.message}
           </p>
         ) : (
           <span />

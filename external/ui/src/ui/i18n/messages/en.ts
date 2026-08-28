@@ -911,6 +911,23 @@ export const messagesEn: Record<string, string> = {
   "miniapps.releasing": "Releasing…",
   "miniapps.releaseComplete": "Version released",
   "miniapps.testRun": "Test generated workflow",
+  "miniapps.assistantEyebrow": "Draft workspace",
+  "miniapps.assistantTitle": "Mini App assistant",
+  "miniapps.assistantDescription":
+    "Ask the mini-agent to refine this draft or add new operator parameters.",
+  "miniapps.assistantNoMessages":
+    "Describe the change you want to make to this Mini App.",
+  "miniapps.assistantYou": "You",
+  "miniapps.assistantAgent": "Mini-agent",
+  "miniapps.assistantProposal": "Proposed changes",
+  "miniapps.assistantPlaceholder":
+    "For example: add a required API key field and use it in the next step…",
+  "miniapps.assistantInputLabel": "Message to the Mini App assistant",
+  "miniapps.assistantSend": "Ask agent",
+  "miniapps.assistantThinking": "Thinking…",
+  "miniapps.assistantApply": "Apply changes",
+  "miniapps.assistantDiscard": "Discard",
+  "miniapps.assistantApplied": "Changes applied to the draft",
   "miniapps.runReleased": "Run released version",
   "miniapps.releasedRun": "Released run",
   "miniapps.verificationRun": "Verification run",

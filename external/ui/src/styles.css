@@ -43,8 +43,8 @@
   --foxxycode-surface-field: rgba(0, 0, 0, 0.35);
   --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.2);
   --foxxycode-surface-gutter: rgba(0, 0, 0, 0.2);
-  --foxxycode-surface-code-fg: rgba(186, 192, 204, 0.88);
-  --foxxycode-surface-code-bg: rgba(229, 231, 235, 0.9);
+  --foxxycode-surface-code-fg: rgba(229, 231, 235, 0.92);
+  --foxxycode-surface-code-bg: rgba(15, 15, 18, 0.9);
   --foxxycode-link: rgba(167, 139, 250, 0.95);
   --foxxycode-md-inline-code-fg: rgba(229, 231, 235, 0.92);
   --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.1);
@@ -200,8 +200,8 @@
   --foxxycode-surface-field: rgba(0, 0, 0, 0.4);
   --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.22);
   --foxxycode-surface-gutter: rgba(0, 0, 0, 0.22);
-  --foxxycode-surface-code-fg: rgba(186, 192, 210, 0.88);
-  --foxxycode-surface-code-bg: rgba(229, 231, 240, 0.9);
+  --foxxycode-surface-code-fg: rgba(230, 237, 243, 0.92);
+  --foxxycode-surface-code-bg: rgba(10, 14, 24, 0.9);
   --foxxycode-link: rgba(120, 135, 255, 0.95);
   --foxxycode-md-inline-code-fg: rgba(220, 225, 240, 0.92);
   --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.09);
@@ -10097,7 +10097,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .miniapps-release-controls input,
 .miniapps-run-form input,
 .miniapps-run-form select,
-.miniapps-run-form textarea {
+.miniapps-run-form textarea,
+.miniapps-assistant-input {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--text) 13%, var(--foxxycode-blend-base));
@@ -10118,7 +10119,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .miniapps-editor-section label > textarea,
 .miniapps-release-controls input,
 .miniapps-run-form input,
-.miniapps-run-form select {
+.miniapps-run-form select,
+.miniapps-assistant-input {
   min-height: 36px;
   padding: 8px 10px;
 }
@@ -10139,7 +10141,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .miniapps-editor-section textarea:focus-visible,
 .miniapps-release-controls input:focus-visible,
 .miniapps-run-form input:focus-visible,
-.miniapps-run-form select:focus-visible {
+.miniapps-run-form select:focus-visible,
+.miniapps-assistant-input:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
   outline-offset: 1px;
 }
@@ -10313,6 +10316,107 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .miniapps-editor-head {
   align-items: flex-start;
+}
+
+.miniapps-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--foxxycode-blend-base));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.miniapps-assistant-head .miniapps-muted {
+  max-width: 620px;
+  margin: 6px 0 0;
+}
+
+.miniapps-assistant-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.miniapps-assistant-empty {
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.miniapps-assistant-message {
+  max-width: 86%;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-message.is-user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 13%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-message span {
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.miniapps-assistant-message p,
+.miniapps-assistant-proposal p {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.miniapps-assistant-proposal {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--foxxycode-status-ok) 34%, var(--foxxycode-blend-base));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--foxxycode-status-ok) 6%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-proposal h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.miniapps-assistant-proposal ul {
+  margin: 7px 0 12px;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.miniapps-assistant-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.miniapps-assistant-input {
+  min-height: 78px;
+  resize: vertical;
+  padding: 9px 10px;
+}
+
+.miniapps-assistant-form .miniapps-primary {
+  flex: 0 0 auto;
 }
 
 .miniapps-tabs {
@@ -10723,6 +10827,11 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   .miniapps-action-row {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .miniapps-assistant-form {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
