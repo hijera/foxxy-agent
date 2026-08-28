@@ -172,6 +172,12 @@ func selectorFor(t *testing.T, outline, want string) string {
 // TestScreenshotsCanBeTurnedOff covers the config switch: no image is captured and
 // none is handed to the model, but the action still reports what it can.
 func TestScreenshotsCanBeTurnedOff(t *testing.T) {
+	// Skip cleanly where no Chrome is installed. It has to be newTestManager that
+	// decides: this package reports tool failures in the returned string rather
+	// than in err, so testing err here would let a "no browser" run fall through
+	// into the assertions and fail as if the feature were broken.
+	newTestManager(t)
+
 	off := false
 	m := NewManager(&config.BrowserConfig{Enabled: true, Screenshots: &off})
 	defer m.closeSession("noshots")
@@ -186,8 +192,9 @@ func TestScreenshotsCanBeTurnedOff(t *testing.T) {
 
 	res, err := m.executeNavigate(context.Background(), `{"url":"`+srv.URL+`"}`, env)
 	if err != nil {
-		t.Skipf("no browser available: %v", err)
+		t.Fatalf("navigate: %v", err)
 	}
+	mustNotError(t, "navigate", res)
 	if handedImages != 0 {
 		t.Errorf("screenshots are off but %d image(s) were handed to the model", handedImages)
 	}
