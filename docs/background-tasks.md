@@ -19,7 +19,7 @@ Two extra `run_command` arguments drive the pool:
 - **`expected_seconds`** (int) — the model's own estimate of how long the work takes. It is **advisory and nothing else**: it drives the status ticker the operator sees. Guessing low only marks the task **overdue**; it does not shorten the hard timeout and cannot kill the task.
 - **`notify_on_finish`** (bool) — wake the agent when this task ends (see below).
 
-The prompt (`internal/prompts/agent.md`, and the plan-mode equivalent) tells the model when to background, to estimate honestly, to poll rather than busy-wait on `background_wait`, to stop servers and watchers it started, and to read the final status before summarising the outcome. Background execution is available in **both** agent and plan mode: a planner investigating a repo should not have to sit through a slow read-only command either.
+The shared agent prompt fragment (`internal/prompts/sections/agent/background_cmds.md`) tells the model when to background, to estimate honestly, to poll rather than busy-wait on `background_wait`, to stop servers and watchers it started, and to read the final status before summarising the outcome. Background execution is available in **both** agent and plan mode: a planner investigating a repo should not have to sit through a slow read-only command either.
 
 ## Waking the agent when a task finishes
 

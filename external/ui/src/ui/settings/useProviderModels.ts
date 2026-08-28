@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react";
 import { t } from "../i18n/i18n";
 
-export type FetchedModel = {
-  id: string;
-  name?: string;
-  /** The provider catalog advertises image input for this model. Undefined means
-   * the catalog said nothing (plain OpenAI lists no modalities), not "text only". */
-  vision?: boolean;
-};
+/**
+ * FetchedModel is one entry of a provider's advertised catalog. `vision` mirrors
+ * the backend's advisory image-input flag (capabilities.vision, or
+ * modalities.input containing "image"): it seeds the models[].multimodal default
+ * and is always overridable, because hubs are known to under-report it.
+ */
+export type FetchedModel = { id: string; name?: string; vision?: boolean };
 
 type ProviderModelsResponse = {
   ok?: boolean;

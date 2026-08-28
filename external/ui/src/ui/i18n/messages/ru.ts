@@ -32,6 +32,7 @@ export const messagesRu: Record<string, string> = {
   "composer.modePlan": "План",
   "composer.modeDocs": "Документация",
   "composer.modeAsk": "Вопросы",
+  "composer.modeDebug": "Отладка",
   "composer.model": "Модель",
   "composer.modelTitle": "YAML-бэкенд (metadata.model)",
   "composer.reasoning": "Рассуждение",
@@ -260,6 +261,10 @@ export const messagesRu: Record<string, string> = {
   "onboarding.modelSelectPlaceholder": "Выберите модель…",
   "onboarding.modelsFetchFailed":
     "Не удалось получить список моделей — введите id модели вручную.",
+  "onboarding.modelMultimodalOn":
+    "Каталог провайдера указывает, что эта модель принимает изображения, поэтому она сохраняется с включённой мультимодальностью. Измените в настройках, если модель отклоняет картинки.",
+  "onboarding.modelMultimodalOff":
+    "Каталог провайдера не указывает ввод изображений для этой модели, поэтому она сохраняется с выключенной мультимодальностью. Включите в настройках, если модель всё же принимает изображения.",
   "onboarding.skip": "Пропустить пока",
   "onboarding.test": "Проверить подключение",
   "onboarding.save": "Сохранить и продолжить",
@@ -340,6 +345,11 @@ export const messagesRu: Record<string, string> = {
     "Не удалось получить модели: {error}. Введите идентификатор модели вручную ниже.",
   "settings.modelsFetchEmpty":
     "Модели не найдены. Введите идентификатор модели вручную ниже.",
+  "settings.modelVisionOption": "{model} · изображения",
+  "settings.modelMultimodalOn":
+    "Каталог провайдера указывает, что эта модель принимает изображения, поэтому «Мультимодальность» ниже включена. Выключите, если модель отклоняет картинки.",
+  "settings.modelMultimodalOff":
+    "Каталог провайдера не указывает ввод изображений для этой модели, поэтому «Мультимодальность» ниже выключена. Включите, если модель всё же принимает изображения.",
   "settings.codexAuth.signInFailed": "Не удалось войти через ChatGPT.",
   "settings.codexAuth.incompleteResponse":
     "OAuth-сервер вернул неполный ответ для входа.",

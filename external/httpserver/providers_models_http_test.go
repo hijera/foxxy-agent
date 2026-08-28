@@ -297,3 +297,56 @@ func TestProviderModelsUpstreamErrorReturnsOKFalse(t *testing.T) {
 		t.Fatal("ok = true, want false on upstream error")
 	}
 }
+
+// TestProviderModelsServesVisionFlag pins the wire contract the Settings model
+// picker reads: a catalog entry advertising image input reaches the browser as
+// vision:true, and a text-only one omits the key entirely (falsy in the UI).
+func TestProviderModelsServesVisionFlag(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"qwen3.6-35b-a3b","capabilities":{"vision":true}},
+			{"id":"text-only","capabilities":{"vision":false}}
+		]}`))
+	}))
+	defer upstream.Close()
+
+	ts := newProviderModelsServer(t, &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "hub", Type: "openai", APIBase: upstream.URL, APIKey: "sk-test"},
+		},
+	})
+
+	res, err := http.Get(ts.URL + "/foxxycode/providers/hub/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		OK     bool `json:"ok"`
+		Models []struct {
+			ID     string `json:"id"`
+			Vision *bool  `json:"vision"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || len(body.Models) != 2 {
+		t.Fatalf("unexpected body: %+v", body)
+	}
+	for _, m := range body.Models {
+		switch m.ID {
+		case "qwen3.6-35b-a3b":
+			if m.Vision == nil || !*m.Vision {
+				t.Errorf("%s vision = %v, want true", m.ID, m.Vision)
+			}
+		case "text-only":
+			if m.Vision != nil {
+				t.Errorf("%s vision = %v, want omitted", m.ID, *m.Vision)
+			}
+		default:
+			t.Errorf("unexpected model %q", m.ID)
+		}
+	}
+}

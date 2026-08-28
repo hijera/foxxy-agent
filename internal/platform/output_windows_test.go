@@ -50,3 +50,53 @@ func TestChildOutputCodePageHasOEMFallback(t *testing.T) {
 		t.Fatalf("decodeCodePage(GetOEMCP()=%d): %v", oem, err)
 	}
 }
+
+// ansiSample returns bytes in the machine's own ANSI code page together with the
+// text they stand for. The bytes are spelled out rather than produced by a
+// codec, so the test asserts a real conversion instead of round-tripping through
+// the same table the implementation uses. 1251 is the page a Russian install
+// reports, 1252 the Western default a CI runner reports.
+func ansiSample(t *testing.T) (raw []byte, text string) {
+	t.Helper()
+	_, cp, ok := DecodeANSI([]byte{0xC0})
+	if !ok {
+		t.Skip("no usable ANSI code page")
+	}
+	switch cp {
+	case 1251:
+		return []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}, "Привет"
+	case 1252:
+		return []byte{0x47, 0x72, 0xFC, 0xDF, 0x65}, "Grüße"
+	}
+	t.Skipf("ANSI code page %d is not covered by this test", cp)
+	return nil, ""
+}
+
+// The svn case. Its output is converted through the APR locale charset, which is
+// the ANSI code page - not the console page DecodeOutput resolves, so the two
+// helpers are not interchangeable here.
+func TestDecodeANSIOutputDecodesTheSystemCodePage(t *testing.T) {
+	raw, want := ansiSample(t)
+	if got := DecodeANSIOutput(raw); got != want {
+		t.Fatalf("DecodeANSIOutput(% x) = %q, want %q", raw, got, want)
+	}
+}
+
+// svn diff converts its own headers but copies file content through untouched,
+// so one buffer carries both encodings. This is the case that forces the
+// per-line split: decoding the buffer as a whole would turn the UTF-8 body into
+// mojibake while repairing the header.
+func TestDecodeANSIOutputHandlesAMixedBuffer(t *testing.T) {
+	raw, sample := ansiSample(t)
+	const body = "+// Привет ✅\n"
+	var buf []byte
+	buf = append(buf, "Index: "...)
+	buf = append(buf, raw...)
+	buf = append(buf, ".go\n"...)
+	buf = append(buf, body...)
+
+	want := "Index: " + sample + ".go\n" + body
+	if got := DecodeANSIOutput(buf); got != want {
+		t.Fatalf("DecodeANSIOutput(% x) = %q, want %q", buf, got, want)
+	}
+}

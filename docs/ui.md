@@ -235,9 +235,10 @@ Session delete UX
 
 Mode selection
 
-- UI lets the user select the FoxxyCode profiles `agent`, `plan`, `docs`, and `ask` from `GET /v1/models`.
+- UI lets the user select the FoxxyCode profiles `agent`, `plan`, `docs`, `ask`, and `debug` from `GET /v1/models`.
 - Selected mode is sent as `model` field in `POST /v1/responses`.
 - Ask uses the green mode outline and remains non-mutating. **Settings → Tools → Disable extended Ask tools** is a schema-driven checkbox for `tools.ask_disable_extended_tools`; it is off by default. When enabled, Ask retains repository read/search/tree, question, and skill tools but hides shell, MCP, web, and scheduler inspection.
+- Debug uses the red mode outline and has the same full tool surface as Agent; only its system prompt differs (diagnose, validate, confirm, then fix minimally). No settings knob.
 
 SSE payloads
 
@@ -284,6 +285,8 @@ Regression
 - **Direct YAML model turns**: each file becomes an **`image_url`** content part sent inline to the provider.
 - The user bubble strips the XML annotation via **`stripFoxxyCodeAttachmentsForUserDisplay`** in **`stripFoxxyCodeAttachments.ts`** and shows file chips (**`msg-user-files`** / **`msg-user-file-chip`** CSS classes). **`parseSessionAssetFiles`** re-derives chip metadata on page reload.
 - After a **`PUT /foxxycode/config`** save in Settings, **`App.tsx`** bumps **`modelsEpoch`** → re-fetches **`/v1/models`** so the attachment button appears or disappears without a page reload.
+- **Setting `models[].multimodal` from the provider catalog** — in **Settings → Logical models**, **Fetch models** returns an advisory **`vision`** flag per entry (see `docs/http-api.md`). Options that carry it are suffixed **`· vision`** in the dropdown, and picking a listed model writes **`multimodal`** from that flag in the same document update as the id (**`ModelField`** reports the catalog entry through **`onChange`**; **`SettingsSection`** applies both keys via the **`FieldOverride`** **`patchParent`** seam, because **`multimodal`** is a sibling field rendered from the Go schema). A note under the field says where the value came from. Hub catalogs under-report vision (**`gpt-oss-120b`** advertises **`vision: false`** and still reads images), so the flag is a **default, never a gate** — the switch stays editable, and an id typed by hand leaves it alone.
+- **Same flag in onboarding** — the provider picker probes the catalog through **`POST /foxxycode/providers/models-probe`**, badges its vision entries the same way, and writes **`models[].multimodal`** from the picked entry instead of the per-provider **`preset.multimodal`** constant (**`catalogEntry`** in **`ProviderPickerDialog.tsx`** matches both the bare id the combobox writes and the prefixed id the fixed-endpoint presets pre-fill). The preset value is the fallback for a model the catalog does not list. A hint under the field says which way the flag will be saved.
 
 | Case | Expected | Automated check |
 |------|----------|-----------------|
@@ -333,7 +336,7 @@ Verification use cases
 
 ## Composer **`@`** workspace files
 
-- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`docs`** / **`ask`**. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFilePathsFromText`** (**`internal/session/at_paths_extract.go`**) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
+- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFilePathsFromText`** (**`internal/session/at_paths_extract.go`**) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
 - **`@`** menu uses **`GET /foxxycode/workspace/files`** with **`dirs=true`** so **`kind`** **`dir`** rows drill down. Choosing a **`dir`** inserts **`@`** + **`path_rel`** (often ending in **`/`**) without hydrating file body. Choosing a **`file`** inserts **`@`** + **`path_rel`** plus a trailing ASCII space where appropriate. **`Composer`** defers two **`updatePickerMenus`** ticks after a row choice so the workspace dropdown does not immediately reopen (trailing space and **`MENU_PATH_CHAR`** still satisfy **`atMenuDraftAtCaret`** until the user edits again).
 - Empty **`@`** prefix (caret right after **`@`**) loads recent rows from **`localStorage`** (**`workspaceAtRecents`**), keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), with no extra banner line (**`Type after @ to search`** only when the list is empty). Entries come from **`@`** row picks and **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-FoxxyCode-Session-ID`**).
 - Fenced code blocks and Markdown blockquote lines suppress **`@`** menu parity with **`draftSlash`** ( **`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`** ).

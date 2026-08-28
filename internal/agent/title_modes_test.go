@@ -28,7 +28,7 @@ func (p *titleModeProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.T
 }
 
 // TestRunGeneratesSessionTitleInEveryMode pins that the title pass is reached by a
-// normal turn in all four session modes. maybeGenerateTitle itself has no mode
+// normal turn in all five session modes. maybeGenerateTitle itself has no mode
 // check, but it hangs off the ReAct loop, and the loop's tool sets, prompts, and
 // stop conditions differ per mode - so the guarantee is only worth anything when
 // exercised through Agent.Run rather than by calling the generator directly.
@@ -38,6 +38,7 @@ func TestRunGeneratesSessionTitleInEveryMode(t *testing.T) {
 		session.ModePlan,
 		session.ModeDocs,
 		session.ModeAsk,
+		session.ModeDebug,
 	} {
 		t.Run(string(mode), func(t *testing.T) {
 			cfg := titleConfig(t)

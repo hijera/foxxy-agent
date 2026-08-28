@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { Combobox } from "../settings/Combobox";
 import { CodexAuthField } from "../settings/CodexAuthField";
-import { useProbeModels } from "./useProbeModels";
 import type { FetchedModel } from "../settings/useProviderModels";
+import { useProbeModels } from "./useProbeModels";
 
 export type ProviderPresetId =
   | "openai"
@@ -112,6 +112,25 @@ const PRESETS: ProviderPreset[] = [
   },
 ];
 
+/**
+ * catalogEntry finds the probed model behind a model id. The combobox writes a
+ * bare id, the fixed-endpoint presets pre-fill a prefixed one, so both forms
+ * have to match.
+ */
+function catalogEntry(
+  preset: ProviderPreset,
+  modelId: string,
+  catalog: FetchedModel[],
+): FetchedModel | undefined {
+  const raw = modelId.trim();
+  if (!raw) {
+    return undefined;
+  }
+  return catalog.find(
+    (m) => m.id === raw || `${preset.providerName}/${m.id}` === raw,
+  );
+}
+
 function buildConfigBody(
   preset: ProviderPreset,
   apiKey: string,
@@ -119,7 +138,7 @@ function buildConfigBody(
   proxy: string,
   modelId: string,
   baseDoc: Record<string, unknown>,
-  fetchedModels: FetchedModel[] = [],
+  catalog: FetchedModel[],
 ): Record<string, unknown> {
   const provider: Record<string, unknown> = {
     name: preset.providerName,
@@ -153,13 +172,11 @@ function buildConfigBody(
     // to satisfy the required provider/model_id config format.
     model = `${preset.providerName}/${rawModel}`;
   }
-  // A hub serves vision and text-only models under one provider, so the picked
-  // model's advertised capability beats the provider-wide preset flag. The preset
-  // stays the fallback for a hand-typed id or a catalog that lists no modalities.
-  const picked = fetchedModels.find(
-    (m) => m.id === rawModel || `${preset.providerName}/${m.id}` === model,
-  );
-  const multimodal = picked?.vision ?? preset.multimodal;
+  // A hub serves vision and text-only models side by side, so the per-provider
+  // preset constant is only a fallback: whenever the picked id is in the probed
+  // catalog, that entry's advisory vision flag decides. It stays advisory - the
+  // value is editable afterwards in Settings.
+  const listed = catalogEntry(preset, modelId, catalog);
   return {
     ...baseDoc,
     providers: [provider],
@@ -168,7 +185,7 @@ function buildConfigBody(
         model,
         max_tokens: 8192,
         temperature: 0.2,
-        multimodal,
+        multimodal: listed ? listed.vision === true : preset.multimodal,
       },
     ],
     agent: {
@@ -301,6 +318,12 @@ export function ProviderPickerDialog(props: {
         fetchedModels,
       ),
     [preset, apiKey, apiBase, proxy, modelId, baseDoc, fetchedModels],
+  );
+
+  /** Catalog entry behind the chosen model, when the probe listed it. */
+  const pickedModel = useMemo(
+    () => catalogEntry(preset, modelId, fetchedModels),
+    [preset, modelId, fetchedModels],
   );
 
   const testConnection = useCallback(async () => {
@@ -525,10 +548,15 @@ export function ProviderPickerDialog(props: {
               <Combobox
                 value={modelId}
                 onChange={setModelId}
-                options={fetchedModels.map((m) => ({
-                  value: m.id,
-                  label: m.name || m.id,
-                }))}
+                options={fetchedModels.map((m) => {
+                  const label = m.name || m.id;
+                  return {
+                    value: m.id,
+                    label: m.vision
+                      ? t("settings.modelVisionOption", { model: label })
+                      : label,
+                  };
+                })}
                 placeholder={preset.defaultModel}
                 ariaLabel={t("onboarding.defaultModel")}
                 testid="provider-model-id"
@@ -557,6 +585,16 @@ export function ProviderPickerDialog(props: {
                 data-testid="provider-models-error"
               >
                 {t("onboarding.modelsFetchFailed")}
+              </span>
+            ) : null}
+            {pickedModel ? (
+              <span
+                className="provider-picker-hint"
+                data-testid="provider-multimodal-note"
+              >
+                {pickedModel.vision
+                  ? t("onboarding.modelMultimodalOn")
+                  : t("onboarding.modelMultimodalOff")}
               </span>
             ) : null}
           </label>

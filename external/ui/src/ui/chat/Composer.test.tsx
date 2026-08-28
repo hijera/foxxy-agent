@@ -73,7 +73,7 @@ test("mode menu renders Ask and applies its mode class", () => {
       value=""
       isEmpty={false}
       mode="agent"
-      modes={["agent", "plan", "docs", "ask"]}
+      modes={["agent", "plan", "docs", "ask", "debug"]}
       onModeChange={() => {}}
       onChange={() => {}}
       onSend={() => {}}
@@ -87,13 +87,42 @@ test("mode menu renders Ask and applies its mode class", () => {
       value=""
       isEmpty={false}
       mode="ask"
-      modes={["agent", "plan", "docs", "ask"]}
+      modes={["agent", "plan", "docs", "ask", "debug"]}
       onModeChange={() => {}}
       onChange={() => {}}
       onSend={() => {}}
     />,
   );
   expect(screen.getByRole("button", { name: "Mode" })).toHaveClass("mode-ask");
+});
+
+test("mode menu renders Debug and applies its mode class", () => {
+  const { rerender } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan", "docs", "ask", "debug"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Mode" }));
+  expect(screen.getByRole("menuitem", { name: "Debug" })).toBeTruthy();
+
+  rerender(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="debug"
+      modes={["agent", "plan", "docs", "ask", "debug"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Mode" })).toHaveClass("mode-debug");
 });
 
 test("switching session refocuses textarea in active chat", () => {

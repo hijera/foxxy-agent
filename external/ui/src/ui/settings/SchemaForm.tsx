@@ -35,6 +35,12 @@ export function IconTrash(props: { className?: string }) {
  * not included), e.g. `model` for the `model` field of a logical-model item, or
  * `model` for `agent.model` when the agent sub-schema is rendered as the root.
  * Return a node to render it instead of the default control, or null to fall back.
+ *
+ * `onChange` writes this field alone. `patchParent` merges several keys into the
+ * object holding it in one update, which is how a custom control reaches a
+ * sibling field it must keep in step (picking a model seeds `multimodal`).
+ * Patching is a single write, so the edited field is never lost to a stale copy
+ * of the row the way two chained onChange calls would lose it.
  */
 export type FieldOverride = (ctx: {
   path: string;
@@ -42,6 +48,7 @@ export type FieldOverride = (ctx: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  patchParent?: ((patch: Record<string, unknown>) => void) | undefined;
 }) => ReactNode | null;
 
 export type JsonSchema = {
@@ -153,14 +160,23 @@ function SchemaField(props: {
   value: unknown;
   onChange: (v: unknown) => void;
   parentObj?: Record<string, unknown> | undefined;
+  patchParent?: ((patch: Record<string, unknown>) => void) | undefined;
   path?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
   focusPath?: string | undefined;
   /** Inherited from an ancestor section the running binary cannot support. */
   disabled?: boolean | undefined;
 }) {
-  const { name, schema, value, onChange, parentObj, fieldOverride, focusPath } =
-    props;
+  const {
+    name,
+    schema,
+    value,
+    onChange,
+    parentObj,
+    patchParent,
+    fieldOverride,
+    focusPath,
+  } = props;
   const path = props.path ?? name;
   // A section missing its build tag disables itself and everything under it.
   const missingTag = schema["x-foxxycode-build-tag-missing"] === true;
@@ -192,6 +208,7 @@ function SchemaField(props: {
       value,
       onChange,
       parentObj,
+      patchParent,
     });
     if (override != null) {
       return <>{override}</>;
@@ -246,6 +263,7 @@ function SchemaField(props: {
               schema={sub}
               value={obj[k]}
               parentObj={obj}
+              patchParent={(patch) => onChange({ ...obj, ...patch })}
               path={path ? `${path}.${k}` : k}
               fieldOverride={fieldOverride}
               focusPath={focusPath}
@@ -517,6 +535,7 @@ export function SchemaForm(props: {
           schema={sub}
           value={value[k]}
           parentObj={value}
+          patchParent={(patch) => onChange({ ...value, ...patch })}
           path={k}
           fieldOverride={fieldOverride}
           focusPath={focusPath}

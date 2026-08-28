@@ -98,7 +98,7 @@ describe("ProviderPickerDialog", () => {
         return new Response(
           JSON.stringify({
             ok: true,
-            models: [{ id: "neuraldeep-chat" }, { id: "qwen-3" }],
+            models: [{ id: "neuraldeep-chat" }, { id: "qwen-3", vision: true }],
           }),
           { status: 200 },
         );
@@ -262,10 +262,11 @@ describe("ProviderPickerDialog", () => {
       api_key: "sk-nd",
       proxy: "",
     });
-    // Open the combobox dropdown and pick the fetched model from the list.
+    // Open the combobox dropdown and pick the fetched model from the list. The
+    // option label carries the catalog's vision badge, so match on the id.
     fireEvent.focus(modelInput);
     const option = await waitFor(() =>
-      screen.getByRole("option", { name: "qwen-3" }),
+      screen.getByRole("option", { name: /qwen-3/ }),
     );
     fireEvent.mouseDown(option);
     expect((modelInput as HTMLInputElement).value).toBe("qwen-3");
@@ -278,68 +279,9 @@ describe("ProviderPickerDialog", () => {
     expect(body.providers[0].type).toBe("neuraldeep");
     expect(body.providers[0].api_base).toBeUndefined();
     expect(body.models[0].model).toBe("neuraldeep/qwen-3");
+    // From the catalog entry for qwen-3, not from the neuraldeep preset.
     expect(body.models[0].multimodal).toBe(true);
     expect(body.agent.model).toBe("neuraldeep/qwen-3");
-  });
-
-  // A hub serves vision and text-only models side by side under one provider, so
-  // the per-provider preset flag is the wrong granularity: the model the user
-  // actually picked has to decide. Getting this wrong is how a vision-capable
-  // model ends up saved with multimodal: false and silently refuses screenshots.
-  it.each([
-    ["vision-model", true],
-    ["text-only-model", false],
-  ])("seeds multimodal from the picked model's advertised vision (%s)", async (
-    modelId,
-    wantMultimodal,
-  ) => {
-    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      if (url === "/foxxycode/providers/models-probe") {
-        return new Response(
-          JSON.stringify({
-            ok: true,
-            models: [
-              { id: "vision-model", vision: true },
-              { id: "text-only-model", vision: false },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-      if (url === "/foxxycode/config" && init?.method === "PUT") {
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      if (url === "/foxxycode/config/validate") {
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      return new Response(JSON.stringify({}), { status: 200 });
-    });
-
-    const onSaved = vi.fn();
-    renderPicker({ onSaved });
-    // neuraldeep's preset declares multimodal: true for the whole provider.
-    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
-    fireEvent.change(screen.getByTestId("provider-api-key"), {
-      target: { value: "sk-nd" },
-    });
-    fireEvent.click(screen.getByTestId("provider-fetch-models"));
-    const modelInput = await waitFor(() =>
-      screen.getByTestId("provider-model-id"),
-    );
-    fireEvent.focus(modelInput);
-    const option = await waitFor(() =>
-      screen.getByRole("option", { name: modelId }),
-    );
-    fireEvent.mouseDown(option);
-    fireEvent.click(screen.getByTestId("provider-save"));
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-
-    const putCall = fetchMock.mock.calls.find(
-      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
-    );
-    const body = JSON.parse(String(putCall![1]?.body));
-    expect(body.models[0].model).toBe(`neuraldeep/${modelId}`);
-    expect(body.models[0].multimodal).toBe(wantMultimodal);
   });
 
   it("sends the proxy in the probe and saves it on the provider", async () => {
@@ -383,6 +325,98 @@ describe("ProviderPickerDialog", () => {
     );
     const body = JSON.parse(String(putCall![1]?.body));
     expect(body.providers[0].proxy).toBeUndefined();
+  });
+
+  // A hub serves vision and text-only models side by side, so the per-provider
+  // preset constant is the wrong source for models[].multimodal: it saved
+  // multimodal:true under gpt-oss-20b, which rejects images with HTTP 405.
+  it("takes multimodal from the picked model's catalog entry, not the preset", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    const modelInput = screen.getByTestId("provider-model-id");
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+        "Refresh",
+      ),
+    );
+
+    fireEvent.focus(modelInput);
+    fireEvent.mouseDown(
+      await screen.findByRole("option", { name: /neuraldeep-chat/ }),
+    );
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.models[0].model).toBe("neuraldeep/neuraldeep-chat");
+    // The neuraldeep preset says multimodal: true; this model does not.
+    expect(body.models[0].multimodal).toBe(false);
+  });
+
+  it("badges catalog models that accept images and explains the saved flag", async () => {
+    renderPicker({});
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+        "Refresh",
+      ),
+    );
+
+    const modelInput = screen.getByTestId("provider-model-id");
+    fireEvent.focus(modelInput);
+    const vision = await screen.findByRole("option", { name: /qwen-3/ });
+    expect(vision.textContent).toMatch(/vision/i);
+    expect(
+      screen.getByRole("option", { name: /neuraldeep-chat/ }).textContent,
+    ).not.toMatch(/vision/i);
+
+    fireEvent.mouseDown(vision);
+    expect(
+      (await screen.findByTestId("provider-multimodal-note")).textContent,
+    ).toMatch(/on/i);
+  });
+
+  it("falls back to the preset for a model id the catalog does not list", async () => {
+    const onSaved = vi.fn();
+    renderPicker({ onSaved });
+    fireEvent.click(screen.getByTestId("provider-card-neuraldeep"));
+    fireEvent.change(screen.getByTestId("provider-api-key"), {
+      target: { value: "sk-nd" },
+    });
+    fireEvent.click(screen.getByTestId("provider-fetch-models"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-fetch-models").textContent).toBe(
+        "Refresh",
+      ),
+    );
+
+    fireEvent.change(screen.getByTestId("provider-model-id"), {
+      target: { value: "typed-by-hand" },
+    });
+    // Nothing is known about a hand-typed id, so no note claims otherwise.
+    expect(screen.queryByTestId("provider-multimodal-note")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("provider-save"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const putCall = fetchMock.mock.calls.find(
+      (c) => c[0] === "/foxxycode/config" && c[1]?.method === "PUT",
+    );
+    const body = JSON.parse(String(putCall![1]?.body));
+    expect(body.models[0].model).toBe("neuraldeep/typed-by-hand");
+    // The neuraldeep preset default stands in when the catalog says nothing.
+    expect(body.models[0].multimodal).toBe(true);
   });
 
   it("saves the anthropic preset as a non-multimodal model", async () => {

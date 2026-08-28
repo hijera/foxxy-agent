@@ -190,7 +190,7 @@ Or cross-compile from Linux/macOS (pure Go, **`CGO_ENABLED=0`**):
 python scripts/build.py --target cli --preset desktop
 ```
 
-**Requirements:** Windows 10+, [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most Win10/11 images). Logs go to **`~/.foxxycode/desktop.log`** because **`-H=windowsgui`** hides stdout/stderr.
+**Requirements:** Windows 10+, [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most Win10/11 images). Logs go to **`~/.foxxycode/desktop.log`** because **`-H=windowsgui`** hides stdout/stderr. Owning no console also means every console tool a turn runs (git, ripgrep, the shell behind **`run_command`**) would be given a console window of its own, so they are all started windowless through **`platform.HideConsoleWindow`**; see **`docs/architecture.md`**.
 
 **First run:** double-click opens **`/#/chat`** with a provider picker modal (pattern inspired by NeuralDeskApp). Save writes **`config.yaml`** via **`PUT /foxxycode/config`**.
 

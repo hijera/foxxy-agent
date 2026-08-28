@@ -38,6 +38,7 @@ func modeMenuText(current string) string {
 		string(session.ModePlan):  "designs and plans without code execution",
 		string(session.ModeDocs):  "generates and updates project documentation",
 		string(session.ModeAsk):   "answers questions with read-only research tools",
+		string(session.ModeDebug): "diagnoses issues systematically before fixing them",
 	}
 	return fmt.Sprintf("*Session mode*\n\nCurrent: *%s* — %s\n\nSelect a new mode:", current, desc[current])
 }
@@ -48,6 +49,7 @@ func buildModeKeyboard(current string) tgbotapi.InlineKeyboardMarkup {
 		{string(session.ModePlan), "Plan"},
 		{string(session.ModeDocs), "Docs"},
 		{string(session.ModeAsk), "Ask"},
+		{string(session.ModeDebug), "Debug"},
 	}
 	row := make([]tgbotapi.InlineKeyboardButton, 0, len(modes))
 	for _, m := range modes {
