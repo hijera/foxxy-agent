@@ -106,6 +106,7 @@ type mcpFeatureState struct {
 	home     string
 	cwd      string
 	ts       *httptest.Server
+	tlsTS    *httptest.Server
 	mgr      *session.Manager
 	srv      *Server
 	status   int
@@ -129,6 +130,10 @@ func (s *mcpFeatureState) close() {
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
+	}
+	if s.tlsTS != nil {
+		s.tlsTS.Close()
+		s.tlsTS = nil
 	}
 	if s.srv != nil {
 		s.srv.Drain()
@@ -370,6 +375,24 @@ func (s *mcpFeatureState) addServer(name string) error {
 	return nil
 }
 
+// givenSelfSignedServer starts a remote MCP server behind an httptest
+// certificate no root signed - the case insecure_skip_verify exists for.
+func (s *mcpFeatureState) givenSelfSignedServer() error {
+	s.tlsTS = httptest.NewTLSServer(&fakeBetaMCPHandler{token: "tls"})
+	return nil
+}
+
+func (s *mcpFeatureState) addInsecureServer(name string) error {
+	entry := config.MCPJSONServer{URL: s.tlsTS.URL, InsecureSkipVerify: true}
+	if err := s.do(http.MethodPut, "/foxxycode/mcp/"+url.PathEscape(name), entry); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("add insecure server status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
 func (s *mcpFeatureState) deleteServer(name string) error {
 	if err := s.do(http.MethodDelete, "/foxxycode/mcp/"+url.PathEscape(name), nil); err != nil {
 		return err
@@ -487,6 +510,8 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I enable the MCP server "([^"]*)"$`, s.enableServer)
 	sc.Step(`^I add a project MCP server "([^"]*)" running the fake MCP command$`, s.addServer)
 	sc.Step(`^I delete the MCP server "([^"]*)"$`, s.deleteServer)
+	sc.Step(`^a self-signed HTTPS MCP server$`, s.givenSelfSignedServer)
+	sc.Step(`^I add a project MCP server "([^"]*)" pointing at it with SSL verification ignored$`, s.addInsecureServer)
 	sc.Step(`^I approve the MCP server "([^"]*)"$`, s.approveServer)
 	sc.Step(`^the project MCP server "([^"]*)" is approved$`, s.approveServer)
 	sc.Step(`^the MCP list shows server "([^"]*)" as awaiting approval$`, s.listShowsServerAwaitingApproval)

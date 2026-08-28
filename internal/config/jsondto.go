@@ -168,15 +168,16 @@ type SkillsJSON struct {
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
 type MCPServerJSON struct {
-	Type          string           `json:"type,omitempty"`
-	Name          string           `json:"name"`
-	Command       string           `json:"command,omitempty"`
-	Args          []string         `json:"args,omitempty"`
-	Env           []EnvVarJSON     `json:"env,omitempty"`
-	URL           string           `json:"url,omitempty"`
-	Headers       []HTTPHeaderJSON `json:"headers,omitempty"`
-	Disabled      bool             `json:"disabled,omitempty"`
-	DisabledTools []string         `json:"disabled_tools,omitempty"`
+	Type               string           `json:"type,omitempty"`
+	Name               string           `json:"name"`
+	Command            string           `json:"command,omitempty"`
+	Args               []string         `json:"args,omitempty"`
+	Env                []EnvVarJSON     `json:"env,omitempty"`
+	URL                string           `json:"url,omitempty"`
+	Headers            []HTTPHeaderJSON `json:"headers,omitempty"`
+	InsecureSkipVerify bool             `json:"insecure_skip_verify,omitempty"`
+	Disabled           bool             `json:"disabled,omitempty"`
+	DisabledTools      []string         `json:"disabled_tools,omitempty"`
 }
 
 // EnvVarJSON mirrors EnvVarConfig.
@@ -198,10 +199,10 @@ type MCPJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode          string               `json:"permission_mode,omitempty"`
-	CommandAllowlist        []string             `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun           *bool                `json:"plan_no_self_run,omitempty"`
-	AskDisableExtendedTools bool                 `json:"ask_disable_extended_tools,omitempty"`
+	PermissionMode          string   `json:"permission_mode,omitempty"`
+	CommandAllowlist        []string `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun           *bool    `json:"plan_no_self_run,omitempty"`
+	AskDisableExtendedTools bool     `json:"ask_disable_extended_tools,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 	Background   ToolBackgroundJSON   `json:"background"`
@@ -270,12 +271,12 @@ type MemoryJSON struct {
 // "use default" (true) rather than an explicit false; KeepRecentTurns is a pointer so an explicit
 // 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
-	Engine           string             `json:"engine,omitempty"`
-	Enabled          *bool              `json:"enabled,omitempty"`
-	Model            string             `json:"model,omitempty"`
-	ThresholdPercent int                `json:"threshold_percent,omitempty"`
-	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
-	MaxTokens        int                `json:"max_tokens,omitempty"`
+	Engine           string `json:"engine,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
+	Model            string `json:"model,omitempty"`
+	ThresholdPercent int    `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
+	MaxTokens        int    `json:"max_tokens,omitempty"`
 	// omitempty does not apply to structs; unset eviction serializes as {}.
 	ResultEviction ResultEvictionJSON `json:"result_eviction"`
 }
@@ -369,8 +370,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		mj := MCPServerJSON{
 			Type: s.Type, Name: s.Name, Command: s.Command,
 			Args: append([]string(nil), s.Args...), URL: s.URL,
-			Disabled:      s.Disabled,
-			DisabledTools: append([]string(nil), s.DisabledTools...),
+			InsecureSkipVerify: s.InsecureSkipVerify,
+			Disabled:           s.Disabled,
+			DisabledTools:      append([]string(nil), s.DisabledTools...),
 		}
 		for _, e := range s.Env {
 			mj.Env = append(mj.Env, EnvVarJSON(e))
@@ -518,8 +520,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		mc := MCPServerConfig{
 			Type: s.Type, Name: s.Name, Command: s.Command,
 			Args: append([]string(nil), s.Args...), URL: s.URL,
-			Disabled:      s.Disabled,
-			DisabledTools: append([]string(nil), s.DisabledTools...),
+			InsecureSkipVerify: s.InsecureSkipVerify,
+			Disabled:           s.Disabled,
+			DisabledTools:      append([]string(nil), s.DisabledTools...),
 		}
 		for _, e := range s.Env {
 			mc.Env = append(mc.Env, EnvVarConfig(e))

@@ -54,6 +54,9 @@ func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *s
 	defer cancel()
 	switch EffectiveTransport(srv) {
 	case "stdio":
+		if srv.InsecureSkipVerify {
+			log.Warn("mcp insecure_skip_verify has no effect on the stdio transport", "server", srv.Name)
+		}
 		if strings.TrimSpace(srv.Command) == "" {
 			return nil, fmt.Errorf("mcp %s: command is required for stdio transport", srv.Name)
 		}
@@ -67,9 +70,9 @@ func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *s
 		}
 		return NewStdioClient(ctx, srv.Name, srv.Command, args, env, log)
 	case "http", "streamable-http", "streamable_http":
-		return NewHTTPClient(ctx, srv.Name, config.ExpandCWD(srv.URL, cwd), expandHeaders(srv, cwd), log)
+		return NewHTTPClient(ctx, srv.Name, config.ExpandCWD(srv.URL, cwd), expandHeaders(srv, cwd), srv.InsecureSkipVerify, log)
 	case "sse":
-		return NewSSEClient(ctx, srv.Name, config.ExpandCWD(srv.URL, cwd), expandHeaders(srv, cwd), log)
+		return NewSSEClient(ctx, srv.Name, config.ExpandCWD(srv.URL, cwd), expandHeaders(srv, cwd), srv.InsecureSkipVerify, log)
 	default:
 		return nil, fmt.Errorf("unsupported MCP transport: %s", srv.Type)
 	}

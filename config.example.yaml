@@ -178,6 +178,14 @@ mcp_servers: []
   #   disabled: false
   #   disabled_tools: ["write_file"]
 
+  # Example: remote MCP server behind a self-signed certificate. Skipping the
+  # certificate check also removes the protection against a man in the middle,
+  # so turn it on only for a server you trust on a network you trust.
+  # - name: "internal"
+  #   type: "http"
+  #   url: "https://mcp.internal.lan/mcp"
+  #   insecure_skip_verify: true
+
   # Example: GitHub MCP server
   # - name: "github"
   #   command: "npx"

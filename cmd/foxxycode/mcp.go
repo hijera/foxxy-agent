@@ -162,6 +162,9 @@ func mcpTrust(cfg *config.Config, cwd, name string) error {
 		}
 		fmt.Printf("  headers:   %s\n", strings.Join(names, ", "))
 	}
+	if srv.Config.InsecureSkipVerify {
+		fmt.Printf("  tls:       certificate verification DISABLED (insecure_skip_verify)\n")
+	}
 	if err := gate.Approve(cwd, *srv); err != nil {
 		return err
 	}

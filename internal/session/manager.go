@@ -1141,6 +1141,10 @@ func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (f
 
 // acpMCPServerToConfig converts an ACP client-supplied MCP server definition
 // to the config shape used by the connector (all transports, incl. headers).
+//
+// InsecureSkipVerify is deliberately not carried: the ACP wire format has no
+// such field, so a client cannot ask for it and these servers always verify
+// their TLS certificates.
 func acpMCPServerToConfig(srv acp.MCPServer) config.MCPServerConfig {
 	out := config.MCPServerConfig{
 		Type:    srv.Type,
