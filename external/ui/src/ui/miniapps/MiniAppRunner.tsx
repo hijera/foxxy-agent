@@ -111,7 +111,7 @@ export function MiniAppRunner(props: {
           });
       });
     } catch {
-      /* EventSource is optional; polling remains authoritative. */
+      /* The progress stream is an optimisation; polling stays authoritative. */
     }
     return () => {
       cancelled = true;

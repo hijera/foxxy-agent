@@ -50,7 +50,7 @@ export function DistillationWorkspace(props: {
         if (!cancelled) setJob((current) => ({ ...(current ?? {}), ...event }));
       });
     } catch {
-      /* Polling is the fallback for browsers without EventSource. */
+      /* The progress stream is an optimisation; polling stays authoritative. */
     }
     return () => {
       cancelled = true;

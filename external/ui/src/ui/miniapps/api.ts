@@ -1,3 +1,4 @@
+import { parseSSEBlocks } from "../chat/sse";
 import type {
   MiniAppApiResult,
   MiniAppCatalogEntry,
@@ -314,23 +315,100 @@ export async function createRepairProposals(
   });
 }
 
+const EVENT_BACKOFF_START_MS = 1000;
+const EVENT_BACKOFF_MAX_MS = 10000;
+
+export type MiniAppEventStreamOptions = {
+  signal: AbortSignal;
+  /** Injectable for tests; defaults to the global fetch (which carries remote-env auth). */
+  fetchImpl?: typeof fetch;
+  /** Injectable for tests; defaults to window.setTimeout semantics. */
+  sleep?: (ms: number) => Promise<void>;
+};
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Read one Mini App progress stream until it reports `done` or the signal aborts.
+ *
+ * Built on `fetch` rather than `EventSource` for the same reason as
+ * `chat/serverEvents.ts`: `EventSource` cannot carry the `Authorization` header
+ * the remote-environment shim injects, so with a configured token it would fail
+ * every connection and retry forever. The server numbers each frame and accepts
+ * `?after=`, so a reconnect resumes instead of replaying. Callers keep polling
+ * as the fallback, which is why a stream that never comes back must not spin.
+ */
+export async function readMiniAppEventStream(
+  kind: "distillation" | "run",
+  id: string,
+  onEvent: (event: MiniAppRunEvent) => void,
+  options: MiniAppEventStreamOptions,
+): Promise<void> {
+  const doFetch = options.fetchImpl ?? fetch;
+  const sleep = options.sleep ?? defaultSleep;
+  const prefix = kind === "run" ? "miniapp-runs" : "miniapp-distillations";
+  const path = `/foxxycode/${prefix}/${encodeURIComponent(id)}/events`;
+  let backoff = EVENT_BACKOFF_START_MS;
+  let after = 0;
+
+  while (!options.signal.aborted) {
+    try {
+      const res = await doFetch(`${path}?after=${after}`, {
+        signal: options.signal,
+      });
+      if (!res.ok || !res.body) {
+        throw new Error(`mini app events unavailable (${res.status})`);
+      }
+      backoff = EVENT_BACKOFF_START_MS;
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      const carry = { buf: "" };
+      let finished = false;
+      for (;;) {
+        const step = await reader.read();
+        if (step.done) break;
+        const frames = parseSSEBlocks(
+          dec.decode(step.value, { stream: true }),
+          carry,
+        );
+        for (const item of frames) {
+          if (item.event === "done") {
+            finished = true;
+            break;
+          }
+          const seq = Number(item.id);
+          if (Number.isFinite(seq) && seq > after) after = seq;
+          if (!item.data) continue;
+          try {
+            onEvent(JSON.parse(item.data) as MiniAppRunEvent);
+          } catch {
+            // Ignore malformed progress frames; polling still updates the UI.
+          }
+        }
+        if (finished) break;
+      }
+      if (finished) return;
+    } catch {
+      // Aborted, refused, or dropped: all fall through to the backoff below.
+    }
+    if (options.signal.aborted) return;
+    await sleep(backoff);
+    backoff = Math.min(backoff * 2, EVENT_BACKOFF_MAX_MS);
+  }
+}
+
 export function subscribeMiniAppEvents(
   kind: "distillation" | "run",
   id: string,
   onEvent: (event: MiniAppRunEvent) => void,
 ): () => void {
-  const prefix = kind === "run" ? "miniapp-runs" : "miniapp-distillations";
-  const source = new EventSource(
-    `/foxxycode/${prefix}/${encodeURIComponent(id)}/events`,
-  );
-  source.onmessage = (event) => {
-    try {
-      onEvent(JSON.parse(event.data) as MiniAppRunEvent);
-    } catch {
-      // Ignore malformed progress frames; the polling fallback still updates the UI.
-    }
-  };
-  return () => source.close();
+  const controller = new AbortController();
+  void readMiniAppEventStream(kind, id, onEvent, {
+    signal: controller.signal,
+  });
+  return () => controller.abort();
 }
 
 export type MiniAppPatchResult = MiniAppApiResult<MiniAppPatch>;
