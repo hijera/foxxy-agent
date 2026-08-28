@@ -43,6 +43,7 @@ const (
 	filePlan  = "plan.md"
 	fileDocs  = "docs.md"
 	fileAsk   = "ask.md"
+	fileDebug = "debug.md"
 )
 
 // TemplateData holds values injected into prompt templates.
@@ -176,6 +177,8 @@ func fileNameForMode(mode string) string {
 		return fileDocs
 	case "ask":
 		return fileAsk
+	case "debug":
+		return fileDebug
 	default:
 		return fileAgent
 	}
@@ -198,6 +201,8 @@ func loadSource(mode string, variants []string, promptsDir, agentFile, planFile,
 		base = strings.TrimSpace(docsFile)
 	case "ask":
 		base = fileAsk
+	case "debug":
+		base = fileDebug
 	}
 	if base == "" {
 		base = fileNameForMode(mode)

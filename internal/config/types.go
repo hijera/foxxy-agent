@@ -26,4 +26,5 @@ type Config struct {
 	UI           UIConfig          `yaml:"ui"`
 	Browser      BrowserConfig     `yaml:"browser"`
 	VCS          VCSConfig         `yaml:"vcs"`
+	Debug        Debug             `yaml:"debug"`
 }

@@ -34,7 +34,7 @@ func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &http.Client{Transport: t}, nil
+		return &http.Client{Transport: debugTransportFor(t)}, nil
 	}
 	u, err := url.Parse(proxyURL)
 	if err != nil {
@@ -47,13 +47,13 @@ func HTTPClientForOptionalProxy(proxyURL string) (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &http.Client{Transport: t}, nil
+		return &http.Client{Transport: debugTransportFor(t)}, nil
 	case "socks5", "socks5h":
 		t, err := transportSOCKSProxy(u)
 		if err != nil {
 			return nil, err
 		}
-		return &http.Client{Transport: t}, nil
+		return &http.Client{Transport: debugTransportFor(t)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme %q (use http, https, socks5, or socks5h)", u.Scheme)
 	}

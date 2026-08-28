@@ -837,7 +837,7 @@ func TestAskModeRefusesMutatingShellBeforeExecution(t *testing.T) {
 		ID:        "call_write",
 		Name:      "run_command",
 		InputJSON: `{"command":"echo changed > created-by-ask.txt"}`,
-	}, env, string(session.ModeAsk), st.ID, false)
+	}, env, string(session.ModeAsk), st.ID, false, 0)
 	if err != nil {
 		t.Fatalf("mutating shell call should be returned as a policy result, got error: %v", err)
 	}
