@@ -44,8 +44,11 @@ type TrustRecord struct {
 	EnvKeys    []string `json:"env_keys,omitempty"`
 	URL        string   `json:"url,omitempty"`
 	HeaderKeys []string `json:"header_keys,omitempty"`
-	Source     string   `json:"source,omitempty"`
-	ApprovedAt string   `json:"approved_at"`
+	// InsecureSkipVerify records that the approved declaration talks to its
+	// server without verifying the TLS certificate.
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+	Source             string `json:"source,omitempty"`
+	ApprovedAt         string `json:"approved_at"`
 }
 
 // trustFile is the on-disk layout: canonical workspace path -> approvals.
@@ -92,9 +95,10 @@ func CanonicalWorkspace(cwd string) string {
 
 // Fingerprint returns a stable digest of everything in a declaration that
 // decides what gets executed or contacted: the transport, the command line,
-// the environment, the URL, and the headers. Operational switches (disabled,
-// disabledTools) are excluded, so toggling a tool off does not withdraw an
-// approval, while editing the command line does.
+// the environment, the URL, the headers, and whether the TLS certificate of
+// the endpoint is verified. Operational switches (disabled, disabledTools) are
+// excluded, so toggling a tool off does not withdraw an approval, while
+// editing the command line does.
 func Fingerprint(srv config.MCPServerConfig) string {
 	payload := struct {
 		Name      string   `json:"name"`
@@ -104,6 +108,10 @@ func Fingerprint(srv config.MCPServerConfig) string {
 		Env       []string `json:"env"`
 		URL       string   `json:"url"`
 		Headers   []string `json:"headers"`
+		// omitempty is load-bearing: a declaration that does not disable
+		// verification must hash exactly as it did before this field existed,
+		// or every stored approval would be revoked at once.
+		Insecure bool `json:"insecure_skip_verify,omitempty"`
 	}{
 		Name:      srv.Name,
 		Transport: EffectiveTransport(srv),
@@ -112,6 +120,7 @@ func Fingerprint(srv config.MCPServerConfig) string {
 		Env:       pairsForDigest(len(srv.Env), func(i int) (string, string) { return srv.Env[i].Name, srv.Env[i].Value }),
 		URL:       srv.URL,
 		Headers:   pairsForDigest(len(srv.Headers), func(i int) (string, string) { return srv.Headers[i].Name, srv.Headers[i].Value }),
+		Insecure:  srv.InsecureSkipVerify,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -159,8 +168,9 @@ func NewTrustRecord(srv config.MCPServerConfig, source string, approvedAt time.T
 		HeaderKeys: keysOf(len(srv.Headers), func(i int) string {
 			return srv.Headers[i].Name
 		}),
-		Source:     source,
-		ApprovedAt: approvedAt.UTC().Format(time.RFC3339),
+		InsecureSkipVerify: srv.InsecureSkipVerify,
+		Source:             source,
+		ApprovedAt:         approvedAt.UTC().Format(time.RFC3339),
 	}
 }
 

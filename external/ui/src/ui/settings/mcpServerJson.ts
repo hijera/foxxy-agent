@@ -9,6 +9,8 @@ export type MCPEntryJson = {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /** Contact this server without verifying its TLS certificate. */
+  insecureSkipVerify?: boolean;
   disabled?: boolean;
   disabledTools?: string[];
 };
@@ -48,6 +50,7 @@ export type MCPValidationKey =
   | "settings.mcp.validation.argsStringArray"
   | "settings.mcp.validation.envStringMap"
   | "settings.mcp.validation.headersStringMap"
+  | "settings.mcp.validation.insecureSkipVerifyBoolean"
   | "settings.mcp.validation.disabledBoolean"
   | "settings.mcp.validation.disabledToolsStringArray";
 
@@ -65,6 +68,8 @@ export type MCPServerRow = {
   url?: string;
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  /** True when this http/sse server's TLS certificate is not verified. */
+  insecure_skip_verify?: boolean;
   /** File the declaration was read from. */
   source_path?: string;
   enabled: boolean;
@@ -99,9 +104,17 @@ export function showsTrustControl(row: MCPServerRow, policy: ProjectTrust): bool
  * Approving is a decision about these lines, so they are shown before it.
  *
  * labelKey is an i18n key for the same reason PROJECT_TRUST_OPTIONS carries one.
+ * A fact carries either a literal value (declaration text, never translated) or
+ * a valueKey the component resolves.
  */
-export function declarationFacts(row: MCPServerRow): Array<{ labelKey: string; value: string }> {
-  const out: Array<{ labelKey: string; value: string }> = [
+export type MCPDeclarationFact = {
+  labelKey: string;
+  value?: string;
+  valueKey?: string;
+};
+
+export function declarationFacts(row: MCPServerRow): MCPDeclarationFact[] {
+  const out: MCPDeclarationFact[] = [
     { labelKey: "settings.mcp.trust.fact.transport", value: row.transport },
   ];
   // stdio starts a process; the remote transports open a connection.
@@ -112,6 +125,14 @@ export function declarationFacts(row: MCPServerRow): Array<{ labelKey: string; v
     });
   }
   if (row.url) out.push({ labelKey: "settings.mcp.trust.fact.contacts", value: row.url });
+  // Approving a server that skips certificate checks is a different decision
+  // from approving one that does not, so the shield has to say it.
+  if (row.insecure_skip_verify) {
+    out.push({
+      labelKey: "settings.mcp.trust.fact.tls",
+      valueKey: "settings.mcp.trust.factValue.insecure",
+    });
+  }
   const envKeys = Object.keys(row.env ?? {}).sort();
   if (envKeys.length > 0) {
     out.push({ labelKey: "settings.mcp.trust.fact.env", value: envKeys.join(", ") });
@@ -229,6 +250,12 @@ export function parseServerEntryJson(text: string): {
     }
     entry.headers = obj.headers;
   }
+  if (obj.insecureSkipVerify !== undefined) {
+    if (typeof obj.insecureSkipVerify !== "boolean") {
+      return { error: "settings.mcp.validation.insecureSkipVerifyBoolean" };
+    }
+    entry.insecureSkipVerify = obj.insecureSkipVerify;
+  }
   if (obj.disabled !== undefined) {
     if (typeof obj.disabled !== "boolean") {
       return { error: "settings.mcp.validation.disabledBoolean" };
@@ -244,8 +271,14 @@ export function parseServerEntryJson(text: string): {
   return { entry };
 }
 
-/** serverRowToEntryJson prefills the editor from a listed server row. */
-export function serverRowToEntryJson(row: MCPServerRow): string {
+/**
+ * serverRowToEntry rebuilds the mcp.json entry a listed row came from.
+ *
+ * Both the JSON editor and the per-row switches write through it, and a PUT
+ * replaces the whole entry: a field missing here is a field the next save
+ * deletes from the file.
+ */
+export function serverRowToEntry(row: MCPServerRow): MCPEntryJson {
   const entry: MCPEntryJson = {};
   if (row.transport && row.transport !== "stdio") entry.type = row.transport;
   if (row.command) entry.command = row.command;
@@ -255,9 +288,15 @@ export function serverRowToEntryJson(row: MCPServerRow): string {
   if (row.headers && Object.keys(row.headers).length > 0) {
     entry.headers = row.headers;
   }
+  if (row.insecure_skip_verify) entry.insecureSkipVerify = true;
   if (!row.enabled) entry.disabled = true;
   if (row.disabled_tools && row.disabled_tools.length > 0) {
     entry.disabledTools = row.disabled_tools;
   }
-  return JSON.stringify(entry, null, 2);
+  return entry;
+}
+
+/** serverRowToEntryJson prefills the editor from a listed server row. */
+export function serverRowToEntryJson(row: MCPServerRow): string {
+  return JSON.stringify(serverRowToEntry(row), null, 2);
 }

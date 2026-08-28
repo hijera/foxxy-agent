@@ -329,6 +329,10 @@
               }
             }
           },
+          "insecure_skip_verify": {
+            "type": "boolean",
+            "description": "Accept the TLS certificate of an \"http\"/\"sse\" server without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks."
+          },
           "disabled": {
             "type": "boolean",
             "description": "Skip connecting this server without removing its definition."

@@ -276,6 +276,8 @@ func UISchemaMap() map[string]interface{} {
 				"additionalProperties": false,
 			},
 		},
+		"insecure_skip_verify": boolProp("Ignore SSL certificate errors",
+			"Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks."),
 		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
 		"disabled_tools": map[string]interface{}{
 			"type":        "array",
@@ -443,7 +445,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "MCP servers",
 			"description": "Model Context Protocol servers started or contacted for new sessions.",
 			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
+				[]string{"type", "name", "command", "args", "env", "url", "headers", "insecure_skip_verify", "disabled", "disabled_tools"},
 				[]string{"name"}),
 		},
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",

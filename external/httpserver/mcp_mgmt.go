@@ -48,25 +48,27 @@ type mcpToolRow struct {
 
 // mcpServerRow is one merged server in the list response.
 type mcpServerRow struct {
-	Name          string            `json:"name"`
-	Source        string            `json:"source"`    // global | local (scope)
-	Origin        string            `json:"origin"`    // config | home | project (owning file)
-	Readonly      bool              `json:"readonly"`  // config.yaml entries: no edit/delete here
-	Transport     string            `json:"transport"` // stdio | http
-	Command       string            `json:"command,omitempty"`
-	Args          []string          `json:"args,omitempty"`
-	URL           string            `json:"url,omitempty"`
-	Env           map[string]string `json:"env,omitempty"`
-	Headers       map[string]string `json:"headers,omitempty"`
-	SourcePath    string            `json:"source_path,omitempty"` // file that defines the entry
-	Enabled       bool              `json:"enabled"`
-	Status        string            `json:"status"` // connected | error | disabled | unsupported | needs_approval | denied
-	Error         string            `json:"error,omitempty"`
-	Trusted       bool              `json:"trusted"`               // false only for a gated project entry
-	Gated         bool              `json:"gated"`                 // the workspace trust gate applies to this entry
-	Fingerprint   string            `json:"fingerprint,omitempty"` // digest an approval binds to
-	Tools         []mcpToolRow      `json:"tools"`
-	DisabledTools []string          `json:"disabled_tools,omitempty"`
+	Name      string            `json:"name"`
+	Source    string            `json:"source"`    // global | local (scope)
+	Origin    string            `json:"origin"`    // config | home | project (owning file)
+	Readonly  bool              `json:"readonly"`  // config.yaml entries: no edit/delete here
+	Transport string            `json:"transport"` // stdio | http
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	// InsecureSkipVerify: this server's TLS certificate is not verified.
+	InsecureSkipVerify bool         `json:"insecure_skip_verify,omitempty"`
+	SourcePath         string       `json:"source_path,omitempty"` // file that defines the entry
+	Enabled            bool         `json:"enabled"`
+	Status             string       `json:"status"` // connected | error | disabled | unsupported | needs_approval | denied
+	Error              string       `json:"error,omitempty"`
+	Trusted            bool         `json:"trusted"`               // false only for a gated project entry
+	Gated              bool         `json:"gated"`                 // the workspace trust gate applies to this entry
+	Fingerprint        string       `json:"fingerprint,omitempty"` // digest an approval binds to
+	Tools              []mcpToolRow `json:"tools"`
+	DisabledTools      []string     `json:"disabled_tools,omitempty"`
 }
 
 // mcpProbeEntry caches one server's probed tool list keyed by its config and
@@ -138,21 +140,22 @@ func (s *Server) foxxycodeMCPGet(w http.ResponseWriter, r *http.Request) {
 		transport := mcp.EffectiveTransport(srv.Config)
 		trust := gate.Evaluate(cwd, srv)
 		row := mcpServerRow{
-			Name:          srv.Config.Name,
-			Source:        srv.Scope,
-			Origin:        srv.Origin,
-			Readonly:      srv.Origin == mcp.OriginConfig,
-			Transport:     transport,
-			Command:       srv.Config.Command,
-			Args:          srv.Config.Args,
-			URL:           srv.Config.URL,
-			SourcePath:    mcpSourcePath(s.activeCfg(), cwd, srv.Origin),
-			Enabled:       !srv.Config.Disabled,
-			Trusted:       trust == mcp.TrustStateAllowed,
-			Gated:         srv.Origin == mcp.OriginProject,
-			Fingerprint:   mcp.Fingerprint(srv.Config),
-			Tools:         []mcpToolRow{},
-			DisabledTools: srv.Config.DisabledTools,
+			Name:               srv.Config.Name,
+			Source:             srv.Scope,
+			Origin:             srv.Origin,
+			Readonly:           srv.Origin == mcp.OriginConfig,
+			Transport:          transport,
+			Command:            srv.Config.Command,
+			Args:               srv.Config.Args,
+			URL:                srv.Config.URL,
+			InsecureSkipVerify: srv.Config.InsecureSkipVerify,
+			SourcePath:         mcpSourcePath(s.activeCfg(), cwd, srv.Origin),
+			Enabled:            !srv.Config.Disabled,
+			Trusted:            trust == mcp.TrustStateAllowed,
+			Gated:              srv.Origin == mcp.OriginProject,
+			Fingerprint:        mcp.Fingerprint(srv.Config),
+			Tools:              []mcpToolRow{},
+			DisabledTools:      srv.Config.DisabledTools,
 		}
 		if len(srv.Config.Env) > 0 {
 			row.Env = make(map[string]string, len(srv.Config.Env))

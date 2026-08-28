@@ -7181,6 +7181,24 @@ textarea#composer {
   max-width: 420px;
 }
 
+/* Per-server TLS switch: indented under the row head, aligned with the note. */
+.mcp-insecure-row {
+  margin: 4px 0 0 26px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.mcp-insecure-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mcp-insecure-row input[disabled] {
+  cursor: default;
+}
+
 .mcp-trust-note {
   margin: 6px 0 0 26px;
   font-size: 0.78rem;

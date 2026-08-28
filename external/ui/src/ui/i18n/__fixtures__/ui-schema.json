@@ -544,6 +544,11 @@
             "title": "HTTP headers",
             "type": "array"
           },
+          "insecure_skip_verify": {
+            "description": "Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.",
+            "title": "Ignore SSL certificate errors",
+            "type": "boolean"
+          },
           "name": {
             "description": "Stable id referenced by the agent; must be unique in this list.",
             "title": "Server name",
@@ -572,6 +577,7 @@
           "env",
           "url",
           "headers",
+          "insecure_skip_verify",
           "disabled",
           "disabled_tools"
         ]
