@@ -1,6 +1,8 @@
 package config
 
 import (
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
+
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -10,27 +12,28 @@ import (
 
 // ConfigJSON is the JSON shape for GET/PUT /foxxycode/config (snake_case keys match YAML).
 type ConfigJSON struct {
-	Providers    []ProviderJSON   `json:"providers,omitempty"`
-	Models       []ModelJSON      `json:"models,omitempty"`
-	Agent        AgentJSON        `json:"agent,omitempty"`
-	Prompts      PromptsJSON      `json:"prompts,omitempty"`
-	Instructions InstructionsJSON `json:"instructions,omitempty"`
-	Skills       SkillsJSON       `json:"skills,omitempty"`
-	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
-	MCP          MCPJSON          `json:"mcp,omitempty"`
-	Tools        ToolsJSON        `json:"tools,omitempty"`
-	Logger       LoggerJSON       `json:"logger,omitempty"`
-	Sessions     SessionsJSON     `json:"sessions,omitempty"`
-	Memory       MemoryJSON       `json:"memory,omitempty"`
-	Compaction   CompactionJSON   `json:"compaction,omitempty"`
-	Title        TitleJSON        `json:"title,omitempty"`
-	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
-	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
-	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
-	UI           UIJSON           `json:"ui,omitempty"`
-	Browser      BrowserJSON      `json:"browser,omitempty"`
-	VCS          VCSJSON          `json:"vcs,omitempty"`
-	Debug        DebugJSON        `json:"debug,omitempty"`
+	Providers    []ProviderJSON           `json:"providers,omitempty"`
+	Models       []ModelJSON              `json:"models,omitempty"`
+	Agent        AgentJSON                `json:"agent,omitempty"`
+	Prompts      PromptsJSON              `json:"prompts,omitempty"`
+	Instructions InstructionsJSON         `json:"instructions,omitempty"`
+	Skills       SkillsJSON               `json:"skills,omitempty"`
+	MCPServers   []MCPServerJSON          `json:"mcp_servers,omitempty"`
+	MCP          MCPJSON                  `json:"mcp,omitempty"`
+	Tools        ToolsJSON                `json:"tools,omitempty"`
+	Logger       LoggerJSON               `json:"logger,omitempty"`
+	Sessions     SessionsJSON             `json:"sessions,omitempty"`
+	Memory       MemoryJSON               `json:"memory,omitempty"`
+	Compaction   CompactionJSON           `json:"compaction,omitempty"`
+	Title        TitleJSON                `json:"title,omitempty"`
+	HTTPServer   HTTPServerJSON           `json:"httpserver,omitempty"`
+	Scheduler    SchedulerJSON            `json:"scheduler,omitempty"`
+	Gateways     GatewaysJSON             `json:"gateways,omitempty"`
+	UI           UIJSON                   `json:"ui,omitempty"`
+	Browser      BrowserJSON              `json:"browser,omitempty"`
+	VCS          VCSJSON                  `json:"vcs,omitempty"`
+	Debug        DebugJSON                `json:"debug,omitempty"`
+	Commands     []cmdprofile.ProfileSpec `json:"commands,omitempty"`
 }
 
 // VCSJSON mirrors VCSConfig for JSON APIs.
@@ -198,10 +201,10 @@ type MCPJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode          string               `json:"permission_mode,omitempty"`
-	CommandAllowlist        []string             `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun           *bool                `json:"plan_no_self_run,omitempty"`
-	AskDisableExtendedTools bool                 `json:"ask_disable_extended_tools,omitempty"`
+	PermissionMode          string   `json:"permission_mode,omitempty"`
+	CommandAllowlist        []string `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun           *bool    `json:"plan_no_self_run,omitempty"`
+	AskDisableExtendedTools bool     `json:"ask_disable_extended_tools,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 	Background   ToolBackgroundJSON   `json:"background"`
@@ -270,12 +273,12 @@ type MemoryJSON struct {
 // "use default" (true) rather than an explicit false; KeepRecentTurns is a pointer so an explicit
 // 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
-	Engine           string             `json:"engine,omitempty"`
-	Enabled          *bool              `json:"enabled,omitempty"`
-	Model            string             `json:"model,omitempty"`
-	ThresholdPercent int                `json:"threshold_percent,omitempty"`
-	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
-	MaxTokens        int                `json:"max_tokens,omitempty"`
+	Engine           string `json:"engine,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
+	Model            string `json:"model,omitempty"`
+	ThresholdPercent int    `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
+	MaxTokens        int    `json:"max_tokens,omitempty"`
 	// omitempty does not apply to structs; unset eviction serializes as {}.
 	ResultEviction ResultEvictionJSON `json:"result_eviction"`
 }
@@ -407,6 +410,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
 	out.Debug = DebugJSON{Enabled: c.Debug.Enabled, CaptureLLM: c.Debug.CaptureLLM}
+	// Deep-copied: a section absent here is silently erased from disk on the
+	// next Settings save, and a shallow copy would alias the live config.
+	out.Commands = cmdprofile.CloneSpecs(c.Commands)
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
@@ -558,6 +564,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		},
 	}
 	cfg.Debug = Debug{Enabled: j.Debug.Enabled, CaptureLLM: j.Debug.CaptureLLM}
+	cfg.Commands = cmdprofile.CloneSpecs(j.Commands)
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,

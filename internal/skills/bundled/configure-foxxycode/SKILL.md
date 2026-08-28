@@ -55,6 +55,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `mcp_servers` - MCP servers started per session (stdio command, args, env, disabled flag);
 - `mcp` - trust policy for project-local `.foxxycode/mcp.json` declarations (`project_trust`);
 - `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;
+- `commands` - command profiles: one fixed binary per entry with an argv template and typed params (`file`/`enum`/`int`/`flag`/`string`+pattern), `permission: ask|allow` (only `allow` runs inside Mini Apps), package-manager install coordinates; registered as `cmd_<name>` tools, executed argv-style without a shell (example: `set commands[name=ffmpeg_extract_audio]={"binary":"ffmpeg","permission":"allow","template":["-i","{input_path}","-vn","{output_path}"],"params":[{"name":"input_path","type":"file"},{"name":"output_path","type":"file"}]}`);
 - `logger` - level, outputs, rotation;
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;

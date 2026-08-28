@@ -204,6 +204,14 @@ export function MiniAppRunner(props: {
           {t("miniapps.close")}
         </button>
       </div>
+      {/* Outside the branch below: a start that fails never produces a run id,
+          so an error rendered only in the running branch would leave the
+          operator staring at an unchanged form. */}
+      {error ? (
+        <p className="miniapps-error" role="alert">
+          {error}
+        </p>
+      ) : null}
       {!runId ? (
         <>
           <p className="miniapps-lead">
@@ -336,11 +344,6 @@ export function MiniAppRunner(props: {
                 </button>
               </div>
             </div>
-          ) : null}
-          {error ? (
-            <p className="miniapps-error" role="alert">
-              {error}
-            </p>
           ) : null}
           {run?.error ? (
             <pre className="miniapps-report">{run.error}</pre>

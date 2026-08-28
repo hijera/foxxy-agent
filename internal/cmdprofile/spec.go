@@ -58,33 +58,33 @@ const maxTimeoutSeconds = 3600
 // ParamSpec declares one typed parameter referenced from the template as
 // {name}. JSON tags define the portable document shape.
 type ParamSpec struct {
-	Name string    `json:"name"`
-	Type ParamType `json:"type"`
+	Name string    `json:"name" yaml:"name"`
+	Type ParamType `json:"type" yaml:"type"`
 	// Enum lists the allowed values (enum type only).
-	Enum []string `json:"enum,omitempty"`
+	Enum []string `json:"enum,omitempty" yaml:"enum,omitempty"`
 	// Min and Max bound int parameters when set.
-	Min *int `json:"min,omitempty"`
-	Max *int `json:"max,omitempty"`
+	Min *int `json:"min,omitempty" yaml:"min,omitempty"`
+	Max *int `json:"max,omitempty" yaml:"max,omitempty"`
 	// Pattern constrains string parameters. It is compiled as ^(?:pattern)$.
-	Pattern string `json:"pattern,omitempty"`
+	Pattern string `json:"pattern,omitempty" yaml:"pattern,omitempty"`
 	// Literal is the token a true flag emits (flag type only). It is the one
 	// place a leading dash is legitimate, because the author wrote it.
-	Literal string `json:"literal,omitempty"`
+	Literal string `json:"literal,omitempty" yaml:"literal,omitempty"`
 	// Required is accepted for schema symmetry. Non-flag parameters are always
 	// required in v1 (an optional value inside a template token would make
 	// matching ambiguous); flags are inherently optional.
-	Required    *bool  `json:"required,omitempty"`
-	Description string `json:"description,omitempty"`
+	Required    *bool  `json:"required,omitempty" yaml:"required,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
 // InstallSpec names the profile's package in known package managers. Fixed
 // fields rather than a map: the config path walker cannot address map keys.
 type InstallSpec struct {
-	Winget string `json:"winget,omitempty"`
-	Scoop  string `json:"scoop,omitempty"`
-	Brew   string `json:"brew,omitempty"`
-	Apt    string `json:"apt,omitempty"`
-	Dnf    string `json:"dnf,omitempty"`
+	Winget string `json:"winget,omitempty" yaml:"winget,omitempty"`
+	Scoop  string `json:"scoop,omitempty" yaml:"scoop,omitempty"`
+	Brew   string `json:"brew,omitempty" yaml:"brew,omitempty"`
+	Apt    string `json:"apt,omitempty" yaml:"apt,omitempty"`
+	Dnf    string `json:"dnf,omitempty" yaml:"dnf,omitempty"`
 }
 
 // ProfileSpec is one command profile. It is both the config shape (mirrored in
@@ -93,15 +93,51 @@ type InstallSpec struct {
 // absolute paths are machine-specific and the release sanitizer rejects them
 // in portable documents.
 type ProfileSpec struct {
-	Name        string `json:"name"`
-	Binary      string `json:"binary"`
-	Description string `json:"description,omitempty"`
+	Name        string `json:"name" yaml:"name"`
+	Binary      string `json:"binary" yaml:"binary"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 	// Permission is ask or allow; empty resolves to ask (the safe default).
-	Permission     string      `json:"permission,omitempty"`
-	TimeoutSeconds int         `json:"timeout_seconds,omitempty"`
-	Template       []string    `json:"template"`
-	Params         []ParamSpec `json:"params,omitempty"`
-	Install        InstallSpec `json:"install,omitempty"`
+	Permission     string      `json:"permission,omitempty" yaml:"permission,omitempty"`
+	TimeoutSeconds int         `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	Template       []string    `json:"template" yaml:"template"`
+	Params         []ParamSpec `json:"params,omitempty" yaml:"params,omitempty"`
+	Install        InstallSpec `json:"install,omitempty" yaml:"install,omitempty"`
+}
+
+// Clone returns a deep copy, so config DTO round-trips and document embedding
+// never share slice backing arrays with the original.
+func (s ProfileSpec) Clone() ProfileSpec {
+	out := s
+	out.Template = append([]string(nil), s.Template...)
+	out.Params = append([]ParamSpec(nil), s.Params...)
+	for index := range out.Params {
+		out.Params[index].Enum = append([]string(nil), s.Params[index].Enum...)
+		if s.Params[index].Min != nil {
+			value := *s.Params[index].Min
+			out.Params[index].Min = &value
+		}
+		if s.Params[index].Max != nil {
+			value := *s.Params[index].Max
+			out.Params[index].Max = &value
+		}
+		if s.Params[index].Required != nil {
+			value := *s.Params[index].Required
+			out.Params[index].Required = &value
+		}
+	}
+	return out
+}
+
+// CloneSpecs deep-copies a profile list.
+func CloneSpecs(specs []ProfileSpec) []ProfileSpec {
+	if specs == nil {
+		return nil
+	}
+	out := make([]ProfileSpec, len(specs))
+	for index := range specs {
+		out[index] = specs[index].Clone()
+	}
+	return out
 }
 
 // ToolName is the registry name for the profile's tool. The cmd_ prefix keeps

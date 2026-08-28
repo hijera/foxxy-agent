@@ -1,6 +1,8 @@
 // Package config handles loading and validating agent configuration.
 package config
 
+import "github.com/hijera/foxxycode-agent/internal/cmdprofile"
+
 // Config is the root configuration struct.
 type Config struct {
 	Paths Paths `yaml:"-"`
@@ -27,4 +29,7 @@ type Config struct {
 	Browser      BrowserConfig     `yaml:"browser"`
 	VCS          VCSConfig         `yaml:"vcs"`
 	Debug        Debug             `yaml:"debug"`
+	// Commands declares operator-approved command profiles: narrow argv-exec
+	// tools over one fixed binary each. See internal/cmdprofile.
+	Commands []cmdprofile.ProfileSpec `yaml:"commands"`
 }

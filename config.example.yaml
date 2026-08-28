@@ -409,3 +409,27 @@ logger:
 #     binary: ""            # "" = resolve "svn" on PATH; or a path to the client
 #     timeout_seconds: 120  # per-command timeout (update, commit, merge, ...)
 #     branch_lookup: true   # list trunk/branches for the chip menu (contacts the server)
+
+# Command profiles: narrow tools that run one fixed binary with an argv template
+# and typed parameters, without a shell. Registered as cmd_<name>; Mini Apps can
+# distill matching run_command sessions into steps over these tools.
+# commands:
+#   - name: ffmpeg_extract_audio
+#     binary: ffmpeg          # bare name resolved on PATH, or an absolute path
+#     description: Extract the audio track from a video file
+#     permission: allow       # ask (default) prompts in chat; only allow-profiles run in Mini Apps
+#     timeout_seconds: 120    # 0 = default (120), maximum 3600
+#     template: ["-i", "{input_path}", "-vn", "-acodec", "{codec}", "{output_path}"]
+#     params:
+#       - name: input_path    # file params must end in _path/_file/_dir
+#         type: file
+#       - name: codec
+#         type: enum
+#         enum: [libmp3lame, aac]
+#       - name: output_path
+#         type: file
+#     install:                # offered when the binary is missing
+#       winget: Gyan.FFmpeg
+#       scoop: ffmpeg
+#       apt: ffmpeg
+#       brew: ffmpeg

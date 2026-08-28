@@ -4,6 +4,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
+	toolcmd "github.com/hijera/foxxycode-agent/internal/tools/cmdprofile"
 	toolfs "github.com/hijera/foxxycode-agent/internal/tools/fs"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 	toolssh "github.com/hijera/foxxycode-agent/internal/tools/ssh"
@@ -71,6 +72,10 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	// Subversion tools: registered only when vcs.svn is enabled and a client is
 	// installed, so turning the setting off removes them from the next turn.
 	toolsvn.RegisterBuiltins(r.Register, cfg)
+	// Command profiles: one narrow argv-exec tool per commands: entry. They
+	// register even when the binary is missing so a call answers with install
+	// guidance instead of "unknown tool".
+	toolcmd.RegisterBuiltins(r.Register, cfg)
 	registerSchedulerTools(r, cfg)
 	registerBrowserTools(r, cfg)
 	return r
