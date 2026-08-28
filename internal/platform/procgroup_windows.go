@@ -5,6 +5,7 @@ package platform
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"strconv"
@@ -38,6 +39,7 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 	pid := strconv.Itoa(cmd.Process.Pid)
 
 	kill := exec.Command("taskkill", "/T", "/F", "/PID", pid)
+	HideConsoleWindow(kill)
 	if err := kill.Start(); err == nil {
 		done := make(chan error, 1)
 		go func() { done <- kill.Wait() }()
@@ -105,10 +107,10 @@ func ProcessGroupAlive(pid int, startedAt time.Time) bool {
 	}
 	defer func() { _ = windows.CloseHandle(handle) }()
 
-	// WAIT_OBJECT_0 means the process is signalled, which for a process object
-	// means it has exited. WAIT_TIMEOUT means it is still running.
-	event, err := windows.WaitForSingleObject(handle, 0)
-	if err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+	// A process object that is not yet signalled is one whose process is still
+	// running. Anything else - signalled, or a wait that could not answer at all -
+	// is not a process to offer for killing.
+	if _, running := waitProcess(handle, 0); !running {
 		return false
 	}
 
@@ -159,12 +161,25 @@ func processStartedAt(handle windows.Handle) (time.Time, error) {
 // record persisted, and it is checked here rather than trusted from the caller's
 // earlier probe.
 //
-// The verified handle is deliberately held open for the whole of taskkill.
+// The verified handle is deliberately held open for the whole of the kill.
 // Windows keeps a pid allocated for as long as any handle to its process object
 // is open, so holding one is what stops the number from being handed to a
 // stranger between the check and the kill - and it also keeps taskkill /T
 // resolving the tree by the parent pid that the children actually have. Without
 // it the identity check would only narrow the window rather than close it.
+//
+// grace bounds how long taskkill is given, not how long this may report success
+// without having killed anything. taskkill is a heavy helper - starting it and
+// letting it walk one child costs about a second on an idle machine - so a grace
+// that expires first is ordinary rather than exceptional, and a grace shorter
+// than that is what the caller asked for. When it expires, taskkill is left
+// running on purpose: it finishes walking the tree even if nothing is watching
+// any more, and that walk is the only thing that reaches grandchildren. The
+// leader is then terminated directly, through the pid the held handle has
+// pinned. Killing taskkill instead would abandon the tree to save a short-lived
+// helper and leave the leader running behind a nil error, which is worse than
+// either failure alone: background_reap reports a survivor as reaped and stops
+// looking at it.
 //
 // Liveness is deliberately not required: a leader that has already exited can
 // still have running children, and those are exactly what reaping is for.
@@ -173,9 +188,11 @@ func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duratio
 		return nil
 	}
 
-	// Query rights only. SYNCHRONIZE buys nothing here - nothing waits on the
-	// object - and every right asked for is one more the target may refuse.
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	// Query and wait rights only. PROCESS_TERMINATE is asked for later and
+	// separately, so that a target refusing it still costs nothing here: every
+	// right asked for up front is one more that can fail the open, and a failed
+	// open loses the identity check and the taskkill attempt with it.
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		// Nothing answers to this pid any more, so there is nothing to kill and
 		// nothing was left running. Same outcome as ESRCH on unix.
@@ -187,23 +204,99 @@ func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duratio
 		return fmt.Errorf("pid %d is not the process the task recorded", pid)
 	}
 
-	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
-	if err := kill.Start(); err != nil {
-		return err
-	}
-	done := make(chan struct{})
-	go func() {
-		_ = kill.Wait()
-		close(done)
-	}()
 	if grace <= 0 {
 		grace = 5 * time.Second
 	}
+	deadline := time.Now().Add(grace)
+
+	done := make(chan struct{})
+	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
+	HideConsoleWindow(kill)
+	if err := kill.Start(); err != nil {
+		// No tree walk this run; the leader below is all that can be reached.
+		close(done)
+	} else {
+		go func() {
+			_ = kill.Wait()
+			close(done)
+		}()
+	}
+
 	select {
 	case <-done:
-		return nil
-	case <-time.After(grace):
-		_ = kill.Process.Kill()
+	case <-time.After(time.Until(deadline)):
+	}
+
+	// Whether taskkill finished, refused the tree, or is still walking it, its
+	// exit status is not the answer to whether anything is still running. The
+	// process object is, so that is what the rest of the grace waits on.
+	if exited, _ := waitProcess(handle, time.Until(deadline)); exited {
 		return nil
 	}
+	return terminateProcess(pid, handle)
+}
+
+// confirmExit bounds how long a refused termination is given to turn out to have
+// been unnecessary. It is not a second grace period - nothing is being waited out
+// politely here - only the short time a kernel teardown that is already under way
+// needs to reach the process object.
+const confirmExit = 2 * time.Second
+
+// terminateProcess kills the leader directly, for when taskkill did not reach it
+// within the grace. The pid is not racy here even though it is opened a second
+// time: the caller still holds a handle to the process object it verified, and
+// Windows keeps a pid allocated for as long as any handle to it is open, so this
+// open cannot land on a stranger.
+func terminateProcess(pid int, verified windows.Handle) error {
+	handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
+	if err != nil {
+		return fmt.Errorf("terminate pid %d: %w", pid, err)
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+
+	if err := windows.TerminateProcess(handle, 1); err != nil {
+		// Windows refuses to terminate a process that has already exited or is
+		// already terminating, and reports both as access denied. That is the
+		// ordinary outcome of the grace running out while taskkill was mid-kill,
+		// not a failure to kill anything, so the refusal is re-read against the
+		// process object once the teardown it is complaining about has had time
+		// to finish. Reading it as an error instead would report a process that
+		// is on its way out as a survivor nothing could touch.
+		if exited, _ := waitProcess(verified, confirmExit); exited {
+			return nil
+		}
+		return fmt.Errorf("terminate pid %d: %w", pid, err)
+	}
+	return nil
+}
+
+// waitProcess reports the state of a process object, waiting at most timeout for
+// it to settle: a process object is signalled exactly when the process has
+// exited, and unsignalled while it runs.
+//
+// Both answers are returned rather than one being the other's negation, because
+// a wait that fails outright proves neither, and the two callers have to fail
+// closed towards opposite answers: an unproven process is not alive enough to
+// offer for killing, and it is also not dead enough to stop killing.
+func waitProcess(handle windows.Handle, timeout time.Duration) (exited, running bool) {
+	event, err := windows.WaitForSingleObject(handle, waitMilliseconds(timeout))
+	if err != nil {
+		return false, false
+	}
+	return event == uint32(windows.WAIT_OBJECT_0), event == uint32(windows.WAIT_TIMEOUT)
+}
+
+// waitMilliseconds converts a timeout into the count WaitForSingleObject takes,
+// clamped so that it can never come out as INFINITE. A probe that waits forever
+// on a process that is still running is the whole failure this file exists to
+// avoid, and it must not be reachable by arithmetic.
+func waitMilliseconds(timeout time.Duration) uint32 {
+	if timeout <= 0 {
+		return 0
+	}
+	const longestWait = time.Duration(math.MaxInt32) * time.Millisecond
+	if timeout > longestWait {
+		timeout = longestWait
+	}
+	return uint32(timeout.Milliseconds())
 }

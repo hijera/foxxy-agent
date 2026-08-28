@@ -32,6 +32,7 @@ export const messagesRu: Record<string, string> = {
   "composer.modePlan": "План",
   "composer.modeDocs": "Документация",
   "composer.modeAsk": "Вопросы",
+  "composer.modeDebug": "Отладка",
   "composer.model": "Модель",
   "composer.modelTitle": "YAML-бэкенд (metadata.model)",
   "composer.reasoning": "Рассуждение",

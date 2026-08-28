@@ -919,6 +919,24 @@
           }
         }
       }
+    },
+    "debug": {
+      "type": "object",
+      "title": "Debug",
+      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, and per-session debug trace. The --debug CLI flag forces enabled=true at startup.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config.",
+          "default": false
+        },
+        "capture_llm": {
+          "type": "boolean",
+          "description": "Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enabled; set to false to keep debug logs while suppressing large bodies.",
+          "default": true
+        }
+      }
     }
   }
 }

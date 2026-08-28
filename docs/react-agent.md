@@ -5,7 +5,7 @@
 FoxxyCode is modeled as **harness plus execution engine**. This document specifies that engine -
 
 - the **ReAct loop** in `internal/agent` that turns prompts and tools into streamed turns,
-- default **coding-agent** behavior - tool registry, `agent`, `plan`, `docs`, and `ask` modes, permission gates.
+- default **coding-agent** behavior - tool registry, `agent`, `plan`, `docs`, `ask`, and `debug` modes, permission gates.
 
 The same harness may use a narrower tool surface or different clients (automation, not only IDEs).
 
@@ -24,7 +24,7 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
-Templates are **`internal/prompts/agent.md`**, **`plan.md`**, **`docs.md`**, and **`ask.md`** (embedded by default or overridden via **`prompts.dir`**). Ask also includes built-in **`ask.openai.md`** and **`ask.gpt-oss.md`** variants. They use Go **`text/template`**.
+Built-in templates are assembled from manifests and Go **`text/template`** fragments under **`internal/prompts/sections/<mode>/`** for **agent**, **plan**, **docs**, **ask**, and **debug**. Variant fragments resolve by configured model-reference slug, provider-neutral API-model slug, and family. A configured **`prompts.dir`** keeps the legacy complete-file overrides (**`agent.md`**, **`plan.md`**, **`docs.md`**, and **`ask.md`**, plus dotted variants).
 
 Rendered order matches the markdown files roughly as follows:
 

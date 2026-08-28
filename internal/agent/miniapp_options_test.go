@@ -95,7 +95,7 @@ func TestAgentOptionsAllowlistFiltersDefinitionsAndRejectsBuiltinBeforePermissio
 		ID:        "blocked-write",
 		Name:      "write",
 		InputJSON: `{"path":"blocked.txt","content":"must not be written"}`,
-	}, env, string(session.ModeAgent), st.GetID(), false)
+	}, env, string(session.ModeAgent), st.GetID(), false, 0)
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {
 		t.Fatalf("undeclared builtin call error = %v, want not-allowed error", err)
 	}
@@ -126,7 +126,7 @@ func TestAgentOptionsAllowlistFiltersAndRejectsMCPTools(t *testing.T) {
 		ID:        "blocked-mcp",
 		Name:      "srv__echo",
 		InputJSON: `{}`,
-	}, env, string(session.ModeAgent), st.GetID(), false)
+	}, env, string(session.ModeAgent), st.GetID(), false, 0)
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {
 		t.Fatalf("undeclared MCP call error = %v, want not-allowed error", err)
 	}
@@ -151,7 +151,7 @@ func TestAgentOptionsToolCallGuardRunsBeforePermission(t *testing.T) {
 	_, err := ag.executeToolCall(context.Background(), llm.ToolCall{
 		ID: "guarded-write", Name: "write",
 		InputJSON: `{"path":"../outside.txt","content":"blocked"}`,
-	}, env, string(session.ModeAgent), st.GetID(), false)
+	}, env, string(session.ModeAgent), st.GetID(), false, 0)
 	if err == nil || !strings.Contains(err.Error(), "outside isolated workspace") {
 		t.Fatalf("guarded call error = %v", err)
 	}

@@ -238,6 +238,8 @@ func (m *Manager) sessionResultModes(st *State) *acp.ModeState {
 			{ID: "agent", Name: "Agent", Description: "Execute tasks with full tool access"},
 			{ID: "plan", Name: "Plan", Description: "Plan and design without code execution"},
 			{ID: "docs", Name: "Docs", Description: "Generate and update project documentation"},
+			{ID: "ask", Name: "Ask", Description: "Answer questions with read-only research tools"},
+			{ID: "debug", Name: "Debug", Description: "Diagnose issues systematically before fixing them"},
 		},
 	}
 }

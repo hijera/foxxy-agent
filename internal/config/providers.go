@@ -92,7 +92,9 @@ func runAPIKeyCommand(command string) string {
 	defer cancel()
 	commandShell := platform.CurrentShell()
 	executable, args := commandShell.Command(command)
-	out, err := exec.CommandContext(ctx, executable, args...).Output()
+	cmd := exec.CommandContext(ctx, executable, args...)
+	platform.HideConsoleWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

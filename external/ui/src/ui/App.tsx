@@ -334,7 +334,7 @@ type ModelInfo = {
   reasoningDefault?: string;
 };
 
-const PROFILE_MODES = ["agent", "plan", "docs", "ask"] as const;
+const PROFILE_MODES = ["agent", "plan", "docs", "ask", "debug"] as const;
 
 type SessionStats = {
   tokenUsageTotal?: {
@@ -4072,7 +4072,11 @@ export function App() {
       };
       const atts = extractAtFileAttachments(text);
       const profileModel =
-        mode === "agent" || mode === "plan" || mode === "docs" || mode === "ask";
+        mode === "agent" ||
+        mode === "plan" ||
+        mode === "docs" ||
+        mode === "ask" ||
+        mode === "debug";
       if (atts.length > 0 && profileModel) {
         reqBody.attachments = atts;
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;

@@ -447,6 +447,13 @@ func (a *Agent) runReActLoop(
 			return string(acp.StopReasonCancelled), nil
 		}
 
+		a.emitDebug(turn, "turn_start", mode, "", map[string]interface{}{
+			"mode":     mode,
+			"model":    a.state.EffectiveModelID(a.cfg),
+			"messages": len(messages),
+			"tools":    len(toolDefs),
+		})
+
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after foxxycode_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
@@ -550,6 +557,10 @@ func (a *Agent) runReActLoop(
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
 		sendMessages := a.prunedForLLM(messages)
+		a.emitDebug(turn, "llm_request", "", "", map[string]interface{}{
+			"model":    a.state.EffectiveModelID(a.cfg),
+			"messages": len(sendMessages),
+		})
 		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
@@ -754,6 +765,14 @@ func (a *Agent) runReActLoop(
 
 		// Append assistant message to history.
 		reasonStore, reasonSig := reasoningForStorage(reasonTrim, reasoningBuf.String(), response)
+		// response is non-nil on this path: the streamErr branch above returned, and the
+		// token accounting plus assistantMsg below already dereference it unconditionally.
+		a.emitDebug(turn, "llm_response", "", "", map[string]interface{}{
+			"stop_reason":   response.StopReason,
+			"input_tokens":  response.InputTokens,
+			"output_tokens": response.OutputTokens,
+			"tool_calls":    len(response.ToolCalls),
+		})
 		assistantMsg := llm.Message{
 			Role:                llm.RoleAssistant,
 			Content:             response.Content,
@@ -822,7 +841,7 @@ func (a *Agent) runReActLoop(
 				continue
 			}
 
-			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
+			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false, turn)
 
 			var toolResultMsg llm.Message
 			if execErr != nil {
@@ -988,7 +1007,7 @@ func loopAbortError(c loopAbortChannel) error {
 }
 
 // executeToolCall runs a single tool call and reports updates to the client.
-func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
+func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool, turn int) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	defer func() { env.ToolCallID = "" }()
 
@@ -1066,6 +1085,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		_ = session.MarkToolCallStarted(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "in_progress")
 		_ = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
 	}
+	a.emitDebug(turn, "tool_start", tc.Name, "", map[string]interface{}{"tool_call_id": tc.ID, "kind": toolKind(tc.Name)})
 
 	// Mark as in_progress, include raw InputJSON so connected clients can show args.
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
@@ -1205,6 +1225,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
 		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
 	}
+	a.emitDebug(turn, "tool_finish", tc.Name, "", map[string]interface{}{
+		"tool_call_id": tc.ID,
+		"kind":         toolKind(tc.Name),
+		"status":       status,
+		"ok":           execErr == nil,
+	})
 
 	payload := result
 	if execErr != nil {

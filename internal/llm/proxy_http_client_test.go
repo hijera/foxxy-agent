@@ -11,7 +11,7 @@ import (
 // proxyForRequest resolves the proxy the client's transport would use for rawURL.
 func proxyForRequest(t *testing.T, c *http.Client, rawURL string) *url.URL {
 	t.Helper()
-	tr, ok := c.Transport.(*http.Transport)
+	tr, ok := UnwrapTransport(c.Transport).(*http.Transport)
 	if !ok {
 		t.Fatalf("transport is not *http.Transport")
 	}
@@ -52,7 +52,7 @@ func TestProviderProxyOverridesEnvironment(t *testing.T) {
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
-		tr := c.Transport.(*http.Transport)
+		tr := UnwrapTransport(c.Transport).(*http.Transport)
 		if tr.Proxy != nil {
 			t.Fatal("SOCKS transport must not carry an HTTP proxy from the environment")
 		}
@@ -171,7 +171,7 @@ func assertLLMResponseHeaderTimeout(t *testing.T, c *http.Client) {
 	if c == nil {
 		t.Fatal("expected a dedicated LLM HTTP client")
 	}
-	tr, ok := c.Transport.(*http.Transport)
+	tr, ok := UnwrapTransport(c.Transport).(*http.Transport)
 	if !ok {
 		t.Fatalf("transport is %T, want *http.Transport", c.Transport)
 	}

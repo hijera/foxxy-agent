@@ -157,14 +157,20 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	if modeOpt.CurrentValue != "agent" {
 		t.Fatalf("expected current mode agent, got %q", modeOpt.CurrentValue)
 	}
-	var askModeFound bool
+	var askModeFound, debugModeFound bool
 	for _, option := range modeOpt.Options {
 		if option.Value == string(session.ModeAsk) && option.Name == "Ask" {
 			askModeFound = true
 		}
+		if option.Value == string(session.ModeDebug) && option.Name == "Debug" {
+			debugModeFound = true
+		}
 	}
 	if !askModeFound {
 		t.Fatalf("expected Ask mode option, got %+v", modeOpt.Options)
+	}
+	if !debugModeFound {
+		t.Fatalf("expected Debug mode option, got %+v", modeOpt.Options)
 	}
 	if modelOpt == nil {
 		t.Fatal("expected config option id model")
@@ -291,6 +297,66 @@ func TestManagerSetConfigOptionAskMode(t *testing.T) {
 		}
 	}
 	t.Fatalf("Ask mode was not selected: %+v", out.ConfigOptions)
+}
+
+func TestManagerSetConfigOptionDebugMode(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	out, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: res.SessionID,
+		ConfigID:  "mode",
+		Value:     "debug",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionSetConfigOption debug: %v", err)
+	}
+	for _, option := range out.ConfigOptions {
+		if option.ID == "mode" && option.CurrentValue == "debug" {
+			return
+		}
+	}
+	t.Fatalf("Debug mode was not selected: %+v", out.ConfigOptions)
+}
+
+// The legacy session/set_mode path is gated on IsValidMode, and the modes it
+// advertises in session/new come from a separate literal list - so a mode can be
+// settable while staying invisible to an ACP client. Pin both together.
+func TestManagerSetModeDebugIsAdvertised(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	if res.Modes == nil {
+		t.Fatal("session/new returned no mode state")
+	}
+	advertised := make(map[string]bool, len(res.Modes.AvailableModes))
+	for _, mode := range res.Modes.AvailableModes {
+		advertised[mode.ID] = true
+	}
+	for _, want := range []string{"agent", "plan", "docs", "ask", "debug"} {
+		if !advertised[want] {
+			t.Errorf("session/new does not advertise mode %q: %+v", want, res.Modes.AvailableModes)
+		}
+	}
+
+	if err := m.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{
+		SessionID: res.SessionID,
+		ModeID:    "debug",
+	}); err != nil {
+		t.Fatalf("HandleSessionSetMode debug: %v", err)
+	}
+	if got := m.SessionByID(res.SessionID).GetMode(); got != string(session.ModeDebug) {
+		t.Fatalf("session mode: want debug got %q", got)
+	}
 }
 
 func TestManagerSetConfigOptionUnknownValue(t *testing.T) {
