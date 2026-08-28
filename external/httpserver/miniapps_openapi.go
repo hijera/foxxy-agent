@@ -62,6 +62,11 @@ func mergeOpenAPIMiniAppsDoc(doc *map[string]interface{}) {
 		"get": map[string]interface{}{"summary": "Get the current draft", "operationId": "getMiniAppDraft", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "responses": map[string]interface{}{"200": response("Mini App draft", "MiniApp"), "404": errorResponseRef()}},
 		"put": map[string]interface{}{"summary": "Replace the current draft", "operationId": "replaceMiniAppDraft", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "requestBody": request("MiniApp"), "responses": map[string]interface{}{"200": response("Updated draft", "MiniApp"), "409": errorResponseRef(), "422": errorResponseRef()}},
 	}
+	paths["/foxxycode/miniapps/{id}/assistant"] = map[string]interface{}{"post": map[string]interface{}{
+		"summary": "Ask the Mini App editor assistant", "description": "Returns a validated draft proposal without saving it. The caller must review and replace the draft explicitly.",
+		"operationId": "assistMiniAppDraft", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "requestBody": request("MiniAppAssistantRequest"),
+		"responses": map[string]interface{}{"200": response("Assistant reply and proposed draft", "MiniAppAssistantResponse"), "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef(), "422": errorResponseRef()},
+	}}
 	paths["/foxxycode/miniapps/{id}/authoring/source"] = map[string]interface{}{"get": map[string]interface{}{"summary": "Get private source evidence", "description": "Returns sanitized authoring evidence. Fixture file contents are omitted; `fixture_files` is a path, SHA-256, and size manifest.", "operationId": "getMiniAppSourceEvidence", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "responses": map[string]interface{}{"200": response("Source evidence", "MiniAppSourceEvidence"), "404": errorResponseRef()}}}
 	paths["/foxxycode/miniapps/{id}/authoring/patches"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Generate repair proposals", "operationId": "createMiniAppRepairProposals", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "requestBody": request("MiniAppPatchRequest"), "responses": map[string]interface{}{"200": response("Repair proposals", "MiniAppPatchList"), "404": errorResponseRef()}}}
 	paths["/foxxycode/miniapps/{id}/authoring/patches/{patch_id}/accept"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Accept a repair proposal", "operationId": "acceptMiniAppRepairProposal", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id"), miniAppsPathParameter("patch_id", "Repair proposal id")}, "responses": map[string]interface{}{"200": response("Updated draft", "MiniApp"), "404": errorResponseRef(), "409": errorResponseRef(), "422": errorResponseRef()}}}
@@ -127,5 +132,8 @@ func miniAppsSchemas() map[string]interface{} {
 		"MiniAppPatchList":          map[string]interface{}{"type": "object", "properties": map[string]interface{}{"items": map[string]interface{}{"type": "array", "items": anyObject}, "patches": map[string]interface{}{"type": "array", "items": anyObject}}},
 		"MiniAppDistillRequest":     anyObject, "MiniAppScenarioRequest": anyObject, "MiniAppMetadataPatch": anyObject,
 		"MiniAppPatchRequest": anyObject, "MiniAppReleaseRequest": anyObject, "MiniAppRunRequest": anyObject, "MiniAppConfirmationRequest": anyObject,
+		"MiniAppAssistantRequest": anyObject, "MiniAppAssistantResponse": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+			"reply": map[string]string{"type": "string"}, "changes": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}}, "draft": anyObject,
+		}},
 	}
 }

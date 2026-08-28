@@ -950,6 +950,23 @@ export const messagesRu: Record<string, string> = {
   "miniapps.releasing": "Выпуск…",
   "miniapps.releaseComplete": "Версия выпущена",
   "miniapps.testRun": "Протестировать процесс",
+  "miniapps.assistantEyebrow": "Рабочее поле черновика",
+  "miniapps.assistantTitle": "Помощник Mini App",
+  "miniapps.assistantDescription":
+    "Попросите мини-агента доработать черновик или добавить новые параметры.",
+  "miniapps.assistantNoMessages":
+    "Опишите, что нужно изменить в этом мини-приложении.",
+  "miniapps.assistantYou": "Вы",
+  "miniapps.assistantAgent": "Мини-агент",
+  "miniapps.assistantProposal": "Предложенные изменения",
+  "miniapps.assistantPlaceholder":
+    "Например: добавь обязательное поле API-ключа и используй его на следующем шаге…",
+  "miniapps.assistantInputLabel": "Сообщение помощнику Mini App",
+  "miniapps.assistantSend": "Спросить агента",
+  "miniapps.assistantThinking": "Агент думает…",
+  "miniapps.assistantApply": "Применить изменения",
+  "miniapps.assistantDiscard": "Отклонить",
+  "miniapps.assistantApplied": "Изменения применены к черновику",
   "miniapps.runReleased": "Запустить выпущенную версию",
   "miniapps.releasedRun": "Запуск выпуска",
   "miniapps.verificationRun": "Проверочный запуск",

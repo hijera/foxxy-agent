@@ -140,6 +140,17 @@ export type MiniAppPatch = {
   [key: string]: unknown;
 };
 
+export type MiniAppAssistantMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type MiniAppAssistantResponse = {
+  reply: string;
+  changes?: string[];
+  draft: MiniAppDocument;
+};
+
 export type MiniAppApiResult<T> =
   | { ok: true; data: T; status: number }
   | { ok: false; status: number; message: string };

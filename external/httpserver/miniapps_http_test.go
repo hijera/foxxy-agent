@@ -22,7 +22,12 @@ import (
 
 func newMiniAppsHTTPTestServer(t *testing.T) (*httptest.Server, *Server) {
 	t.Helper()
-	cfg := &config.Config{Paths: config.Paths{Home: t.TempDir(), CWD: t.TempDir()}, Agent: config.Agent{Model: ""}}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: t.TempDir(), CWD: t.TempDir()},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model"}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
 	mgr := session.NewManager(cfg, noopSender{}, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return "", nil
 	}, slog.Default(), cfg.Paths.CWD, &session.FileStore{Root: t.TempDir()})
@@ -40,6 +45,90 @@ func miniAppsTestDocument() map[string]any {
 		"permissions": map[string]any{"tools": []string{"write"}},
 		"success":     map[string]any{"mode": "all", "checks": []any{map[string]any{"kind": "step", "step": "step-write", "status": "succeeded"}}},
 		"runtime":     map[string]any{"log_scope": "global", "operator_event_level": "status", "diagnostic_tool_events": "sanitized"},
+	}
+}
+
+type httpMiniAppAssistantTestProvider struct {
+	content string
+}
+
+func (p *httpMiniAppAssistantTestProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{Content: p.content}, nil
+}
+
+func (*httpMiniAppAssistantTestProvider) Stream(context.Context, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
+	return nil, nil
+}
+
+func TestMiniAppsAssistantProposesWithoutSaving(t *testing.T) {
+	ts, srv := newMiniAppsHTTPTestServer(t)
+	body, _ := json.Marshal(miniAppsTestDocument())
+	created, err := http.Post(ts.URL+"/foxxycode/miniapps", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := created.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status %d", created.StatusCode)
+	}
+
+	draftResponse, err := http.Get(ts.URL + "/foxxycode/miniapps/greeting-app/draft")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft miniapps.MiniApp
+	if err := json.NewDecoder(draftResponse.Body).Decode(&draft); err != nil {
+		if closeErr := draftResponse.Body.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		t.Fatal(err)
+	}
+	if err := draftResponse.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	proposed := draft
+	proposed.Inputs = append(proposed.Inputs, miniapps.Input{ID: "project", Type: "string", Title: "Project", Required: true, UI: miniapps.InputUI{Control: "text"}})
+	proposedJSON, _ := json.Marshal(proposed)
+	provider := &httpMiniAppAssistantTestProvider{content: `{"reply":"Добавил поле проекта.","changes":["Добавлено поле project"],"draft":` + string(proposedJSON) + `}`}
+	srv.miniAppsHTTPState().assistant.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return provider, nil })
+
+	requestBody, _ := json.Marshal(map[string]any{
+		"message": "Добавь обязательное поле проекта",
+		"history": []miniapps.DraftAssistantMessage{{Role: "user", Content: "Сделай форму удобнее"}},
+		"draft":   draft,
+	})
+	request, _ := http.NewRequest(http.MethodPost, ts.URL+"/foxxycode/miniapps/greeting-app/assistant", strings.NewReader(string(requestBody)))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(response.Body)
+		t.Fatalf("assistant status %d: %s", response.StatusCode, data)
+	}
+	var result miniapps.DraftAssistantResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Reply == "" || len(result.Draft.Inputs) != len(draft.Inputs)+1 {
+		t.Fatalf("assistant result = %+v", result)
+	}
+
+	unchangedResponse, err := http.Get(ts.URL + "/foxxycode/miniapps/greeting-app/draft")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unchangedResponse.Body.Close() }()
+	var unchanged miniapps.MiniApp
+	if err := json.NewDecoder(unchangedResponse.Body).Decode(&unchanged); err != nil {
+		t.Fatal(err)
+	}
+	if len(unchanged.Inputs) != len(draft.Inputs) {
+		t.Fatalf("assistant saved its proposal: before=%d after=%d", len(draft.Inputs), len(unchanged.Inputs))
 	}
 }
 

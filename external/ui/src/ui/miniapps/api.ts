@@ -4,6 +4,8 @@ import type {
   MiniAppCatalogEntry,
   MiniAppDistillation,
   MiniAppDocument,
+  MiniAppAssistantMessage,
+  MiniAppAssistantResponse,
   MiniAppPatch,
   MiniAppRun,
   MiniAppRunEvent,
@@ -183,6 +185,19 @@ export async function updateDraft(
       ...(revision ? { "If-Match": revision } : {}),
     },
     body: JSON.stringify({ ...draft, revision: revision ?? draft.revision }),
+  });
+}
+
+export async function assistMiniApp(
+  id: string,
+  draft: MiniAppDocument,
+  history: MiniAppAssistantMessage[],
+  message: string,
+): Promise<MiniAppApiResult<MiniAppAssistantResponse>> {
+  return request(`${appPath(id)}/assistant`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, history, draft }),
   });
 }
 
