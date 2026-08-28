@@ -273,6 +273,7 @@ export function MiniAppRunner(props: {
             <button
               type="button"
               className="miniapps-primary"
+              data-testid="miniapps-run-start"
               disabled={busy}
               onClick={() => void start()}
             >

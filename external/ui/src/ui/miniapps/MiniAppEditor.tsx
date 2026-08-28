@@ -527,6 +527,7 @@ export function MiniAppEditor(props: {
           <button
             type="button"
             className="miniapps-secondary"
+            data-testid="miniapps-test-run"
             disabled={dirty}
             onClick={() => props.onRun(draft, false)}
           >
@@ -649,6 +650,7 @@ export function MiniAppEditor(props: {
           <button
             type="button"
             key={id}
+            data-testid={`miniapps-tab-${id}`}
             className={tab === id ? "is-active" : ""}
             onClick={() => setTab(id)}
             aria-current={tab === id ? "page" : undefined}
@@ -784,6 +786,7 @@ export function MiniAppEditor(props: {
               <button
                 type="button"
                 className="miniapps-secondary"
+                data-testid="miniapps-validate"
                 disabled={busy !== "" || dirty}
                 onClick={() => void validate()}
               >
@@ -794,6 +797,7 @@ export function MiniAppEditor(props: {
               <button
                 type="button"
                 className="miniapps-secondary"
+                data-testid="miniapps-sanitize"
                 disabled={busy !== "" || dirty}
                 onClick={() => void sanitize()}
               >
