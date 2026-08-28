@@ -23,17 +23,16 @@ func TestTerminateProcessGroupActuallyKillsWithATightGrace(t *testing.T) {
 		if err := TerminateProcessGroupByPID(pid, started, 50*time.Millisecond); err != nil {
 			t.Fatalf("attempt %d: TerminateProcessGroupByPID(): %v", attempt, err)
 		}
-		// Reporting success has to mean the process dies, and promptly. Not
-		// instantly: the kill is asynchronous on both platforms, so the object can
-		// still read as running for a few milliseconds after the call returns.
-		// waitForProbe allows for that; what it does not allow for is the failure
-		// this test exists for, where the process outlived the call by minutes.
-		if !waitForProbe(pid, started, false) {
-			t.Fatalf("attempt %d: terminate reported success but pid %d is still alive", attempt, pid)
-		}
 
-		// Wait must return promptly now; before the fix this blocked for the
-		// helper's full sleep and took the package's timeout with it.
+		// Wait is the assertion. Before the fix it blocked for the helper's full
+		// ten-minute sleep and took the package's timeout with it; a bounded wait
+		// is what tells a killed process from a surviving one without depending on
+		// how fast each platform tears one down.
+		//
+		// It also has to come before the liveness probe rather than after: on unix
+		// a killed child stays a zombie in its own group until its parent reaps it,
+		// so signal 0 keeps reaching the group and the probe would report a process
+		// that is already dead as alive.
 		done := make(chan struct{})
 		go func() {
 			_ = cmd.Wait()
@@ -43,6 +42,10 @@ func TestTerminateProcessGroupActuallyKillsWithATightGrace(t *testing.T) {
 		case <-done:
 		case <-time.After(10 * time.Second):
 			t.Fatalf("attempt %d: cmd.Wait() still blocked 10s after a successful terminate", attempt)
+		}
+
+		if !waitForProbe(pid, started, false) {
+			t.Fatalf("attempt %d: terminate reported success but pid %d is still alive", attempt, pid)
 		}
 	}
 }
