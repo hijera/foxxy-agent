@@ -188,6 +188,7 @@ func (s *Service) runDistillationTrace(ctx context.Context, id string) {
 		trace, eligibility, candidates, err = DistillTrace(TraceInput{
 			SessionID: pending.Input.SessionID, Messages: pending.Input.Messages,
 			Evidence: pending.Input.Evidence, TurnActive: pending.Input.TurnActive,
+			CommandProfiles: pending.Input.CommandProfiles,
 		})
 	} else {
 		eligibility = AssessTraceEligibility(trace, pending.Input.TurnActive)

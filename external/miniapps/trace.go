@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
@@ -183,6 +184,9 @@ type TraceInput struct {
 	Messages   []llm.Message
 	Evidence   []TraceCallEvidence
 	TurnActive bool
+	// CommandProfiles are the command profiles available for rewriting
+	// run_command actions into typed cmd_* tool calls.
+	CommandProfiles []cmdprofile.ProfileSpec
 }
 
 const (

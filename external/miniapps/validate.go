@@ -3,6 +3,8 @@
 package miniapps
 
 import (
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
+
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,6 +116,25 @@ func validate(app MiniApp, capabilities CapabilitySet) ValidationReport {
 	}
 	if app.Runtime.PersistAgentReasoning {
 		add("runtime.persist_agent_reasoning", "must be false in schema v1")
+	}
+
+	commandTools := make(map[string]bool, len(app.Requirements.Commands))
+	for index := range app.Requirements.Commands {
+		profile := app.Requirements.Commands[index]
+		path := fmt.Sprintf("requirements.commands[%d]", index)
+		if err := profile.Validate(); err != nil {
+			add(path, err.Error())
+			continue
+		}
+		if commandTools[profile.ToolName()] {
+			add(path+".name", "is duplicated")
+		}
+		commandTools[profile.ToolName()] = true
+		// Mini Apps run unattended; an ask-profile could never be approved
+		// mid-run, so only allow-profiles may be embedded.
+		if profile.ResolvedPermission() != cmdprofile.PermissionAllow {
+			add(path+".permission", "embedded command profiles must declare permission: allow")
+		}
 	}
 
 	modelIDs := make(map[string]bool, len(app.Requirements.ModelBindings))
@@ -253,6 +274,12 @@ func validate(app MiniApp, capabilities CapabilitySet) ValidationReport {
 					}
 					if capabilities.Tools != nil && !capabilities.Tools[step.Tool] {
 						add(path+".tool", "tool is unavailable")
+					}
+					// A command-profile step needs its declaration to travel with
+					// the document; without it the app cannot run anywhere else.
+					if strings.HasPrefix(step.Tool, "cmd_") && !commandTools[step.Tool] &&
+						(capabilities.Tools == nil || !capabilities.Tools[step.Tool]) {
+						add(path+".tool", "command profile must be declared in requirements.commands")
 					}
 				}
 				validateStepValue(step.Arguments, path+".arguments", add, stepContext.withPriorSteps(prior))

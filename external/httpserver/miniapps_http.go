@@ -158,6 +158,9 @@ func (s *Server) miniAppsDistillPost(w http.ResponseWriter, r *http.Request) {
 		Messages: snapshot.Messages, Evidence: evidence,
 		FixtureFiles: fixtureFiles,
 		TurnActive:   false,
+		// Live config profiles let run_command actions rewrite into typed
+		// cmd_* steps; the matched declaration is embedded into the document.
+		CommandProfiles: s.activeCfg().CommandProfileSpecs(),
 	})
 	if err != nil {
 		s.writeMiniAppsServiceError(w, err)

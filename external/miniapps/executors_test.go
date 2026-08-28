@@ -262,3 +262,24 @@ func TestBuiltinToolNeedsInteractivePermissionMatchesRegisteredNames(t *testing.
 		}
 	}
 }
+
+// Command-profile file params are named *_path/_file/_dir by validation, so
+// the containment walk must recognize those suffixes — exact-match keys alone
+// would let an input_path argument escape the run workspace unchecked.
+func TestValidateBuiltinToolPathsChecksSuffixedKeys(t *testing.T) {
+	workspace := t.TempDir()
+	for _, key := range []string{"input_path", "log_file", "cache_dir"} {
+		args := map[string]any{key: "../outside.txt"}
+		if err := validateBuiltinToolPaths("cmd_probe", args, workspace); err == nil {
+			t.Errorf("key %q escaped the workspace unchecked", key)
+		}
+		inside := map[string]any{key: "inside.txt"}
+		if err := validateBuiltinToolPaths("cmd_probe", inside, workspace); err != nil {
+			t.Errorf("key %q rejected a contained path: %v", key, err)
+		}
+	}
+	// Non-path keys stay unconstrained.
+	if err := validateBuiltinToolPaths("cmd_probe", map[string]any{"codec": "../x"}, workspace); err != nil {
+		t.Errorf("non-path key was containment-checked: %v", err)
+	}
+}

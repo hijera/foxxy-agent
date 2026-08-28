@@ -128,6 +128,17 @@ func (s ProfileSpec) Clone() ProfileSpec {
 	return out
 }
 
+// Portable returns a copy fit for embedding into a portable document: the
+// binary is reduced to its bare name, because an absolute path is a
+// machine-local resolution detail (and the release sanitizer would rightly
+// reject it as a user-specific path). Resolution on the target machine goes
+// through PATH or that machine's own config.
+func (s ProfileSpec) Portable() ProfileSpec {
+	out := s.Clone()
+	out.Binary = normalizeBinaryName(out.Binary)
+	return out
+}
+
 // CloneSpecs deep-copies a profile list.
 func CloneSpecs(specs []ProfileSpec) []ProfileSpec {
 	if specs == nil {

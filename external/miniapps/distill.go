@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
@@ -29,6 +30,9 @@ type DistillInput struct {
 	ModelBinding *ModelBinding
 	FixtureFiles map[string][]byte
 	TurnActive   bool
+	// CommandProfiles are the profiles available for run_command rewriting
+	// and for embedding into the generated document.
+	CommandProfiles []cmdprofile.ProfileSpec
 }
 
 // Distill creates a conservative draft from successful observed tool calls.
@@ -91,6 +95,9 @@ func DistillTrace(input TraceInput) (NormalizedTrace, TraceEligibility, []TraceS
 	if err != nil {
 		return NormalizedTrace{}, TraceEligibility{}, nil, err
 	}
+	// Rewrite before eligibility and candidates so every later stage —
+	// classification, synthesis, evidence, replay — sees the typed form.
+	RewriteCommandActions(&trace, input.CommandProfiles)
 	eligibility := AssessTraceEligibility(trace, input.TurnActive)
 	return trace, eligibility, GenerateScenarioCandidates(trace), nil
 }
@@ -103,7 +110,14 @@ func distillTrace(input DistillInput) (NormalizedTrace, error) {
 		}
 		return trace, nil
 	}
-	return NormalizeSessionTrace(input.SessionID, input.Messages, input.Evidence)
+	trace, err := NormalizeSessionTrace(input.SessionID, input.Messages, input.Evidence)
+	if err != nil {
+		return trace, err
+	}
+	// Direct Distill() callers skip DistillTrace, so mirror the rewrite here.
+	// It is idempotent: rewritten actions no longer carry the run_command name.
+	RewriteCommandActions(&trace, input.CommandProfiles)
+	return trace, nil
 }
 
 func validateDistillScenario(scenario TraceConfirmedScenario, trace NormalizedTrace) (TraceConfirmedScenario, error) {
@@ -213,8 +227,22 @@ func synthesizeMiniApp(input DistillInput, trace NormalizedTrace, scenario Trace
 	}
 	for tool := range toolSet {
 		app.Permissions.Tools = append(app.Permissions.Tools, tool)
+		// A cmd_* step only runs if the app carries its profile: embed the
+		// matched declaration so the document is portable. The profile vanishing
+		// between analysis and synthesis would produce an app that can never
+		// run, so it is a hard error rather than a silent omission.
+		if strings.HasPrefix(tool, "cmd_") {
+			profile, declared := commandProfileByToolName(input.CommandProfiles, tool)
+			if !declared {
+				return MiniApp{}, fmt.Errorf("command profile for %s is no longer available", tool)
+			}
+			app.Requirements.Commands = append(app.Requirements.Commands, profile.Portable())
+		}
 	}
 	sort.Strings(app.Permissions.Tools)
+	sort.Slice(app.Requirements.Commands, func(i, j int) bool {
+		return app.Requirements.Commands[i].Name < app.Requirements.Commands[j].Name
+	})
 	lastStep := app.Workflow[len(app.Workflow)-1].ID
 	app.Success = SuccessSpec{
 		Mode:   "all",

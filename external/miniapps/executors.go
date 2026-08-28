@@ -259,12 +259,14 @@ func canonicalPathForContainment(path string) (string, error) {
 }
 
 func isFilesystemPathKey(key string) bool {
-	switch strings.ToLower(strings.TrimSpace(key)) {
+	key = strings.ToLower(strings.TrimSpace(key))
+	switch key {
 	case "path", "paths", "file", "files", "directory", "dir", "destination", "target", "cwd", "working_directory", "src", "dst", "source":
 		return true
-	default:
-		return false
 	}
+	// Command-profile file params are named *_path/_file/_dir by construction,
+	// and the suffix rule hardens every builtin argument spelled that way too.
+	return strings.HasSuffix(key, "_path") || strings.HasSuffix(key, "_file") || strings.HasSuffix(key, "_dir")
 }
 
 func miniAppArgumentsJSON(value any) (string, error) {

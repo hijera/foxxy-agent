@@ -6,6 +6,8 @@
 package miniapps
 
 import (
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
+
 	"encoding/json"
 	"time"
 )
@@ -55,6 +57,10 @@ type Metadata struct {
 
 type Requirements struct {
 	ModelBindings []ModelBinding `json:"model_bindings,omitempty"`
+	// Commands are the command profiles this app carries. They travel with the
+	// portable document; running one on a new machine requires a local trust
+	// approval bound to the profile hash and the resolved binary path.
+	Commands []cmdprofile.ProfileSpec `json:"commands,omitempty"`
 }
 
 type ModelBinding struct {
