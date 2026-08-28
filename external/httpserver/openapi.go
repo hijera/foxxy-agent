@@ -720,7 +720,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "JSON Schema for FoxxyCode YAML configuration (UI)",
-					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/foxxycode/config` and returned by **GET** `/foxxycode/config`. Includes **`providers[].name`** pattern, optional **`x-foxxycode-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
+					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/foxxycode/config` and returned by **GET** `/foxxycode/config`. Includes **`providers[].name`** pattern, optional **`x-foxxycode-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. A section whose feature needs a Go build tag carries **`x-foxxycode-requires-build-tag`** (e.g. `browser`) in every build; the responding process adds **`x-foxxycode-build-tag-missing: true`** when its own binary was compiled without that tag, so an editor can show the section read-only instead of offering a switch that cannot take effect. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
 					"operationId": "foxxycodeConfigSchemaGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{

@@ -19,6 +19,17 @@ type BrowserConfig struct {
 	// TimeoutSeconds bounds each browser action (navigation, click, ...). Defaults to
 	// BrowserDefaultTimeoutSeconds.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
+	// Screenshots controls whether an image is captured after each action and shown
+	// to the model. Defaults to true. Turn it off to drive the browser text-only:
+	// the tools still report the URL, the page log and evaluate results, which is
+	// what a model without vision can use anyway - and it saves the ~40 KB of
+	// base64 every action would otherwise add to the request.
+	Screenshots *bool `yaml:"screenshots"`
+}
+
+// ScreenshotsEnabled reports whether actions capture a screenshot (default true).
+func (c *BrowserConfig) ScreenshotsEnabled() bool {
+	return c == nil || c.Screenshots == nil || *c.Screenshots
 }
 
 // HeadlessEnabled reports whether the browser should run headless (default true).

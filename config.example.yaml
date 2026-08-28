@@ -398,6 +398,7 @@ logger:
 # browser:
 #   enabled: false          # turn on navigate/click/fill/screenshot/... tools
 #   headless: true          # false to watch the automated session in a real window
+#   screenshots: true       # false = text-only: no image, use read_page/evaluate instead
 #   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
 #   timeout_seconds: 30     # per-action timeout
 

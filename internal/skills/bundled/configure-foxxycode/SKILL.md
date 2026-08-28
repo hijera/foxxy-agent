@@ -61,7 +61,8 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
 - `httpserver` - OpenAI-compatible HTTP API defaults, auth token, CORS, UI (tag `http`);
 - `scheduler` - cron scheduler (tag `scheduler`);
-- `gateways` - messenger bots such as Telegram (tag `gateway`).
+- `gateways` - messenger bots such as Telegram (tag `gateway`);
+- `browser` - interactive browser tools (tag `browser`): `enabled`, `headless`, `executable_path`, `timeout_seconds`, and `screenshots` - set `screenshots: false` to drive the browser text-only, which suits a model without vision and drops the base64 image from every request.
 
 Fields behind a build tag are parsed and ignored by binaries built without it; process-level listener changes (HTTP port, gateway tokens) may still need the relevant command restarted. The hot reload is guaranteed for the current session's agent configuration, skills, rules, built-in tools, and configured MCP clients.
 
