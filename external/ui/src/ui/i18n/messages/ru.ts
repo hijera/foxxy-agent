@@ -32,6 +32,7 @@ export const messagesRu: Record<string, string> = {
   "composer.modePlan": "План",
   "composer.modeDocs": "Документация",
   "composer.modeAsk": "Вопросы",
+  "composer.modeDebug": "Отладка",
   "composer.model": "Модель",
   "composer.modelTitle": "YAML-бэкенд (metadata.model)",
   "composer.reasoning": "Рассуждение",
@@ -329,6 +330,8 @@ export const messagesRu: Record<string, string> = {
   "settings.toggleOptions": "Показать варианты",
   "settings.backToList": "К списку",
   "settings.backToSections": "К разделам",
+  "settings.buildTagMissing":
+    "В этой сборке не заработает: бинарь собран без тега «{tag}», инструментов в нём просто нет, и настройки ниже ни на что не влияют. Пересоберите с этим тегом (например make build TAGS=\"http ui browser\"), чтобы включить.",
   "settings.remove": "Удалить",
   "settings.add": "Добавить",
   "settings.showKey": "Показать",

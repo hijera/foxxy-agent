@@ -34,6 +34,7 @@ export const messagesEn: Record<string, string> = {
   "composer.modePlan": "Plan",
   "composer.modeDocs": "Documentation",
   "composer.modeAsk": "Ask",
+  "composer.modeDebug": "Debug",
   "composer.model": "Model",
   "composer.modelTitle": "YAML backend (metadata.model)",
   "composer.reasoning": "Reasoning",
@@ -327,6 +328,8 @@ export const messagesEn: Record<string, string> = {
   "settings.toggleOptions": "Toggle options",
   "settings.backToList": "Back to list",
   "settings.backToSections": "Back to sections",
+  "settings.buildTagMissing":
+    "This build cannot run it: the binary was compiled without the \"{tag}\" build tag, so the tools do not exist in it and the settings below have no effect. Rebuild with that tag (for example make build TAGS=\"http ui browser\") to switch it on.",
   "settings.remove": "Remove",
   "settings.add": "Add",
   "settings.showKey": "Show",

@@ -231,13 +231,14 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 
 ## What the image contains by default
 
-**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway`** (comma-separated, same meaning as **`go build -tags=`**).
+**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,browser`** (comma-separated, same meaning as **`go build -tags=`**).
 
 - **`http`** - **`foxxycode http`** and REST gateway (see **[docs/http-api.md](http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/scheduler.md](scheduler.md)**).
 - **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../external/memory/README.md)**); toggle runtime behavior via **`memory.enabled`**.
 - **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/gateway.md](gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
+- **`browser`** - interactive browser tools (**[docs/browser-tool.md](browser-tool.md)**), off until **`browser.enabled`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 

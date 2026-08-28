@@ -139,6 +139,7 @@ prompts:
   # File names inside prompts.dir (defaults: agent.md, plan.md)
   # agent_prompt: "agent.md"
   # plan_prompt: "plan.md"
+  # Ask and Debug have no configurable filename: they always read ask.md and debug.md.
   # Per-provider prompts: pick a system prompt tuned to the active model, resolved
   # most-specific first:
   #   agent.<model-slug>.md   e.g. agent.openai-gpt-4o.md  (model-list id, "/" -> "-")
@@ -370,6 +371,25 @@ logger:
     max_size_mb: 0
     max_files: 0
 
+# Diagnostics. Off by default and free when off. Turning it on forces the process
+# logger to debug level (regardless of logger.level above), captures raw LLM HTTP
+# request/response bodies into that log, and writes a structured per-turn timeline to
+# <session>/debug_trace.jsonl (readable at GET /foxxycode/sessions/{id}/debug and
+# streamed as SSE `event: debug`). Guide: docs/debugging.md.
+#
+# --debug on `foxxycode acp` / `http` / `gateway` forces enabled for one process; it
+# only ever turns the layer on. PUT /foxxycode/config toggles it without a restart.
+#
+# Unrelated to the `debug` session MODE (the diagnose-before-fixing persona picked
+# with model: "debug") - that one changes the model's behaviour, this one changes
+# what FoxxyCode records.
+# debug:
+#   enabled: false
+#   # Gates only the raw body capture; omit to follow `enabled`. Set false to keep
+#   # debug logs and the trace but not the bodies - a request body carries the whole
+#   # conversation, including the contents of every file the agent read.
+#   capture_llm: false
+
 # Embedded SPA preferences (desktop launcher and HTTP UI, built with -tags http,ui).
 # ui:
 #   enabled: true         # false = API-only server (no SPA at GET /); /v1/* and /foxxycode/* stay up
@@ -386,6 +406,7 @@ logger:
 # browser:
 #   enabled: false          # turn on navigate/click/fill/screenshot/... tools
 #   headless: true          # false to watch the automated session in a real window
+#   screenshots: true       # false = text-only: no image, use read_page/evaluate instead
 #   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
 #   timeout_seconds: 30     # per-action timeout
 

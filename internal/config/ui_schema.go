@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// Schema annotation keys shared with the settings form renderer. A section that
+// needs a build tag names it in SchemaRequiresBuildTag; the process serving the
+// schema adds SchemaBuildTagMissing when its own binary lacks that tag.
+const (
+	SchemaRequiresBuildTag = "x-foxxycode-requires-build-tag"
+	SchemaBuildTagMissing  = "x-foxxycode-build-tag-missing"
+)
+
 // UISchemaJSON returns a JSON Schema (draft 2020-12) document for ConfigJSON (UI editor).
 // HTTPServer is omitted; listen bind is controlled via CLI, not this form.
 func UISchemaJSON() ([]byte, error) {
@@ -49,6 +57,26 @@ func boolProp(title, description string) map[string]interface{} {
 func boolPropDefault(title, description string, value bool) map[string]interface{} {
 	out := boolProp(title, description)
 	out["default"] = value
+	return out
+}
+
+// browserSchema is the browser section. It carries the name of the build tag the
+// tool needs, so a surface rendering this form can say why the switch is inert
+// instead of showing a toggle that silently does nothing. Whether THIS binary has
+// the tag is a runtime fact and is added when the schema is served — keeping it out
+// of here is what lets the committed fixture match under every tag combination.
+func browserSchema() map[string]interface{} {
+	out := objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
+		map[string]interface{}{
+			"enabled":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
+			"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
+			"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
+			"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
+			"screenshots":     boolPropDefault("Screenshots", "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.", true),
+		},
+		[]string{"enabled", "headless", "screenshots", "executable_path", "timeout_seconds"},
+		nil)
+	out[SchemaRequiresBuildTag] = BrowserBuildTag
 	return out
 }
 
@@ -581,6 +609,13 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "outputs", "file", "format", "rotation"},
 			nil),
+		"debug": objectSchema("Debug", "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
+			map[string]interface{}{
+				"enabled":     boolProp("Enabled", "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace)."),
+				"capture_llm": boolProp("Capture LLM bodies", "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled."),
+			},
+			[]string{"enabled", "capture_llm"},
+			nil),
 		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
 			map[string]interface{}{
 				"dir": strProp("Sessions directory", "Override sessions root; empty resolves under FOXXYCODE_HOME."),
@@ -595,15 +630,7 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"telegram"},
 			nil),
-		"browser": objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
-			map[string]interface{}{
-				"enabled":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
-				"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
-				"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
-				"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
-			},
-			[]string{"enabled", "headless", "executable_path", "timeout_seconds"},
-			nil),
+		"browser": browserSchema(),
 		"vcs": objectSchema("Version control", "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
 			map[string]interface{}{
 				"svn": objectSchema("Subversion", "Subversion support for SVN working copies and branch folders.",
@@ -641,7 +668,7 @@ func UISchemaMap() map[string]interface{} {
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui",
+		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 
 	doc := map[string]interface{}{

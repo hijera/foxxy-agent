@@ -6,7 +6,7 @@ Nothing agent-side is console-specific — the TUI is a fourth `UpdateSender`
 next to ACP, HTTP, and the Telegram gateway.
 
 Build: `make build TAGS=cli` (or any tag set including `cli`; the recommended
-full binary is `make build TAGS="http ui scheduler memory cli"`). In builds
+full binary is `make build TAGS="http ui scheduler memory cli browser"`). In builds
 without the tag, `foxxycode cli` explains how to rebuild and bare `foxxycode` keeps
 printing usage.
 

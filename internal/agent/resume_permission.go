@@ -51,7 +51,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 		}
 		return a.continueReAct(ctx, mode, toolEnv)
 	}
-	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true)
+	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true, 0)
 	var toolResultMsg llm.Message
 	if execErr != nil {
 		toolResultMsg = llm.Message{

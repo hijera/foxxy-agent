@@ -126,19 +126,21 @@ func languageDirective(locale string) string {
 	}
 }
 
-// promptVariants returns the ordered per-model then per-family prompt keys for the active
-// model, most-specific first. The per-model key is the model-list id (e.g. openai/gpt-4o)
-// slugified for filenames; the family key is derived from the resolved provider type and
-// API model. Empty and duplicate keys are dropped.
+// promptVariants returns the ordered model-reference, resolved API-model, then family prompt
+// keys for the active model, most-specific first. Including the API-model slug lets a built-in
+// model variant work across arbitrary provider names (for example local/gpt-oss-20b). Empty and
+// duplicate keys are dropped.
 func (a *Agent) promptVariants() []string {
 	modelID := a.state.EffectiveModelID(a.cfg)
 	modelSlug := prompts.ModelSlug(modelID)
+	apiModelSlug := ""
 	family := ""
 	if rm, err := a.cfg.ResolveLLM(modelID); err == nil {
+		apiModelSlug = prompts.ModelSlug(rm.Model)
 		family = prompts.Family(rm.ProviderType, rm.Model)
 	}
 	var variants []string
-	for _, v := range []string{modelSlug, family} {
+	for _, v := range []string{modelSlug, apiModelSlug, family} {
 		if v == "" {
 			continue
 		}

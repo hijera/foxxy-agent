@@ -16,10 +16,10 @@
 Two extra `run_command` arguments drive the pool:
 
 - **`background`** (bool) — run detached.
-- **`expected_seconds`** (int) — the model's own estimate of how long the work takes. It is **advisory**: it drives the status ticker the operator sees and, when `timeout_seconds` is omitted, the hard timeout. Guessing low only marks the task **overdue**; it never kills the task early.
+- **`expected_seconds`** (int) — the model's own estimate of how long the work takes. It is **advisory and nothing else**: it drives the status ticker the operator sees. Guessing low only marks the task **overdue**; it does not shorten the hard timeout and cannot kill the task.
 - **`notify_on_finish`** (bool) — wake the agent when this task ends (see below).
 
-The prompt (`internal/prompts/agent.md`, and the plan-mode equivalent) tells the model when to background, to estimate honestly, to poll rather than busy-wait on `background_wait`, to stop servers and watchers it started, and to read the final status before summarising the outcome. Background execution is available in **both** agent and plan mode: a planner investigating a repo should not have to sit through a slow read-only command either.
+The shared agent prompt fragment (`internal/prompts/sections/agent/background_cmds.md`) tells the model when to background, to estimate honestly, to poll rather than busy-wait on `background_wait`, to stop servers and watchers it started, and to read the final status before summarising the outcome. Background execution is available in **both** agent and plan mode: a planner investigating a repo should not have to sit through a slow read-only command either.
 
 ## Waking the agent when a task finishes
 
@@ -39,11 +39,24 @@ Wiring lives in `Server.attachBackgroundWaker` (`external/httpserver/background_
 
 ## Timeouts
 
-A task always has a hard limit, resolved in this order:
+A task's hard limit is resolved in this order:
 
 1. an explicit `timeout_seconds` wins, including a deliberately tight one;
-2. otherwise a stated `expected_seconds` buys **3×** itself, floored at **60s** so a wildly optimistic guess does not kill work that was only a little slow;
+2. otherwise a command with **no natural end** — a dev server, a watcher, a daemon — gets **no hard timeout at all** and is ended with `background_stop`;
 3. otherwise `tools.background.default_timeout_seconds` (900s).
+
+`expected_seconds` deliberately plays no part. It used to buy the timeout (3× the
+estimate), which punished exactly the work an estimate cannot describe: `yarn serve`
+estimated at an honest 30s was terminated 90 seconds in, and by the time the browser
+tool was allowed to navigate, the port was dead. A low estimate must never be more
+dangerous than no estimate.
+
+Detection of endless work is deliberately narrow (`internal/tools/shell/longrunning.go`):
+package-runner subcommands (`serve`, `dev`, `start`, `watch`, `preview`, `server`),
+binaries that only ever keep running (`vite`, `nodemon`, `air`, …), an explicit
+`--watch` flag, and `docker compose up` without `-d`. A false positive only means the
+task runs until it ends or is stopped; a false negative kills a dev server, so the
+list favours certainty.
 
 The result is capped by `tools.background.max_timeout_seconds` (3600s). Hitting the limit terminates the process group and records the task as `timed_out` — that is a failure, not a success, and the model is told to report it as one.
 
@@ -116,6 +129,8 @@ The probe behind that has to answer **"is this task's process still running"**, 
 - Windows has no comparable group probe, and the obvious substitute — opening the process by pid — is wrong in both directions. A process **object** outlives the process itself for as long as anybody holds a handle to it (and `os.FindProcess` opened one per probe, so probing was itself what kept a corpse resolvable); and opening by number matches **any** process, with no group-leader requirement to filter out pid reuse. So the Windows probe asks `WaitForSingleObject` with a zero timeout, which distinguishes a running process from a retained corpse, and then requires its exact **creation time** to equal the `process_started_at` captured from Windows when the task launched. A missing or unreadable identity fails closed.
 
 Proving the identity and then killing by number would still leave a window between the two, so on Windows the kill re-opens the pid, re-checks the creation time, and **holds that handle open for the whole of `taskkill`**. Windows keeps a pid allocated while any handle to its process object is open, so nothing can inherit the number in between — and `taskkill /T` still resolves the children that name it as their parent. Liveness is deliberately not required there: a leader that already exited can have running children, and those are the point.
+
+The grace bounds how long the **target** may take to die, not how long `taskkill` may run, and the kill is confirmed with the liveness probe before it reports success. Conflating the two is a bug this code has already had: `taskkill.exe` cold-starting under load routinely needs more than a second, the helper was cut short, and the caller was told the group was gone while it went on holding its port. Both platforms now return an error rather than a false success when the process outlives the kill.
 
 That comparison is why reaping never needs a fresh pid from the operator: the record carries everything needed to prove the pid still means what it meant.
 

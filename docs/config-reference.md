@@ -170,11 +170,11 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dir` | string | no | `""` (embedded templates) | Directory with Go text/template files. Supports `~` and `${CWD}` (session cwd at render time). Ask uses `ask.md` in this directory. |
+| `dir` | string | no | `""` (embedded templates) | Directory with Go text/template files. Supports `~` and `${CWD}` (session cwd at render time). Ask uses `ask.md` and Debug uses `debug.md` in this directory. |
 | `agent_prompt` | string | no | `agent.md` | Template file name for agent mode, inside `dir`. |
 | `plan_prompt` | string | no | `plan.md` | Template file name for plan mode, inside `dir`. |
 | `docs_prompt` | string | no | `docs.md` | Template file name for docs mode, inside `dir`. |
-| `per_provider.enabled` | bool | no | `true` | Select a system prompt tuned to the active model for the current mode, resolved most-specific first: per-model `<mode>.<model-slug>.md` -> per-family `<mode>.<family>.md` -> shared `<mode>.md`. The model slug is the model-list id with unsafe characters replaced by `-` (e.g. `openai/gpt-4o` -> `ask.openai-gpt-4o.md`). Families: `anthropic`, `openai`, `gemini`, `gpt-oss`, `qwen`, `gemma`, `neuraldeep`. Ask includes built-in `ask.openai.md` and `ask.gpt-oss.md`; drop any `<mode>.<family>.md` or per-model variant into `dir` to override. |
+| `per_provider.enabled` | bool | no | `true` | Select a system prompt tuned to the active model for the current mode. Custom files resolve most-specific first: configured model-reference slug (e.g. `openai/gpt-4o` -> `ask.openai-gpt-4o.md`), provider-neutral API-model slug (e.g. `local/gpt-oss-20b` -> `ask.gpt-oss-20b.md`), per-family `<mode>.<family>.md`, then shared `<mode>.md`. Families: `anthropic`, `openai`, `gemini`, `gpt-oss`, `qwen`, `gemma`, `neuraldeep`. Built-in prompts use the same key order at fragment level; gpt-oss-20b and gpt-oss-120b have distinct profiles in Agent, Plan, Ask, and Docs modes. |
 
 ## `instructions`
 
@@ -304,6 +304,21 @@ Logging (`config.Logger`, `internal/config/logger.go`). ACP flags `--log-level`,
 | `rotation.max_size_mb` | int | no | `0` | Rotate after this size in MB; `0` disables size-based rotation. |
 | `rotation.max_files` | int | no | `0` | Rotated backups to keep when `max_size_mb > 0`. |
 
+## `debug`
+
+Diagnostics master switch (`config.Debug`, `internal/config/debug.go`). Off by default and free when off. Full guide: **`docs/debugging.md`**.
+
+Not related to the `debug` **session mode** — that one changes how the model behaves, this one changes what FoxxyCode records.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `false` | Turns on the whole layer: forces the process logger to `debug` level (overriding `logger.level`), enables raw LLM HTTP capture, and writes a per-session `debug_trace.jsonl`. |
+| `capture_llm` | bool | no | unset → follows `enabled` | Gates only the raw request/response body logging. Unset means "follow `enabled`". Set explicitly to `false` to keep debug logs and the trace while suppressing bodies (which carry the whole conversation). |
+
+The `--debug` flag on `foxxycode acp`, `foxxycode http`, and `foxxycode gateway` forces `enabled: true` for that process. It only ever turns the layer **on**: the flag is applied only when explicitly passed, so a default-false flag cannot silently override a config-enabled layer. `foxxycode desktop` and the console have no flag but honour `debug.enabled` from `config.yaml`.
+
+`PUT /foxxycode/config` applies a change to `debug.enabled` **without a restart** — the log level is re-set on a shared `slog.LevelVar` and the capture flag is atomic.
+
 ## `sessions`
 
 Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
@@ -431,6 +446,7 @@ Interactive browser automation tool (`config.BrowserConfig`, `internal/config/br
 |---|---|---|---|---|---|
 | `enabled` | bool | no | `false` | — | Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for builds compiled with the `browser` tag. |
 | `headless` | bool | no | `true` | — | Run the browser without a visible window. Set to `false` to watch the automated session. |
+| `screenshots` | bool | no | `true` | — | Capture a screenshot after each action and show it to the model. Set to `false` to drive the browser text-only: actions still report the URL and the page log, and `foxxycode_browser_read_page` plus `foxxycode_browser_evaluate` read the page as text. Useful for a model without vision, and it drops the base64 image from every request. |
 | `executable_path` | string | no | `""` (auto) | — | Path to a specific Chrome/Chromium binary; empty lets chromedp auto-detect an installed browser. |
 | `timeout_seconds` | int | no | `30` | — | Per-action timeout for navigation, clicks, and other browser operations. |
 
