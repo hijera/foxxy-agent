@@ -30,6 +30,21 @@ function formatValue(input: MiniAppInput, value: unknown): string {
   return String(value);
 }
 
+function commandProfileDetails(details: unknown): {
+  binary?: string | undefined;
+  argv_preview?: string[] | undefined;
+} | null {
+  if (!details || typeof details !== "object") return null;
+  const record = details as Record<string, unknown>;
+  if (record.kind !== "command_profile") return null;
+  return {
+    binary: typeof record.binary === "string" ? record.binary : undefined,
+    argv_preview: Array.isArray(record.argv_preview)
+      ? (record.argv_preview as string[])
+      : undefined,
+  };
+}
+
 export function MiniAppRunner(props: {
   app: MiniAppDocument;
   released: boolean;
@@ -325,6 +340,25 @@ export function MiniAppRunner(props: {
                 {run?.confirmation?.message ||
                   t("miniapps.confirmationDescription")}
               </p>
+              {commandProfileDetails(run?.confirmation?.details) ? (
+                <dl className="miniapps-commands-confirmation">
+                  <dt>{t("miniapps.commands.confirmBinary")}</dt>
+                  <dd>
+                    <code>
+                      {commandProfileDetails(run?.confirmation?.details)?.binary}
+                    </code>
+                  </dd>
+                  <dt>{t("miniapps.commands.confirmArgv")}</dt>
+                  <dd>
+                    <code>
+                      {(
+                        commandProfileDetails(run?.confirmation?.details)
+                          ?.argv_preview ?? []
+                      ).join(" ")}
+                    </code>
+                  </dd>
+                </dl>
+              ) : null}
               <div className="miniapps-action-row">
                 <button
                   type="button"

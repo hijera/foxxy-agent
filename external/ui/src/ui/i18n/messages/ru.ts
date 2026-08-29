@@ -987,6 +987,23 @@ export const messagesRu: Record<string, string> = {
   "miniapps.status.failed": "Ошибка",
   "miniapps.status.cancelled": "Отменено",
   "miniapps.status.interrupted": "Прервано",
+  "miniapps.commands.title": "Внешние команды",
+  "miniapps.commands.description":
+    "Профили команд, от которых зависит это приложение. Каждый запускает один фиксированный бинарь без оболочки; запуск недоверенного профиля приостанавливается до вашего одобрения.",
+  "miniapps.commands.installed": "Установлено",
+  "miniapps.commands.missing": "Не установлено",
+  "miniapps.commands.trusted": "Доверено",
+  "miniapps.commands.untrusted": "Не доверено",
+  "miniapps.commands.trust": "Доверять на этой машине",
+  "miniapps.commands.trustHint":
+    "Разрешить запуск {binary} для этого профиля. Изменение профиля или перенос бинаря потребуют нового одобрения.",
+  "miniapps.commands.installVia": "Установить через {manager}",
+  "miniapps.commands.installing": "Установка…",
+  "miniapps.commands.installFailed": "Установка не завершилась",
+  "miniapps.commands.noManagers":
+    "Пакетный менеджер с объявленной координатой не найден; установите бинарь вручную и убедитесь, что он в PATH.",
+  "miniapps.commands.confirmBinary": "Бинарь",
+  "miniapps.commands.confirmArgv": "Шаблон команды",
   "miniapps.confirmationTitle": "Требуется подтверждение",
   "miniapps.confirmationDescription":
     "Процесс ожидает разрешения перед продолжением.",

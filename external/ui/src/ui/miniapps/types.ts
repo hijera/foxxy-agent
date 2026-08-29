@@ -119,6 +119,32 @@ export type MiniAppRun = {
   [key: string]: unknown;
 };
 
+export type MiniAppCommandManager = {
+  id: string;
+  package: string;
+  command: string;
+};
+
+export type MiniAppCommandStatus = {
+  name: string;
+  binary: string;
+  description?: string;
+  permission: string;
+  hash: string;
+  resolved_path?: string;
+  installed: boolean;
+  trusted: boolean;
+  source: string;
+  managers?: MiniAppCommandManager[];
+};
+
+export type MiniAppInstallJob = {
+  id?: string;
+  status?: string;
+  error?: string;
+  result?: unknown;
+};
+
 export type MiniAppRunEvent = {
   id?: string;
   seq?: number;

@@ -982,6 +982,23 @@ export const messagesEn: Record<string, string> = {
   "miniapps.status.failed": "Failed",
   "miniapps.status.cancelled": "Cancelled",
   "miniapps.status.interrupted": "Interrupted",
+  "miniapps.commands.title": "External commands",
+  "miniapps.commands.description":
+    "The command profiles this app depends on. Each runs one fixed binary without a shell; running an untrusted profile pauses until you approve it.",
+  "miniapps.commands.installed": "Installed",
+  "miniapps.commands.missing": "Not installed",
+  "miniapps.commands.trusted": "Trusted",
+  "miniapps.commands.untrusted": "Not trusted",
+  "miniapps.commands.trust": "Trust on this machine",
+  "miniapps.commands.trustHint":
+    "Approve running {binary} for this exact profile. Editing the profile or moving the binary re-asks.",
+  "miniapps.commands.installVia": "Install via {manager}",
+  "miniapps.commands.installing": "Installing…",
+  "miniapps.commands.installFailed": "The install did not finish",
+  "miniapps.commands.noManagers":
+    "No package manager with a declared coordinate was detected; install the binary manually and ensure it is on PATH.",
+  "miniapps.commands.confirmBinary": "Binary",
+  "miniapps.commands.confirmArgv": "Command template",
   "miniapps.confirmationTitle": "Confirmation required",
   "miniapps.confirmationDescription":
     "The workflow is waiting for approval before continuing.",

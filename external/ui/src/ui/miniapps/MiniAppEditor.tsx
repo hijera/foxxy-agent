@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
+import { CommandsPanel } from "./CommandsPanel";
 import {
   acceptRepairPatch,
   assistMiniApp,
@@ -780,6 +781,7 @@ export function MiniAppEditor(props: {
             </label>
             <p className="miniapps-muted">{t("miniapps.permissionsNote")}</p>
           </section>
+          <CommandsPanel appId={draft.id} />
           <section className="miniapps-editor-section">
             <h3>{t("miniapps.verification")}</h3>
             <div className="miniapps-action-row">

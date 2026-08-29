@@ -1,6 +1,8 @@
 import { parseSSEBlocks } from "../chat/sse";
 import type {
   MiniAppApiResult,
+  MiniAppCommandStatus,
+  MiniAppInstallJob,
   MiniAppCatalogEntry,
   MiniAppDistillation,
   MiniAppDocument,
@@ -412,6 +414,50 @@ export async function readMiniAppEventStream(
     await sleep(backoff);
     backoff = Math.min(backoff * 2, EVENT_BACKOFF_MAX_MS);
   }
+}
+
+export async function getMiniAppCommands(
+  id: string,
+): Promise<MiniAppApiResult<MiniAppCommandStatus[]>> {
+  const result = await request<{ items?: MiniAppCommandStatus[] }>(
+    `${appPath(id)}/commands`,
+  );
+  if (!result.ok) return result;
+  return { ...result, data: result.data.items ?? [] };
+}
+
+export async function trustMiniAppCommand(
+  id: string,
+  name: string,
+): Promise<MiniAppApiResult<MiniAppCommandStatus>> {
+  return request(`${appPath(id)}/commands/${encodeURIComponent(name)}/trust`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved: true }),
+  });
+}
+
+export async function installMiniAppCommand(
+  id: string,
+  name: string,
+  manager: string,
+): Promise<MiniAppApiResult<MiniAppInstallJob>> {
+  return request(
+    `${appPath(id)}/commands/${encodeURIComponent(name)}/install`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ manager, approved: true }),
+    },
+  );
+}
+
+export async function getCommandInstallJob(
+  jobId: string,
+): Promise<MiniAppApiResult<MiniAppInstallJob>> {
+  return request(
+    `/foxxycode/miniapp-command-installs/${encodeURIComponent(jobId)}`,
+  );
 }
 
 export function subscribeMiniAppEvents(

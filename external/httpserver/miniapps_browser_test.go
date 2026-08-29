@@ -294,3 +294,16 @@ func newMiniAppsBrowserContext(t *testing.T) (context.Context, context.CancelFun
 		allocatorCancel()
 	}
 }
+
+// miniAppsPollDeadline returns a keep-polling predicate bounded by the step
+// timeout, sleeping between checks.
+func miniAppsPollDeadline() func() bool {
+	deadline := time.Now().Add(miniAppsBrowserStepTimeout)
+	return func() bool {
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+		return true
+	}
+}

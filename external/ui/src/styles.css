@@ -10958,3 +10958,46 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     min-height: 36px;
   }
 }
+
+.miniapps-commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.miniapps-commands-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.miniapps-commands-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  flex: 1 1 220px;
+}
+.miniapps-commands-main code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.miniapps-commands-meta {
+  display: flex;
+  gap: 6px;
+}
+.miniapps-commands-confirmation {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+}
+.miniapps-commands-confirmation dt {
+  color: var(--muted);
+}
+.miniapps-commands-confirmation dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
