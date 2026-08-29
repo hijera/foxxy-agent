@@ -25,7 +25,7 @@ ARG VERSION=dev
 # Default build includes the messenger gateway so the image can run `foxxycode gateway`
 # by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
 # to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
-ARG BUILD_TAGS=http,scheduler,ui,memory,miniapps,gateway,cli
+ARG BUILD_TAGS=http,scheduler,ui,memory,miniapps,gateway,cli,browser
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 

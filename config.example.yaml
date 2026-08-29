@@ -178,6 +178,14 @@ mcp_servers: []
   #   disabled: false
   #   disabled_tools: ["write_file"]
 
+  # Example: remote MCP server behind a self-signed certificate. Skipping the
+  # certificate check also removes the protection against a man in the middle,
+  # so turn it on only for a server you trust on a network you trust.
+  # - name: "internal"
+  #   type: "http"
+  #   url: "https://mcp.internal.lan/mcp"
+  #   insecure_skip_verify: true
+
   # Example: GitHub MCP server
   # - name: "github"
   #   command: "npx"
@@ -398,6 +406,7 @@ logger:
 # browser:
 #   enabled: false          # turn on navigate/click/fill/screenshot/... tools
 #   headless: true          # false to watch the automated session in a real window
+#   screenshots: true       # false = text-only: no image, use read_page/evaluate instead
 #   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
 #   timeout_seconds: 30     # per-action timeout
 

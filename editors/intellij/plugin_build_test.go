@@ -302,6 +302,65 @@ func TestGradleWrapperPresent(t *testing.T) {
 	}
 }
 
+// Each plugin hardcodes its own `go build -tags` list, independent of the root
+// Makefile — so a capability added to the shipped tag set reaches the released
+// CLI and the desktop app while both IDE plugins keep bundling a binary without
+// it. That is not a theoretical drift: the `browser` tool shipped gated behind a
+// tag that no plugin passed, so the tools were absent from the bundled binary no
+// matter how the user configured them. Pin the three lists together.
+func TestBundledBinaryTagsMatchShippedTagSet(t *testing.T) {
+	// The Makefile FULL_TAGS line is the source of truth for what a full build is.
+	makefileData, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+	fullTags := regexp.MustCompile(`(?m)^FULL_TAGS := (.+)$`).FindStringSubmatch(string(makefileData))
+	if fullTags == nil {
+		t.Fatal("FULL_TAGS not found in the root Makefile; this test's regex needs updating")
+	}
+	// `cli` is deliberately not bundled: the plugins speak ACP to the binary and
+	// never open the console TUI. Every other full-build tag must be present.
+	want := map[string]bool{}
+	for _, tag := range strings.Fields(fullTags[1]) {
+		if tag != "cli" {
+			want[tag] = true
+		}
+	}
+
+	// Both plugins invoke `go build -tags "<space separated>"`.
+	tagsFrom := func(t *testing.T, path string, re *regexp.Regexp) map[string]bool {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		m := re.FindStringSubmatch(string(data))
+		if m == nil {
+			t.Fatalf("no `go build -tags` list found in %s; this test's regex needs updating", path)
+		}
+		set := map[string]bool{}
+		for _, tag := range strings.Fields(m[1]) {
+			set[tag] = true
+		}
+		return set
+	}
+	// Both files may carry `//` comment lines between the flag and its value.
+	tagArg := regexp.MustCompile(`"-tags",(?:\s*//[^
+]*)*\s*"([^"]+)"`)
+	got := map[string]map[string]bool{
+		"IntelliJ (build.gradle.kts)":  tagsFrom(t, "build.gradle.kts", tagArg),
+		"VS Code (prepare-binary.mjs)": tagsFrom(t, "../vscode/scripts/prepare-binary.mjs", tagArg),
+	}
+	for plugin, tags := range got {
+		for tag := range want {
+			if !tags[tag] {
+				t.Errorf("%s bundles a binary without the %q tag; the full build set is %q",
+					plugin, tag, fullTags[1])
+			}
+		}
+	}
+}
+
 // Both plugins bundle the same set of foxxycode binaries. The Gradle
 // binTargets list and the VS Code prepare-binary.mjs TARGETS list must stay
 // identical, or one plugin silently ships fewer platforms than the other.

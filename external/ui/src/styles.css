@@ -6460,6 +6460,27 @@ textarea#composer {
   background: var(--foxxycode-surface-fieldset);
 }
 
+/* A section the running binary cannot support: shown so the feature stays
+   discoverable, dimmed so it never reads as an ordinary switch. The controls are
+   disabled in markup too — this is only the visual half. */
+/* Dim only the dead controls — the notice explaining WHY they are dead has to stay
+   fully legible, so it is excluded rather than faded along with everything else. */
+.settings-fieldset-disabled > *:not(.settings-build-tag-notice):not(legend) {
+  opacity: 0.72;
+}
+
+.settings-build-tag-notice {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-left: 3px solid var(--foxxycode-danger, #e5534b);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--muted);
+  background: var(--foxxycode-surface-fieldset);
+}
+
 .settings-fieldset > legend {
   padding: 0 6px;
   font-size: 0.85rem;
@@ -6503,6 +6524,11 @@ textarea#composer {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.settings-input:disabled {
+  cursor: default;
+  color: var(--muted);
 }
 
 .settings-key-row .settings-input {
@@ -7184,6 +7210,24 @@ textarea#composer {
 
 .mcp-discovery-box .settings-input {
   max-width: 420px;
+}
+
+/* Per-server TLS switch: indented under the row head, aligned with the note. */
+.mcp-insecure-row {
+  margin: 4px 0 0 26px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.mcp-insecure-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mcp-insecure-row input[disabled] {
+  cursor: default;
 }
 
 .mcp-trust-note {

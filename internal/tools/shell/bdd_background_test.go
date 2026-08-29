@@ -120,6 +120,50 @@ func (s *backgroundTasksState) startSleepingWithEstimate(seconds, estimate int) 
 	return s.start(command, estimate, 0)
 }
 
+// startDevServer launches something the detector must recognise as endless. The
+// command itself only has to exist; what is under test is the timeout it is given.
+func (s *backgroundTasksState) startDevServer() error {
+	return s.start("npm run dev", 30, 0)
+}
+
+func (s *backgroundTasksState) currentTask() (bgtask.Snapshot, error) {
+	tasks := s.pool.List(s.env.SessionID)
+	if len(tasks) != 1 {
+		return bgtask.Snapshot{}, fmt.Errorf("expected exactly one task, got %d", len(tasks))
+	}
+	return tasks[0], nil
+}
+
+func (s *backgroundTasksState) taskKeepsDefaultTimeout() error {
+	task, err := s.currentTask()
+	if err != nil {
+		return err
+	}
+	if task.TimeoutSeconds <= 60 {
+		return fmt.Errorf("hard timeout is %ds, which looks derived from the estimate rather than the default",
+			task.TimeoutSeconds)
+	}
+	return nil
+}
+
+func (s *backgroundTasksState) taskHasNoTimeout() error {
+	task, err := s.currentTask()
+	if err != nil {
+		return err
+	}
+	if task.TimeoutSeconds > 0 {
+		return fmt.Errorf("endless work was given a %ds hard timeout", task.TimeoutSeconds)
+	}
+	return nil
+}
+
+func (s *backgroundTasksState) answerExplainsRunsUntilStopped() error {
+	if !strings.Contains(s.output, ToolBackgroundStop) {
+		return fmt.Errorf("the launch answer does not mention %s: %q", ToolBackgroundStop, s.output)
+	}
+	return nil
+}
+
 func (s *backgroundTasksState) startSleepingWithTimeout(seconds, timeout int) error {
 	command, err := sleepCommand(s.shell.Kind, seconds)
 	if err != nil {
@@ -310,6 +354,10 @@ func initializeBackgroundTasksScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the task timed out$`, s.taskTimedOut)
 	sc.Step(`^the task is no longer running$`, s.taskNoLongerRunning)
 	sc.Step(`^the task output contains "([^"]*)"$`, s.outputContains)
+	sc.Step(`^I run a dev server in the background$`, s.startDevServer)
+	sc.Step(`^the task keeps the default hard timeout$`, s.taskKeepsDefaultTimeout)
+	sc.Step(`^the task has no hard timeout$`, s.taskHasNoTimeout)
+	sc.Step(`^the tool answer explains it runs until stopped$`, s.answerExplainsRunsUntilStopped)
 }
 
 func TestBackgroundTasksFeature(t *testing.T) {

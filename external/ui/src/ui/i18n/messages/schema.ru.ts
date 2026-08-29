@@ -177,6 +177,9 @@ export const schemaTextRu: Record<string, string> = {
     "Имя HTTP-заголовка для HTTP-транспортов MCP.",
   "Header value": "Значение заголовка",
   "HTTP header value.": "Значение HTTP-заголовка.",
+  "Ignore SSL certificate errors": "Игнорировать проверку SSL",
+  "Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.":
+    "Подключаться к этому http/sse-серверу, не проверяя его TLS-сертификат, — чтобы работал самоподписанный или просроченный сертификат. Снимает защиту от подмены соединения; используйте только в доверенной сети.",
   Disabled: "Отключён",
   "Skip connecting this server without removing its definition.":
     "Не подключать этот сервер, сохранив его описание.",
@@ -530,6 +533,9 @@ export const schemaTextRu: Record<string, string> = {
 
   // Browser tool
   "Browser tool": "Инструмент браузера",
+  "Screenshots": "Скриншоты",
+  "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.":
+    "Снимать экран после каждого действия и показывать модели. По умолчанию включено. Выключите для текстового режима: действия по-прежнему сообщают URL и журнал страницы, а инструменты чтения страницы и evaluate читают её текстом.",
   "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).":
     "Интерактивный инструмент автоматизации браузера (требует build-тег browser; управляет локальным Chrome/Chromium через chromedp).",
   "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.":

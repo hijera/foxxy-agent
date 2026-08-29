@@ -328,6 +328,8 @@ export const messagesEn: Record<string, string> = {
   "settings.toggleOptions": "Toggle options",
   "settings.backToList": "Back to list",
   "settings.backToSections": "Back to sections",
+  "settings.buildTagMissing":
+    "This build cannot run it: the binary was compiled without the \"{tag}\" build tag, so the tools do not exist in it and the settings below have no effect. Rebuild with that tag (for example make build TAGS=\"http ui browser\") to switch it on.",
   "settings.remove": "Remove",
   "settings.add": "Add",
   "settings.showKey": "Show",
@@ -444,6 +446,14 @@ export const messagesEn: Record<string, string> = {
   "settings.mcp.trust.fact.headers": "headers",
   "settings.mcp.error.projectTrust":
     "Failed to change the project trust policy.",
+  "settings.mcp.trust.fact.tls": "tls",
+  "settings.mcp.trust.factValue.insecure": "certificate verification disabled",
+  "settings.mcp.insecureTls.label": "Ignore SSL certificate errors",
+  "settings.mcp.insecureTls.title":
+    "Connect without verifying this server's TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.",
+  "settings.mcp.error.insecureToggle":
+    "Couldn't change SSL verification for MCP server {name}.",
+  "settings.mcp.error.projectTrust": "Failed to change the project trust policy.",
   "settings.mcp.error.trust": "Couldn't approve MCP server {name}.",
   "settings.mcp.error.untrust":
     "Couldn't withdraw the approval of MCP server {name}.",
@@ -509,6 +519,8 @@ export const messagesEn: Record<string, string> = {
     '"env" must be an object of string values.',
   "settings.mcp.validation.headersStringMap":
     '"headers" must be an object of string values.',
+  "settings.mcp.validation.insecureSkipVerifyBoolean":
+    '"insecureSkipVerify" must be a boolean.',
   "settings.mcp.validation.disabledBoolean": '"disabled" must be a boolean.',
   "settings.mcp.validation.disabledToolsStringArray":
     '"disabledTools" must be an array of strings.',

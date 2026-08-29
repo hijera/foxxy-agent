@@ -189,6 +189,31 @@ In `.foxxycode/mcp.json` the same entries look like Cursor's:
 }
 ```
 
+### Self-signed and invalid certificates
+
+Both HTTP transports verify the server's TLS certificate, so an internal server behind a
+self-signed or expired certificate fails to connect with an `x509` error. Setting
+`insecure_skip_verify` (`insecureSkipVerify` in mcp.json) accepts that server's
+certificate without checking it — the checkbox **Ignore SSL certificate errors** in
+**Settings → MCP servers** writes the same field:
+
+```yaml
+mcp_servers:
+  - name: "internal"
+    type: "http"
+    url: "https://mcp.internal.lan/mcp"
+    insecure_skip_verify: true
+```
+
+The flag is per server and off by default. It removes the protection against a man in the
+middle for that connection — anyone who can intercept the traffic can also present their
+own certificate — so turn it on only for a server you trust on a network you trust. It has
+no effect on `stdio` servers, which do not open a TLS connection at all.
+
+Because the flag decides *how* the endpoint is contacted, it is part of the approved
+declaration: turning it on changes the fingerprint of a project-local entry, which
+withdraws its workspace approval and asks again (see the trust gate below).
+
 ## Tool Namespacing
 
 To avoid conflicts when multiple MCP servers provide tools with the same name,

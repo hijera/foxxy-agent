@@ -9,6 +9,7 @@ import {
   declarationFacts,
   originLabel,
   parseServerEntryJson,
+  serverRowToEntry,
   serverRowToEntryJson,
   showsTrustControl,
   targetLine,
@@ -290,6 +291,30 @@ export function MCPSection() {
                 : "settings.mcp.error.enableServer",
               { name: row.name },
             ),
+        );
+      } else await loadServers();
+    });
+  };
+
+  // There is no dedicated endpoint for this flag: the row is written back as a
+  // whole mcp.json entry, the same way the JSON editor saves it. Turning the
+  // flag off drops the key rather than writing an explicit false, so the file
+  // keeps only what the operator actually chose.
+  const onToggleInsecure = (row: MCPServerRow) => {
+    withBusy(row.name, async () => {
+      const entry = serverRowToEntry(row);
+      if (row.insecure_skip_verify) delete entry.insecureSkipVerify;
+      else entry.insecureSkipVerify = true;
+      const scope = row.origin === "home" ? "global" : "local";
+      const res = await apiSend(
+        `/foxxycode/mcp/${encodeURIComponent(row.name)}?scope=${scope}`,
+        "PUT",
+        entry,
+      );
+      if (!res.ok) {
+        setError(
+          res.error ||
+            t("settings.mcp.error.insecureToggle", { name: row.name }),
         );
       } else await loadServers();
     });
@@ -621,6 +646,32 @@ export function MCPSection() {
                     </button>
                   </div>
 
+                  {/*
+                    Only remote transports have a certificate to check. The row
+                    is shown for every url server, not just https ones, so a
+                    flag already saved on an http entry stays visible.
+                  */}
+                  {row.url ? (
+                    <div className="mcp-insecure-row">
+                      <label
+                        title={
+                          editable
+                            ? t("settings.mcp.insecureTls.title")
+                            : t("settings.mcp.editConfigHint")
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!row.insecure_skip_verify}
+                          disabled={!editable || !!busy[row.name]}
+                          onChange={() => onToggleInsecure(row)}
+                          data-testid={`mcp-insecure-${row.name}`}
+                        />
+                        {t("settings.mcp.insecureTls.label")}
+                      </label>
+                    </div>
+                  ) : null}
+
                   {row.status === "needs_approval" || row.status === "denied" ? (
                     <div
                       className="mcp-trust-note"
@@ -644,7 +695,9 @@ export function MCPSection() {
                               <div key={fact.labelKey}>
                                 <dt>{t(fact.labelKey)}</dt>
                                 <dd>
-                                  <code>{fact.value}</code>
+                                  <code>
+                                    {fact.valueKey ? t(fact.valueKey) : fact.value}
+                                  </code>
                                 </dd>
                               </div>
                             ))}

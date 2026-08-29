@@ -36,7 +36,8 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 					"timeout_seconds": map[string]interface{}{
 						"type": "integer",
 						"description": "Command timeout in seconds. Foreground default 30. A foreground command that outlives it is not killed: it is handed to the background task pool and the tool answers with the new task id plus the output so far, " +
-							"so never re-run the same command with a larger timeout_seconds - the first copy is still running. A background task derives its limit from expected_seconds when this is omitted",
+							"so never re-run the same command with a larger timeout_seconds - the first copy is still running. Omitted, a background task gets the configured default, " +
+							"except that a command with no natural end (dev server, watcher, daemon: `yarn serve`, `npm run dev`, `vite`, `tsc --watch`, `docker compose up`) gets no hard timeout at all and is ended with background_stop",
 					},
 					"background": map[string]interface{}{
 						"type": "boolean",
@@ -52,8 +53,8 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 					},
 					"expected_seconds": map[string]interface{}{
 						"type": "integer",
-						"description": "Your own estimate of how long a background command needs. It drives the status ticker the user sees and, when timeout_seconds is omitted, the hard timeout. " +
-							"Estimate honestly: too low only marks the task overdue, it does not kill it",
+						"description": "Your own estimate of how long a background command needs. It drives the status ticker the user sees, and nothing else. " +
+							"Estimate honestly: too low only marks the task overdue, it never shortens the hard timeout and cannot kill the task",
 					},
 				},
 				"required": []string{"command"},

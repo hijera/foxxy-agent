@@ -37,7 +37,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory miniapps cli
+FULL_TAGS := http ui scheduler memory miniapps cli browser
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -51,7 +51,7 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
-DESKTOP_TAGS := http ui scheduler memory miniapps desktop
+DESKTOP_TAGS := http ui scheduler memory miniapps desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
 # Regenerate the Windows app icon resource from the source PNG. Run manually when
@@ -70,8 +70,12 @@ build-desktop: ui-build
 	  -o $(BUILD_DIR)/foxxycode-desktop.exe ./cmd/foxxycode/
 
 ui-build:
-	npm --prefix external/ui install --no-fund --no-audit
-	npm --prefix external/ui run build:go
+# `npm --prefix DIR` installs INTO DIR but still reads package.json from the
+# current directory on Windows npm, so it fails at the repo root with a confusing
+# "Could not read package.json" pointing at a file that was never meant to exist.
+# Changing directory works the same way on every platform.
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run build:go
 
 # Build the foxxycode CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -110,6 +114,7 @@ test: test-opencode-rules
 	go test -tags=http,cli ./...
 	go test -tags=http ./...
 	go test -tags=http,memory ./...
+	go test -tags=browser ./...
 	go test -tags=scheduler ./...
 	go test -tags=scheduler,memory ./...
 	go test -tags=miniapps ./...
@@ -144,6 +149,7 @@ check-windows:
 	GOOS=windows go vet -tags=memory ./...
 	GOOS=windows go vet -tags=http ./...
 	GOOS=windows go vet -tags=http,memory ./...
+	GOOS=windows go vet -tags=browser ./...
 	GOOS=windows go vet -tags=scheduler ./...
 	GOOS=windows go vet -tags=scheduler,memory ./...
 	GOOS=windows go vet -tags=http,scheduler ./...

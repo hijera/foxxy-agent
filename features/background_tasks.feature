@@ -36,6 +36,17 @@ Feature: Commands can run as background tasks
     Then the task is stopped
     And the task is no longer running
 
+  Scenario: An honest estimate never shortens the hard timeout
+    Given a session with an empty background task pool
+    When I run a command in the background that sleeps for 2 seconds with an estimate of 1 seconds
+    Then the task keeps the default hard timeout
+
+  Scenario: Work with no natural end is given no hard timeout
+    Given a session with an empty background task pool
+    When I run a dev server in the background
+    Then the task has no hard timeout
+    And the tool answer explains it runs until stopped
+
   Scenario: A background task that outlives its timeout is terminated
     Given a session with an empty background task pool
     When I run a command in the background that sleeps for 60 seconds with a timeout of 1 second

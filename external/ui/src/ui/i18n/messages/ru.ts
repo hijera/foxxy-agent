@@ -330,6 +330,8 @@ export const messagesRu: Record<string, string> = {
   "settings.toggleOptions": "Показать варианты",
   "settings.backToList": "К списку",
   "settings.backToSections": "К разделам",
+  "settings.buildTagMissing":
+    "В этой сборке не заработает: бинарь собран без тега «{tag}», инструментов в нём просто нет, и настройки ниже ни на что не влияют. Пересоберите с этим тегом (например make build TAGS=\"http ui browser\"), чтобы включить.",
   "settings.remove": "Удалить",
   "settings.add": "Добавить",
   "settings.showKey": "Показать",
@@ -447,6 +449,13 @@ export const messagesRu: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "обращается к",
   "settings.mcp.trust.fact.env": "окружение",
   "settings.mcp.trust.fact.headers": "заголовки",
+  "settings.mcp.trust.fact.tls": "tls",
+  "settings.mcp.trust.factValue.insecure": "проверка сертификата отключена",
+  "settings.mcp.insecureTls.label": "Игнорировать проверку SSL",
+  "settings.mcp.insecureTls.title":
+    "Подключаться, не проверяя TLS-сертификат сервера, — чтобы работал самоподписанный или просроченный сертификат. Снимает защиту от подмены соединения; используйте только в доверенной сети.",
+  "settings.mcp.error.insecureToggle":
+    "Не удалось изменить проверку SSL для сервера MCP {name}.",
   "settings.mcp.error.projectTrust":
     "Не удалось изменить политику доверия к проекту.",
   "settings.mcp.error.trust": "Не удалось одобрить MCP-сервер {name}.",
@@ -515,6 +524,8 @@ export const messagesRu: Record<string, string> = {
     '"env" должен быть объектом со строковыми значениями.',
   "settings.mcp.validation.headersStringMap":
     '"headers" должен быть объектом со строковыми значениями.',
+  "settings.mcp.validation.insecureSkipVerifyBoolean":
+    '"insecureSkipVerify" должен быть логическим значением.',
   "settings.mcp.validation.disabledBoolean":
     '"disabled" должен быть логическим значением.',
   "settings.mcp.validation.disabledToolsStringArray":
