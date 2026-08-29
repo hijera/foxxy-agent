@@ -335,7 +335,7 @@ tools:
 #   model: ""
 #   max_tokens: 64          # completion cap for the title
 
-# Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
+# Messenger gateways (external/gateway/; included in release CLI archives; for a self-build: go build -tags gateway.telegram or -tags gateway).
 # Run the bot with: foxxycode gateway --config config.yaml
 # gateways:
 #   telegram:

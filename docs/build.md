@@ -62,9 +62,9 @@ python scripts/build.py --target all --preset full
 | IntelliJ | **`editors/intellij/build/distributions/*.zip`** |
 | VS Code | **`editors/vscode/*.vsix`** (one per **`--vscode-target`**) |
 
-**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory cli browser` - the
-set every published binary ships, matching the **`Makefile`**'s **`FULL_TAGS`**), **`gateway`**
-(adds **`gateway.telegram`**), **`desktop`** (swaps in **`desktop`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
+**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory cli browser gateway` - the
+set the release CLI archives ship, matching the **`Makefile`**'s **`FULL_TAGS`**), **`gateway`**
+(like full, but only the Telegram adapter via **`gateway.telegram`**), **`desktop`** (swaps in **`desktop`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
 requires **`http`**).
 
 Run **`python scripts/build.py --help`** for the full flag list (Russian descriptions).
@@ -75,7 +75,7 @@ Build with **`memory`** to link long-term memory (`external/memory`). Enable beh
 The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway"
 ```
 
 Output: **`build/foxxycode`**.
@@ -85,7 +85,7 @@ Equivalent **`go build`** (after `ui-build` when you use **`ui`**, or use **`mak
 ```bash
 make ui-build   # only when using -tags=...,ui,... with http; Makefile runs this for you on `make build`
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory,cli \
+go build -tags=http,ui,scheduler,memory,cli,browser,gateway \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
   -o build/foxxycode \
   ./cmd/foxxycode/
@@ -212,7 +212,7 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`foxxycode_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
 | **`SHA256SUMS`** | Checksums for the archives above |
 
-Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memory`**. Manual run after a tag exists:
+Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`browser`**, **`gateway`**. Manual run after a tag exists:
 
 ```bash
 gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z

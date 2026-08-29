@@ -184,7 +184,7 @@ make build-desktop
 
 ### Docker
 
-Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`** и **`browser`** — тот же набор функций, что и **`make build TAGS="http ui scheduler memory cli browser"`**. Тег **`gateway`** в него не входит: для шлюза мессенджеров соберите свой образ (**`docker-compose.dev.yml`** или свой **`BUILD_TAGS`**), см. **[docs/docker.md](docs/docker.md)**.
+Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`** и **`browser`** — тот же набор функций, что и **`make build TAGS="http ui scheduler memory cli browser"`**. Тег **`gateway`** в него, в отличие от релизных архивов, не входит: для шлюза мессенджеров соберите свой образ (**`docker-compose.dev.yml`** или свой **`BUILD_TAGS`**), см. **[docs/docker.md](docs/docker.md)**.
 
 **1. Конфигурация и рабочий каталог** (из корня репозитория или другого каталога, в котором хранится **`config.yaml`**):
 
@@ -499,7 +499,7 @@ foxxycode mcp trust <name>
 
 ## Шлюз мессенджеров
 
-Соберите проект с **`-tags gateway.telegram`** (только Telegram) или **`-tags gateway`** (все адаптеры), чтобы включить команду `foxxycode gateway`.
+Релизные архивы CLI и настольное приложение собраны с тегом **`gateway`**, так что команда `foxxycode gateway` работает из коробки. Для своей сборки используйте **`-tags gateway.telegram`** (только Telegram) или **`-tags gateway`** (все адаптеры).
 
 ```bash
 make build TAGS="gateway.telegram"
@@ -646,12 +646,12 @@ echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":
 | Сборка | Где взять | Что внутри | Кому подходит |
 |--------|-----------|------------|---------------|
 | **Настольное приложение** | `foxxycode-desktop_<версия>_windows_amd64.zip` в [Releases](https://github.com/hijera/foxxycode-agent/releases) | полный набор + `desktop` (окно WebView2, без консоли) | Тем, кому нужно обычное приложение с окном: чат, настройки, уведомления и звуковой сигнал, пошаговое знакомство при первом запуске. **Только Windows x64** |
-| **Релизный архив CLI** | `foxxycode_<версия>_<ос>_<арх>.{tar.gz,zip}` в [Releases](https://github.com/hijera/foxxycode-agent/releases) | `http ui scheduler memory cli browser` | **Вариант по умолчанию для большинства.** Консоль в терминале (`foxxycode`), веб-интерфейс (`foxxycode http` → `http://127.0.0.1:12345/`), планировщик, память, браузерный инструмент. Linux, Windows, macOS (Intel и Apple Silicon) |
-| **Плагин IDE** | zip для IntelliJ и `.vsix` для VS Code приложены к тому же GitHub Release | тот же полный набор, без `cli` | Тем, кто работает внутри редактора: панель чата, контекст открытых файлов, `@terminal`, перетаскивание файлов, нативные inline-diff в IntelliJ. Исполняемый файл уже внутри плагина — ставить отдельно не нужно |
+| **Релизный архив CLI** | `foxxycode_<версия>_<ос>_<арх>.{tar.gz,zip}` в [Releases](https://github.com/hijera/foxxycode-agent/releases) | `http ui scheduler memory cli browser gateway` | **Вариант по умолчанию для большинства.** Консоль в терминале (`foxxycode`), веб-интерфейс (`foxxycode http` → `http://127.0.0.1:12345/`), планировщик, память, браузерный инструмент, шлюз мессенджеров (`foxxycode gateway`). Linux, Windows, macOS (Intel и Apple Silicon) |
+| **Плагин IDE** | zip для IntelliJ и `.vsix` для VS Code приложены к тому же GitHub Release | тот же полный набор, без `cli` и `gateway` | Тем, кто работает внутри редактора: панель чата, контекст открытых файлов, `@terminal`, перетаскивание файлов, нативные inline-diff в IntelliJ. Исполняемый файл уже внутри плагина — ставить отдельно не нужно |
 | **Docker-образ** | `ghcr.io/hijera/foxxycode-agent` (`latest`, `X.Y.Z`; linux/amd64 и linux/arm64) | `http scheduler ui memory cli browser` | Серверу, команде и CI: один общий экземпляр с веб-интерфейсом, рабочий каталог монтируется томом. **Chrome в образе нет** — для браузерного инструмента соберите производный образ; тега `gateway` тоже нет |
-| **Полная сборка из исходников** | `make build TAGS="http ui scheduler memory cli browser"` | то же, что в релизном архиве | Тем, кто правит код форка или собирает под платформу, которой нет в релизах |
+| **Полная сборка из исходников** | `make build TAGS="http ui scheduler memory cli browser gateway"` | то же, что в релизном архиве | Тем, кто правит код форка или собирает под платформу, которой нет в релизах |
 | **Лёгкая сборка, только ACP** | `make build` (без тегов) | ACP-сервер, сессии, промпты, инструменты | Встраиванию в редактор или скрипт по ACP и минимальным контейнерам (`scratch`, distroless, ФС только для чтения): нет HTTP, SPA, планировщика и памяти — самый маленький исполняемый файл |
-| **Шлюз мессенджеров** | `make build TAGS="http ui scheduler memory gateway.telegram"` либо `docker-compose.dev.yml` | плюс подкоманда `foxxycode gateway` | Телеграм-боту с изолированными сессиями пользователей. Тег `gateway` **не входит ни в один публикуемый артефакт** — только своя сборка |
+| **Шлюз мессенджеров** | уже в релизном архиве CLI и настольном приложении; лёгкая своя сборка: `make build TAGS="http ui scheduler memory gateway.telegram"` либо `docker-compose.dev.yml` | подкоманда `foxxycode gateway` | Телеграм-боту с изолированными сессиями пользователей. Тега `gateway` нет только в публикуемом Docker-образе — для него соберите свой образ |
 | **`go install`** | `go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest` | без опциональных тегов | Быстрой пробе, когда нужен только ACP. Ни `foxxycode http`, ни SPA, ни планировщика в такой сборке не будет — для них берите релизный архив |
 
 Собрать нестандартный набор помогает мастер **`python scripts/build.py`** (русскоязычное меню,
