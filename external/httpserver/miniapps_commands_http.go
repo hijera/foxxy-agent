@@ -3,6 +3,8 @@
 package httpserver
 
 import (
+	"encoding/json"
+
 	"net/http"
 	"strings"
 
@@ -168,4 +170,104 @@ func (s *Server) recordCommandTrustFromConfirmation(job miniapps.AsyncJob) error
 		return nil
 	}
 	return cmdprofile.NewTrustStore(s.miniAppsCommandsHome()).Record(hash, binary)
+}
+
+// miniAppsCommandInstallPost launches an async package-manager install for one
+// embedded profile. The manager id selects among the DETECTED options for the
+// declared coordinates; the request can never name a package. The approved
+// flag is the operator's explicit intent for this system-mutating action.
+func (s *Server) miniAppsCommandInstallPost(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	name := strings.TrimSpace(r.PathValue("name"))
+	app, err := s.miniAppsHTTPState().store.GetDraft(id)
+	if err != nil {
+		s.writeMiniAppsServiceError(w, err)
+		return
+	}
+	profile, declared := findAppCommandProfile(app, name)
+	if !declared {
+		writeMiniAppsError(w, http.StatusNotFound, "not_found", "the app declares no such command profile")
+		return
+	}
+	var body struct {
+		Manager  string `json:"manager"`
+		Approved bool   `json:"approved"`
+	}
+	if err := decodeMiniAppsJSON(w, r, &body); err != nil {
+		return
+	}
+	if !body.Approved {
+		writeMiniAppsError(w, http.StatusBadRequest, "approval_required", "installing software requires approved: true")
+		return
+	}
+	var selected *cmdprofile.Manager
+	for _, manager := range cmdprofile.DetectManagers(profile) {
+		if manager.ID == strings.TrimSpace(body.Manager) {
+			candidate := manager
+			selected = &candidate
+			break
+		}
+	}
+	if selected == nil {
+		writeMiniAppsError(w, http.StatusConflict, "manager_unavailable",
+			"the requested package manager is not detected on this machine or the profile declares no coordinate for it")
+		return
+	}
+	job, err := s.miniAppsHTTPState().service.StartCommandInstall(profile, *selected)
+	if err != nil {
+		s.writeMiniAppsServiceError(w, err)
+		return
+	}
+	writeMiniAppsJSON(w, http.StatusAccepted, job)
+}
+
+func findAppCommandProfile(app miniapps.MiniApp, name string) (cmdprofile.ProfileSpec, bool) {
+	for _, profile := range app.Requirements.Commands {
+		if profile.Name == name {
+			return profile.Clone(), true
+		}
+	}
+	return cmdprofile.ProfileSpec{}, false
+}
+
+func (s *Server) miniAppsCommandInstallGet(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if !validMiniAppsID(jobID) {
+		writeMiniAppsError(w, http.StatusBadRequest, "invalid_job_id", "invalid job id")
+		return
+	}
+	job, err := s.miniAppsHTTPState().service.GetJob(jobID)
+	if err != nil {
+		s.writeMiniAppsServiceError(w, err)
+		return
+	}
+	if job.Kind != miniapps.JobCommandInstall {
+		writeMiniAppsError(w, http.StatusNotFound, "not_found", "install job not found")
+		return
+	}
+	writeMiniAppsJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) miniAppsCommandInstallEvents(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(r.PathValue("job_id"))
+	if !validMiniAppsID(jobID) {
+		writeMiniAppsError(w, http.StatusBadRequest, "invalid_job_id", "invalid job id")
+		return
+	}
+	state := s.miniAppsHTTPState()
+	if job, err := state.service.GetJob(jobID); err != nil || job.Kind != miniapps.JobCommandInstall {
+		writeMiniAppsError(w, http.StatusNotFound, "not_found", "install job not found")
+		return
+	}
+	streamMiniAppsSSE(r, w, parseMiniAppsAfter(r), func(after uint64) ([]miniapps.JobEvent, bool, error) {
+		current, getErr := state.service.GetJob(jobID)
+		if getErr != nil {
+			return nil, false, getErr
+		}
+		events, eventsErr := state.service.Events(jobID, after)
+		if eventsErr != nil {
+			return nil, false, eventsErr
+		}
+		return events, miniAppsJobTerminal(current.Status), nil
+	}, func(event miniapps.JobEvent) ([]byte, error) { return json.Marshal(event) })
 }

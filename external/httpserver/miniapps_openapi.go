@@ -84,6 +84,17 @@ func mergeOpenAPIMiniAppsDoc(doc *map[string]interface{}) {
 		"requestBody": request("MiniAppCommandTrustRequest"),
 		"responses":   map[string]interface{}{"200": response("Updated status row", "MiniAppCommandStatus"), "404": errorResponseRef(), "409": errorResponseRef()},
 	}}
+	paths["/foxxycode/miniapps/{id}/commands/{name}/install"] = map[string]interface{}{"post": map[string]interface{}{
+		"summary": "Install a command profile's binary via a package manager", "description": "Launches an async install using a manager DETECTED for the profile's declared coordinates; the request selects the manager id and can never name a package. Requires approved: true.",
+		"operationId": "installMiniAppCommand", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id"), miniAppsPathParameter("name", "Command profile name")},
+		"requestBody": request("MiniAppCommandInstallRequest"),
+		"responses":   map[string]interface{}{"202": response("Asynchronous install job", "MiniAppJob"), "400": errorResponseRef(), "404": errorResponseRef(), "409": errorResponseRef()},
+	}}
+	paths["/foxxycode/miniapp-command-installs/{job_id}"] = map[string]interface{}{"get": map[string]interface{}{
+		"summary": "Get an install job", "operationId": "getMiniAppCommandInstall", "parameters": []interface{}{miniAppsPathParameter("job_id", "Install job id")},
+		"responses": map[string]interface{}{"200": response("Install job", "MiniAppJob"), "404": errorResponseRef()},
+	}}
+	paths["/foxxycode/miniapp-command-installs/{job_id}/events"] = miniAppsSSEPath("Stream install events", "streamMiniAppCommandInstallEvents", "job_id")
 	paths["/foxxycode/miniapps/{id}/runs"] = map[string]interface{}{"get": map[string]interface{}{"summary": "List Mini App run history", "operationId": "listMiniAppRuns", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "responses": map[string]interface{}{"200": response("Run history", "MiniAppRunList"), "404": errorResponseRef()}}}
 	paths["/foxxycode/miniapps/{id}/test-runs"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Run the current draft for verification", "operationId": "startMiniAppTestRun", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "requestBody": request("MiniAppRunRequest"), "responses": miniAppsResponses(accepted, response("Invalid draft or input", "ErrorEnvelope"))}}
 	paths["/foxxycode/miniapps/{id}/versions/{version}/runs"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Run an immutable Mini App release", "operationId": "startMiniAppReleaseRun", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id"), miniAppsPathParameter("version", "Release version")}, "requestBody": request("MiniAppRunRequest"), "responses": miniAppsResponses(accepted, response("Invalid release or input", "ErrorEnvelope"))}}
@@ -161,6 +172,9 @@ func miniAppsSchemas() map[string]interface{} {
 		}},
 		"MiniAppCommandTrustRequest": map[string]interface{}{"type": "object", "required": []interface{}{"approved"}, "properties": map[string]interface{}{
 			"approved": map[string]string{"type": "boolean"},
+		}},
+		"MiniAppCommandInstallRequest": map[string]interface{}{"type": "object", "required": []interface{}{"manager", "approved"}, "properties": map[string]interface{}{
+			"manager": map[string]string{"type": "string"}, "approved": map[string]string{"type": "boolean"},
 		}},
 	}
 }

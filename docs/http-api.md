@@ -221,6 +221,12 @@ Catalog and review routes:
   binary_missing`**). A run whose step uses an untrusted embedded profile parks
   as **`waiting_for_confirmation`** with `details.kind = "command_profile"`;
   approving that confirmation records the trust and resumes the run.
+- **`POST .../{id}/commands/{name}/install`** launches an async install of the
+  profile's binary through a package manager DETECTED for its declared
+  coordinates (winget/scoop/brew/apt/dnf); the request selects only the manager
+  id and must carry **`approved: true`** — a package name can never come from
+  the request. **`GET /foxxycode/miniapp-command-installs/{job_id}`** and
+  **`.../events`** follow the job like any other Mini App job.
 - **`POST .../{id}/assistant`** opens one editor-assistant turn. It accepts the
   current draft, a short conversation history, and a requested change; the
   response contains a validated proposal and a human-readable summary. The
