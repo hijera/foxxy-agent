@@ -293,6 +293,13 @@ func (s *Service) runDistillationSynthesis(id string, ctx context.Context) {
 		s.finishContextJob(id, err)
 		return
 	}
+	if err := s.prepareCommandProfiles(ctx, &pending); err != nil {
+		s.failJob(id, err)
+		return
+	}
+	s.mu.Lock()
+	s.pending[id] = pending
+	s.mu.Unlock()
 	app, evidence, err := Distill(pending.Input)
 	if err == nil {
 		err = s.store.CreateDraft(app, &evidence)
@@ -576,6 +583,76 @@ func (s *Service) findConfirmationStep(steps []Step, want, prefix string, depth 
 		}
 	}
 	return Step{}, false
+}
+
+// prepareCommandProfiles resolves every confirmed-scenario action that is
+// still a raw run_command. A command with shell syntax fails the job with an
+// actionable message; a simple command is handed to the model to propose a
+// profile, accepted only when it deterministically reconstructs the original
+// argv, embedded as untrusted-by-construction (the trust gate catches it at
+// the first test run), and the trace action is rewritten in place.
+func (s *Service) prepareCommandProfiles(ctx context.Context, pending *pendingDistillation) error {
+	if pending.Input.Scenario == nil || len(pending.Trace.Actions) == 0 {
+		return nil
+	}
+	var generator CommandProfileGenerator
+	if s.runner != nil {
+		generator, _ = s.runner.executors.Model.(CommandProfileGenerator)
+	}
+	for _, index := range pending.Input.Scenario.ActionIndexes {
+		if index < 0 || index >= len(pending.Trace.Actions) {
+			continue
+		}
+		action := &pending.Trace.Actions[index]
+		if action.Name != "run_command" || action.Status != TraceActionSucceeded {
+			continue
+		}
+		command, ok := runCommandLine(action.Arguments)
+		if !ok {
+			continue
+		}
+		if _, err := cmdprofile.TokenizeSimpleCommand(command); err != nil {
+			return fmt.Errorf("step %d runs %q: %w", index+1, redactString(command, nil), errCommandTooComplex)
+		}
+		if generator == nil {
+			return fmt.Errorf("step %d runs %q, which matches no declared command profile; add one to the commands: section and distill again", index+1, redactString(command, nil))
+		}
+		binding := ModelBinding{}
+		if pending.Input.ModelBinding != nil {
+			binding = *pending.Input.ModelBinding
+		}
+		generated, err := generator.GenerateCommandProfile(ctx, command, binding)
+		if err != nil {
+			return fmt.Errorf("step %d runs %q and no profile could be generated for it: %w", index+1, redactString(command, nil), err)
+		}
+		generated.Profile.Name = dedupeProfileName(generated.Profile.Name, pending.Input.CommandProfiles)
+		encoded, err := json.Marshal(generated.Arguments)
+		if err != nil {
+			return err
+		}
+		action.Name = generated.Profile.ToolName()
+		action.Arguments = string(encoded)
+		pending.Input.CommandProfiles = append(pending.Input.CommandProfiles, generated.Profile)
+	}
+	return nil
+}
+
+// dedupeProfileName suffixes a generated name that collides with an already
+// available profile.
+func dedupeProfileName(name string, existing []cmdprofile.ProfileSpec) string {
+	taken := make(map[string]bool, len(existing))
+	for _, profile := range existing {
+		taken[profile.Name] = true
+	}
+	if !taken[name] {
+		return name
+	}
+	for suffix := 2; ; suffix++ {
+		candidate := fmt.Sprintf("%s_%d", name, suffix)
+		if !taken[candidate] {
+			return candidate
+		}
+	}
 }
 
 func (s *Service) newJob(kind JobKind, sessionID, appID, version string) (AsyncJob, context.Context) {
