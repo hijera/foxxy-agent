@@ -101,9 +101,14 @@ export const messagesEn: Record<string, string> = {
 
   "composer.folderModal.title": "Open folder",
   "composer.folderModal.close": "Close folder browser",
+  "composer.folderModal.pathLabel": "Folder path",
+  "composer.folderModal.pathPlaceholder": "Path",
+  "composer.folderModal.drivesPlaceholder": "This PC",
   "composer.folderModal.noSubfolders": "No subfolders",
+  "composer.folderModal.noDrives": "No drives",
   "composer.folderModal.cancel": "Cancel",
   "composer.folderModal.open": "Open",
+  "composer.folderModal.go": "Go",
   "composer.folderModal.cannotList": "Cannot list {path}",
 
   "env.banner.unreachable":

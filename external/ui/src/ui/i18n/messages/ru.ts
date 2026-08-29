@@ -99,9 +99,14 @@ export const messagesRu: Record<string, string> = {
 
   "composer.folderModal.title": "Открыть папку",
   "composer.folderModal.close": "Закрыть обзор папок",
+  "composer.folderModal.pathLabel": "Путь к папке",
+  "composer.folderModal.pathPlaceholder": "Путь",
+  "composer.folderModal.drivesPlaceholder": "Этот компьютер",
   "composer.folderModal.noSubfolders": "Вложенных папок нет",
+  "composer.folderModal.noDrives": "Диски не найдены",
   "composer.folderModal.cancel": "Отмена",
   "composer.folderModal.open": "Открыть",
+  "composer.folderModal.go": "Перейти",
   "composer.folderModal.cannotList": "Не удалось прочитать {path}",
 
   "env.banner.unreachable":
