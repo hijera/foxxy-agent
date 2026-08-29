@@ -2,8 +2,8 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary (FULL_TAGS below; what every published binary ships):
-#       make build TAGS="http ui scheduler memory cli browser"
+#     Recommended full binary (FULL_TAGS below; what the release CLI archives ship):
+#       make build TAGS="http ui scheduler memory cli browser gateway"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -37,7 +37,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli browser
+FULL_TAGS := http ui scheduler memory cli browser gateway
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build

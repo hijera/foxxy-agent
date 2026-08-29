@@ -187,7 +187,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`browser`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser"`**. It does **not** carry the **`gateway`** tag: build your own image for the messenger gateway (**`docker-compose.dev.yml`** or a custom **`BUILD_TAGS`**), see **[docs/docker.md](docs/docker.md)**.
+Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`browser`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser"`**. Unlike the release archives, it does **not** carry the **`gateway`** tag: build your own image for the messenger gateway (**`docker-compose.dev.yml`** or a custom **`BUILD_TAGS`**), see **[docs/docker.md](docs/docker.md)**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -493,7 +493,7 @@ See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
 ## Messenger gateway
 
-Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `foxxycode gateway`.
+The release CLI archives and the desktop app ship with the **`gateway`** tag, so `foxxycode gateway` works out of the box. For your own build, use **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters).
 
 ```bash
 make build TAGS="gateway.telegram"
@@ -638,12 +638,12 @@ FoxxyCode is one source tree and one binary; builds differ by their **tag set** 
 | Build | Where to get it | What is inside | Who it is for |
 |-------|-----------------|----------------|---------------|
 | **Desktop app** | `foxxycode-desktop_<version>_windows_amd64.zip` on [Releases](https://github.com/hijera/foxxycode-agent/releases) | the full set plus `desktop` (a WebView2 window, no console) | Anyone who wants an ordinary windowed app: chat, settings, notifications and an audio cue, a first-run guided tour. **Windows x64 only** |
-| **CLI release archive** | `foxxycode_<version>_<os>_<arch>.{tar.gz,zip}` on [Releases](https://github.com/hijera/foxxycode-agent/releases) | `http ui scheduler memory cli browser` | **The default choice for most people.** Console TUI (`foxxycode`), web UI (`foxxycode http` -> `http://127.0.0.1:12345/`), scheduler, memory, browser tools. Linux, Windows, macOS (Intel and Apple Silicon) |
-| **IDE plugin** | the IntelliJ zip and the VS Code `.vsix` are attached to the same GitHub Release | the same full set, minus `cli` | Anyone working inside an editor: chat panel, open-files context, `@terminal`, file drag-drop, native inline diffs in IntelliJ. The binary ships inside the plugin - no separate install |
+| **CLI release archive** | `foxxycode_<version>_<os>_<arch>.{tar.gz,zip}` on [Releases](https://github.com/hijera/foxxycode-agent/releases) | `http ui scheduler memory cli browser gateway` | **The default choice for most people.** Console TUI (`foxxycode`), web UI (`foxxycode http` -> `http://127.0.0.1:12345/`), scheduler, memory, browser tools, messenger gateway (`foxxycode gateway`). Linux, Windows, macOS (Intel and Apple Silicon) |
+| **IDE plugin** | the IntelliJ zip and the VS Code `.vsix` are attached to the same GitHub Release | the same full set, minus `cli` and `gateway` | Anyone working inside an editor: chat panel, open-files context, `@terminal`, file drag-drop, native inline diffs in IntelliJ. The binary ships inside the plugin - no separate install |
 | **Docker image** | `ghcr.io/hijera/foxxycode-agent` (`latest`, `X.Y.Z`; linux/amd64 and linux/arm64) | `http scheduler ui memory cli browser` | A server, a team, or CI: one shared instance with the web UI and the working directory mounted as a volume. **The image ships no Chrome** - derive an image for the browser tools; it carries no `gateway` tag either |
-| **Full build from source** | `make build TAGS="http ui scheduler memory cli browser"` | same as the release archive | Anyone hacking on the fork, or building for a platform the releases do not cover |
+| **Full build from source** | `make build TAGS="http ui scheduler memory cli browser gateway"` | same as the release archive | Anyone hacking on the fork, or building for a platform the releases do not cover |
 | **Lean, ACP only** | `make build` (no tags) | ACP server, sessions, prompts, tools | Embedding into an editor or a script over ACP, and minimal containers (`scratch`, distroless, read-only rootfs): no HTTP, no SPA, no scheduler, no memory - the smallest binary |
-| **Messenger gateway** | `make build TAGS="http ui scheduler memory gateway.telegram"` or `docker-compose.dev.yml` | adds the `foxxycode gateway` subcommand | A Telegram bot with per-user isolated sessions. The `gateway` tag is **in no published artifact** - build it yourself |
+| **Messenger gateway** | already in the CLI release archive and the desktop app; slim self-build: `make build TAGS="http ui scheduler memory gateway.telegram"` or `docker-compose.dev.yml` | the `foxxycode gateway` subcommand | A Telegram bot with per-user isolated sessions. Only the published Docker image lacks the `gateway` tag - build your own image for that |
 | **`go install`** | `go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest` | no optional tags | A quick try when all you need is ACP. No `foxxycode http`, no SPA, no scheduler - use a release archive for those |
 
 For a non-standard tag set, the **`python scripts/build.py`** wizard offers tag presets and
