@@ -21,13 +21,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 VERSION_PKG = "github.com/hijera/foxxycode-agent/internal/version.Version"
 
-ALL_TAGS = ("http", "ui", "scheduler", "memory", "gateway.telegram", "gateway")
+ALL_TAGS = (
+    "http",
+    "ui",
+    "scheduler",
+    "memory",
+    "cli",
+    "browser",
+    "desktop",
+    "gateway.telegram",
+    "gateway",
+)
 
+# "full" must stay in step with the Makefile's FULL_TAGS and the release workflow:
+# every published binary carries the same set, and a preset that quietly drops `cli`
+# or `browser` produces an archive whose console TUI and browser tools are missing.
 PRESETS: dict[str, list[str]] = {
     "lean": [],
-    "full": ["http", "ui", "scheduler", "memory"],
-    "gateway": ["http", "ui", "scheduler", "memory", "gateway.telegram"],
-    "desktop": ["http", "ui", "scheduler", "memory", "desktop"],
+    "full": ["http", "ui", "scheduler", "memory", "cli", "browser"],
+    "gateway": ["http", "ui", "scheduler", "memory", "cli", "browser", "gateway.telegram"],
+    "desktop": ["http", "ui", "scheduler", "memory", "browser", "desktop"],
 }
 
 RELEASE_TARGETS: list[tuple[str, str]] = [

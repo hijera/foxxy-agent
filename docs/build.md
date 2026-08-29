@@ -62,8 +62,9 @@ python scripts/build.py --target all --preset full
 | IntelliJ | **`editors/intellij/build/distributions/*.zip`** |
 | VS Code | **`editors/vscode/*.vsix`** (one per **`--vscode-target`**) |
 
-**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory`), **`gateway`**
-(adds **`gateway.telegram`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
+**Tag presets:** **`lean`** (no tags), **`full`** (`http ui scheduler memory cli browser` - the
+set every published binary ships, matching the **`Makefile`**'s **`FULL_TAGS`**), **`gateway`**
+(adds **`gateway.telegram`**), **`desktop`** (swaps in **`desktop`**). Custom tags: **`--tags http,scheduler`** (comma-separated; **`ui`**
 requires **`http`**).
 
 Run **`python scripts/build.py --help`** for the full flag list (Russian descriptions).
