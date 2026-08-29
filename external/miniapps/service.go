@@ -3,6 +3,8 @@
 package miniapps
 
 import (
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
+
 	"bufio"
 	"context"
 	"encoding/json"
@@ -486,6 +488,13 @@ func (s *Service) pendingConfirmation(app MiniApp, run Run, inputs map[string]an
 	step, found := s.findConfirmationStep(app.Workflow, id, "", 0)
 	confirmation := &PendingConfirmation{ID: id, Message: "Approve this workflow action?"}
 	if !found {
+		// A pause raised from a tool step (not a confirm step) is a trust
+		// checkpoint for a document-embedded command profile: give the operator
+		// the facts the decision binds to — the profile identity (hash) and the
+		// binary that would actually run.
+		if trust := s.commandTrustConfirmation(app, id); trust != nil {
+			return trust
+		}
 		return confirmation
 	}
 	refs := map[string]any{"inputs": inputs, "steps": map[string]any{}, "app": map[string]any{"id": app.ID, "version": app.Version}}
@@ -496,6 +505,55 @@ func (s *Service) pendingConfirmation(app MiniApp, run Run, inputs map[string]an
 		confirmation.Details = redactValue(details, nil, false)
 	}
 	return confirmation
+}
+
+// commandTrustConfirmation builds the typed confirmation payload for a tool
+// step that paused on an untrusted command profile. Nil when the waiting step
+// is not a command-profile step.
+func (s *Service) commandTrustConfirmation(app MiniApp, stepID string) *PendingConfirmation {
+	step, found := findWorkflowStep(app.Workflow, stepID)
+	if !found || step.Kind != "tool" {
+		return nil
+	}
+	profile, declared := commandProfileByToolName(app.Requirements.Commands, step.Tool)
+	if !declared {
+		return nil
+	}
+	hash, err := cmdprofile.CanonicalHash(profile)
+	if err != nil {
+		return nil
+	}
+	binary := profile.Binary
+	if resolved, resolveErr := cmdprofile.ResolveBinary(profile, ""); resolveErr == nil {
+		binary = resolved
+	}
+	return &PendingConfirmation{
+		ID:      stepID,
+		Message: fmt.Sprintf("Command profile %q wants to run %s. Trust it on this machine?", profile.Name, binary),
+		Details: map[string]any{
+			"kind":         "command_profile",
+			"name":         profile.Name,
+			"hash":         hash,
+			"binary":       binary,
+			"argv_preview": append([]string(nil), profile.Template...),
+		},
+	}
+}
+
+// findWorkflowStep locates a step by id, including branch bodies.
+func findWorkflowStep(steps []Step, want string) (Step, bool) {
+	for _, step := range steps {
+		if step.ID == want {
+			return step, true
+		}
+		if found, ok := findWorkflowStep(step.Then, want); ok {
+			return found, true
+		}
+		if found, ok := findWorkflowStep(step.Else, want); ok {
+			return found, true
+		}
+	}
+	return Step{}, false
 }
 
 func (s *Service) findConfirmationStep(steps []Step, want, prefix string, depth int) (Step, bool) {

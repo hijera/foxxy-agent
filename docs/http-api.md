@@ -212,6 +212,15 @@ Catalog and review routes:
   **`POST .../authoring/patches`** proposes bounded repairs and **`POST
   .../patches/{patch_id}/accept`** applies one explicitly against its base
   revision.
+- **`GET .../{id}/commands`** lists the command profiles a draft depends on: the
+  declared binary, the path it resolves to when installed, whether this machine
+  trusts the profile, and the exact package-manager install commands detected
+  for it. **`POST .../{id}/commands/{name}/trust`** records the approval,
+  binding the profile content hash to the resolved binary path (editing the
+  profile or moving the binary voids it; a missing binary returns **`409
+  binary_missing`**). A run whose step uses an untrusted embedded profile parks
+  as **`waiting_for_confirmation`** with `details.kind = "command_profile"`;
+  approving that confirmation records the trust and resumes the run.
 - **`POST .../{id}/assistant`** opens one editor-assistant turn. It accepts the
   current draft, a short conversation history, and a requested change; the
   response contains a validated proposal and a human-readable summary. The

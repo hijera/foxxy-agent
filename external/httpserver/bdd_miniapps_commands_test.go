@@ -324,6 +324,54 @@ func (s *miniAppsCommandsState) releasedRunUsedTheNewFile() error {
 	return nil
 }
 
+// dropConfigProfile removes the config declaration after distillation, so the
+// draft's embedded profile is the only one left — the portability situation a
+// receiving machine is in.
+func (s *miniAppsCommandsState) dropConfigProfile() error {
+	// The bare binary name must still resolve, as it would on a machine where
+	// the tool is installed on PATH.
+	if err := os.Setenv("PATH", filepath.Dir(s.fake.Binary)+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+		return err
+	}
+	s.srv.activeCfg().Commands = nil
+	return nil
+}
+
+func (s *miniAppsCommandsState) testRunPausesForTrust() error {
+	job, err := s.waitJobPath("/foxxycode/miniapp-runs/", s.testJobID, "waiting_for_confirmation")
+	if err != nil {
+		return err
+	}
+	confirmation, _ := job["confirmation"].(map[string]any)
+	details, _ := confirmation["details"].(map[string]any)
+	if details["kind"] != "command_profile" || details["name"] != "fakeenc_convert" {
+		return fmt.Errorf("confirmation details = %v", confirmation)
+	}
+	if calls, _ := s.fake.Calls(); len(calls) != 0 {
+		return fmt.Errorf("the binary ran before trust: %v", calls)
+	}
+	return nil
+}
+
+func (s *miniAppsCommandsState) approveTrustConfirmation() error {
+	response, err := s.post("/foxxycode/miniapp-runs/"+s.testJobID+"/confirmation", map[string]any{"approved": true})
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("confirmation status %d: %s", response.StatusCode, response.Body)
+	}
+	return nil
+}
+
+func (s *miniAppsCommandsState) trustApprovalRecorded() error {
+	trustPath := filepath.Join(s.home, cmdprofile.TrustFileName)
+	if _, err := os.Stat(trustPath); err != nil {
+		return fmt.Errorf("trust file missing: %w", err)
+	}
+	return nil
+}
+
 func (s *miniAppsCommandsState) post(path string, payload any) (miniAppsResponse, error) {
 	data, _ := json.Marshal(payload)
 	request, err := http.NewRequest(http.MethodPost, s.ts.URL+path, strings.NewReader(string(data)))
@@ -383,6 +431,10 @@ func initializeMiniAppsCommandsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I release the command draft as version "([^"]+)"$`, s.release)
 	sc.Step(`^I run released command version "([^"]+)" with a different media file$`, s.runReleased)
 	sc.Step(`^the released command run executed the fake encoder with the new file$`, s.releasedRunUsedTheNewFile)
+	sc.Step(`^the config no longer declares the fake encoder profile$`, s.dropConfigProfile)
+	sc.Step(`^the test run pauses asking to trust the embedded profile$`, s.testRunPausesForTrust)
+	sc.Step(`^I approve the trust confirmation$`, s.approveTrustConfirmation)
+	sc.Step(`^the trust approval is recorded on this machine$`, s.trustApprovalRecorded)
 }
 
 func TestMiniAppsCommandsFeature(t *testing.T) {

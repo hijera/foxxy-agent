@@ -105,6 +105,8 @@ func (s *Server) registerMiniAppsRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/validate", s.miniAppsValidatePost)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/sanitize", s.miniAppsSanitizePost)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/release", s.miniAppsReleasePost)
+	s.mux.HandleFunc("GET /foxxycode/miniapps/{id}/commands", s.miniAppsCommandsGet)
+	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/commands/{name}/trust", s.miniAppsCommandTrustPost)
 	s.mux.HandleFunc("GET /foxxycode/miniapps/{id}/runs", s.miniAppsRunHistoryGet)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/test-runs", s.miniAppsTestRunPost)
 	s.mux.HandleFunc("POST /foxxycode/miniapps/{id}/versions/{version}/runs", s.miniAppsReleaseRunPost)
@@ -750,6 +752,13 @@ func (s *Server) miniAppsRunConfirmationPost(w http.ResponseWriter, r *http.Requ
 		decisions, decisionsErr := s.miniAppsConfirmationDecisions(state, job, body.ConfirmationID)
 		if decisionsErr != nil {
 			writeMiniAppsError(w, http.StatusUnprocessableEntity, "invalid_confirmation", decisionsErr.Error())
+			return
+		}
+		// For a command-profile checkpoint the decision alone is inert: the
+		// trust record clears the executor's gate on resume, so it must land
+		// first, and a write failure must abort the resume.
+		if err := s.recordCommandTrustFromConfirmation(job); err != nil {
+			s.writeMiniAppsServiceError(w, err)
 			return
 		}
 		resumed, confirmErr := state.service.ConfirmRun(runID, decisions)

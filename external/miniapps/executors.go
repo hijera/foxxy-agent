@@ -11,11 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 	"github.com/hijera/foxxycode-agent/internal/tools"
+	toolcmd "github.com/hijera/foxxycode-agent/internal/tools/cmdprofile"
 )
 
 // ConfigSource resolves the configuration a Mini App step should run against.
@@ -95,6 +97,17 @@ func (e *BuiltinToolExecutor) ValidateMiniAppCapabilities(app MiniApp) error {
 		if _, allowed := e.allowlist[name]; e.allowRestricted && !allowed {
 			return fmt.Errorf("tool %q is not enabled for Mini Apps", name)
 		}
+		// A document-embedded command profile is its own declaration: validate
+		// the spec instead of requiring a registry entry.
+		if profile, declared := commandProfileByToolName(app.Requirements.Commands, name); declared {
+			if err := profile.Validate(); err != nil {
+				return fmt.Errorf("command profile %q: %w", profile.Name, err)
+			}
+			if profile.ResolvedPermission() != cmdprofile.PermissionAllow {
+				return fmt.Errorf("command profile %q must declare permission: allow", profile.Name)
+			}
+			continue
+		}
 		tool, found := registry.Get(name)
 		if !found || tool == nil {
 			return fmt.Errorf("tool %q is not registered", name)
@@ -123,13 +136,6 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 			return nil, fmt.Errorf("tool %q is not declared in Mini App allowlist", name)
 		}
 	}
-	tool, ok := registry.Get(name)
-	if !ok || tool == nil {
-		return nil, fmt.Errorf("unknown builtin tool %q", name)
-	}
-	if tool.RequiresPermission || builtinToolNeedsInteractivePermission(name) {
-		return nil, fmt.Errorf("tool %q requires interactive permission and is unavailable to Mini App execution", name)
-	}
 	workspace := strings.TrimSpace(req.Workspace)
 	if workspace == "" {
 		return nil, errors.New("workspace is required for a Mini App tool step")
@@ -141,6 +147,18 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 	if err := validateBuiltinToolPaths(name, req.Arguments, workspace); err != nil {
 		return nil, err
 	}
+	// A document-embedded profile is executed from its own declaration; the
+	// registry only serves ordinary builtins and config-declared profiles.
+	if req.CommandProfile != nil {
+		return e.executeCommandProfile(ctx, req, argsJSON, workspace)
+	}
+	tool, ok := registry.Get(name)
+	if !ok || tool == nil {
+		return nil, fmt.Errorf("unknown builtin tool %q", name)
+	}
+	if tool.RequiresPermission || builtinToolNeedsInteractivePermission(name) {
+		return nil, fmt.Errorf("tool %q requires interactive permission and is unavailable to Mini App execution", name)
+	}
 	env := &tooling.Env{
 		CWD:            workspace,
 		PermissionMode: config.PermModeAsk,
@@ -151,6 +169,114 @@ func (e *BuiltinToolExecutor) ExecuteTool(ctx context.Context, req ToolRequest) 
 		return nil, err
 	}
 	return result, nil
+}
+
+// executeCommandProfile runs a document-embedded command profile. The order of
+// the gates matters: an ask-profile is a hard error (a Mini App runs
+// unattended, so a prompt could never be answered), a missing binary is an
+// actionable install error, and an untrusted profile pauses the run through
+// the existing waiting-for-confirmation flow. Trust binds the profile content
+// hash to the exact resolved binary path; a profile whose hash matches an
+// operator-declared config profile is implicitly trusted.
+func (e *BuiltinToolExecutor) executeCommandProfile(ctx context.Context, req ToolRequest, argsJSON, workspace string) (any, error) {
+	profile := req.CommandProfile.Clone()
+	// When the operator's config declares this same profile (the document form
+	// is the portable, bare-name spelling of it), execute the config
+	// declaration instead: it knows where the binary actually lives on this
+	// machine, and it is the operator's own trust anchor.
+	if declared, ok := e.configProfileForDocument(profile); ok {
+		profile = declared
+	}
+	if err := profile.Validate(); err != nil {
+		return nil, fmt.Errorf("command profile %q: %w", profile.Name, err)
+	}
+	if profile.ResolvedPermission() != cmdprofile.PermissionAllow {
+		return nil, fmt.Errorf("command profile %q must declare permission: allow to run inside a Mini App", profile.Name)
+	}
+	resolved, err := cmdprofile.ResolveBinary(profile, workspace)
+	if err != nil {
+		var missing *cmdprofile.BinaryNotFoundError
+		if errors.As(err, &missing) {
+			return nil, fmt.Errorf("command %q is not installed on this machine%s", profile.Binary, commandInstallHint(profile))
+		}
+		return nil, err
+	}
+	hash, err := cmdprofile.CanonicalHash(profile)
+	if err != nil {
+		return nil, err
+	}
+	if !e.commandProfileTrusted(hash, resolved) {
+		return nil, fmt.Errorf(
+			"command profile %q wants to run %s and is not trusted on this machine: %w",
+			profile.Name, resolved, errWaitingForConfirmation)
+	}
+	tool := toolcmd.Tool(profile)
+	out, err := tool.Execute(ctx, argsJSON, &tooling.Env{
+		CWD: workspace, PermissionMode: config.PermModeAsk, SessionID: req.RunID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// configProfileForDocument finds the config-declared profile whose portable
+// form equals the document profile's content.
+func (e *BuiltinToolExecutor) configProfileForDocument(document cmdprofile.ProfileSpec) (cmdprofile.ProfileSpec, bool) {
+	cfg := e.source.resolve()
+	if cfg == nil {
+		return cmdprofile.ProfileSpec{}, false
+	}
+	documentHash, err := cmdprofile.CanonicalHash(document)
+	if err != nil {
+		return cmdprofile.ProfileSpec{}, false
+	}
+	for _, declared := range cfg.Commands {
+		if portableHash, err := cmdprofile.CanonicalHash(declared.Portable()); err == nil && portableHash == documentHash {
+			return declared.Clone(), true
+		}
+		if declaredHash, err := cmdprofile.CanonicalHash(declared); err == nil && declaredHash == documentHash {
+			return declared.Clone(), true
+		}
+	}
+	return cmdprofile.ProfileSpec{}, false
+}
+
+// commandProfileTrusted reports whether the profile may run without pausing:
+// either its hash matches an operator-declared config profile (in declared or
+// portable form), or the trust store holds an approval for this hash bound to
+// this resolved binary path.
+func (e *BuiltinToolExecutor) commandProfileTrusted(hash, resolved string) bool {
+	cfg := e.source.resolve()
+	if cfg != nil {
+		for _, declared := range cfg.Commands {
+			if declaredHash, err := cmdprofile.CanonicalHash(declared); err == nil && declaredHash == hash {
+				return true
+			}
+			if portableHash, err := cmdprofile.CanonicalHash(declared.Portable()); err == nil && portableHash == hash {
+				return true
+			}
+		}
+	}
+	home := ""
+	if cfg != nil {
+		home = strings.TrimSpace(cfg.Paths.Home)
+	}
+	return cmdprofile.NewTrustStore(home).Trusted(hash, resolved)
+}
+
+// commandInstallHint appends the exact install command(s) for the detected
+// package managers.
+func commandInstallHint(profile cmdprofile.ProfileSpec) string {
+	managers := cmdprofile.DetectManagers(profile)
+	if len(managers) == 0 {
+		return "; install it and ensure it is on PATH"
+	}
+	var hints []string
+	for _, manager := range managers {
+		hints = append(hints, strings.Join(manager.Argv, " "))
+	}
+	return "; install it with: " + strings.Join(hints, "  |  ")
 }
 
 // builtinToolNeedsInteractivePermission names the tools a background Mini App

@@ -73,6 +73,17 @@ func mergeOpenAPIMiniAppsDoc(doc *map[string]interface{}) {
 	paths["/foxxycode/miniapps/{id}/validate"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Validate a Mini App draft", "operationId": "validateMiniApp", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "responses": map[string]interface{}{"200": response("Validation report", "MiniAppValidationReport"), "404": errorResponseRef()}}}
 	paths["/foxxycode/miniapps/{id}/sanitize"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Sanitize a Mini App draft", "operationId": "sanitizeMiniApp", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "responses": map[string]interface{}{"200": response("Sanitization report", "MiniAppSanitizationReport"), "404": errorResponseRef()}}}
 	paths["/foxxycode/miniapps/{id}/release"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Release a tested Mini App", "operationId": "releaseMiniApp", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "requestBody": request("MiniAppReleaseRequest"), "responses": map[string]interface{}{"201": response("Released Mini App", "MiniApp"), "409": errorResponseRef(), "422": errorResponseRef()}}}
+	paths["/foxxycode/miniapps/{id}/commands"] = map[string]interface{}{"get": map[string]interface{}{
+		"summary": "List the command profiles a Mini App depends on", "description": "One row per embedded profile: declared binary, resolved path when installed, trust state on this machine, and detected package-manager install commands.",
+		"operationId": "listMiniAppCommands", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")},
+		"responses": map[string]interface{}{"200": response("Command profile statuses", "MiniAppCommandStatusList"), "404": errorResponseRef()},
+	}}
+	paths["/foxxycode/miniapps/{id}/commands/{name}/trust"] = map[string]interface{}{"post": map[string]interface{}{
+		"summary": "Trust an embedded command profile on this machine", "description": "Records an approval binding the profile content hash to the binary path resolved right now. Editing the profile or moving the binary voids the approval.",
+		"operationId": "trustMiniAppCommand", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id"), miniAppsPathParameter("name", "Command profile name")},
+		"requestBody": request("MiniAppCommandTrustRequest"),
+		"responses":   map[string]interface{}{"200": response("Updated status row", "MiniAppCommandStatus"), "404": errorResponseRef(), "409": errorResponseRef()},
+	}}
 	paths["/foxxycode/miniapps/{id}/runs"] = map[string]interface{}{"get": map[string]interface{}{"summary": "List Mini App run history", "operationId": "listMiniAppRuns", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "responses": map[string]interface{}{"200": response("Run history", "MiniAppRunList"), "404": errorResponseRef()}}}
 	paths["/foxxycode/miniapps/{id}/test-runs"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Run the current draft for verification", "operationId": "startMiniAppTestRun", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id")}, "requestBody": request("MiniAppRunRequest"), "responses": miniAppsResponses(accepted, response("Invalid draft or input", "ErrorEnvelope"))}}
 	paths["/foxxycode/miniapps/{id}/versions/{version}/runs"] = map[string]interface{}{"post": map[string]interface{}{"summary": "Run an immutable Mini App release", "operationId": "startMiniAppReleaseRun", "parameters": []interface{}{miniAppsPathParameter("id", "Mini App id"), miniAppsPathParameter("version", "Release version")}, "requestBody": request("MiniAppRunRequest"), "responses": miniAppsResponses(accepted, response("Invalid release or input", "ErrorEnvelope"))}}
@@ -134,6 +145,22 @@ func miniAppsSchemas() map[string]interface{} {
 		"MiniAppPatchRequest": anyObject, "MiniAppReleaseRequest": anyObject, "MiniAppRunRequest": anyObject, "MiniAppConfirmationRequest": anyObject,
 		"MiniAppAssistantRequest": anyObject, "MiniAppAssistantResponse": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
 			"reply": map[string]string{"type": "string"}, "changes": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}}, "draft": anyObject,
+		}},
+		"MiniAppCommandStatus": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+			"name": map[string]string{"type": "string"}, "binary": map[string]string{"type": "string"},
+			"description": map[string]string{"type": "string"}, "permission": map[string]string{"type": "string"},
+			"hash": map[string]string{"type": "string"}, "resolved_path": map[string]string{"type": "string"},
+			"installed": map[string]string{"type": "boolean"}, "trusted": map[string]string{"type": "boolean"},
+			"source": map[string]string{"type": "string"},
+			"managers": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+				"id": map[string]string{"type": "string"}, "package": map[string]string{"type": "string"}, "command": map[string]string{"type": "string"},
+			}}},
+		}},
+		"MiniAppCommandStatusList": map[string]interface{}{"type": "object", "properties": map[string]interface{}{
+			"items": map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/MiniAppCommandStatus"}},
+		}},
+		"MiniAppCommandTrustRequest": map[string]interface{}{"type": "object", "required": []interface{}{"approved"}, "properties": map[string]interface{}{
+			"approved": map[string]string{"type": "boolean"},
 		}},
 	}
 }

@@ -3,6 +3,8 @@
 package miniapps
 
 import (
+	"github.com/hijera/foxxycode-agent/internal/cmdprofile"
+
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -34,6 +36,10 @@ type ToolRequest struct {
 	Tool      string
 	Arguments any
 	Workspace string
+	// CommandProfile is the document-embedded profile backing a cmd_* step,
+	// attached by the runner from app.Requirements.Commands. Nil for ordinary
+	// builtins and for cmd_* tools resolved from the live registry.
+	CommandProfile *cmdprofile.ProfileSpec
 }
 
 // ModelRequest is a tool-free model invocation.
@@ -614,6 +620,11 @@ func (e *runExecution) executeSteps(steps []Step) error {
 			if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) {
 				break
 			}
+			// A confirmation pause is not a transient failure: retrying would
+			// re-raise it and burn the attempts without the operator seeing it.
+			if errors.Is(execErr, errWaitingForConfirmation) {
+				break
+			}
 			if attempt < attempts && step.Retry.DelayMS > 0 {
 				timer := time.NewTimer(time.Duration(step.Retry.DelayMS) * time.Millisecond)
 				select {
@@ -669,7 +680,12 @@ func (e *runExecution) executeStep(ctx context.Context, step Step) (any, error) 
 		if err != nil {
 			return nil, err
 		}
-		return e.runner.executors.Tool.ExecuteTool(ctx, ToolRequest{AppID: e.app.ID, RunID: e.run.ID, StepID: step.ID, Tool: step.Tool, Arguments: args, Workspace: e.workspace})
+		request := ToolRequest{AppID: e.app.ID, RunID: e.run.ID, StepID: step.ID, Tool: step.Tool, Arguments: args, Workspace: e.workspace}
+		if profile, declared := commandProfileByToolName(e.app.Requirements.Commands, step.Tool); declared {
+			attached := profile.Clone()
+			request.CommandProfile = &attached
+		}
+		return e.runner.executors.Tool.ExecuteTool(ctx, request)
 	case "llm":
 		if e.runner.executors.Model == nil {
 			return nil, errors.New("model executor is unavailable")
