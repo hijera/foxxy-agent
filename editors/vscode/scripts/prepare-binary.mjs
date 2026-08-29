@@ -110,7 +110,7 @@ function buildOne(goos, goarch) {
       // Tracks the root Makefile FULL_TAGS set minus `cli`: the extension speaks
       // ACP to this binary and never opens the console TUI. Kept honest by
       // TestBundledBinaryTagsMatchShippedTagSet in editors/intellij.
-      "http ui scheduler memory browser",
+      "http ui scheduler memory miniapps browser",
       "-trimpath",
       "-ldflags",
       `-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${pluginVersion()}`,

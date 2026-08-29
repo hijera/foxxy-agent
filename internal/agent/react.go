@@ -65,6 +65,16 @@ type SessionState interface {
 	SetTitleAuto(text string)
 }
 
+// AgentOptions controls per-instance constraints used by embedded agent
+// callers such as Mini Apps. A nil BuiltinToolAllowlist preserves the normal
+// unrestricted tool exposure; a non-nil empty list denies every builtin and
+// MCP tool. MaxTurns overrides the configured agent limit when positive.
+type AgentOptions struct {
+	BuiltinToolAllowlist []string
+	MaxTurns             int
+	ToolCallGuard        func(name, argsJSON, cwd string) error
+}
+
 // Agent runs the ReAct loop for a single session turn.
 type Agent struct {
 	cfg             *config.Config
@@ -79,6 +89,11 @@ type Agent struct {
 	// titleOnce keeps the session-title pass to a single launch per turn, whichever
 	// exit path reaches it first.
 	titleOnce sync.Once
+
+	builtinToolAllowlist    map[string]struct{}
+	toolAllowlistRestricted bool
+	maxTurnsOverride        int
+	toolCallGuard           func(name, argsJSON, cwd string) error
 
 	imgMu             sync.Mutex
 	pendingToolImages []llm.ImagePart
@@ -123,6 +138,54 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		environment:     environment,
 		providerFactory: llm.NewProvider,
 	}
+}
+
+// NewAgentWithOptions creates an Agent with explicit per-instance execution
+// constraints. NewAgent remains the unrestricted default for existing callers.
+func NewAgentWithOptions(cfg *config.Config, state SessionState, server acp.UpdateSender, log *slog.Logger, opts AgentOptions) *Agent {
+	a := NewAgent(cfg, state, server, log)
+	a.applyOptions(opts)
+	return a
+}
+
+func (a *Agent) applyOptions(opts AgentOptions) {
+	if opts.BuiltinToolAllowlist != nil {
+		a.toolAllowlistRestricted = true
+		a.builtinToolAllowlist = make(map[string]struct{}, len(opts.BuiltinToolAllowlist))
+		for _, name := range opts.BuiltinToolAllowlist {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				a.builtinToolAllowlist[name] = struct{}{}
+			}
+		}
+	}
+	if opts.MaxTurns > 0 {
+		a.maxTurnsOverride = opts.MaxTurns
+	}
+	a.toolCallGuard = opts.ToolCallGuard
+}
+
+// toolAllowed is shared by model-facing definitions and the execution
+// boundary, so a stale or fabricated tool call cannot bypass the allowlist.
+func (a *Agent) toolAllowed(name string) bool {
+	if !a.toolAllowlistRestricted {
+		return true
+	}
+	_, ok := a.builtinToolAllowlist[strings.TrimSpace(name)]
+	return ok
+}
+
+func (a *Agent) filterToolDefinitions(defs []llm.ToolDefinition) []llm.ToolDefinition {
+	if !a.toolAllowlistRestricted {
+		return defs
+	}
+	filtered := make([]llm.ToolDefinition, 0, len(defs))
+	for _, definition := range defs {
+		if a.toolAllowed(definition.Name) {
+			filtered = append(filtered, definition)
+		}
+	}
+	return filtered
 }
 
 // SetProviderFactory replaces the LLM provider factory used by subsequent turns.
@@ -351,6 +414,11 @@ func (a *Agent) runReActLoop(
 	maxTurns int,
 	allowTitleGen bool,
 ) (string, error) {
+	toolDefs = a.filterToolDefinitions(toolDefs)
+	if a.maxTurnsOverride > 0 {
+		maxTurns = a.maxTurnsOverride
+	}
+
 	var totalInputTokens, totalOutputTokens int
 	var lastStatsWrite time.Time
 	// Session-global index for the turn this loop is running, resolved once so every
@@ -943,6 +1011,32 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	defer func() { env.ToolCallID = "" }()
 
+	// Enforce the per-agent allowlist before scoped-rule activation, persistence,
+	// status updates, or any permission handling. This covers both builtins and
+	// namespaced MCP calls, including stale calls restored from session history.
+	if !a.toolAllowed(tc.Name) {
+		if a.server != nil {
+			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+				SessionUpdate: acp.UpdateTypeToolCallUpdate,
+				ToolCallID:    tc.ID,
+				Status:        "cancelled",
+			})
+		}
+		return "", fmt.Errorf("tool %q is not allowed for this agent", tc.Name)
+	}
+	if a.toolCallGuard != nil {
+		if err := a.toolCallGuard(tc.Name, tc.InputJSON, env.CWD); err != nil {
+			if a.server != nil {
+				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: acp.UpdateTypeToolCallUpdate,
+					ToolCallID:    tc.ID,
+					Status:        "cancelled",
+				})
+			}
+			return "", fmt.Errorf("tool %q rejected by execution guard: %w", tc.Name, err)
+		}
+	}
+
 	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
 	// front so it holds regardless of the outcome below (permission denial,
 	// tool error), and so both callers — the ReAct loop and the resume-after-
@@ -1205,7 +1299,10 @@ func (a *Agent) mcpToolDefinitions(mode string, askBasicOnly bool) []llm.ToolDef
 			if !allowed(client.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
 				continue
 			}
-			defs = append(defs, t.ToLLMToolDefinition(client.Name()))
+			definition := t.ToLLMToolDefinition(client.Name())
+			if a.toolAllowed(definition.Name) {
+				defs = append(defs, definition)
+			}
 		}
 	}
 	return defs

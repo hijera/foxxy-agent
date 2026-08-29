@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   useEffect,
   useLayoutEffect,
@@ -36,6 +36,8 @@ export function ChatScreen(props: {
   /** Export the session transcript as a document. Hidden until an assistant answer exists. */
   onExportSession?: (format: ExportFormat) => void;
   exportBusy?: boolean;
+  /** Additional actions composed into the existing ChatHeader action slot. */
+  headerActions?: ReactNode;
   draft: string;
   tokenUsage: TokenUsage | null;
   contextPct?: number;
@@ -331,16 +333,21 @@ export function ChatScreen(props: {
                   title={props.title}
                   editable={true}
                   onTitleSave={props.onTitleSave}
-                  {...(props.onExportSession &&
-                  hasExportableAssistant(props.items)
+                  {...(props.onExportSession || props.headerActions
                     ? {
                         actions: (
-                          <SessionExportMenu
-                            onExport={props.onExportSession}
-                            {...(props.exportBusy !== undefined
-                              ? { busy: props.exportBusy }
-                              : {})}
-                          />
+                          <div className="chat-header-actions">
+                            {props.headerActions ?? null}
+                            {props.onExportSession &&
+                            hasExportableAssistant(props.items) ? (
+                              <SessionExportMenu
+                                onExport={props.onExportSession}
+                                {...(props.exportBusy !== undefined
+                                  ? { busy: props.exportBusy }
+                                  : {})}
+                              />
+                            ) : null}
+                          </div>
                         ),
                       }
                     : {})}

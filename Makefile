@@ -2,11 +2,12 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
+#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory miniapps cli"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
+#     miniapps        reusable workflows distilled from successful sessions (combine with http ui)
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #     cli      interactive console TUI (bare `foxxycode` on a terminal; see external/cli/)
@@ -14,7 +15,7 @@
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
-#             make build TAGS="http ui scheduler memory"
+#             make build TAGS="http ui scheduler memory miniapps"
 #             make build TAGS=cli
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory gateway"
@@ -36,7 +37,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli browser
+FULL_TAGS := http ui scheduler memory miniapps cli browser
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -50,7 +51,7 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
-DESKTOP_TAGS := http ui scheduler memory desktop browser
+DESKTOP_TAGS := http ui scheduler memory miniapps desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
 # Regenerate the Windows app icon resource from the source PNG. Run manually when
@@ -116,6 +117,8 @@ test: test-opencode-rules
 	go test -tags=browser ./...
 	go test -tags=scheduler ./...
 	go test -tags=scheduler,memory ./...
+	go test -tags=miniapps ./...
+	go test -tags=http,miniapps ./...
 	$(MAKE) ui-build
 	go test -tags=http,ui ./...
 	go test -tags=http,ui,memory ./...
@@ -123,6 +126,8 @@ test: test-opencode-rules
 	go test -tags=http,scheduler,memory ./...
 	go test -tags=http,scheduler,ui ./...
 	go test -tags=http,scheduler,ui,memory ./...
+	go test -tags=http,ui,miniapps ./...
+	go test -tags=http,scheduler,ui,memory,miniapps ./...
 
 # Type-check the Windows build without a Windows machine.
 #
@@ -149,22 +154,27 @@ check-windows:
 	GOOS=windows go vet -tags=scheduler,memory ./...
 	GOOS=windows go vet -tags=http,scheduler ./...
 	GOOS=windows go vet -tags=http,scheduler,memory ./...
+	GOOS=windows go vet -tags=miniapps ./...
+	GOOS=windows go vet -tags=http,miniapps ./...
 
 # Clean build artifacts.
 clean:
 	rm -rf $(BUILD_DIR)
 
 # Run the linter (requires golangci-lint).
-# The second pass compiles the cli-tagged console surface, which the untagged
-# pass never sees.
+# The untagged pass cannot see code behind a build tag, so every optional
+# package needs its own pass or it ships unlinted. cli covers the console
+# surface; miniapps covers external/miniapps.
 lint:
 	golangci-lint run ./...
 	golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
+	golangci-lint run --build-tags miniapps ./external/miniapps/...
 
 # Run the linter against the Windows build, which lint above never compiles.
 lint-windows:
 	GOOS=windows golangci-lint run ./...
 	GOOS=windows golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
+	GOOS=windows golangci-lint run --build-tags miniapps ./external/miniapps/...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify

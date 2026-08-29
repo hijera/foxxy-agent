@@ -133,6 +133,191 @@
       ],
       "x-foxxycode-requires-build-tag": "browser"
     },
+    "commands": {
+      "default": [],
+      "description": "Operator-approved command profiles: narrow tools that run one fixed binary with an argv template and typed parameters, without a shell.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "binary": {
+            "description": "Bare executable name resolved on PATH, or an absolute path. Batch files are refused.",
+            "title": "Binary",
+            "type": "string"
+          },
+          "description": {
+            "description": "What the profile does, shown to the model and in the UI.",
+            "title": "Description",
+            "type": "string"
+          },
+          "install": {
+            "additionalProperties": false,
+            "description": "Package-manager coordinates offered when the binary is missing.",
+            "properties": {
+              "apt": {
+                "description": "apt package name (install typically needs root).",
+                "title": "apt",
+                "type": "string"
+              },
+              "brew": {
+                "description": "Homebrew formula name.",
+                "title": "brew",
+                "type": "string"
+              },
+              "dnf": {
+                "description": "dnf package name (install typically needs root).",
+                "title": "dnf",
+                "type": "string"
+              },
+              "scoop": {
+                "description": "scoop package name.",
+                "title": "scoop",
+                "type": "string"
+              },
+              "winget": {
+                "description": "winget package id (e.g. Gyan.FFmpeg).",
+                "title": "winget",
+                "type": "string"
+              }
+            },
+            "title": "Install coordinates",
+            "type": "object",
+            "x-foxxycode-property-order": [
+              "winget",
+              "scoop",
+              "brew",
+              "apt",
+              "dnf"
+            ]
+          },
+          "name": {
+            "description": "Profile name (lowercase snake_case); the tool is registered as cmd_\u003cname\u003e.",
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "description": "Typed parameters referenced from the template.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "description": "Human-readable parameter description shown in run forms.",
+                  "title": "Description",
+                  "type": "string"
+                },
+                "enum": {
+                  "description": "Allowed values (enum type only).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Allowed values",
+                  "type": "array"
+                },
+                "literal": {
+                  "description": "Token emitted when a flag is true (flag type only).",
+                  "title": "Flag literal",
+                  "type": "string"
+                },
+                "max": {
+                  "description": "Upper bound (int type only).",
+                  "title": "Maximum",
+                  "type": "integer"
+                },
+                "min": {
+                  "description": "Lower bound (int type only).",
+                  "title": "Minimum",
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "Parameter name (lowercase snake_case). File params must end in _path, _file, or _dir.",
+                  "title": "Name",
+                  "type": "string"
+                },
+                "pattern": {
+                  "description": "Anchored regular expression the value must match in full (string type only).",
+                  "title": "Pattern",
+                  "type": "string"
+                },
+                "required": {
+                  "description": "Only flag params may be non-required; other params are always required.",
+                  "title": "Required",
+                  "type": "boolean"
+                },
+                "type": {
+                  "description": "Parameter kind: file, enum, int, flag, or string (with a pattern).",
+                  "enum": [
+                    "file",
+                    "enum",
+                    "int",
+                    "flag",
+                    "string"
+                  ],
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ],
+              "type": "object",
+              "x-foxxycode-property-order": [
+                "name",
+                "type",
+                "enum",
+                "min",
+                "max",
+                "pattern",
+                "literal",
+                "required",
+                "description"
+              ]
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "permission": {
+            "description": "ask (default) prompts in chat; allow runs without a prompt and is the only level Mini Apps accept.",
+            "enum": [
+              "ask",
+              "allow"
+            ],
+            "title": "Permission",
+            "type": "string"
+          },
+          "template": {
+            "description": "One token per element; {param} slots substitute typed values. Executed argv-style, never through a shell.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Argv template",
+            "type": "array"
+          },
+          "timeout_seconds": {
+            "description": "Run timeout. 0 uses the default (120); the maximum is 3600.",
+            "title": "Timeout (seconds)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "binary",
+          "template"
+        ],
+        "type": "object",
+        "x-foxxycode-property-order": [
+          "name",
+          "binary",
+          "description",
+          "permission",
+          "timeout_seconds",
+          "template",
+          "params",
+          "install"
+        ]
+      },
+      "title": "Command profiles",
+      "type": "array"
+    },
     "compaction": {
       "additionalProperties": false,
       "description": "Summarize older turns when the conversation approaches the model context window.",
@@ -1257,6 +1442,7 @@
     "models",
     "agent",
     "tools",
+    "commands",
     "mcp_servers",
     "skills",
     "memory",

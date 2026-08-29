@@ -43,8 +43,8 @@
   --foxxycode-surface-field: rgba(0, 0, 0, 0.35);
   --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.2);
   --foxxycode-surface-gutter: rgba(0, 0, 0, 0.2);
-  --foxxycode-surface-code-fg: rgba(186, 192, 204, 0.88);
-  --foxxycode-surface-code-bg: rgba(229, 231, 235, 0.9);
+  --foxxycode-surface-code-fg: rgba(229, 231, 235, 0.92);
+  --foxxycode-surface-code-bg: rgba(15, 15, 18, 0.9);
   --foxxycode-link: rgba(167, 139, 250, 0.95);
   --foxxycode-md-inline-code-fg: rgba(229, 231, 235, 0.92);
   --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.1);
@@ -200,8 +200,8 @@
   --foxxycode-surface-field: rgba(0, 0, 0, 0.4);
   --foxxycode-surface-fieldset: rgba(0, 0, 0, 0.22);
   --foxxycode-surface-gutter: rgba(0, 0, 0, 0.22);
-  --foxxycode-surface-code-fg: rgba(186, 192, 210, 0.88);
-  --foxxycode-surface-code-bg: rgba(229, 231, 240, 0.9);
+  --foxxycode-surface-code-fg: rgba(230, 237, 243, 0.92);
+  --foxxycode-surface-code-bg: rgba(10, 14, 24, 0.9);
   --foxxycode-link: rgba(120, 135, 255, 0.95);
   --foxxycode-md-inline-code-fg: rgba(220, 225, 240, 0.92);
   --foxxycode-md-inline-code-bg: rgba(255, 255, 255, 0.09);
@@ -10103,8 +10103,945 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   white-space: nowrap;
 }
 
+/* Mini Apps authoring surface. It is a full-width work area rather than a
+   floating card: repeated rows are framed, while page sections stay open. */
+.chat-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.chat-header-action {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-header-action:hover,
+.chat-header-action:focus-visible {
+  background: color-mix(in srgb, var(--accent) 14%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.miniapps-page {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: 28px clamp(18px, 4vw, 56px) 48px;
+  box-sizing: border-box;
+}
+
+.miniapps-page-header,
+.miniapps-section-head,
+.miniapps-editor-head,
+.miniapps-editor-footer,
+.miniapps-action-row,
+.miniapps-run-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.miniapps-page-header {
+  min-width: 0;
+  max-width: 1180px;
+  margin: 0 auto 28px;
+  align-items: flex-start;
+}
+
+/* A narrow flex header uses flex-start alignment so the close action keeps its
+   natural width. Explicitly constrain the text column as well; otherwise its
+   auto cross-size can follow the sentence's max-content width in embedded
+   webviews, leaving the last word painted outside the viewport. */
+.miniapps-page-header > div,
+.miniapps-section-head > div,
+.miniapps-editor-head > div {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.miniapps-page-header > div:first-child,
+.miniapps-section-head > div:first-child,
+.miniapps-editor-head > div:first-child {
+  flex: 1 1 auto;
+}
+
+.miniapps-page-header h1,
+.miniapps-section-head h2,
+.miniapps-editor-head h2 {
+  margin: 0;
+  color: var(--text);
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.miniapps-page-header h1 {
+  font-size: 30px;
+}
+
+.miniapps-section-head h2,
+.miniapps-editor-head h2 {
+  font-size: 20px;
+}
+
+.miniapps-eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.miniapps-lead {
+  min-width: 0;
+  max-width: 720px;
+  margin: 8px 0 0;
+  color: color-mix(in srgb, var(--text) 66%, var(--foxxycode-blend-base));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.miniapps-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  min-width: 0;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.miniapps-catalog,
+.miniapps-editor,
+.miniapps-workspace,
+.miniapps-runner,
+.miniapps-history {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.miniapps-catalog {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.miniapps-search input,
+.miniapps-form-grid input,
+.miniapps-form-grid textarea,
+.miniapps-editor-row input,
+.miniapps-editor-row select,
+.miniapps-step-fields input,
+.miniapps-step-fields select,
+.miniapps-editor-section label > input,
+.miniapps-editor-section label > textarea,
+.miniapps-release-controls input,
+.miniapps-run-form input,
+.miniapps-run-form select,
+.miniapps-run-form textarea,
+.miniapps-assistant-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--text) 13%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+  background: var(--foxxycode-surface-field);
+  color: var(--text);
+  font: inherit;
+}
+
+.miniapps-search input,
+.miniapps-form-grid input,
+.miniapps-form-grid textarea,
+.miniapps-editor-row input,
+.miniapps-editor-row select,
+.miniapps-step-fields input,
+.miniapps-step-fields select,
+.miniapps-editor-section label > input,
+.miniapps-editor-section label > textarea,
+.miniapps-release-controls input,
+.miniapps-run-form input,
+.miniapps-run-form select,
+.miniapps-assistant-input {
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.miniapps-form-grid textarea,
+.miniapps-editor-section label > textarea,
+.miniapps-run-form textarea {
+  resize: vertical;
+}
+
+.miniapps-search input:focus-visible,
+.miniapps-form-grid input:focus-visible,
+.miniapps-form-grid textarea:focus-visible,
+.miniapps-editor-row input:focus-visible,
+.miniapps-editor-row select:focus-visible,
+.miniapps-step-fields input:focus-visible,
+.miniapps-step-fields select:focus-visible,
+.miniapps-editor-section textarea:focus-visible,
+.miniapps-release-controls input:focus-visible,
+.miniapps-run-form input:focus-visible,
+.miniapps-run-form select:focus-visible,
+.miniapps-assistant-input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 1px;
+}
+
+.miniapps-catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.miniapps-catalog-row,
+.miniapps-history-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.miniapps-catalog-row {
+  justify-content: space-between;
+  padding: 11px 10px;
+}
+
+.miniapps-catalog-row:hover,
+.miniapps-catalog-row.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--accent) 9%, var(--foxxycode-blend-base));
+}
+
+.miniapps-catalog-row-main,
+.miniapps-catalog-row-meta,
+.miniapps-editor-list,
+.miniapps-editor-body,
+.miniapps-editor-section,
+.miniapps-run-form,
+.miniapps-events,
+.miniapps-history-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.miniapps-catalog-row-main {
+  min-width: 0;
+  gap: 4px;
+}
+
+.miniapps-catalog-row-main strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.miniapps-catalog-row-main span,
+.miniapps-catalog-row-meta,
+.miniapps-muted,
+.miniapps-release-review p,
+.miniapps-empty p,
+.miniapps-detail-empty p,
+.miniapps-patch p,
+.miniapps-run-form label > span,
+.miniapps-editor-section label > span {
+  color: color-mix(in srgb, var(--text) 56%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.miniapps-catalog-row-meta {
+  align-items: flex-end;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.miniapps-state {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.miniapps-state--released {
+  color: var(--foxxycode-status-ok);
+}
+
+.miniapps-state--draft {
+  color: var(--foxxycode-status-warn);
+}
+
+.miniapps-primary,
+.miniapps-secondary,
+.miniapps-quiet,
+.miniapps-icon-action {
+  min-height: 34px;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.miniapps-primary,
+.miniapps-secondary {
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+.miniapps-primary {
+  border: 1px solid color-mix(in srgb, var(--accent) 78%, var(--foxxycode-blend-base));
+  background: var(--accent);
+  color: var(--foxxycode-on-accent-fg);
+}
+
+.miniapps-secondary {
+  border: 1px solid color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+  color: var(--text);
+}
+
+.miniapps-quiet {
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+}
+
+.miniapps-primary:hover,
+.miniapps-secondary:hover,
+.miniapps-quiet:hover,
+.miniapps-icon-action:hover {
+  filter: brightness(1.08);
+}
+
+.miniapps-primary:disabled,
+.miniapps-secondary:disabled,
+.miniapps-quiet:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+.miniapps-empty,
+.miniapps-detail-empty {
+  padding: 30px 10px;
+  color: color-mix(in srgb, var(--text) 65%, var(--foxxycode-blend-base));
+}
+
+.miniapps-empty strong,
+.miniapps-detail-empty strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.miniapps-empty p,
+.miniapps-detail-empty p {
+  margin: 6px 0 16px;
+}
+
+.miniapps-editor,
+.miniapps-workspace,
+.miniapps-runner {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.miniapps-editor-head {
+  align-items: flex-start;
+}
+
+.miniapps-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--foxxycode-blend-base));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.miniapps-assistant-head .miniapps-muted {
+  max-width: 620px;
+  margin: 6px 0 0;
+}
+
+.miniapps-assistant-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.miniapps-assistant-empty {
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.miniapps-assistant-message {
+  max-width: 86%;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-message.is-user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 13%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-message span {
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.miniapps-assistant-message p,
+.miniapps-assistant-proposal p {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.miniapps-assistant-proposal {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--foxxycode-status-ok) 34%, var(--foxxycode-blend-base));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--foxxycode-status-ok) 6%, var(--foxxycode-blend-base));
+}
+
+.miniapps-assistant-proposal h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.miniapps-assistant-proposal ul {
+  margin: 7px 0 12px;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.miniapps-assistant-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.miniapps-assistant-input {
+  min-height: 78px;
+  resize: vertical;
+  padding: 9px 10px;
+}
+
+.miniapps-assistant-form .miniapps-primary {
+  flex: 0 0 auto;
+}
+
+.miniapps-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+.miniapps-tabs button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.miniapps-tabs button.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.miniapps-editor-body,
+.miniapps-editor-section,
+.miniapps-editor-list,
+.miniapps-run-form {
+  gap: 14px;
+}
+
+.miniapps-editor-section {
+  padding-bottom: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+}
+
+.miniapps-editor-section h3,
+.miniapps-release-review h3,
+.miniapps-confirmation h3,
+.miniapps-result h3,
+.miniapps-history h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.miniapps-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.miniapps-form-grid label,
+.miniapps-editor-row label,
+.miniapps-step-fields label,
+.miniapps-release-controls label,
+.miniapps-run-form label,
+.miniapps-editor-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.miniapps-form-wide {
+  grid-column: 1 / -1;
+}
+
+.miniapps-editor-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.75fr) minmax(120px, 1fr) minmax(110px, 0.75fr) auto auto;
+  align-items: end;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+}
+
+.miniapps-checkbox {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 7px !important;
+  min-height: 36px;
+}
+
+.miniapps-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.miniapps-icon-action {
+  width: 34px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 65%, var(--foxxycode-blend-base));
+  font-size: 20px;
+}
+
+.miniapps-step-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+}
+
+.miniapps-step-index {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 15%, var(--foxxycode-blend-base));
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.miniapps-step-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.miniapps-step-fields label:last-child {
+  grid-column: 1 / -1;
+}
+
+.miniapps-codearea,
+.miniapps-report {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 11%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+  background: var(--foxxycode-surface-code-bg);
+  color: var(--foxxycode-surface-code-fg);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.miniapps-report {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.miniapps-editor-footer {
+  min-height: 36px;
+}
+
+.miniapps-status {
+  margin: 0;
+  color: var(--foxxycode-status-ok);
+  font-size: 12px;
+}
+
+.miniapps-release-review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  gap: 18px;
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+.miniapps-release-review p {
+  margin: 6px 0 0;
+}
+
+.miniapps-release-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.miniapps-release-controls label:first-child {
+  width: 130px;
+}
+
+.miniapps-release-controls .miniapps-checkbox {
+  flex: 1 1 220px;
+}
+
+.miniapps-progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+}
+
+.miniapps-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.miniapps-scenario-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.miniapps-scenario-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.miniapps-scenario-option.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--accent) 8%, var(--foxxycode-blend-base));
+}
+
+.miniapps-scenario-option span:not(.miniapps-state) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.miniapps-scenario-option strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.miniapps-scenario-option span span,
+.miniapps-scenario-option small {
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 12px;
+}
+
+.miniapps-error {
+  margin: 0;
+  color: var(--foxxycode-status-error);
+  font-size: 12px;
+}
+
+.miniapps-confirmation {
+  padding: 14px;
+  border-left: 3px solid var(--foxxycode-status-warn);
+  background: color-mix(in srgb, var(--foxxycode-status-warn) 8%, var(--foxxycode-blend-base));
+}
+
+.miniapps-confirmation p {
+  margin: 6px 0 12px;
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+  font-size: 13px;
+}
+
+.miniapps-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+}
+
+.miniapps-status-dot--succeeded { background: var(--foxxycode-status-ok); }
+.miniapps-status-dot--running { background: var(--accent); }
+.miniapps-status-dot--failed,
+.miniapps-status-dot--cancelled,
+.miniapps-status-dot--interrupted { background: var(--foxxycode-status-error); }
+.miniapps-status-dot--waiting_for_confirmation,
+.miniapps-status-dot--waiting_for_input { background: var(--foxxycode-status-warn); }
+
+.miniapps-run-status {
+  justify-content: flex-start;
+}
+
+.miniapps-run-status strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.miniapps-run-form {
+  max-width: 620px;
+}
+
+.miniapps-run-form label > span:first-child {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.miniapps-run-form em {
+  color: var(--foxxycode-status-error);
+  font-style: normal;
+}
+
+.miniapps-events {
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+  color: color-mix(in srgb, var(--text) 68%, var(--foxxycode-blend-base));
+  font-size: 12px;
+}
+
+.miniapps-events li {
+  display: flex;
+  gap: 8px;
+}
+
+.miniapps-events code {
+  color: var(--accent);
+}
+
+.miniapps-history {
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 11%, var(--foxxycode-blend-base));
+}
+
+.miniapps-history-list {
+  gap: 4px;
+}
+
+.miniapps-history-row {
+  align-items: center;
+  padding: 8px 0;
+  border: 0;
+}
+
+.miniapps-history-row span:not(.miniapps-status-dot) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.miniapps-history-row strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.miniapps-history-row small {
+  color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
+}
+
+@media (max-width: 900px) {
+  .miniapps-layout,
+  .miniapps-release-review {
+    grid-template-columns: 1fr;
+  }
+
+  .miniapps-catalog {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .miniapps-page {
+    padding: 18px 14px 32px;
+  }
+
+  .miniapps-page-header h1 {
+    font-size: 26px;
+  }
+
+  .miniapps-page-header,
+  .miniapps-section-head,
+  .miniapps-editor-head,
+  .miniapps-editor-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .miniapps-form-grid,
+  .miniapps-step-fields,
+  .miniapps-editor-row {
+    grid-template-columns: 1fr;
+  }
+
+  .miniapps-form-wide,
+  .miniapps-step-fields label:last-child {
+    grid-column: auto;
+  }
+
+  .miniapps-editor-row .miniapps-icon-action {
+    justify-self: start;
+  }
+
+  .miniapps-release-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .miniapps-release-controls label:first-child {
+    width: auto;
+  }
+
+  .miniapps-action-row {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .miniapps-assistant-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .miniapps-progress span {
+    transition: none;
+  }
+}
+
 @media (max-width: 1199px) {
   .bgtask-chip {
     min-height: 36px;
   }
+}
+
+.miniapps-commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.miniapps-commands-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.miniapps-commands-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  flex: 1 1 220px;
+}
+.miniapps-commands-main code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.miniapps-commands-meta {
+  display: flex;
+  gap: 6px;
+}
+.miniapps-commands-confirmation {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+}
+.miniapps-commands-confirmation dt {
+  color: var(--muted);
+}
+.miniapps-commands-confirmation dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }

@@ -66,6 +66,11 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
+	// miniAppsState is initialized lazily by the optional Mini Apps transport.
+	// It remains an any value so the lean http build does not import that tag.
+	miniAppsMu    sync.Mutex
+	miniAppsState any
+
 	// events fans server-wide turn lifecycle events out to GET /foxxycode/events subscribers.
 	events             *serverEventsHub
 	removeTurnObserver func()
@@ -89,6 +94,7 @@ func (s *Server) Drain() {
 	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
+	s.miniAppsDrain()
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
 	// pool first so a turn that is still winding down cannot start one more, and

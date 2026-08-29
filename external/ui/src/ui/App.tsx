@@ -171,6 +171,7 @@ import {
 } from "./scheduler/api";
 import {
   parseAppHash,
+  setMiniAppsHash,
   setDraftHashInLocation,
   setHistoryHash,
   setSessionHashInLocation,
@@ -182,6 +183,8 @@ import {
   setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
+import { MiniAppsPage } from "./miniapps/MiniAppsPage";
+import { isMiniAppSessionEligible } from "./miniapps/sessionEligibility";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
@@ -1072,7 +1075,13 @@ export function App() {
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
     boolean | null
   >(null);
+  /** null until the optional Mini Apps capability probe completes. */
+  const [miniAppsHttpLinked, setMiniAppsHttpLinked] = useState<boolean | null>(
+    null,
+  );
   const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const [miniAppsOpen, setMiniAppsOpen] = useState(false);
+  const [miniAppsAppId, setMiniAppsAppId] = useState<string | null>(null);
   const [settingsRoute, setSettingsRoute] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
@@ -1782,6 +1791,10 @@ export function App() {
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
+    if (p.branch !== "miniapps") {
+      setMiniAppsOpen(false);
+      setMiniAppsAppId(null);
+    }
     if (p.branch === "session") {
       setSettingsRoute(false);
       setActiveDraftId("");
@@ -1820,6 +1833,32 @@ export function App() {
       setSchedulerEditor(null);
       setTasksOpen(false);
       setTasksSelectedId(null);
+      return;
+    }
+    if (p.branch === "miniapps") {
+      if (isEditorEmbed() || miniAppsHttpLinked === false) {
+        const sid = viewedSessionIdRef.current.trim();
+        if (sid) setSessionHashInLocation(sid);
+        else if (window.location.hash) {
+          history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
+        }
+        setMiniAppsOpen(false);
+        setMiniAppsAppId(null);
+        return;
+      }
+      if (miniAppsHttpLinked === null) return;
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
+      setSessionsOpen(false);
+      setMiniAppsOpen(true);
+      setMiniAppsAppId(p.appId);
       return;
     }
     if (p.branch === "settings") {
@@ -1868,7 +1907,7 @@ export function App() {
     setTasksOpen(false);
     setTasksSelectedId(null);
     setSessionsOpen(!!p.historyOpen);
-  }, [schedulerHttpLinked]);
+  }, [miniAppsHttpLinked, schedulerHttpLinked]);
 
   const openSessionFromRoute = useCallback(
     (id: string, opts?: { historySidebar?: boolean }) => {
@@ -1967,6 +2006,42 @@ export function App() {
         if (!cancelled) {
           setSchedulerHttpLinked(true);
         }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Mini Apps is an optional HTTP surface. Prefer the capability document, but
+  // retain the catalog probe as a compatibility fallback for older tagged
+  // servers that predate the capability field.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const capability = await fetch("/foxxycode/capabilities");
+        if (capability.ok) {
+          const body = (await capability.json()) as Record<string, unknown>;
+          const nested = body.capabilities;
+          const source =
+            nested && typeof nested === "object"
+              ? (nested as Record<string, unknown>)
+              : body;
+          const value = source.miniapps ?? source.mini_apps;
+          if (typeof value === "boolean") {
+            if (!cancelled) setMiniAppsHttpLinked(value);
+            return;
+          }
+        }
+      } catch {
+        // The catalog probe below remains authoritative when capabilities is absent.
+      }
+      try {
+        const catalog = await fetch("/foxxycode/miniapps");
+        if (!cancelled) setMiniAppsHttpLinked(catalog.status !== 404);
+      } catch {
+        if (!cancelled) setMiniAppsHttpLinked(false);
       }
     })();
     return () => {
@@ -4485,6 +4560,39 @@ export function App() {
     setSchedulerListHash();
   }, [schedulerHttpLinked]);
 
+  const openMiniAppsFromNav = useCallback(() => {
+    if (miniAppsHttpLinked !== true) return;
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    setSettingsRoute(false);
+    setMiniAppsOpen(true);
+    setMiniAppsAppId(null);
+    setMiniAppsHash();
+  }, [miniAppsHttpLinked]);
+
+  const closeMiniApps = useCallback(() => {
+    setMiniAppsOpen(false);
+    setMiniAppsAppId(null);
+    const sid = sessionId.trim();
+    if (sid) setSessionHashInLocation(sid);
+    else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId]);
+
+  const createMiniAppFromSession = useCallback(() => {
+    if (miniAppsHttpLinked !== true || !sessionId.trim()) return;
+    openMiniAppsFromNav();
+    setMiniAppsHash();
+  }, [miniAppsHttpLinked, openMiniAppsFromNav, sessionId]);
+
   const openTasksFromNav = useCallback(() => {
     const sid = sessionId.trim();
     if (!sid) {
@@ -4598,6 +4706,16 @@ export function App() {
     return byToolCall;
   }, [backgroundTasks]);
 
+  const miniAppSessionEligible = useMemo(() => {
+    return isMiniAppSessionEligible({
+      miniAppsHttpLinked,
+      editorEmbed: isEditorEmbed(),
+      sessionId,
+      generating,
+      items,
+    });
+  }, [generating, items, miniAppsHttpLinked, sessionId]);
+
   // The panel belongs to a chat, so it only exists when one is open.
   const tasksPanelOpen = tasksOpen && !!sessionId.trim();
 
@@ -4683,6 +4801,9 @@ export function App() {
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
         showScheduler={schedulerHttpLinked === true}
+        showMiniApps={miniAppsHttpLinked === true && !isEditorEmbed()}
+        onOpenMiniApps={openMiniAppsFromNav}
+        miniAppsOpen={miniAppsOpen}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
         settingsOpen={settingsRoute}
@@ -4812,167 +4933,196 @@ export function App() {
             }}
           />
         ) : null}
-        <ChatScreen
-          title={currentTitle}
-          sessionId={sessionId}
-          backgroundTasks={backgroundTasks}
-          onOpenBackgroundTasks={openTasksFromNav}
-          backgroundTasksByToolCallId={backgroundTasksByToolCallId}
-          backgroundNowMs={backgroundNowMs}
-          onOpenBackgroundTask={openBackgroundTask}
-          onStopBackgroundTask={(id: string) => {
-            void stopBackgroundTaskById(id);
-          }}
-          workspaceCtx={workspaceCtx}
-          worktreePref={worktreePref}
-          svnFolderPref={svnFolderPref}
-          workspaceLocked={items.length > 0}
-          onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
-          onWorkspacePickBranch={(b: string, wt: boolean) =>
-            void switchWorkspace({ branch: b, worktree: wt })
-          }
-          onWorktreeToggle={() => setWorktreePref((v) => !v)}
-          onWorkspacePickSvnBranch={(b: string, folder: boolean) =>
-            void switchWorkspace({ branch: b, worktree: folder, vcs: "svn" })
-          }
-          onSvnFolderToggle={() => setSvnFolderPref((v) => !v)}
-          sessionLoading={sessionLoading}
-          sessionFadingOut={sessionFadingOut}
-          heroAccentVerb={heroAccentVerb}
-          heroComposerFocusEpoch={heroHomeGeneration}
-          onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
-          onExportSession={(f: ExportFormat) => void exportSession(f)}
-          exportBusy={exportBusy}
-          items={items}
-          draft={draft}
-          tokenUsage={tokenUsage}
-          contextPct={contextPct}
-          maxContextTokens={maxContextTokens}
-          contextBreakdown={contextBreakdown}
-          mode={mode}
-          modes={[...PROFILE_MODES]}
-          {...(llmModelIds.length > 0
-            ? {
-                llmModels: llmModelIds,
-                llmModel,
-                onLlmModelChange,
-                llmModelMultimodal,
-                ...(llmReasoningLevels.length > 0
-                  ? {
-                      llmReasoningLevels,
-                      llmReasoning,
-                      onLlmReasoningChange,
-                    }
-                  : {}),
+        {miniAppsOpen ? (
+          <MiniAppsPage
+            selectedAppId={miniAppsAppId}
+            sessionId={sessionId}
+            sessionEligible={miniAppSessionEligible}
+            onNavigate={(appId) => {
+              setMiniAppsAppId(appId || null);
+              setMiniAppsHash(appId);
+            }}
+            onClose={closeMiniApps}
+          />
+        ) : (
+          <ChatScreen
+            title={currentTitle}
+            sessionId={sessionId}
+            backgroundTasks={backgroundTasks}
+            onOpenBackgroundTasks={openTasksFromNav}
+            backgroundTasksByToolCallId={backgroundTasksByToolCallId}
+            backgroundNowMs={backgroundNowMs}
+            onOpenBackgroundTask={openBackgroundTask}
+            onStopBackgroundTask={(id: string) => {
+              void stopBackgroundTaskById(id);
+            }}
+            workspaceCtx={workspaceCtx}
+            worktreePref={worktreePref}
+            svnFolderPref={svnFolderPref}
+            workspaceLocked={items.length > 0}
+            onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
+            onWorkspacePickBranch={(b: string, wt: boolean) =>
+              void switchWorkspace({ branch: b, worktree: wt })
+            }
+            onWorktreeToggle={() => setWorktreePref((v) => !v)}
+            onWorkspacePickSvnBranch={(b: string, folder: boolean) =>
+              void switchWorkspace({ branch: b, worktree: folder, vcs: "svn" })
+            }
+            onSvnFolderToggle={() => setSvnFolderPref((v) => !v)}
+            sessionLoading={sessionLoading}
+            sessionFadingOut={sessionFadingOut}
+            heroAccentVerb={heroAccentVerb}
+            heroComposerFocusEpoch={heroHomeGeneration}
+            onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+            {...(miniAppSessionEligible
+              ? {
+                  headerActions: (
+                    <button
+                      type="button"
+                      className="chat-header-action"
+                      title={t("miniapps.create")}
+                      aria-label={t("miniapps.create")}
+                      data-testid="chat-create-miniapp"
+                      onClick={createMiniAppFromSession}
+                    >
+                      <span aria-hidden="true">+</span>
+                    </button>
+                  ),
+                }
+              : {})}
+            onExportSession={(f: ExportFormat) => void exportSession(f)}
+            exportBusy={exportBusy}
+            items={items}
+            draft={draft}
+            tokenUsage={tokenUsage}
+            contextPct={contextPct}
+            maxContextTokens={maxContextTokens}
+            contextBreakdown={contextBreakdown}
+            mode={mode}
+            modes={[...PROFILE_MODES]}
+            {...(llmModelIds.length > 0
+              ? {
+                  llmModels: llmModelIds,
+                  llmModel,
+                  onLlmModelChange,
+                  llmModelMultimodal,
+                  ...(llmReasoningLevels.length > 0
+                    ? {
+                        llmReasoningLevels,
+                        llmReasoning,
+                        onLlmReasoningChange,
+                      }
+                    : {}),
+                }
+              : {})}
+            onModeChange={setMode}
+            onDraftChange={setDraft}
+            generating={generating}
+            onContextRingOpen={() => {
+              const sid = sessionId.trim();
+              if (sid) {
+                void refreshSessionStats(sid);
               }
-            : {})}
-          onModeChange={setMode}
-          onDraftChange={setDraft}
-          generating={generating}
-          onContextRingOpen={() => {
-            const sid = sessionId.trim();
-            if (sid) {
-              void refreshSessionStats(sid);
-            }
-          }}
-          onStop={() => stopActiveGeneration()}
-          onQuestionPromptResolved={resolveQuestionPrompt}
-          onPermissionPromptResolved={resolvePermissionPrompt}
-          onPlanDocumentExpanded={(itemId, expanded) => {
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, expanded }
-                  : x,
-              ),
-            );
-          }}
-          onPlanDocumentRun={(slug) => {
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            void streamResponses(t("chat.runPlanMessage"), {
-              modeOverride: "agent",
-              runPlanSlug: slug,
-            });
-          }}
-          onPlanDocumentDiscard={async (itemId, slug) => {
-            const sid = sessionId.trim();
-            if (!sid) return;
-            try {
-              await fetch(
-                `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
-                {
-                  method: "DELETE",
-                  headers,
-                },
+            }}
+            onStop={() => stopActiveGeneration()}
+            onQuestionPromptResolved={resolveQuestionPrompt}
+            onPermissionPromptResolved={resolvePermissionPrompt}
+            onPlanDocumentExpanded={(itemId, expanded) => {
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === itemId && x.type === "plan_document"
+                    ? { ...x, expanded }
+                    : x,
+                ),
               );
-            } catch {
-              return;
-            }
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, discarded: true }
-                  : x,
-              ),
-            );
-          }}
-          onEdit={(content, userMsgIdx) => {
-            const assetNote = extractSessionAssetsXml(content);
-            setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
-            setEditingUserMsgIdx(userMsgIdx);
-            setEditingAssetNote(assetNote);
-            setEditingFiles(parseSessionAssetFiles(content));
-          }}
-          {...(editingFiles.length > 0 ? { editingFiles } : {})}
-          onBranchSwitch={(sid) => switchBranch(sid)}
-          {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
-          onSend={(text: string, files?: File[]) => {
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            setDraft("");
-            if (editingUserMsgIdx !== null) {
-              const idx = editingUserMsgIdx;
-              const note = editingAssetNote;
-              setEditingUserMsgIdx(null);
-              setEditingAssetNote("");
-              setEditingFiles([]);
-              const textWithAssets = note ? `${text}\n${note}` : text;
-              void handleBranchSend(textWithAssets, idx);
-            } else {
-              void streamResponses(text, files ? { files } : undefined);
-            }
-          }}
-          onFetchToolCallFull={async (toolCallId: string) => {
-            if (!sessionId) return;
-            const det = await fetchJSON<{
-              args?: string;
-              result?: string;
-              meta?: { status?: string; kind?: string; name?: string };
-            }>(
-              `/foxxycode/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
-              { headers },
-            );
-            if (!det.ok || !det.data) return;
-            const meta = det.data.meta || {};
-            const patch: Record<string, unknown> = { toolCallId };
-            if (meta.name) patch.title = meta.name;
-            if (meta.kind) patch.kind = meta.kind;
-            if (meta.status) patch.status = meta.status;
-            if (det.data.args) patch.argsText = det.data.args;
-            if (det.data.result !== undefined)
-              patch.fullResultText = det.data.result;
-            upsertToolCall(patch as any);
-          }}
-        />
+            }}
+            onPlanDocumentRun={(slug) => {
+              if (
+                sessionId.trim() &&
+                activeComposerSidRef.current.has(sessionId.trim())
+              ) {
+                return;
+              }
+              void streamResponses(t("chat.runPlanMessage"), {
+                modeOverride: "agent",
+                runPlanSlug: slug,
+              });
+            }}
+            onPlanDocumentDiscard={async (itemId, slug) => {
+              const sid = sessionId.trim();
+              if (!sid) return;
+              try {
+                await fetch(
+                  `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                  {
+                    method: "DELETE",
+                    headers,
+                  },
+                );
+              } catch {
+                return;
+              }
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === itemId && x.type === "plan_document"
+                    ? { ...x, discarded: true }
+                    : x,
+                ),
+              );
+            }}
+            onEdit={(content, userMsgIdx) => {
+              const assetNote = extractSessionAssetsXml(content);
+              setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
+              setEditingUserMsgIdx(userMsgIdx);
+              setEditingAssetNote(assetNote);
+              setEditingFiles(parseSessionAssetFiles(content));
+            }}
+            {...(editingFiles.length > 0 ? { editingFiles } : {})}
+            onBranchSwitch={(sid) => switchBranch(sid)}
+            {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+            onSend={(text: string, files?: File[]) => {
+              if (
+                sessionId.trim() &&
+                activeComposerSidRef.current.has(sessionId.trim())
+              ) {
+                return;
+              }
+              setDraft("");
+              if (editingUserMsgIdx !== null) {
+                const idx = editingUserMsgIdx;
+                const note = editingAssetNote;
+                setEditingUserMsgIdx(null);
+                setEditingAssetNote("");
+                setEditingFiles([]);
+                const textWithAssets = note ? `${text}\n${note}` : text;
+                void handleBranchSend(textWithAssets, idx);
+              } else {
+                void streamResponses(text, files ? { files } : undefined);
+              }
+            }}
+            onFetchToolCallFull={async (toolCallId: string) => {
+              if (!sessionId) return;
+              const det = await fetchJSON<{
+                args?: string;
+                result?: string;
+                meta?: { status?: string; kind?: string; name?: string };
+              }>(
+                `/foxxycode/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+                { headers },
+              );
+              if (!det.ok || !det.data) return;
+              const meta = det.data.meta || {};
+              const patch: Record<string, unknown> = { toolCallId };
+              if (meta.name) patch.title = meta.name;
+              if (meta.kind) patch.kind = meta.kind;
+              if (meta.status) patch.status = meta.status;
+              if (det.data.args) patch.argsText = det.data.args;
+              if (det.data.result !== undefined)
+                patch.fullResultText = det.data.result;
+              upsertToolCall(patch as any);
+            }}
+          />
+        )}
         <ProviderPickerDialog
           open={showProviderPicker}
           onSaved={() => {

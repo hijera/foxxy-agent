@@ -134,6 +134,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Debug.Validate(); err != nil {
 		return fmt.Errorf("debug: %w", err)
 	}
+	if err := validateCommandProfiles(cfg); err != nil {
+		return err
+	}
 	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
 	}

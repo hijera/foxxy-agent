@@ -17,6 +17,72 @@ export const schemaTextRu: Record<string, string> = {
   "Runtime configuration edited via the Settings UI. Secrets are included in GET responses.":
     "Конфигурация времени выполнения, редактируемая через интерфейс настроек. Секреты включаются в ответы GET.",
 
+  // Commands (command profiles)
+  "Command profiles": "Профили команд",
+  "Operator-approved command profiles: narrow tools that run one fixed binary with an argv template and typed parameters, without a shell.":
+    "Одобренные оператором профили команд: узкие инструменты, запускающие один фиксированный бинарь с шаблоном аргументов и типизированными параметрами, без оболочки.",
+  "Name": "Имя",
+  "Profile name (lowercase snake_case); the tool is registered as cmd_<name>.":
+    "Имя профиля (строчный snake_case); инструмент регистрируется как cmd_<имя>.",
+  "Binary": "Бинарь",
+  "Bare executable name resolved on PATH, or an absolute path. Batch files are refused.":
+    "Имя исполняемого файла, разрешаемое через PATH, или абсолютный путь. Пакетные файлы (.bat/.cmd) отклоняются.",
+  "Description": "Описание",
+  "What the profile does, shown to the model and in the UI.":
+    "Что делает профиль; показывается модели и в интерфейсе.",
+  "Permission": "Разрешение",
+  "ask (default) prompts in chat; allow runs without a prompt and is the only level Mini Apps accept.":
+    "ask (по умолчанию) спрашивает в чате; allow запускает без запроса, и только такие профили доступны мини-приложениям.",
+  "Timeout (seconds)": "Тайм-аут (секунды)",
+  "Run timeout. 0 uses the default (120); the maximum is 3600.":
+    "Тайм-аут запуска. 0 — значение по умолчанию (120); максимум — 3600.",
+  "Argv template": "Шаблон аргументов",
+  "One token per element; {param} slots substitute typed values. Executed argv-style, never through a shell.":
+    "Один токен на элемент; слоты {param} подставляют типизированные значения. Выполняется как argv, никогда через оболочку.",
+  "Parameters": "Параметры",
+  "Typed parameters referenced from the template.":
+    "Типизированные параметры, на которые ссылается шаблон.",
+  "Parameter name (lowercase snake_case). File params must end in _path, _file, or _dir.":
+    "Имя параметра (строчный snake_case). Файловые параметры должны оканчиваться на _path, _file или _dir.",
+  "Type": "Тип",
+  "Parameter kind: file, enum, int, flag, or string (with a pattern).":
+    "Вид параметра: file, enum, int, flag или string (с шаблоном).",
+  "Allowed values": "Допустимые значения",
+  "Allowed values (enum type only).":
+    "Допустимые значения (только для типа enum).",
+  "Minimum": "Минимум",
+  "Lower bound (int type only).":
+    "Нижняя граница (только для типа int).",
+  "Maximum": "Максимум",
+  "Upper bound (int type only).":
+    "Верхняя граница (только для типа int).",
+  "Pattern": "Шаблон (regex)",
+  "Anchored regular expression the value must match in full (string type only).":
+    "Регулярное выражение, которому значение должно соответствовать целиком (только для типа string).",
+  "Flag literal": "Литерал флага",
+  "Token emitted when a flag is true (flag type only).":
+    "Токен, добавляемый при включённом флаге (только для типа flag).",
+  "Required": "Обязательный",
+  "Only flag params may be non-required; other params are always required.":
+    "Необязательными могут быть только флаги; остальные параметры всегда обязательны.",
+  "Human-readable parameter description shown in run forms.":
+    "Описание параметра, показываемое в формах запуска.",
+  "Install coordinates": "Координаты установки",
+  "Package-manager coordinates offered when the binary is missing.":
+    "Координаты в пакетных менеджерах, предлагаемые при отсутствии бинаря.",
+  "winget": "winget",
+  "winget package id (e.g. Gyan.FFmpeg).":
+    "Идентификатор пакета winget (например, Gyan.FFmpeg).",
+  "scoop": "scoop",
+  "scoop package name.": "Имя пакета scoop.",
+  "brew": "brew",
+  "Homebrew formula name.": "Имя формулы Homebrew.",
+  "apt": "apt",
+  "apt package name (install typically needs root).":
+    "Имя пакета apt (установка обычно требует root).",
+  "dnf": "dnf",
+  "dnf package name (install typically needs root).":
+    "Имя пакета dnf (установка обычно требует root).",
   // Providers
   "LLM providers": "Провайдеры LLM",
   "API credentials and transport selection for upstream LLM vendors.":
@@ -544,6 +610,12 @@ export const schemaEnumLabelRu: Record<string, string> = {
   enter: "Enter",
   ctrl_enter: "Ctrl+Enter",
   off: "Отключено",
+  // commands[].permission / params[].type
+  allow: "Разрешено (allow)",
+  enum: "Список (enum)",
+  int: "Целое (int)",
+  flag: "Флаг (flag)",
+  string: "Строка (string)",
   // compaction.engine
   coddy: "coddy",
   opencode: "opencode",

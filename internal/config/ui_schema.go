@@ -468,6 +468,63 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "ask_disable_extended_tools", "output_limits", "background"},
 			nil),
+		"commands": map[string]interface{}{
+			"type":        "array",
+			"title":       "Command profiles",
+			"description": "Operator-approved command profiles: narrow tools that run one fixed binary with an argv template and typed parameters, without a shell.",
+			"items": objectSchema("", "", map[string]interface{}{
+				"name":        strProp("Name", "Profile name (lowercase snake_case); the tool is registered as cmd_<name>."),
+				"binary":      strProp("Binary", "Bare executable name resolved on PATH, or an absolute path. Batch files are refused."),
+				"description": strProp("Description", "What the profile does, shown to the model and in the UI."),
+				"permission": map[string]interface{}{
+					"type":        "string",
+					"title":       "Permission",
+					"description": "ask (default) prompts in chat; allow runs without a prompt and is the only level Mini Apps accept.",
+					"enum":        []interface{}{"ask", "allow"},
+				},
+				"timeout_seconds": intProp("Timeout (seconds)", "Run timeout. 0 uses the default (120); the maximum is 3600."),
+				"template": map[string]interface{}{
+					"type":        "array",
+					"title":       "Argv template",
+					"description": "One token per element; {param} slots substitute typed values. Executed argv-style, never through a shell.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"params": map[string]interface{}{
+					"type":        "array",
+					"title":       "Parameters",
+					"description": "Typed parameters referenced from the template.",
+					"items": objectSchema("", "", map[string]interface{}{
+						"name": strProp("Name", "Parameter name (lowercase snake_case). File params must end in _path, _file, or _dir."),
+						"type": map[string]interface{}{
+							"type":        "string",
+							"title":       "Type",
+							"description": "Parameter kind: file, enum, int, flag, or string (with a pattern).",
+							"enum":        []interface{}{"file", "enum", "int", "flag", "string"},
+						},
+						"enum": map[string]interface{}{
+							"type":        "array",
+							"title":       "Allowed values",
+							"description": "Allowed values (enum type only).",
+							"items":       map[string]interface{}{"type": "string"},
+						},
+						"min":         intProp("Minimum", "Lower bound (int type only)."),
+						"max":         intProp("Maximum", "Upper bound (int type only)."),
+						"pattern":     strProp("Pattern", "Anchored regular expression the value must match in full (string type only)."),
+						"literal":     strProp("Flag literal", "Token emitted when a flag is true (flag type only)."),
+						"required":    boolProp("Required", "Only flag params may be non-required; other params are always required."),
+						"description": strProp("Description", "Human-readable parameter description shown in run forms."),
+					}, []string{"name", "type", "enum", "min", "max", "pattern", "literal", "required", "description"}, []string{"name", "type"}),
+				},
+				"install": objectSchema("Install coordinates", "Package-manager coordinates offered when the binary is missing.", map[string]interface{}{
+					"winget": strProp("winget", "winget package id (e.g. Gyan.FFmpeg)."),
+					"scoop":  strProp("scoop", "scoop package name."),
+					"brew":   strProp("brew", "Homebrew formula name."),
+					"apt":    strProp("apt", "apt package name (install typically needs root)."),
+					"dnf":    strProp("dnf", "dnf package name (install typically needs root)."),
+				}, []string{"winget", "scoop", "brew", "apt", "dnf"}, nil),
+			}, []string{"name", "binary", "description", "permission", "timeout_seconds", "template", "params", "install"},
+				[]string{"name", "binary", "template"}),
+		},
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",
 			"title":       "MCP servers",
@@ -667,7 +724,7 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
+		"providers", "models", "agent", "tools", "commands", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 

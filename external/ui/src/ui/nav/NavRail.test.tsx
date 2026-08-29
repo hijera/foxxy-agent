@@ -89,3 +89,43 @@ test("in-app nav links expose hash hrefs for new-tab open", () => {
   expect(screen.getByTestId("nav-scheduler")).toHaveAttribute("href", "#/scheduler");
   expect(screen.getByTestId("nav-settings")).toHaveAttribute("href", "#/settings");
 });
+
+test("nav shows Mini Apps only when its capability is linked", () => {
+  const { rerender } = render(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      onOpenMiniApps={() => {}}
+      miniAppsOpen={false}
+      showMiniApps
+      canWidenRail={false}
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("nav-miniapps")).toHaveAttribute(
+    "href",
+    "#/miniapps",
+  );
+  rerender(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      showMiniApps={false}
+      canWidenRail={false}
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("nav-miniapps")).toBeNull();
+});

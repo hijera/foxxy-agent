@@ -13,7 +13,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "type"],
+        "required": [
+          "name",
+          "type"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -23,7 +26,12 @@
           "type": {
             "type": "string",
             "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints, \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's fixed endpoint, or \"codex\" for ChatGPT OAuth against the official Codex backend.",
-            "enum": ["openai", "anthropic", "neuraldeep", "codex"]
+            "enum": [
+              "openai",
+              "anthropic",
+              "neuraldeep",
+              "codex"
+            ]
           },
           "api_base": {
             "type": "string",
@@ -57,7 +65,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["model"],
+        "required": [
+          "model"
+        ],
         "properties": {
           "model": {
             "type": "string",
@@ -85,7 +95,9 @@
           "reasoning_levels": {
             "type": "array",
             "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; o-series and Claude thinking models -> low,medium,high). An explicit empty list hides the selector.",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
           "reasoning_default": {
             "type": "string",
@@ -220,8 +232,12 @@
         "files": {
           "type": "array",
           "description": "Filenames relative to the session CWD.",
-          "default": ["AGENTS.md"],
-          "items": { "type": "string" }
+          "default": [
+            "AGENTS.md"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -234,13 +250,21 @@
         "dirs": {
           "type": "array",
           "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
-          "default": ["~/.agents/skills", "${FOXXYCODE_HOME}/skills", "${CWD}/.foxxycode/skills"],
-          "items": { "type": "string" }
+          "default": [
+            "~/.agents/skills",
+            "${FOXXYCODE_HOME}/skills",
+            "${CWD}/.foxxycode/skills"
+          ],
+          "items": {
+            "type": "string"
+          }
         },
         "sources": {
           "type": "array",
           "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "auto_discovery": {
           "type": "boolean",
@@ -264,7 +288,9 @@
           "type": "array",
           "description": "Restrict which rule systems are loaded: foxxycode, cursor, claude, codex, agents. Empty means all.",
           "default": [],
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -275,7 +301,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "type": {
             "type": "string",
@@ -297,7 +325,9 @@
           "args": {
             "type": "array",
             "description": "Argv passed after command for stdio servers. ${CWD} expands to the session cwd.",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
           "env": {
             "type": "array",
@@ -305,10 +335,19 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["name", "value"],
+              "required": [
+                "name",
+                "value"
+              ],
               "properties": {
-                "name": { "type": "string", "description": "Environment variable name." },
-                "value": { "type": "string", "description": "Environment variable value. ${CWD} expands to the session cwd." }
+                "name": {
+                  "type": "string",
+                  "description": "Environment variable name."
+                },
+                "value": {
+                  "type": "string",
+                  "description": "Environment variable value. ${CWD} expands to the session cwd."
+                }
               }
             }
           },
@@ -322,10 +361,19 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["name", "value"],
+              "required": [
+                "name",
+                "value"
+              ],
               "properties": {
-                "name": { "type": "string", "description": "HTTP header name." },
-                "value": { "type": "string", "description": "HTTP header value." }
+                "name": {
+                  "type": "string",
+                  "description": "HTTP header name."
+                },
+                "value": {
+                  "type": "string",
+                  "description": "HTTP header value."
+                }
               }
             }
           },
@@ -375,12 +423,18 @@
           "type": "string",
           "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only).",
           "default": "ask",
-          "enum": ["ask", "accept_edits", "bypass"]
+          "enum": [
+            "ask",
+            "accept_edits",
+            "bypass"
+          ]
         },
         "command_allowlist": {
           "type": "array",
           "description": "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands.",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "ssh_connect_timeout": {
           "type": "integer",
@@ -403,15 +457,51 @@
           "description": "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB byte ceiling. 0 disables both limits; unset uses the built-in default.",
           "additionalProperties": false,
           "properties": {
-            "read": { "type": "integer", "default": 1000, "minimum": 0 },
-            "grep": { "type": "integer", "default": 200, "minimum": 0 },
-            "glob": { "type": "integer", "default": 300, "minimum": 0 },
-            "print_tree": { "type": "integer", "default": 400, "minimum": 0 },
-            "run_command": { "type": "integer", "default": 500, "minimum": 0 },
-            "ssh_run_command": { "type": "integer", "default": 500, "minimum": 0 },
-            "webfetch": { "type": "integer", "default": 800, "minimum": 0 },
-            "websearch": { "type": "integer", "default": 200, "minimum": 0 },
-            "default": { "type": "integer", "default": 1000, "minimum": 0 }
+            "read": {
+              "type": "integer",
+              "default": 1000,
+              "minimum": 0
+            },
+            "grep": {
+              "type": "integer",
+              "default": 200,
+              "minimum": 0
+            },
+            "glob": {
+              "type": "integer",
+              "default": 300,
+              "minimum": 0
+            },
+            "print_tree": {
+              "type": "integer",
+              "default": 400,
+              "minimum": 0
+            },
+            "run_command": {
+              "type": "integer",
+              "default": 500,
+              "minimum": 0
+            },
+            "ssh_run_command": {
+              "type": "integer",
+              "default": 500,
+              "minimum": 0
+            },
+            "webfetch": {
+              "type": "integer",
+              "default": 800,
+              "minimum": 0
+            },
+            "websearch": {
+              "type": "integer",
+              "default": 200,
+              "minimum": 0
+            },
+            "default": {
+              "type": "integer",
+              "default": 1000,
+              "minimum": 0
+            }
           }
         },
         "background": {
@@ -459,15 +549,27 @@
           "type": "string",
           "description": "Minimum severity written to the configured outputs (\"warning\" is accepted as an alias of \"warn\").",
           "default": "info",
-          "enum": ["debug", "info", "warn", "warning", "error"]
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "warning",
+            "error"
+          ]
         },
         "outputs": {
           "type": "array",
           "description": "Where log records go; any combination of stdout, stderr, file. Empty means stderr only.",
-          "default": ["stderr"],
+          "default": [
+            "stderr"
+          ],
           "items": {
             "type": "string",
-            "enum": ["stdout", "stderr", "file"]
+            "enum": [
+              "stdout",
+              "stderr",
+              "file"
+            ]
           }
         },
         "file": {
@@ -478,7 +580,10 @@
           "type": "string",
           "description": "Log record format.",
           "default": "text",
-          "enum": ["text", "json"]
+          "enum": [
+            "text",
+            "json"
+          ]
         },
         "rotation": {
           "type": "object",
@@ -566,7 +671,10 @@
         "engine": {
           "type": "string",
           "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it (supports /compact); \"opencode\" flags older turns and filters them from the payload.",
-          "enum": ["coddy", "opencode"],
+          "enum": [
+            "coddy",
+            "opencode"
+          ],
           "default": "coddy"
         },
         "enabled": {
@@ -690,7 +798,9 @@
             "allowed_origins": {
               "type": "array",
               "description": "Exact origins permitted to call the API. A single \"*\" allows any origin (bearer auth still applies).",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             }
           }
         },
@@ -701,8 +811,14 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "name": { "type": "string", "description": "Display name in the environment selector." },
-              "url": { "type": "string", "description": "Base URL of the remote foxxycode http server." }
+              "name": {
+                "type": "string",
+                "description": "Display name in the environment selector."
+              },
+              "url": {
+                "type": "string",
+                "description": "Base URL of the remote foxxycode http server."
+              }
             }
           }
         }
@@ -775,7 +891,9 @@
             "admins": {
               "type": "array",
               "description": "Telegram user IDs with elevated rights; admins always pass access checks.",
-              "items": { "type": "integer" }
+              "items": {
+                "type": "integer"
+              }
             },
             "default_access": {
               "type": "string",
@@ -786,7 +904,11 @@
               "type": "string",
               "description": "Fallback session isolation for group chats: \"individual\" (session per user), \"shared\" (one session for all), \"admin\" (admins only, shared session).",
               "default": "individual",
-              "enum": ["individual", "shared", "admin"]
+              "enum": [
+                "individual",
+                "shared",
+                "admin"
+              ]
             },
             "user_groups": {
               "type": "array",
@@ -794,13 +916,20 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["name"],
+                "required": [
+                  "name"
+                ],
                 "properties": {
-                  "name": { "type": "string", "description": "Group name referenced as group:<name>." },
+                  "name": {
+                    "type": "string",
+                    "description": "Group name referenced as group:<name>."
+                  },
                   "user_ids": {
                     "type": "array",
                     "description": "Telegram numeric user IDs in this group.",
-                    "items": { "type": "integer" }
+                    "items": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
@@ -811,13 +940,22 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["chat_id"],
+                "required": [
+                  "chat_id"
+                ],
                 "properties": {
-                  "chat_id": { "type": "integer", "description": "Telegram chat id (negative for groups/supergroups)." },
+                  "chat_id": {
+                    "type": "integer",
+                    "description": "Telegram chat id (negative for groups/supergroups)."
+                  },
                   "isolation": {
                     "type": "string",
                     "description": "Per-chat session isolation override.",
-                    "enum": ["individual", "shared", "admin"]
+                    "enum": [
+                      "individual",
+                      "shared",
+                      "admin"
+                    ]
                   },
                   "access": {
                     "type": "string",
@@ -844,13 +982,21 @@
         "locale": {
           "type": "string",
           "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
-          "enum": ["", "en", "ru"],
+          "enum": [
+            "",
+            "en",
+            "ru"
+          ],
           "default": ""
         },
         "send_mode": {
           "type": "string",
           "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
-          "enum": ["enter", "ctrl_enter", "off"],
+          "enum": [
+            "enter",
+            "ctrl_enter",
+            "off"
+          ],
           "default": "enter"
         },
         "status_line": {
@@ -944,6 +1090,140 @@
           "type": "boolean",
           "description": "Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enabled; set to false to keep debug logs while suppressing large bodies.",
           "default": true
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "title": "Command profiles",
+      "description": "Operator-approved command profiles: narrow tools that run one fixed binary with an argv template and typed parameters, without a shell. Distillation turns matching run_command sessions into Mini App steps over these tools.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "binary",
+          "template"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Profile name (lowercase snake_case); the tool is registered as cmd_<name>."
+          },
+          "binary": {
+            "type": "string",
+            "description": "Bare executable name resolved on PATH, or an absolute path. Batch files are refused."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the profile does, shown to the model and in the UI."
+          },
+          "permission": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "allow"
+            ],
+            "description": "ask (default) prompts in chat like any permission-bearing tool; allow runs without a prompt and is the only level Mini Apps accept."
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "description": "Run timeout in seconds. 0 uses the default (120); the maximum is 3600."
+          },
+          "template": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Argv template, one token per element; {param} slots substitute typed values. Executed argv-style, never through a shell."
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "type"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Parameter name (lowercase snake_case). File params must end in _path, _file, or _dir."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "enum",
+                    "int",
+                    "flag",
+                    "string"
+                  ],
+                  "description": "Parameter kind. Every value that reaches the argv is constrained by construction."
+                },
+                "enum": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Allowed values (enum type only)."
+                },
+                "min": {
+                  "type": "integer",
+                  "description": "Lower bound (int type only)."
+                },
+                "max": {
+                  "type": "integer",
+                  "description": "Upper bound (int type only)."
+                },
+                "pattern": {
+                  "type": "string",
+                  "description": "Anchored regular expression the value must match in full (string type only)."
+                },
+                "literal": {
+                  "type": "string",
+                  "description": "Token emitted when a flag is true (flag type only)."
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "Only flag params may be non-required; other params are always required."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Human-readable parameter description shown in run forms."
+                }
+              }
+            },
+            "description": "Typed parameters referenced from the template."
+          },
+          "install": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Package-manager coordinates offered when the binary is missing.",
+            "properties": {
+              "winget": {
+                "type": "string",
+                "description": "winget package id (e.g. Gyan.FFmpeg)."
+              },
+              "scoop": {
+                "type": "string",
+                "description": "scoop package name."
+              },
+              "brew": {
+                "type": "string",
+                "description": "Homebrew formula name."
+              },
+              "apt": {
+                "type": "string",
+                "description": "apt package name (install typically needs root)."
+              },
+              "dnf": {
+                "type": "string",
+                "description": "dnf package name (install typically needs root)."
+              }
+            }
+          }
         }
       }
     }

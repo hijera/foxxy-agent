@@ -486,6 +486,27 @@ The UI should be implemented as small React components with folder-enforced hier
 
 Opens lightweight rename/delete UX (prompt-first until richer modals arrive).
 
+### Mini Apps workspace
+
+The optional Mini Apps workspace is an operational surface, not a marketing
+page. It is reachable at **`#/miniapps`** and **`#/miniapps/{id}`** only when the
+HTTP capability probe succeeds, and it never appears inside IDE embeds.
+
+Wide layouts use a dense catalog rail plus an unframed editor/runner region.
+Narrow layouts collapse to one primary region without nested cards or clipped
+toolbars. The catalog, scenario review, editor, verification report, release
+review, generated run form, confirmation prompt, progress, result, and run
+history all use existing typography, border, focus, and status tokens. Secret
+controls use password inputs and secret values never return to the screen in
+events or history.
+
+The author sees the exact draft revision throughout review. Save, patch accept,
+test, sanitize, and release visibly invalidate or advance revision-bound state;
+release is unavailable for dirty content. A released run always names and loads
+an immutable semantic version. Progress is driven by persisted async jobs, so
+reload and SSE reconnect converge through polling rather than optimistic local
+completion.
+
 ## States
 
 - Idle composer: bordered textarea.

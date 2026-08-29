@@ -52,6 +52,7 @@ The bundled `/configure-foxxycode` skill teaches the agent this syntax, the conf
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
 | [`mcp`](#mcp) | object | Trust policy for project-local MCP discovery | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
+| [`commands`](#commands) | list | Command profiles: fixed-binary argv tools with typed params | - |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
 | [`memory`](#memory) | object | Long-term memory copilot | `memory` |
@@ -478,3 +479,35 @@ These control config discovery itself, not individual fields (see [config.md](co
 | `FOXXYCODE_CONFIG` | `--config` | Explicit path to `config.yaml`. |
 | `NAME_API_KEY` | — | Per-provider API key fallback (see [`providers`](#providers)). |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token fallback (see [`gateways.telegram`](#gatewaystelegram)). |
+
+## `commands`
+
+Command profiles (`[]cmdprofile.ProfileSpec`, `internal/cmdprofile/spec.go`): each entry
+registers one `cmd_<name>` tool that executes a single fixed binary with an argv template
+and typed parameters. Execution is argv-style (`exec.CommandContext`) and never passes
+through a shell, so shell metacharacters in values are plain characters. Mini Apps
+distillation rewrites matching `run_command` session steps into these tools.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | - | Lowercase snake_case; tool registers as `cmd_<name>`. Must not contain `__` or end in `_create`/`_update`/`_delete`. |
+| `binary` | string | yes | - | Bare executable name resolved on PATH, or an absolute path. Batch files (`.bat`/`.cmd`) are refused. |
+| `description` | string | no | - | Shown to the model and in the UI. |
+| `permission` | string | no | `ask` | `ask` prompts in chat like any permission-bearing tool; `allow` runs without a prompt and is the only level Mini Apps accept. |
+| `timeout_seconds` | int | no | `120` | Per-run timeout; maximum 3600. |
+| `template` | list of string | yes | - | Argv tokens; `{param}` slots substitute typed values. |
+| `params` | list | no | - | Typed parameters: `name`, `type` (`file`/`enum`/`int`/`flag`/`string`), `enum`, `min`/`max`, `pattern` (anchored, string type), `literal` (flag type), `required` (flags only), `description`. File params must be named `*_path`/`*_file`/`*_dir`. |
+| `install` | object | no | - | Package coordinates per manager: `winget`, `scoop`, `brew`, `apt`, `dnf`. Offered when the binary is missing. |
+
+```yaml
+commands:
+  - name: ffmpeg_extract_audio
+    binary: ffmpeg
+    permission: allow
+    template: ["-i", "{input_path}", "-vn", "-acodec", "{codec}", "{output_path}"]
+    params:
+      - {name: input_path, type: file}
+      - {name: codec, type: enum, enum: [libmp3lame, aac]}
+      - {name: output_path, type: file}
+    install: {winget: Gyan.FFmpeg, scoop: ffmpeg, apt: ffmpeg, brew: ffmpeg}
+```
