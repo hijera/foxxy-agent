@@ -722,6 +722,7 @@ export const messagesEn: Record<string, string> = {
   "status.tool": "Running a tool",
   "status.thinking": "Thinking…",
   "status.memory": "Working with memory",
+  "status.config": "Updating the configuration",
   "status.awaitingPermission": "Waiting for your approval",
   "status.awaitingAnswer": "Waiting for your answer",
   "status.waitingModel": "Waiting for the model",

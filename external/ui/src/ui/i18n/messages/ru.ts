@@ -728,6 +728,7 @@ export const messagesRu: Record<string, string> = {
   "status.tool": "Работаю с инструментом",
   "status.thinking": "Думаю…",
   "status.memory": "Работаю с памятью",
+  "status.config": "Обновляю конфигурацию",
   "status.awaitingPermission": "Жду разрешения",
   "status.awaitingAnswer": "Жду ответа",
   "status.waitingModel": "Жду ответ модели",

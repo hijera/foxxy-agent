@@ -458,6 +458,11 @@ Automated checks:
 
 - The row next to the typing dots (`TypingDotsMessage`, phrase from `chat/liveStatus.ts`) is
   derived from the transcript, so it is only as fresh as the transcript is.
+- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an
+  `in_progress` call beats a later announced `pending` one) → in-progress thinking → memory
+  copilot → waiting on the model. The two prompt states render **no** counter: nothing is
+  running while the operator decides. The console twin of the phrase table lives in
+  `external/cli/status.go`.
 - **While re-attaching, the transcript is stale by construction.** `rejoinComposerLiveStream`
   therefore keeps the session flagged through `markReconnecting` until the relay delivers its
   first byte, and only then calls `markConnected`; `deriveLiveStatus` shows
