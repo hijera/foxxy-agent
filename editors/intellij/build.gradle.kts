@@ -85,7 +85,7 @@ fun Test.stripIntellijPlatformJvmArguments() {
 // ----------------------------------------------------------------------------------
 // foxxycode-agent: build the bundled `foxxycode` binary from source on every plugin build.
 // Mirrors the root `Makefile`: `npm --prefix external/ui run build:go` (SPA for
-// go:embed, tag `ui`) then `go build -tags "http ui scheduler memory browser"`.
+// go:embed, tag `ui`) then `go build -tags "http ui scheduler memory browser gateway"`.
 // Tags track the Makefile FULL_TAGS set minus `cli` (the plugin speaks ACP, never the
 // console TUI); TestBundledBinaryTagsMatchShippedTagSet keeps the two from drifting.
 //
@@ -175,7 +175,7 @@ val foxxycodeBuildTasks = buildTargets.associateWith { t ->
         environment("CGO_ENABLED", "0")
         commandLine(
             "go", "build",
-            "-tags", "http ui scheduler memory browser",
+            "-tags", "http ui scheduler memory browser gateway",
             "-trimpath",
             "-ldflags", "-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${project.version}",
             "-o", outFile.asFile.absolutePath,
