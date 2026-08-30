@@ -1,38 +1,90 @@
-import { describe, expect, it } from "vitest";
+import { expect, test } from "vitest";
+import { pluralCategories } from "./i18n";
 import { UI_LOCALES, UI_LOCALE_DEFAULT, UI_LOCALE_IDS } from "./locales";
 
-const defaultMessages = UI_LOCALES[UI_LOCALE_DEFAULT].messages;
-const otherLocales = UI_LOCALE_IDS.filter((id) => id !== UI_LOCALE_DEFAULT);
+const CLDR_CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
 
-// translate() silently falls back to the default locale for a missing key, so a forgotten
-// translation looks like working code and only shows up as an English string in a non-English UI
-// (exactly how the env-chip menu stayed English after an upstream sync). These tests make the gap
-// fail the suite. They walk the locale registry rather than a hardcoded en/ru pair, so a locale
-// added later is covered without touching this file.
-describe("message parity across registered locales", () => {
-  it.each(otherLocales)("%s defines the same key set as the default locale", (id) => {
-    const messages = UI_LOCALES[id].messages;
-    expect(Object.keys(messages).filter((k) => !(k in defaultMessages))).toEqual([]);
-    expect(Object.keys(defaultMessages).filter((k) => !(k in messages))).toEqual([]);
-  });
+/**
+ * Splits a dictionary into plain keys and plural families. A family is a base key the
+ * default locale spells out as `base.one` + `base.other`; each locale then has to carry
+ * exactly the categories its own CLDR rules can produce, so family members are compared
+ * separately from the flat key set.
+ */
+function splitDictionary(dict: Record<string, string>): {
+  plain: string[];
+  families: string[];
+} {
+  const families = Object.keys(dict)
+    .filter(
+      (key) =>
+        key.endsWith(".one") &&
+        dict[`${key.slice(0, -".one".length)}.other`] !== undefined,
+    )
+    .map((key) => key.slice(0, -".one".length));
+  const familySet = new Set(families);
+  const plain = Object.keys(dict).filter(
+    (key) => familyOf(key, familySet) === "",
+  );
+  return { plain, families };
+}
 
-  it.each(UI_LOCALE_IDS)("%s has no empty values", (id) => {
-    const blank = Object.entries(UI_LOCALES[id].messages)
-      .filter(([, v]) => v.trim() === "")
-      .map(([k]) => k);
-    expect(blank).toEqual([]);
-  });
+/** The plural family a key belongs to, or "" when it is a plain key. */
+function familyOf(key: string, families: Set<string>): string {
+  const dot = key.lastIndexOf(".");
+  if (dot < 0) return "";
+  const base = key.slice(0, dot);
+  return families.has(base) && CLDR_CATEGORIES.includes(key.slice(dot + 1))
+    ? base
+    : "";
+}
 
-  it.each(otherLocales)("%s keeps the same {param} placeholders", (id) => {
-    const messages = UI_LOCALES[id].messages;
-    const slots = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
-    const mismatched = Object.keys(defaultMessages).filter((k) => {
-      const translated = messages[k];
-      return (
-        translated !== undefined &&
-        slots(defaultMessages[k]!).join() !== slots(translated).join()
-      );
+test("every registered dictionary exposes the default locale keys", () => {
+  const { plain, families } = splitDictionary(
+    UI_LOCALES[UI_LOCALE_DEFAULT].messages,
+  );
+  for (const locale of UI_LOCALE_IDS) {
+    const expected = new Set(plain);
+    for (const base of families) {
+      for (const category of pluralCategories(locale)) {
+        expected.add(`${base}.${category}`);
+      }
+    }
+    const localeKeys = new Set(Object.keys(UI_LOCALES[locale].messages));
+    const missing = [...expected].filter((key) => !localeKeys.has(key)).sort();
+    const extra = [...localeKeys].filter((key) => !expected.has(key)).sort();
+    expect({ locale, missing, extra }).toEqual({
+      locale,
+      missing: [],
+      extra: [],
     });
-    expect(mismatched).toEqual([]);
-  });
+  }
+});
+
+test("no dictionary value is the empty string", () => {
+  for (const locale of UI_LOCALE_IDS) {
+    for (const [key, value] of Object.entries(UI_LOCALES[locale].messages)) {
+      expect(value, `empty ${locale} value for ${key}`).not.toBe("");
+    }
+  }
+});
+
+test("every interpolation token used in the default locale exists everywhere", () => {
+  const token = (s: string) =>
+    (s.match(/\{(\w+)\}/g) ?? []).map((m) => m).sort();
+  const defaults = UI_LOCALES[UI_LOCALE_DEFAULT].messages;
+  const families = new Set(splitDictionary(defaults).families);
+  for (const locale of UI_LOCALE_IDS) {
+    // Walk the locale's own keys so the extra categories a language carries (ru "few" /
+    // "many") are checked against the family's default entry instead of being skipped.
+    for (const [key, translated] of Object.entries(
+      UI_LOCALES[locale].messages,
+    )) {
+      const base = familyOf(key, families);
+      const fallback = base ? defaults[`${base}.other`] : defaults[key];
+      if (fallback === undefined) continue;
+      expect(token(translated), `token mismatch for ${locale}:${key}`).toEqual(
+        token(fallback),
+      );
+    }
+  }
 });

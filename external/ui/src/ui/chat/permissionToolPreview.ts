@@ -1,4 +1,4 @@
-import { t } from "../i18n/i18n";
+import { t, tp } from "../i18n/i18n";
 import {
   flattenDiffLines,
   parseDiffPatch,
@@ -317,7 +317,7 @@ export function buildToolCallPreview(
       toolName,
       title,
       header: path,
-      meta: [t("prompts.permissionMeta.chars", { count: content.length })],
+      meta: [tp("prompts.permissionMeta.chars", content.length)],
       copyText: content,
       kind: "code",
       text: content,
@@ -395,7 +395,7 @@ export function buildToolCallPreview(
     const offset = numberArg(args, "offset", 0);
     const limit = numberArg(args, "limit", 0);
     if (offset > 0) meta.push(t("prompts.permissionMeta.fromLine", { line: offset }));
-    if (limit > 0) meta.push(t("prompts.permissionMeta.lines", { count: limit }));
+    if (limit > 0) meta.push(tp("prompts.permissionMeta.lines", limit));
     if (boolArg(args, "recursive", false)) {
       meta.push(t("prompts.permissionMeta.recursive"));
     }

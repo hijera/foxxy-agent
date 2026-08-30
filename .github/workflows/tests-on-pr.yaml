@@ -82,7 +82,7 @@ jobs:
           cache: true
 
       - name: Run platform-dependent tests
-        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/...
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/...
 
   lint:
     name: Lint

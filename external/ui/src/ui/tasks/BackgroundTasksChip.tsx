@@ -13,7 +13,7 @@ export function BackgroundTasksChip(props: {
   tasks: BackgroundTask[];
   onOpen: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const running = props.tasks.filter((task) => task.running).length;
   const total = props.tasks.length;
 
@@ -23,15 +23,11 @@ export function BackgroundTasksChip(props: {
   }
 
   const live = running > 0;
-  // Plural forms differ per language (Russian has three), so the count picks
-  // the key instead of an "s" being appended to a translated noun.
+  // Plural forms differ per language (Russian has three), so the locale's CLDR
+  // rules pick the dictionary entry instead of the component choosing one.
   const label = live
-    ? t(running === 1 ? "tasks.chip.runningOne" : "tasks.chip.runningMany", {
-        count: running,
-      })
-    : t(total === 1 ? "tasks.chip.totalOne" : "tasks.chip.totalMany", {
-        count: total,
-      });
+    ? tp("tasks.chip.running", running)
+    : tp("tasks.chip.total", total);
 
   return (
     <div className="bgtask-chip-row">
