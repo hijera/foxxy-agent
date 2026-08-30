@@ -28,7 +28,8 @@ import javax.imageio.ImageIO
  * Reach: every locator-based command walks the *Swing* hierarchy. The FoxxyCode chat lives in a
  * JCEF browser, whose content has no Swing components at all — `tree`, `assert-text` and `click`
  * reach the toolbar, the tool window chrome, IDE dialogs and popups, but never the composer or a
- * message. For those, read the screenshot.
+ * message. For those, the `cef-*` commands go through [CefChat] (Chrome DevTools Protocol) and
+ * operate on the page itself: JS, rendered text, CSS-selector clicks, trusted typing.
  */
 fun main(args: Array<String>) {
     if (args.size < 2) {
@@ -102,7 +103,49 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
     }
 
     fun close() {
+        try {
+            cefChat?.close()
+        } catch (e: Exception) {
+            // The websocket dying with the script is not worth failing the run over.
+        }
         File(outputDir, "console.log").writeText(log.toString())
+    }
+
+    // ---------------------------------------------------------------- inside the chat (CDP)
+
+    /** Lazy: scripts that never look inside the chat must not require the CDP port. */
+    private var cefChat: CefChat? = null
+
+    private fun cef(): CefChat = cefChat ?: CefChat.connectWithRetry().also {
+        cefChat = it
+        say("    cef: connected to ${CefChat.debugUrl()}")
+    }
+
+    /** Like `tree`: the full text goes to a file, the echo is what the agent reads. */
+    private fun dumpCefText() {
+        val text = cef().pageText()
+        val file = File(outputDir, "%02d-cef-text.txt".format(step))
+        file.writeText(text)
+        say("    cef-text -> ${file.name} (${text.lines().size} lines)")
+        say(indent(text))
+    }
+
+    private fun cefAssertText(needle: String, expected: Boolean) {
+        val found = cef().pageText().contains(needle)
+        if (found != expected) {
+            val what = if (expected) "expected to find" else "expected NOT to find"
+            throw AssertionError("$what '$needle' in the chat page")
+        }
+        say("    ok: '$needle' ${if (expected) "present" else "absent"} in the chat")
+    }
+
+    /** `cef-wait-text <needle> [seconds]` — seconds optional, always last. */
+    private fun cefWaitText(rest: String) {
+        val parts = rest.split(' ')
+        val seconds = if (parts.size > 1) parts.last().toLongOrNull() else null
+        val needle = if (seconds == null) rest else parts.dropLast(1).joinToString(" ")
+        cef().waitForText(needle, Duration.ofSeconds(seconds ?: 30))
+        say("    ok: '$needle' appeared in the chat")
     }
 
     private fun execute(line: String) {
@@ -130,6 +173,14 @@ private class UiConsole(private val robot: RemoteRobot, private val outputDir: F
             "assert-text" -> assertText(rest, expected = true)
             "assert-no-text" -> assertText(rest, expected = false)
             "screenshot" -> screenshot(if (rest.isEmpty()) "screenshot" else rest)
+            "cef-js" -> say(indent(cef().eval(rest)))
+            "cef-text" -> dumpCefText()
+            "cef-assert-text" -> cefAssertText(rest, expected = true)
+            "cef-assert-no-text" -> cefAssertText(rest, expected = false)
+            "cef-wait-text" -> cefWaitText(rest)
+            "cef-click" -> { cef().click(rest); shot(command) }
+            "cef-type" -> { cef().insertText(rest); shot(command) }
+            "cef-key" -> { cef().pressKey(rest); shot(command) }
             else -> throw IllegalArgumentException("unknown command '$command'")
         }
     }
