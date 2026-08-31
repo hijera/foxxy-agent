@@ -147,16 +147,20 @@ func (h *Handler) currentSender() acp.UpdateSender {
 	return h.sender
 }
 
+// randRead is indirected so tests can exercise the entropy-failure path;
+// production always uses crypto/rand.
+var randRead = rand.Read
+
 // newRemoteSessionID mints a client-side session id; the server pins the
 // bundle under this exact id on the first prompt (EnsureHTTPSession).
-func newRemoteSessionID() string {
+// Entropy failure is returned as an error rather than panicked on, so one
+// unlucky session/new cannot take down the handler.
+func newRemoteSessionID() (string, error) {
 	var buf [16]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		// crypto/rand failing is unrecoverable enough that a constant id
-		// would be worse than an error surfaced by the server.
-		panic(fmt.Sprintf("remote: session id entropy: %v", err))
+	if _, err := randRead(buf[:]); err != nil {
+		return "", fmt.Errorf("remote: session id entropy: %w", err)
 	}
-	return "sess_" + hex.EncodeToString(buf[:])
+	return "sess_" + hex.EncodeToString(buf[:]), nil
 }
 
 // ---- acp.Handler ----
@@ -195,7 +199,10 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	id := preferred
 	if id == "" {
-		id = newRemoteSessionID()
+		var err error
+		if id, err = newRemoteSessionID(); err != nil {
+			return nil, fmt.Errorf("session/new: %w", err)
+		}
 	} else if err := session.ValidateFolderSessionID(id); err != nil {
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
