@@ -382,6 +382,12 @@
           "description": "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands.",
           "items": { "type": "string" }
         },
+        "permission_timeout_seconds": {
+          "type": "integer",
+          "description": "How long a permission prompt may wait for the operator before the tool call is cancelled instead. 0 (default) waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely.",
+          "minimum": 0,
+          "default": 0
+        },
         "ssh_connect_timeout": {
           "type": "integer",
           "description": "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds.",

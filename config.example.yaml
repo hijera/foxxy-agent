@@ -227,6 +227,11 @@ tools:
     - "git diff"
     - "git log"
 
+  # How long a permission prompt may wait for the operator before the tool
+  # call is cancelled instead (seconds). 0 (default) waits forever; set a
+  # positive value so an unresponsive client cannot hold the turn forever.
+  # permission_timeout_seconds: 0
+
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
 

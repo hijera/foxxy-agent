@@ -431,6 +431,8 @@ func UISchemaMap() map[string]interface{} {
 					"description": "If non-empty, only these shell command prefixes may run without extra policy.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"permission_timeout_seconds": intProp("Permission timeout (s)",
+					"How long a permission prompt may wait for the operator before the tool call is cancelled instead (0 waits forever)."),
 				"plan_no_self_run": boolProp("Forbid the model from running the plan itself",
 					"In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on."),
 				"ask_disable_extended_tools": boolPropDefault("Disable extended Ask tools",
@@ -466,7 +468,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enabled", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
 					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "ask_disable_extended_tools", "output_limits", "background"},
+			[]string{"permission_mode", "command_allowlist", "permission_timeout_seconds", "plan_no_self_run", "ask_disable_extended_tools", "output_limits", "background"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",

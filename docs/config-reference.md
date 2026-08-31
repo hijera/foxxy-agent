@@ -257,6 +257,7 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 |---|---|---|---|---|
 | `permission_mode` | string | no | `ask` | `ask` — prompt for commands and file writes; `accept_edits` — auto-approve writes, prompt for commands; `bypass` — never ask (trusted environments only). Overridable per session via ACP `session/set_config_option`. |
 | `command_allowlist` | string list | no | `[]` | Commands that never require permission. Exact or prefix match (prefix + space + args). `"*"` allows everything. |
+| `permission_timeout_seconds` | int | no | `0` | How long a permission prompt may wait for the operator before the tool call is cancelled instead. `0` waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
 | `plan_no_self_run` | bool | no | `false` | Forbid the model from starting to execute a plan itself. In plan mode `plan_exit` is not offered and any tool outside the plan allowlist is refused instead of run, so only **Run plan** starts the implementation. The `-plan-no-self-run` flag on `foxxycode acp` / `foxxycode http` overrides this value; the IntelliJ and VS Code plugins pass it, so their panels are guarded by default. |
 | `ask_disable_extended_tools` | bool | no | `false` | Hide Ask mode's read-only shell, web, annotated MCP, and scheduler inspection tools. Basic repository read/search/tree, question, and skill tools remain available. |

@@ -211,6 +211,10 @@ tools:
   # Overridable per session via ACP session/set_config_option with configId "permission_mode".
   permission_mode: ask
 
+  # How long a permission prompt may wait for the operator before the tool
+  # call is cancelled instead (seconds; 0 by default = wait forever).
+  # permission_timeout_seconds: 0
+
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
 
