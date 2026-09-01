@@ -84,6 +84,67 @@ jobs:
       - name: Run platform-dependent tests
         run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/...
 
+  # Nothing gated formatting before: `gofmt -l` is unusable on a Windows checkout
+  # (core.autocrlf=true rewrites .go files to CRLF, which gofmt reports as
+  # unformatted), so it could not live in `make lint`. This runner checks out LF,
+  # which is also what the repository stores, so the check is meaningful here.
+  gofmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            echo
+            echo "Run: gofmt -w <files>"
+            exit 1
+          fi
+
+  # The suite runs without -race, so a data race in the session manager, the
+  # background task pool or the SSE fan-out only ever shows up as a flake in
+  # production. -race needs cgo, which is unavailable on some contributor
+  # machines but always present here. The scope is the packages with real
+  # concurrency; widen it as more of the tree is shown to be race-free.
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests under the race detector
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go test -race -count=1 ./internal/agent/... ./internal/session/... ./internal/bgtask/... ./internal/llm/... ./internal/mcp/...
+          go test -race -count=1 -tags=http,scheduler,memory ./external/httpserver/... ./external/scheduler/...
+
+  # A build tag hides whole files from the linter, so this job runs the Makefile
+  # targets rather than a bare ./... pass: `make lint` walks every tag set
+  # (cli, browser, gateway, http+scheduler+memory), `make lint-ui` adds the
+  # embedded-SPA surface, and `make lint-windows` repeats them for GOOS=windows
+  # plus the Windows-only desktop shell. Keeping the tag list in the Makefile
+  # means CI and a local run cannot drift apart.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -98,16 +159,25 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          version: v2.12.2
-          args: ./...
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      # Installed from the module proxy (checksum-verified) at the version the
+      # repo pins, instead of curl | sh.
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run golangci-lint over every build tag set
+        run: make lint
+
+      - name: Run golangci-lint over the embedded-SPA build
+        run: make lint-ui
 
       - name: Run golangci-lint against the Windows build
-        uses: golangci/golangci-lint-action@v7
-        env:
-          GOOS: windows
-        with:
-          version: v2.12.2
-          args: ./...
+        run: make lint-windows
