@@ -40,7 +40,11 @@ function stripV1(base: string): string {
   return base.replace(/\/v1\/?$/, "");
 }
 
-const PRESETS: ProviderPreset[] = [
+// A non-empty tuple, not a plain array: every lookup here falls back to PRESETS[0],
+// and under noUncheckedIndexedAccess a plain array would make that fallback
+// `ProviderPreset | undefined` and force a null check on a list that is a source
+// constant and can never be empty.
+const PRESETS: [ProviderPreset, ...ProviderPreset[]] = [
   {
     id: "openai",
     label: "OpenAI",

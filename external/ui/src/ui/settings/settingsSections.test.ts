@@ -63,17 +63,17 @@ test("the ui schema key is hidden — its locale is edited by the General picker
 
 test("array sections carry their label field", () => {
   const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
-  expect(byId.providers.kind).toBe("array");
-  expect(byId.providers.labelField).toBe("name");
-  expect(byId.models.kind).toBe("array");
-  expect(byId.models.labelField).toBe("model");
+  expect(byId.providers!.kind).toBe("array");
+  expect(byId.providers!.labelField).toBe("name");
+  expect(byId.models!.kind).toBe("array");
+  expect(byId.models!.labelField).toBe("model");
 });
 
 test("mcp_servers is its own managed tab", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
-  expect(byId.mcp_servers.kind).toBe("mcp");
+  expect(byId.mcp_servers!.kind).toBe("mcp");
 });
 
 test("System group folds the rarely edited tail keys", () => {
@@ -91,14 +91,14 @@ test("System group folds the rarely edited tail keys", () => {
 
 test("skills is its own combined tab; labels come from schema titles", () => {
   const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
-  expect(byId.skills.kind).toBe("skills");
-  expect(byId.agent.kind).toBe("object");
-  expect(byId.agent.label).toBe("ReAct agent");
+  expect(byId.skills!.kind).toBe("skills");
+  expect(byId.agent!.kind).toBe("object");
+  expect(byId.agent!.label).toBe("ReAct agent");
 });
 
 test("General and Appearance tabs are present even without a schema", () => {
   const sections = deriveSettingsSections(null);
   expect(sections).toHaveLength(2);
-  expect(sections[0].id).toBe("general");
-  expect(sections[1].id).toBe("appearance");
+  expect(sections[0]!.id).toBe("general");
+  expect(sections[1]!.id).toBe("appearance");
 });

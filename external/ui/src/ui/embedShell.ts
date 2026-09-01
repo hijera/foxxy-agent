@@ -18,7 +18,8 @@ export function readEmbedFromUrl(): string {
     return "";
   }
   const m = window.location.search.match(/[?&]embed=([^&]+)/);
-  return m ? decodeURIComponent(m[1]) : "";
+  const captured = m?.[1];
+  return captured ? decodeURIComponent(captured) : "";
 }
 
 /**
