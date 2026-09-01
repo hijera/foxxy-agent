@@ -671,7 +671,9 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
 					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-FoxxyCode-Session-ID`**, else the server default cwd). " +
-						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**.",
+						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**. " +
+						"**`path=:drives:`** lists the machine's drive roots instead (Windows only; **400** elsewhere), and the **`parent`** " +
+						"of a drive root is **`:drives:`** so the picker can walk up out of a volume.",
 					"operationId": "foxxycodeWorkspaceFoldersGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -682,7 +684,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "path", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Absolute folder to list.",
+							"description": "Absolute folder to list, or **`:drives:`** for the drive level.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -696,6 +698,10 @@ func openAPISpec() map[string]interface{} {
 											"object": map[string]interface{}{"type": "string", "example": "foxxycode.workspace_folders"},
 											"path":   map[string]interface{}{"type": "string"},
 											"parent": map[string]interface{}{"type": "string"},
+											"drives": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and **`true`** only on the **`:drives:`** level, whose rows are drive roots rather than folders.",
+											},
 											"folders": map[string]interface{}{
 												"type": "array",
 												"items": map[string]interface{}{
@@ -710,17 +716,17 @@ func openAPISpec() map[string]interface{} {
 									},
 								},
 							},
-							"400": errorResponseRef(),
-							"404": errorResponseRef(),
-							"500": errorResponseRef(),
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
 			"/foxxycode/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "JSON Schema for FoxxyCode YAML configuration (UI)",
-					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/foxxycode/config` and returned by **GET** `/foxxycode/config`. Includes **`providers[].name`** pattern, optional **`x-foxxycode-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
+					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/foxxycode/config` and returned by **GET** `/foxxycode/config`. Includes **`providers[].name`** pattern, optional **`x-foxxycode-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. A section whose feature needs a Go build tag carries **`x-foxxycode-requires-build-tag`** (e.g. `browser`) in every build; the responding process adds **`x-foxxycode-build-tag-missing: true`** when its own binary was compiled without that tag, so an editor can show the section read-only instead of offering a switch that cannot take effect. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
 					"operationId": "foxxycodeConfigSchemaGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -2589,23 +2595,24 @@ func openAPISpec() map[string]interface{} {
 				"MCPServerRow": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"name":        map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
-						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.foxxycode/mcp.json)."},
-						"origin":      map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.foxxycode/mcp.json."},
-						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
-						"transport":   map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
-						"command":     map[string]string{"type": "string"},
-						"args":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"url":         map[string]string{"type": "string"},
-						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
-						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
-						"status":      map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
-						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
-						"source_path": map[string]string{"type": "string", "description": "File the declaration was read from."},
-						"trusted":     map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
-						"gated":       map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
-						"fingerprint": map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
+						"name":                 map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":               map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.foxxycode/mcp.json)."},
+						"origin":               map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.foxxycode/mcp.json."},
+						"readonly":             map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"transport":            map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":              map[string]string{"type": "string"},
+						"args":                 map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":                  map[string]string{"type": "string"},
+						"env":                  map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":              map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"insecure_skip_verify": map[string]interface{}{"type": "boolean", "description": "True when this http/sse server is contacted without verifying its TLS certificate."},
+						"enabled":              map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":               map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
+						"error":                map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
+						"source_path":          map[string]string{"type": "string", "description": "File the declaration was read from."},
+						"trusted":              map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
+						"gated":                map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
+						"fingerprint":          map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
 						"tools": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
@@ -2629,14 +2636,15 @@ func openAPISpec() map[string]interface{} {
 					"type":        "object",
 					"description": "One mcp.json entry (global <home>/mcp.json or project .foxxycode/mcp.json; Cursor-compatible).",
 					"properties": map[string]interface{}{
-						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
-						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
-						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"url":           map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
-						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"disabled":      map[string]interface{}{"type": "boolean"},
-						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"type":               map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
+						"command":            map[string]string{"type": "string", "description": "Executable for stdio transport."},
+						"args":               map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"env":                map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"url":                map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
+						"headers":            map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"insecureSkipVerify": map[string]interface{}{"type": "boolean", "description": "Contact this http/sse server without verifying its TLS certificate (self-signed or expired certificates). Removes the protection against a man in the middle; setting it changes the declaration digest, so a project entry needs approving again."},
+						"disabled":           map[string]interface{}{"type": "boolean"},
+						"disabledTools":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 					},
 				},
 				"FoxxyCodeConfigJSON": map[string]interface{}{

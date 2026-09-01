@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
@@ -78,9 +79,16 @@ type Browser struct {
 	ctx         context.Context
 	ctxCancel   context.CancelFunc
 	timeout     time.Duration
+	// captureScreens mirrors browser.screenshots. When false no image is taken and
+	// none is handed to the model; every action still reports URL and page log.
+	captureScreens bool
 
-	mu      sync.Mutex
-	console []string
+	mu sync.Mutex
+	// pageLog buffers everything the page told us since it was last read: console
+	// calls, uncaught exceptions and failed or error-status network responses.
+	// One buffer, because they answer the same question - what went wrong on the
+	// page - and a caller reading it wants all three.
+	pageLog []string
 }
 
 // launch starts a headless (or headful) Chrome and returns a ready Browser.
@@ -106,37 +114,59 @@ func launch(cfg *config.BrowserConfig, profileDir string) (*Browser, error) {
 	}
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	ctx, ctxCancel := chromedp.NewContext(allocCtx)
+	// Route chromedp's own diagnostics into the configured log; see cdpLogf.
+	ctx, ctxCancel := chromedp.NewContext(allocCtx,
+		chromedp.WithErrorf(cdpLogf),
+		chromedp.WithLogf(cdpLogf),
+	)
 
 	b := &Browser{
-		allocCtx:    allocCtx,
-		allocCancel: allocCancel,
-		ctx:         ctx,
-		ctxCancel:   ctxCancel,
-		timeout:     timeout,
+		allocCtx:       allocCtx,
+		allocCancel:    allocCancel,
+		ctx:            ctx,
+		ctxCancel:      ctxCancel,
+		timeout:        timeout,
+		captureScreens: cfg.ScreenshotsEnabled(),
 	}
-
-	// Capture page console output so action results can surface it to the model.
-	chromedp.ListenTarget(ctx, func(ev interface{}) {
-		switch e := ev.(type) {
-		case *runtime.EventConsoleAPICalled:
-			b.addConsole(formatConsole(e))
-		case *runtime.EventExceptionThrown:
-			if e.ExceptionDetails != nil {
-				b.addConsole("[exception] " + e.ExceptionDetails.Text)
-			}
-		}
-	})
 
 	// Force the browser process to start now so failures surface immediately. This
 	// first Run MUST use the long-lived ctx: chromedp binds the browser/tab lifetime
 	// to the context of the first Run, so a short-lived (timeout) context here would
-	// tear the browser down as soon as it is cancelled.
-	if err := chromedp.Run(ctx); err != nil {
+	// tear the browser down as soon as it is cancelled. It also creates the target
+	// that ListenTarget below attaches to, and enables the Network and Runtime
+	// domains: without them Chrome emits no response, failure or console events at
+	// all, and the listener sees nothing however correct it looks.
+	if err := chromedp.Run(ctx, network.Enable(), runtime.Enable()); err != nil {
 		ctxCancel()
 		allocCancel()
 		return nil, fmt.Errorf("launch browser: %w", err)
 	}
+
+	// Capture what the page reports about itself so the tools can surface it without
+	// needing a screenshot. Network failures matter as much as console lines: a
+	// request that 500s shows up in a screenshot only if the app happens to render
+	// an error, so without this a broken backend looks like a blank page.
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		switch e := ev.(type) {
+		case *runtime.EventConsoleAPICalled:
+			b.addPageLog(formatConsole(e))
+		case *runtime.EventExceptionThrown:
+			if e.ExceptionDetails != nil {
+				b.addPageLog("[exception] " + formatException(e.ExceptionDetails))
+			}
+		case *network.EventLoadingFailed:
+			// ERR_ABORTED trails a response that was already reported (a rejected
+			// fetch, a navigation replaced mid-flight), so reporting it too would
+			// double every failure the caller can already see.
+			if !e.Canceled && e.ErrorText != "net::ERR_ABORTED" {
+				b.addPageLog(fmt.Sprintf("[network] failed %s: %s", e.Type, e.ErrorText))
+			}
+		case *network.EventResponseReceived:
+			if e.Response != nil && e.Response.Status >= 400 {
+				b.addPageLog(fmt.Sprintf("[network] %d %s", int(e.Response.Status), e.Response.URL))
+			}
+		}
+	})
 	return b, nil
 }
 
@@ -157,31 +187,54 @@ func (b *Browser) close() {
 	}
 }
 
-func (b *Browser) addConsole(line string) {
+func (b *Browser) addPageLog(line string) {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.console = append(b.console, line)
+	b.pageLog = append(b.pageLog, line)
 	// Bound memory: keep the most recent entries.
-	const maxConsole = 200
-	if len(b.console) > maxConsole {
-		b.console = b.console[len(b.console)-maxConsole:]
+	const maxPageLog = 200
+	if len(b.pageLog) > maxPageLog {
+		b.pageLog = b.pageLog[len(b.pageLog)-maxPageLog:]
 	}
 }
 
-// drainConsole returns and clears the buffered console lines.
-func (b *Browser) drainConsole() []string {
+// drainPageLog returns and clears what the page reported since the last read.
+// Whoever reads first gets the lines - an action result or the page-log tool.
+func (b *Browser) drainPageLog() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if len(b.console) == 0 {
+	if len(b.pageLog) == 0 {
 		return nil
 	}
-	out := b.console
-	b.console = nil
+	out := b.pageLog
+	b.pageLog = nil
 	return out
+}
+
+// formatException renders a thrown exception the way a developer would read it.
+// ExceptionDetails.Text alone is almost always the bare word "Uncaught", which
+// tells the model nothing; the message and stack live on the exception object.
+func formatException(d *runtime.ExceptionDetails) string {
+	if d == nil {
+		return "unknown"
+	}
+	if d.Exception != nil {
+		if desc := strings.TrimSpace(d.Exception.Description); desc != "" {
+			// The description carries the stack too; the first line is the message.
+			if line, _, ok := strings.Cut(desc, "\n"); ok {
+				return line
+			}
+			return desc
+		}
+	}
+	if text := strings.TrimSpace(d.Text); text != "" {
+		return text
+	}
+	return "unknown"
 }
 
 func formatConsole(e *runtime.EventConsoleAPICalled) string {

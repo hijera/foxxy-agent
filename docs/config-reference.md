@@ -216,6 +216,7 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
 | `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `insecure_skip_verify` | bool | no | `false` | Accept this http/sse server's TLS certificate without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks. Setting it changes the declaration digest, so a project-local entry needs approving again. |
 | `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
 | `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
@@ -446,6 +447,7 @@ Interactive browser automation tool (`config.BrowserConfig`, `internal/config/br
 |---|---|---|---|---|---|
 | `enabled` | bool | no | `false` | — | Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for builds compiled with the `browser` tag. |
 | `headless` | bool | no | `true` | — | Run the browser without a visible window. Set to `false` to watch the automated session. |
+| `screenshots` | bool | no | `true` | — | Capture a screenshot after each action and show it to the model. Set to `false` to drive the browser text-only: actions still report the URL and the page log, and `foxxycode_browser_read_page` plus `foxxycode_browser_evaluate` read the page as text. Useful for a model without vision, and it drops the base64 image from every request. |
 | `executable_path` | string | no | `""` (auto) | — | Path to a specific Chrome/Chromium binary; empty lets chromedp auto-detect an installed browser. |
 | `timeout_seconds` | int | no | `30` | — | Per-action timeout for navigation, clicks, and other browser operations. |
 

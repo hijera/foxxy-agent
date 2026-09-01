@@ -222,7 +222,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         setSaveError(
           e instanceof Error
             ? e.message
-            : t("prompts.planSaveFailed", { status: "" }),
+            : t("prompts.planSaveFailedNoStatus"),
         );
       } finally {
         setSaving(false);

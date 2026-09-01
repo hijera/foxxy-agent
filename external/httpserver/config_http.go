@@ -35,7 +35,9 @@ func (s *Server) foxxycodeConfigSchemaGet(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	data, err := config.UISchemaJSON()
+	doc := config.UISchemaMap()
+	markMissingBuildTags(doc)
+	data, err := json.Marshal(doc)
 	if err != nil {
 		s.log.Error("foxxycode config schema", "error", err)
 		writeFoxxyCodeConfigErr(w, http.StatusInternalServerError, "schema generation failed")
@@ -43,6 +45,31 @@ func (s *Server) foxxycodeConfigSchemaGet(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(data)
+}
+
+// markMissingBuildTags flags every section whose build tag this binary was not
+// compiled with. The schema itself is build-independent (one committed fixture has
+// to match under every tag combination), so availability is decided here, by the
+// process that actually would or would not have the tool.
+func markMissingBuildTags(doc map[string]interface{}) {
+	props, ok := doc["properties"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	compiled := map[string]bool{config.BrowserBuildTag: config.BrowserToolCompiled}
+	for _, raw := range props {
+		section, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		tag, ok := section[config.SchemaRequiresBuildTag].(string)
+		if !ok || tag == "" {
+			continue
+		}
+		if have, known := compiled[tag]; known && !have {
+			section[config.SchemaBuildTagMissing] = true
+		}
+	}
 }
 
 func (s *Server) foxxycodeConfigGet(w http.ResponseWriter, r *http.Request) {

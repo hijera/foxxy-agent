@@ -108,3 +108,73 @@ test("originLabel names the owning file", async () => {
   expect(originLabel("home")).toBe("~/.foxxycode/mcp.json");
   expect(originLabel("project")).toBe("./.foxxycode/mcp.json");
 });
+
+test("insecureSkipVerify parses as a boolean and is rejected otherwise", () => {
+  const { entry, error } = parseServerEntryJson(
+    '{"url":"https://selfsigned.local/mcp","insecureSkipVerify":true}',
+  );
+  expect(error).toBeUndefined();
+  expect(entry?.insecureSkipVerify).toBe(true);
+
+  expect(
+    parseServerEntryJson('{"url":"https://x/mcp","insecureSkipVerify":"yes"}')
+      .error,
+  ).toBe("settings.mcp.validation.insecureSkipVerifyBoolean");
+});
+
+test("serverRowToEntryJson keeps insecure_skip_verify so editing cannot erase it", () => {
+  const row = {
+    name: "remote",
+    source: "global" as const,
+    origin: "home" as const,
+    transport: "http",
+    url: "https://selfsigned.local/mcp",
+    insecure_skip_verify: true,
+    enabled: true,
+    status: "connected" as const,
+    tools: [],
+  };
+  const { entry } = parseServerEntryJson(serverRowToEntryJson(row));
+  expect(entry?.insecureSkipVerify).toBe(true);
+
+  // An unset flag stays out of the file rather than becoming an explicit false.
+  const { entry: plain } = parseServerEntryJson(
+    serverRowToEntryJson({ ...row, insecure_skip_verify: false }),
+  );
+  expect(plain?.insecureSkipVerify).toBeUndefined();
+});
+
+test("serverRowToEntry returns the object the checkbox handler edits", async () => {
+  const { serverRowToEntry } = await import("./mcpServerJson");
+  const entry = serverRowToEntry({
+    name: "remote",
+    source: "global",
+    origin: "home",
+    transport: "http",
+    url: "https://selfsigned.local/mcp",
+    headers: { Authorization: "Bearer tok" },
+    enabled: true,
+    status: "connected",
+    tools: [],
+  });
+  expect(entry.url).toBe("https://selfsigned.local/mcp");
+  expect(entry.headers).toEqual({ Authorization: "Bearer tok" });
+});
+
+test("a server that skips certificate verification says so before approval", async () => {
+  const { declarationFacts } = await import("./mcpServerJson");
+  const facts = declarationFacts({
+    name: "remote",
+    source: "local",
+    origin: "project",
+    transport: "http",
+    url: "https://selfsigned.local/mcp",
+    insecure_skip_verify: true,
+    enabled: true,
+    status: "connected",
+    tools: [],
+  });
+  expect(facts.some((f) => f.labelKey === "settings.mcp.trust.fact.tls")).toBe(
+    true,
+  );
+});

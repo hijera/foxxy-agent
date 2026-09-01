@@ -82,7 +82,7 @@ jobs:
           cache: true
 
       - name: Run platform-dependent tests
-        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/...
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/...
 
   # Nothing gated formatting before: `gofmt -l` is unusable on a Windows checkout
   # (core.autocrlf=true rewrites .go files to CRLF, which gofmt reports as

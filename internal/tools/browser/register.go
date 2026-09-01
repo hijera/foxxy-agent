@@ -22,6 +22,9 @@ func RegisterBuiltins(add func(*tooling.Tool), cfg *config.Config) {
 	add(m.HoverTool())
 	add(m.ScrollTool())
 	add(m.ScreenshotTool())
+	add(m.PageLogTool())
+	add(m.ReadPageTool())
+	add(m.InspectTool())
 	add(m.EvaluateTool())
 	add(m.CloseTool())
 }
@@ -36,6 +39,9 @@ func ToolNames() []string {
 		"foxxycode_browser_hover",
 		"foxxycode_browser_scroll",
 		"foxxycode_browser_screenshot",
+		"foxxycode_browser_page_log",
+		"foxxycode_browser_read_page",
+		"foxxycode_browser_inspect",
 		"foxxycode_browser_evaluate",
 		"foxxycode_browser_close",
 	}

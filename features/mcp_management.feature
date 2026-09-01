@@ -47,3 +47,9 @@ Feature: MCP server management
     When I delete the MCP server "added"
     Then the MCP list does not show server "added"
     And the project mcp.json does not contain server "added"
+
+  Scenario: A remote server with a self-signed certificate connects when SSL verification is ignored
+    Given a self-signed HTTPS MCP server
+    When I add a project MCP server "tls" pointing at it with SSL verification ignored
+    Then the MCP list shows server "tls" from source "local" as enabled
+    And server "tls" exposes the tool "get_token" as enabled

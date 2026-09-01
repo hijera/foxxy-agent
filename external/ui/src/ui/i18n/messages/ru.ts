@@ -99,9 +99,14 @@ export const messagesRu: Record<string, string> = {
 
   "composer.folderModal.title": "Открыть папку",
   "composer.folderModal.close": "Закрыть обзор папок",
+  "composer.folderModal.pathLabel": "Путь к папке",
+  "composer.folderModal.pathPlaceholder": "Путь",
+  "composer.folderModal.drivesPlaceholder": "Этот компьютер",
   "composer.folderModal.noSubfolders": "Вложенных папок нет",
+  "composer.folderModal.noDrives": "Диски не найдены",
   "composer.folderModal.cancel": "Отмена",
   "composer.folderModal.open": "Открыть",
+  "composer.folderModal.go": "Перейти",
   "composer.folderModal.cannotList": "Не удалось прочитать {path}",
 
   "env.banner.unreachable":
@@ -330,6 +335,8 @@ export const messagesRu: Record<string, string> = {
   "settings.toggleOptions": "Показать варианты",
   "settings.backToList": "К списку",
   "settings.backToSections": "К разделам",
+  "settings.buildTagMissing":
+    "В этой сборке не заработает: бинарь собран без тега «{tag}», инструментов в нём просто нет, и настройки ниже ни на что не влияют. Пересоберите с этим тегом (например make build TAGS=\"http ui browser\"), чтобы включить.",
   "settings.remove": "Удалить",
   "settings.add": "Добавить",
   "settings.showKey": "Показать",
@@ -446,6 +453,13 @@ export const messagesRu: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "обращается к",
   "settings.mcp.trust.fact.env": "окружение",
   "settings.mcp.trust.fact.headers": "заголовки",
+  "settings.mcp.trust.fact.tls": "tls",
+  "settings.mcp.trust.factValue.insecure": "проверка сертификата отключена",
+  "settings.mcp.insecureTls.label": "Игнорировать проверку SSL",
+  "settings.mcp.insecureTls.title":
+    "Подключаться, не проверяя TLS-сертификат сервера, — чтобы работал самоподписанный или просроченный сертификат. Снимает защиту от подмены соединения; используйте только в доверенной сети.",
+  "settings.mcp.error.insecureToggle":
+    "Не удалось изменить проверку SSL для сервера MCP {name}.",
   "settings.mcp.error.projectTrust":
     "Не удалось изменить политику доверия к проекту.",
   "settings.mcp.error.trust": "Не удалось одобрить MCP-сервер {name}.",
@@ -514,6 +528,8 @@ export const messagesRu: Record<string, string> = {
     '"env" должен быть объектом со строковыми значениями.',
   "settings.mcp.validation.headersStringMap":
     '"headers" должен быть объектом со строковыми значениями.',
+  "settings.mcp.validation.insecureSkipVerifyBoolean":
+    '"insecureSkipVerify" должен быть логическим значением.',
   "settings.mcp.validation.disabledBoolean":
     '"disabled" должен быть логическим значением.',
   "settings.mcp.validation.disabledToolsStringArray":
@@ -717,6 +733,7 @@ export const messagesRu: Record<string, string> = {
   "status.tool": "Работаю с инструментом",
   "status.thinking": "Думаю…",
   "status.memory": "Работаю с памятью",
+  "status.config": "Обновляю конфигурацию",
   "status.awaitingPermission": "Жду разрешения",
   "status.awaitingAnswer": "Жду ответа",
   "status.waitingModel": "Жду ответ модели",
@@ -754,9 +771,15 @@ export const messagesRu: Record<string, string> = {
   "prompts.permissionHeader.move": "Перемещение",
   "prompts.permissionHeader.workspace": "Рабочая папка",
   "prompts.permissionMeta.timeout": "таймаут {seconds} с",
-  "prompts.permissionMeta.chars": "{count} симв.",
+  "prompts.permissionMeta.chars.one": "{count} символ",
+  "prompts.permissionMeta.chars.few": "{count} символа",
+  "prompts.permissionMeta.chars.many": "{count} символов",
+  "prompts.permissionMeta.chars.other": "{count} символа",
   "prompts.permissionMeta.fromLine": "со строки {line}",
-  "prompts.permissionMeta.lines": "{count} строк",
+  "prompts.permissionMeta.lines.one": "{count} строка",
+  "prompts.permissionMeta.lines.few": "{count} строки",
+  "prompts.permissionMeta.lines.many": "{count} строк",
+  "prompts.permissionMeta.lines.other": "{count} строки",
   "prompts.permissionMeta.maxResults": "максимум {count}",
   "prompts.permissionMeta.depth": "глубина {depth}",
   "prompts.permissionMeta.createParents": "создать родительские",
@@ -779,6 +802,7 @@ export const messagesRu: Record<string, string> = {
   "prompts.planRun": "Запустить план",
   "prompts.planSaving": "Сохранение…",
   "prompts.planSaveFailed": "ошибка сохранения ({status})",
+  "prompts.planSaveFailedNoStatus": "ошибка сохранения",
   "prompts.planPreviewEmpty": "Пока нечего показывать.",
   "prompts.planBodyAriaLabel": "Тело плана (markdown)",
   "prompts.planBodyPlaceholder": "Шаги и заметки плана…",
@@ -845,9 +869,13 @@ export const messagesRu: Record<string, string> = {
   "tasks.status.timedOut": "Таймаут",
   "tasks.status.stopped": "Остановлена",
   "tasks.status.orphaned": "Осиротела",
-  "tasks.chip.runningOne": "Выполняется {count} задача",
-  "tasks.chip.runningMany": "Выполняется задач: {count}",
-  "tasks.chip.totalOne": "{count} фоновая задача",
-  "tasks.chip.totalMany": "Фоновых задач: {count}",
+  "tasks.chip.running.one": "Выполняется {count} задача",
+  "tasks.chip.running.few": "Выполняются {count} задачи",
+  "tasks.chip.running.many": "Выполняется {count} задач",
+  "tasks.chip.running.other": "Выполняется {count} задачи",
+  "tasks.chip.total.one": "{count} фоновая задача",
+  "tasks.chip.total.few": "{count} фоновые задачи",
+  "tasks.chip.total.many": "{count} фоновых задач",
+  "tasks.chip.total.other": "{count} фоновой задачи",
   "tasks.chip.ariaLabel": "Открыть фоновые задачи: {label}",
 };

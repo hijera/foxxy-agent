@@ -63,6 +63,8 @@ Multiple gateways (Telegram today, Discord/Slack tomorrow) run in the same proce
 | `gateway.telegram` | Telegram adapter only |
 | `gateway` | all adapters (currently Telegram; a superset for future integrations) |
 
+The release CLI archives and the desktop app on [GitHub Releases](https://github.com/hijera/foxxycode-agent/releases) are built with the `gateway` tag, so no self-build is needed there. The published GHCR Docker image is the exception — see the note in [Running the gateway](#running-the-gateway).
+
 Build with one tag:
 
 ```bash

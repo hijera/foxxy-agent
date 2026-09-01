@@ -23,6 +23,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -51,6 +52,9 @@ type Server struct {
 	streamTickets *streamTicketStore
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
+	// drives lists the machine's drive roots for the folder picker's volume
+	// level (Windows only; empty elsewhere). Tests override.
+	drives func() []string
 
 	// projects tracks the current project folder and recent list; nil
 	// degrades the /foxxycode/project endpoints gracefully.
@@ -119,6 +123,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		providerFactory:      defaultProviderFromAgentModel,
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
+		drives:               platform.Drives,
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
