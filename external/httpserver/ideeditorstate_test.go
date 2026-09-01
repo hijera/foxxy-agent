@@ -22,7 +22,7 @@ func TestFoxxyCodeIdeEditorStateStoresSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status %d, want 204", res.StatusCode)
 	}
@@ -43,7 +43,7 @@ func TestFoxxyCodeIdeEditorStateRejectsBadJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status %d, want 400", res.StatusCode)
 	}

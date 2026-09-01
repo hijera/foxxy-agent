@@ -116,4 +116,3 @@ func (n *nullUpdateSender) RequestPermission(_ context.Context, _ acp.Permission
 func (n *nullUpdateSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	return &acp.QuestionResult{}, nil
 }
-

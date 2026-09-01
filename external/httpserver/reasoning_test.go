@@ -50,7 +50,7 @@ func TestGETModelsReasoningLevels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Data []struct {
 			ID               string   `json:"id"`
@@ -175,7 +175,7 @@ func TestFoxxyCodeSessionPatchSelectedReasoning(t *testing.T) {
 		SelectedReasoning string `json:"selectedReasoning"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&parsed)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if parsed.SelectedReasoning != "high" {
 		t.Fatalf("selectedReasoning = %q, want high", parsed.SelectedReasoning)
 	}
@@ -198,7 +198,7 @@ func TestFoxxyCodeSessionPatchSelectedReasoning(t *testing.T) {
 		SelectedReasoning string `json:"selectedReasoning"`
 	}
 	_ = json.NewDecoder(mres.Body).Decode(&mbody)
-	mres.Body.Close()
+	_ = mres.Body.Close()
 	if mbody.SelectedReasoning != "high" {
 		t.Fatalf("messages selectedReasoning = %q, want high", mbody.SelectedReasoning)
 	}
@@ -208,5 +208,5 @@ func TestFoxxyCodeSessionPatchSelectedReasoning(t *testing.T) {
 	if bad.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid level status = %d, want 400", bad.StatusCode)
 	}
-	bad.Body.Close()
+	_ = bad.Body.Close()
 }

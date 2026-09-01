@@ -1,0 +1,21 @@
+version: "2"
+
+# Pin the linter set explicitly. Until now the repo ran with no config at all,
+# so the enabled linters were whatever the installed golangci-lint defaulted to
+# — an upgrade could quietly add or drop a check. These five are the defaults the
+# tree is currently clean against; add to the list deliberately, in its own
+# commit, with the findings fixed.
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+# gofmt is deliberately NOT enabled here. The repo is checked out with CRLF line
+# endings on Windows (core.autocrlf=true), and golangci-lint's gofmt reports every
+# such file as unformatted, which would make `make lint` useless on a Windows
+# checkout. Formatting is gated in CI instead (the "Check gofmt" step in
+# .github/workflows/tests-on-pr.yaml), where the checkout is LF.

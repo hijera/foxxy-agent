@@ -342,7 +342,7 @@ func Run(args []string, deps CommandDeps) error {
 	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage of http:\n")
+		_, _ = fmt.Fprintf(fs.Output(), "Usage of http:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

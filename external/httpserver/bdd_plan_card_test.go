@@ -229,7 +229,7 @@ func (s *planCardFeatureState) askForAPlan() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST /v1/responses status %d", res.StatusCode)
 	}
@@ -268,7 +268,7 @@ func (s *planCardFeatureState) messages() ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var parsed struct {
 		Messages []map[string]interface{} `json:"messages"`
 	}
@@ -391,7 +391,7 @@ func (s *planCardFeatureState) idePluginListening() error {
 		return err
 	}
 	if res.StatusCode != http.StatusOK {
-		res.Body.Close()
+		_ = res.Body.Close()
 		cancel()
 		return fmt.Errorf("GET /foxxycode/ide/events status %d", res.StatusCode)
 	}
@@ -399,7 +399,7 @@ func (s *planCardFeatureState) idePluginListening() error {
 	// the subscription is registered and no broadcast can be missed.
 	sc := bufio.NewScanner(res.Body)
 	if !sc.Scan() {
-		res.Body.Close()
+		_ = res.Body.Close()
 		cancel()
 		return fmt.Errorf("ide event stream closed before the priming comment")
 	}
@@ -407,7 +407,7 @@ func (s *planCardFeatureState) idePluginListening() error {
 	s.ideEvents = lines
 	s.ideCancel = func() {
 		cancel()
-		res.Body.Close()
+		_ = res.Body.Close()
 	}
 	go func() {
 		defer close(lines)
@@ -436,7 +436,7 @@ func (s *planCardFeatureState) showThePlanInTheIDE() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST open-in-ide status %d", res.StatusCode)
 	}

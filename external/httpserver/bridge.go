@@ -40,7 +40,7 @@ type Sender struct {
 	created     int64
 	model       string
 	sessionDir  string
-	cwd        string
+	cwd         string
 	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
 	// stream has gone quiet. Guarded by mu, like every other write to w.
 	lastWrite time.Time

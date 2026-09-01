@@ -7,9 +7,19 @@ paths:
 # Code style (Go)
 
 1. **`gofmt`** / **`go fmt`** - format before committing when you touch files.
-2. **`make lint`** - **`golangci-lint run ./...`** is the repo gate (see **`Makefile`**).
-3. Comments in code - **English only**.
-4. Follow existing patterns in neighboring files (imports grouping, naming, error handling).
+2. **`make lint`** is the repo gate (see **`Makefile`**). It is **not** a single
+   **`golangci-lint run ./...`**: a build tag hides whole files from the linter, so the target
+   runs an untagged pass plus one pass per tag set in **`LINT_TAG_SETS`**
+   (**`cli`**, **`browser`**, **`gateway`**, **`http,scheduler,memory,gateway`**), all with the
+   issue caps lifted. Add a new optional build tag to that list or the tag's files are
+   never linted.
+   - **`make lint-ui`** adds the **`ui`** pass (needs Node: the tag embeds the built SPA bundle).
+   - **`make lint-windows`** repeats every pass for **`GOOS=windows`** and is the only one that
+     sees **`internal/desktop`**.
+3. Formatting is gated in CI (**`gofmt -l`** over tracked files), not in **`make lint`**: a
+   Windows checkout is CRLF and golangci-lint reports every such file as unformatted.
+4. Comments in code - **English only**.
+5. Follow existing patterns in neighboring files (imports grouping, naming, error handling).
 
 ## References
 
