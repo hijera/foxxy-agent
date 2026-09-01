@@ -390,6 +390,7 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 | `port` | int | no | `0` → `12345` | Default listen port when `foxxycode http` does not pass `-P/--port`. Range 0–65535. |
 | `auth_token` | string | no | `""` | Optional bearer credential for the HTTP API. Empty = no auth. `${ENV}` expanded at load; prefer `--auth-token` / `FOXXYCODE_HTTP_TOKEN`. Redacted from `GET /foxxycode/config`. See [remote-control.md](remote-control.md). |
 | `public_docs` | bool | no | `false` | Keep `/docs` and `/openapi.*` reachable without a token when auth is enabled. |
+| `stream_tickets_only` | bool | no | `false` | Refuse the durable auth token in `?access_token=` on the SSE routes, so an EventSource must first mint a single-use ticket via `POST /foxxycode/stream-tickets`. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL. |
 | `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
 | `cors.enabled` | bool | no | `false` | Turn on CORS handling (preflight + `Access-Control-*` headers). |
 | `cors.allowed_origins` | []string | no | `[]` | Exact origins permitted to call the API. A single `"*"` allows any origin (bearer auth still applies). |

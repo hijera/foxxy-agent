@@ -59,7 +59,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
-- `httpserver` - OpenAI-compatible HTTP API defaults, auth token, CORS, UI (tag `http`);
+- `httpserver` - OpenAI-compatible HTTP API defaults, auth token (plus `stream_tickets_only`, which forces EventSource clients to mint a single-use ticket instead of putting the durable token in a URL), CORS, UI (tag `http`);
 - `scheduler` - cron scheduler (tag `scheduler`);
 - `gateways` - messenger bots such as Telegram (tag `gateway`).
 

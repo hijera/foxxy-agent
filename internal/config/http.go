@@ -19,6 +19,12 @@ type HTTPServerConfig struct {
 	AuthToken string `yaml:"auth_token"`
 	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
 	PublicDocs bool `yaml:"public_docs"`
+	// StreamTicketsOnly stops the SSE routes from accepting the long-lived auth token as
+	// ?access_token=, leaving POST /foxxycode/stream-tickets as the only way to authenticate
+	// an EventSource. Query strings reach access logs, proxy logs and browser history, so
+	// this keeps the durable credential out of all of them at the cost of one extra round
+	// trip per subscription. Off by default: it breaks existing EventSource clients.
+	StreamTicketsOnly bool `yaml:"stream_tickets_only"`
 	// AllowInsecure silences the startup warning about a non-loopback bind without authentication.
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
