@@ -33,7 +33,10 @@ func NewOutputSink(limit int) *OutputSink {
 // AttachFile mirrors subsequent writes to path. A failure to open the file is
 // returned but never fatal: the in-memory window keeps working without it.
 func (s *OutputSink) AttachFile(path string) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// Owner-only: a background command's captured stdout/stderr routinely holds
+	// build output, tokens echoed by tooling, and whatever the agent piped through
+	// it, so it gets the same treatment as the process log.
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}

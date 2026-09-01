@@ -94,6 +94,31 @@ func newTestPool(t *testing.T, runner Runner, cfg Config) *Pool {
 	return p
 }
 
+// waitForPersistedStatus polls the on-disk metadata until the row reaches want.
+// waitForStatus only proves the in-memory pool flipped: the supervisor writes the
+// metadata file afterwards, and LoadPersisted reports a row that is still marked
+// in flight as orphaned. Asserting the file straight after the in-memory wait is
+// therefore a race that shows up as a flake under load.
+func waitForPersistedStatus(t *testing.T, sessionDir, taskID string, want Status) Snapshot {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	var last Snapshot
+	for time.Now().Before(deadline) {
+		for _, row := range LoadPersisted(sessionDir) {
+			if row.ID != taskID {
+				continue
+			}
+			last = row
+			if row.Status == want {
+				return row
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("persisted task %s stayed %q, want %q", taskID, last.Status, want)
+	return Snapshot{}
+}
+
 func waitForStatus(t *testing.T, p *Pool, sessionID, taskID string, want Status) Snapshot {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -421,12 +446,13 @@ func TestTaskOutputAndMetadataPersistUnderTheSessionDir(t *testing.T) {
 		t.Fatalf("persisted log %q missing the command output", text)
 	}
 
+	persisted := waitForPersistedStatus(t, sessionDir, snap.ID, StatusSucceeded)
 	loaded := LoadPersisted(sessionDir)
 	if len(loaded) != 1 {
 		t.Fatalf("LoadPersisted() returned %d rows, want 1", len(loaded))
 	}
-	if loaded[0].Status != StatusSucceeded || loaded[0].Command != "make build" {
-		t.Fatalf("persisted snapshot = %+v", loaded[0])
+	if persisted.Command != "make build" {
+		t.Fatalf("persisted snapshot = %+v", persisted)
 	}
 }
 

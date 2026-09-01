@@ -11,6 +11,13 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
+// logFileMode keeps log files readable by their owner only. The process log
+// carries whatever the diagnostics layer captures, and with debug.capture_llm on
+// that includes raw LLM request and response bodies — prompts, file contents,
+// anything pasted into the chat. On a shared Unix host 0644 would expose all of
+// it to every other local account.
+const logFileMode = 0o600
+
 // rotatingFile is a size-bounded file writer that rotates on writes once the
 // current file exceeds Rotation.MaxSizeMB. Writes are serialised so the
 // rotation is safe across goroutines.
@@ -51,10 +58,17 @@ func (rf *rotatingFile) open() error {
 	if err := os.MkdirAll(filepath.Dir(rf.path), 0o755); err != nil {
 		return fmt.Errorf("rotatingFile: mkdir %s: %w", filepath.Dir(rf.path), err)
 	}
-	f, err := os.OpenFile(rf.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(rf.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, logFileMode)
 	if err != nil {
 		return fmt.Errorf("rotatingFile: open %s: %w", rf.path, err)
 	}
+	// The mode above only applies when the file is created, so a log written by
+	// an older release keeps its world-readable bits. Tighten it on every open:
+	// with debug.capture_llm on this file holds raw prompts and responses, and
+	// the process usually keeps appending to the same path for weeks.
+	// Best effort: a filesystem without permission support (or Windows, where
+	// Chmod only carries the read-only bit) is no reason to refuse to log.
+	_ = f.Chmod(logFileMode)
 	info, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
