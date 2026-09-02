@@ -36,6 +36,17 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      # proxy.golang.org occasionally drops a stream mid-download, and the job then
+      # fails on a module fetch rather than on code. Warming the module cache with
+      # retries turns such a hiccup into a pause instead of a red check.
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
       - name: Run tests
         run: make test
 
@@ -56,6 +67,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
 
       - name: Type-check the Windows build
         run: make check-windows
@@ -81,6 +100,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
+
       - name: Run platform-dependent tests
         run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/...
 
@@ -97,6 +124,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Download Go modules (retry on proxy errors)
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && break
+            echo "go mod download failed (attempt $attempt of 3); retrying in 15s"
+            sleep 15
+          done
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
