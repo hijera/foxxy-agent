@@ -63,6 +63,7 @@ const SECTION_DESC_IDS = new Set([
   "providers",
   "models",
   "agent",
+  "autocomplete",
   "tools",
   "mcp_servers",
   "skills",

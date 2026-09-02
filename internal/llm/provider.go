@@ -159,6 +159,20 @@ type ProviderInput struct {
 	// streamed body read (providers[].timeout_ms). Zero means no client
 	// timeout; the turn context stays the only bound.
 	Timeout time.Duration
+	// Stop lists sequences at which generation halts; the matched sequence is
+	// not part of the returned text. Inline completion uses it to stop at the
+	// line the caret's suffix already holds instead of spending the token budget
+	// re-typing it.
+	Stop []string
+	// Deterministic sends temperature 0 explicitly. A zero Temperature alone is
+	// treated as "unset" and leaves the provider's own default in force, which
+	// for most servers is well above 0.
+	Deterministic bool
+	// NoThinking pins reasoning off for models whose thinking is a serving-side
+	// default rather than an effort tier (Qwen3: chat_template_kwargs.enable_thinking).
+	// Without it a small max_tokens budget can be spent entirely inside the
+	// thinking block, leaving an empty answer.
+	NoThinking bool
 }
 
 // neuralDeepBaseURL is the fixed OpenAI-compatible endpoint of the NeuralDeep hub.
@@ -206,11 +220,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless

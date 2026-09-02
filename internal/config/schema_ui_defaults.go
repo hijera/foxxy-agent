@@ -10,6 +10,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	skillsAutoDiscovery := true
 	planNoSelfRun := false
 	titleEnabled := true
+	autocompleteEnabled := false
+	autocompleteMultiLine := true
+	autocompleteRelatedFiles := AutocompleteDefaultRelatedFiles
 	browserHeadless := true
 	svnEnabled := true
 	svnBranchLookup := true
@@ -42,6 +45,20 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LoopToolRepeatLimit:    &loopToolRepeatLimit,
 			LoopStreamRepeatCycles: &loopStreamRepeatCycles,
 			LoopNudgeMax:           &loopNudgeMax,
+		},
+		Autocomplete: AutocompleteJSON{
+			Enabled:        &autocompleteEnabled,
+			Model:          "",
+			Mode:           AutocompleteModeAuto,
+			Temperature:    0,
+			MaxTokens:      AutocompleteDefaultMaxTokens,
+			TimeoutMS:      AutocompleteDefaultTimeoutMS,
+			DebounceMS:     AutocompleteDefaultDebounceMS,
+			Trigger:        AutocompleteTriggerAuto,
+			MultiLine:      &autocompleteMultiLine,
+			MaxPrefixBytes: AutocompleteDefaultMaxPrefixBytes,
+			MaxSuffixBytes: AutocompleteDefaultMaxSuffixBytes,
+			RelatedFiles:   &autocompleteRelatedFiles,
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",

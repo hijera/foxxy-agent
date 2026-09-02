@@ -219,6 +219,7 @@ export const messagesEn: Record<string, string> = {
   "settings.sectionDesc.providers": "LLM API connections",
   "settings.sectionDesc.models": "Named model configs",
   "settings.sectionDesc.agent": "ReAct agent defaults",
+  "settings.sectionDesc.autocomplete": "Inline code suggestions",
   "settings.sectionDesc.tools": "Tool permissions & limits",
   "settings.sectionDesc.mcp_servers": "External MCP tools",
   "settings.sectionDesc.skills": "Installed slash skills",

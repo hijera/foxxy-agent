@@ -84,6 +84,10 @@ func wrapResilient(inner Provider, opts ResilientOptions) Provider {
 	return &resilientProvider{inner: inner, opts: opts.withDefaults()}
 }
 
+// Unwrap exposes the wrapped provider so optional interfaces (RawCompleter) can
+// be reached through the resilience layer.
+func (p *resilientProvider) Unwrap() Provider { return p.inner }
+
 func (p *resilientProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
 	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
 		return p.inner.Complete(ctx, messages, tools)
@@ -387,6 +391,15 @@ func httpStatusFromError(err error) int {
 	}
 	return 0
 }
+
+// HTTPStatus returns the HTTP status behind a provider error, or 0 when the error is not an
+// HTTP failure. Lets a caller that does not retry (inline completion) still tell a rate limit
+// from a broken model.
+func HTTPStatus(err error) int { return httpStatusFromError(err) }
+
+// RetryDelayHint returns the pause a rate-limiting server asked for - a Retry-After header or a
+// "retry in Ns" body - when the error carries one.
+func RetryDelayHint(err error) (time.Duration, bool) { return serverRetryDelay(err) }
 
 // WithAgentResilience copies agent LLM pacing settings into ProviderInput.
 // retryMax is the config-resolved value; an explicit 0 disables retries.

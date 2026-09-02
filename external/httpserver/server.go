@@ -73,6 +73,10 @@ type Server struct {
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
+
+	// autocomplete holds inline-completion counters and the per-model "raw FIM
+	// failed, use chat" memory; its zero value is ready to use.
+	autocomplete autocompleteState
 	bgWG               sync.WaitGroup
 }
 
