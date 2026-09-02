@@ -1,0 +1,17 @@
+# Agent mode prompt structure. Section IDs render in this order.
+# The "notes" slot is optional: it renders only when a variant supplies
+# notes_<variant> (provider/model family guidance spliced in after the header).
+# "model_notes" is also optional: it renders only when a variant supplies
+# model_notes_<variant> (per-model guidance, e.g. gpt-oss-20b/gpt-oss-120b profiles).
+header
+notes
+model_notes
+howto
+todo_flow
+code_quality
+file_ops
+read_search
+shell_cmds
+background_cmds
+web_research
+footer

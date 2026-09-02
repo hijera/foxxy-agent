@@ -71,14 +71,14 @@ Handles:
 - `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
-- `session/set_mode` - switch between `agent`, `plan`, `docs`, and `ask` modes (legacy, kept in sync with config options)
+- `session/set_mode` - switch between `agent`, `plan`, `docs`, `ask`, and `debug` modes (legacy, kept in sync with config options)
 - `session/set_config_option` - change mode or model for the session (preferred ACP API)
 
 ### Session Manager (`internal/session`)
 
 Maintains the state for each conversation session:
 - Conversation history (messages, tool results)
-- Current operating mode (`agent` / `plan` / `docs` / `ask`)
+- Current operating mode (`agent` / `plan` / `docs` / `ask` / `debug`)
 - Optional model override per session (when the user selects a model via ACP)
 - Connected MCP server clients
 - Working directory
@@ -89,14 +89,47 @@ Maintains the state for each conversation session:
 
 The core reasoning engine (**`react.go`**):
 
-1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`** and **`plan`**. Ask receives only MCP tools annotated with **`readOnlyHint: true`**, unless **`tools.ask_disable_extended_tools`** is enabled. Docs has a closed tool surface with no MCP.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`**. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`**. Model-specific and family-specific variants use **`<mode>.<model-slug>.md`** and **`<mode>.<family>.md`**. The built-ins include **`ask.openai.md`** for GPT/OpenAI models and **`ask.gpt-oss.md`** for gpt-oss-120b. Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`**, **`plan`**, and **`debug`**. Ask receives only MCP tools annotated with **`readOnlyHint: true`**, unless **`tools.ask_disable_extended_tools`** is enabled. Docs has a closed tool surface with no MCP.
+2. Builds the system prompt from **`internal/prompts.Render`**. The built-in defaults are assembled from reusable section fragments under **`internal/prompts/sections/`** (one ordered manifest per mode and provider family; see **`sections.go`**), so shared blocks like the agent body, the conditional footer, and the read/search and background guidance stay in one place instead of being forked per family. Custom files under **`prompts.dir`** keep the legacy one-file-per-mode shape and bypass section assembly. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`**. Model-specific and family-specific built-ins resolve to a notes fragment spliced into the mode manifest (for example the **`openai`** family adds **`agent/notes_openai`**; ask ships **`openai`** and **`gpt-oss`** alternate manifests). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
 6. Loops until there are no tool calls, **`max_turns`** is exceeded, the loop guard stops a runaway turn, or cancellation.
 6a. Loop guard (**`agent.loop_guard`**, on by default, **`internal/agent/loopguard.go`**): a streamed channel that degenerates into repeating the same passage has its stream cancelled and the repeated run stripped from the stored message, and a tool call repeated with identical canonical arguments stops being executed. The model is nudged to change course up to **`agent.loop_nudge_max`** times, after which the turn ends with **`StopReasonRefused`** and a UI notice.
 7. On **`session/cancel`** (or HTTP **`POST /foxxycode/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /foxxycode/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
+
+### Prompt templates (`internal/prompts`)
+
+Built-in system prompts are assembled from reusable Markdown section fragments, with no monolithic per-mode prompt files. The assembler does not enumerate variants; it resolves keys supplied by the caller through file conventions. Tuning an already-classified provider/model family is therefore a drop-in file change. Classifying a genuinely new family still requires updating **`family.go`**.
+
+**Layout and naming conventions** (paths are relative to **`internal/prompts/sections/`**):
+
+| File | Purpose |
+|------|---------|
+| **`<mode>/manifest`** | Base structure: section IDs, one per line, in render order. |
+| **`<mode>/manifest.<variant>`** | Optional per-variant structure override (replaces the base ID list). |
+| **`<mode>/<id>.md`** | Shared fragment for section **`<id>`**. |
+| **`<mode>/<id>_<variant>.md`** | Optional variant-specific fragment override. |
+
+**`<mode>`** is one of the four fixed session modes (**`agent`**, **`plan`**, **`docs`**, **`ask`**). **`<variant>`** is any provider family or per-model slug resolved by the caller (for example **`anthropic`**, **`openai`**, **`gpt-oss`**, or a model slug). The assembler does not enumerate variant names; family detection remains in **`family.go`**.
+
+**Resolution** for a render with variants most-specific-first (for example `[model-reference-slug, API-model-slug, family]`):
+
+1. **Structure** — the first variant that has a **`<mode>/manifest.<variant>`** file supplies the section ID list; otherwise **`<mode>/manifest`** (the base) is used. Unknown modes fall back to the **`agent`** manifest.
+2. **Content** — for each section ID, the first existing fragment wins, trying **`<mode>/<id>_<variant>.md`** across variants in order, then the shared **`<mode>/<id>.md`**. A section ID that resolves to no file is silently skipped, so the base manifest can list an optional **`notes`** slot that is only rendered when a variant supplies **`notes_<variant>`** (provider guidance spliced in right after the header).
+
+**Tuning a classified provider family** (fragment-only change):
+
+- *Agent* (same body, family-specific guidance): drop **`sections/agent/notes_<family>.md`**. The base manifest already lists the **`notes`** slot.
+- *Plan* (override some sections): drop **`sections/plan/<id>_<family>.md`** for each section you want to override (for example **`howto_<family>`**), plus optional **`notes_<family>`**. The base plan manifest is reused.
+- *Ask* (restructure the body): drop **`sections/ask/manifest.<family>`** with the reordered/new section IDs, then the **`<id>_<family>.md`** fragments for each ID.
+- *Per-model* overrides work the same way. The configured model-reference slug resolves first, followed by the resolved API-model slug and then the family. This lets a provider-neutral file such as **`model_notes_gpt-oss-20b.md`** work for both **`ollama/gpt-oss-20b`** and **`neuraldeep/gpt-oss-20b`**. A **`<id>_<model-slug>.md`** or **`manifest.<model-slug>`** fragment overrides less-specific content for that model.
+
+The built-in gpt-oss prompts use a shared Harmony-aware family fragment plus separate **`gpt-oss-20b`** and **`gpt-oss-120b`** profiles in all four modes. The 20B profiles favor short, explicit, independently verifiable steps; the 120B profiles use broader cross-file synthesis while keeping visible output concise.
+
+The shared footer fragment (tools, skills, rules, instructions, memory, UTC) and the agent body sections are single-sourced this way, which is what prevents the per-family drift that previously dropped the read/search and background guidance from every agent family fork.
+
+Each fragment may use Go **`text/template`** with the **`TemplateData`** fields documented in **`loader.go`** (**`{{.CWD}}`**, **`{{.Tools}}`**, **`{{.Skills}}`**, **`{{.Rules}}`**, **`{{.Memory}}`**, **`{{.TodoList}}`**, **`{{.PlanContext}}`**, **`{{.DiscardedPlans}}`**, **`{{.Instructions}}`**, **`{{.UTCNow}}`**); use **`{{if .X}}...{{end}}`** for sections that must be omitted when empty. Custom on-disk prompts configured under YAML **`prompts.dir`** keep the legacy one-file-per-mode shape (default file names **`agent.md`** / **`plan.md`** / **`docs.md`** / **`ask.md`**, overridable via **`prompts.agent_prompt`** / **`plan_prompt`** / **`docs_prompt`**) and bypass section assembly entirely.
 
 ### LLM Provider (`internal/llm`)
 
@@ -145,6 +178,15 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   what this layer always did unconditionally. Prompt attachments do **not** get that rung: an
   undecodable attachment is refused with **`ErrNotDecodableText`** rather than inlined as noise.
 - **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
+  It also starts every child process windowless on Windows (**`HideConsoleWindow`**,
+  **`hidewindow_windows.go`**). The desktop shell links with **`-H=windowsgui`** and owns no console, so
+  Windows hands each console child one of its own - with a visible window and a taskbar button. A turn
+  starts those in bursts (git for the workspace chips, ripgrep behind a search tool, the shell behind
+  **`run_command`**, an MCP stdio server), which is why a row of windows used to blink open and shut on
+  the desktop. **`CREATE_NO_WINDOW`** keeps the console and drops the window, so the code page
+  **`DecodeOutput`** reads is unchanged; it is a deliberate no-op when this process does own a console,
+  where the child inherits the terminal the operator is watching. Every spawn site calls it, and
+  **`hidewindow_guard_test.go`** walks the tree to fail a new **`exec.Command`** that forgets to.
 - **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
   A **foreground** command that outlives its timeout is **not** killed: **`foreground.go`** starts it in a detached process group with its own **`cmd.Wait`**, and at the deadline **`bgtask.Pool.Adopt`** takes it over, **`switchwriter.go`** redirects its output into the task sink with everything captured so far flushed in first, and the tool answers with the task id followed by that output. Killing was wrong twice over: a dev server is doing exactly what was asked, and a grandchild holding the output pipe kept **`cmd.Wait`** from ever returning. The result is **`(string, nil)`**, not an error, because the agent loop discards the result string when a tool errors - which is what used to throw the captured output away.
 - **`internal/tools/svn`** - Subversion working copy tools (**`svn_info`**, **`svn_status`**, **`svn_diff`**,
@@ -247,6 +289,18 @@ When the session CWD contains `.idea/`, readable UTF-8 files below that director
 
 YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.foxxycode`**), **`FOXXYCODE_CWD`**, **`FOXXYCODE_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$FOXXYCODE_HOME/config.yaml`** is absent, and CLI flags (see **`docs/config.md`** and **`README.md`**).
 
+### Diagnostics (`debug`)
+
+An opt-in layer that makes a turn inspectable (`config.Debug`, off by default). `debug.enabled` forces the process logger to debug level, turns on raw LLM HTTP capture, and starts a per-session trace; `debug.capture_llm` gates the raw bodies alone. Full guide: **`docs/debugging.md`**.
+
+The three moving parts:
+
+- **Runtime log level.** The logger is built once over a shared **`slog.LevelVar`** (**`internal/logger`**), so **`PUT /foxxycode/config`** re-levels the live handler through **`Server.ReplaceConfig`** instead of rebuilding the logger. Toggling diagnostics needs no restart.
+- **Raw LLM capture.** A debug **`http.RoundTripper`** wraps every provider client in **`HTTPClientForOptionalProxy`** (**`internal/llm/debug_transport.go`**), so openai, anthropic, codex, and neuraldeep are covered uniformly. Bodies are capped at 16 KB for the log while the provider still receives them whole, and the response is **teed as it is read** so SSE streams are not buffered. Request **headers are never logged**, which keeps provider API keys out of the log; request **bodies are**, and they carry the whole conversation.
+- **Trace.** The ReAct loop emits `turn_start` / `llm_request` / `llm_response` / `tool_start` / `tool_finish` through **`internal/agent/debug_emit.go`**. Each event is appended to **`<session>/debug_trace.jsonl`** (**`internal/session/debug_trace.go`**) and forwarded as an ACP **`DebugUpdate`**, which the HTTP bridge emits as SSE **`event: debug`**. **`GET /foxxycode/sessions/{id}/debug`** returns the persisted timeline. Tracing is best-effort: a write error is logged and never breaks a turn.
+
+This is unrelated to the **`debug`** session mode below; the mode changes the model's behaviour, this layer changes what FoxxyCode records.
+
 ## Session Modes
 
 ### `agent` mode (default)
@@ -267,6 +321,13 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 - No shell, MCP, general filesystem mutators, plan tools, todo tools, scheduler tools, or memory tools
 - Suitable for: evidence-based documentation reviews and explicit Markdown documentation updates without code changes
 
+### `debug` mode
+- Same unrestricted tool surface as **`agent`**: **`ToolSetForMode("debug")`** returns the empty (unrestricted) set, and MCP tools are exposed exactly as in agent mode
+- The difference is the prompt (**`internal/prompts/debug.md`**): enumerate 5-7 possible sources, distill to the 1-2 most likely, validate with logging or a focused test before changing behavior, then confirm the diagnosis through the **`question`** tool before applying a fix
+- Fixes stay minimal and targeted, and the temporary diagnostics are removed afterwards
+- Ported from kilocode's **`debug`** primary agent, which likewise registers full permissions and keeps the discipline prompt-level
+- Suitable for: root-cause analysis, intermittent failures, regressions, and any bug where a guessed fix is worse than none
+
 ### `ask` mode
 - Read-only question-answering surface enforced by **`internal/agent.ToolSetForMode("ask")`** and execution-time guards
 - Basic tools: repository read/search/tree, interactive questions, and skills
@@ -277,7 +338,7 @@ YAML-based configuration. Resolution uses **`FOXXYCODE_HOME`** (default **`~/.fo
 - Suitable for: repository-grounded explanations, reviews, investigation, and user questions without changing project state
 
 Mode switching:
-- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, `docs`, or `ask`
+- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, `docs`, `ask`, or `debug`
 - Agent sends `current_mode_update` and `config_option_update` when mode changes
 
 ## Directory Structure

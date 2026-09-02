@@ -1,0 +1,15 @@
+# Debug mode prompt structure. Section IDs render in this order.
+# "notes" and "model_notes" are optional variant slots, same as agent and ask:
+# they render only when a variant supplies notes_<variant> / model_notes_<variant>.
+# Debug ships no variants of its own yet, so both stay empty and are skipped.
+header
+notes
+model_notes
+diagnose
+confirm
+reporting
+read_search
+shell_cmds
+injection
+code_quality
+footer

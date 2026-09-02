@@ -321,6 +321,7 @@ const (
 	UpdateTypeCompaction              = "compaction"
 	UpdateTypeSessionTitle            = "session_title"
 	UpdateTypeMCPPhase                = "mcp_phase"
+	UpdateTypeDebug                   = "debug"
 )
 
 // MCP phase values for MCPPhaseUpdate.Phase.
@@ -462,6 +463,18 @@ type MCPPhaseUpdate struct {
 type SessionTitleUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "session_title"
 	Title         string `json:"title"`
+}
+
+// DebugUpdate carries one structured debug-trace event from the agent loop (turn boundaries,
+// LLM request/response, tool start/finish) so connected clients can render a live debug view.
+// Emitted only when the diagnostics layer is on (debug.enabled); the raw LLM bodies themselves
+// go to the process log, while this carries lightweight structured metadata.
+type DebugUpdate struct {
+	SessionUpdate string                 `json:"sessionUpdate"` // "debug"
+	Phase         string                 `json:"phase"`         // "turn_start"|"llm_request"|"llm_response"|"tool_start"|"tool_finish"
+	Title         string                 `json:"title,omitempty"`
+	Detail        string                 `json:"detail,omitempty"`
+	Meta          map[string]interface{} `json:"_meta,omitempty"`
 }
 
 // MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.

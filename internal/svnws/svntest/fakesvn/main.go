@@ -7,9 +7,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
 
 	"github.com/hijera/foxxycode-agent/internal/svnws/svntest"
 )
@@ -27,6 +31,7 @@ func main() {
 	if err != nil {
 		fail("svn: E200001: fake state unavailable: " + err.Error())
 	}
+	outputCodePage = state.OutputCodePage
 	if msg, ok := state.Fail[sub]; ok && msg != "" {
 		fail(msg)
 	}
@@ -36,29 +41,29 @@ func main() {
 		cmdInfo(state, cwd)
 	case "status":
 		requireWC(state, cwd)
-		fmt.Println(state.Status)
+		outln(state.Status)
 	case "diff":
 		requireWC(state, cwd)
-		fmt.Println(state.Diff)
+		outln(state.Diff)
 	case "log":
 		requireWC(state, cwd)
-		fmt.Println(state.Log)
+		outln(state.Log)
 	case "list":
 		cmdList(state, rest)
 	case "add":
 		requireWC(state, cwd)
 		for _, p := range positionals(rest) {
-			fmt.Printf("A         %s\n", p)
+			outf("A         %s\n", p)
 		}
 	case "revert":
 		requireWC(state, cwd)
 		for _, p := range positionals(rest) {
-			fmt.Printf("Reverted '%s'\n", p)
+			outf("Reverted '%s'\n", p)
 		}
 	case "resolve":
 		requireWC(state, cwd)
 		for _, p := range positionals(rest) {
-			fmt.Printf("Resolved conflicted state of '%s'\n", p)
+			outf("Resolved conflicted state of '%s'\n", p)
 		}
 	case "update":
 		cmdUpdate(state, cwd)
@@ -269,7 +274,7 @@ func cmdUpdate(s svntest.State, cwd string) {
 	_, wc := requireWC(s, cwd)
 	wc.Revision++
 	saveState(s)
-	fmt.Printf("Updating '.':\nAt revision %d.\n", wc.Revision)
+	outf("Updating '.':\nAt revision %d.\n", wc.Revision)
 }
 
 func cmdCommit(s svntest.State, cwd string, rest []string) {
@@ -281,9 +286,9 @@ func cmdCommit(s svntest.State, cwd string, rest []string) {
 	wc.Revision++
 	saveState(s)
 	for _, p := range paths {
-		fmt.Printf("Sending        %s\n", p)
+		outf("Sending        %s\n", p)
 	}
-	fmt.Printf("Transmitting file data .\nCommitted revision %d.\n", wc.Revision)
+	outf("Transmitting file data .\nCommitted revision %d.\n", wc.Revision)
 }
 
 func cmdSwitch(s svntest.State, cwd string, rest []string) {
@@ -299,7 +304,7 @@ func cmdSwitch(s svntest.State, cwd string, rest []string) {
 	wc.Branch = branch
 	wc.Revision++
 	saveState(s)
-	fmt.Printf("Updated to revision %d.\n", wc.Revision)
+	outf("Updated to revision %d.\n", wc.Revision)
 }
 
 func cmdCheckout(s svntest.State, cwd string, rest []string) {
@@ -326,7 +331,7 @@ func cmdCheckout(s svntest.State, cwd string, rest []string) {
 	}
 	s.WorkingCopies[normalize(dest)] = &svntest.WC{Branch: branch, Revision: rev}
 	saveState(s)
-	fmt.Printf("Checked out revision %d.\n", rev)
+	outf("Checked out revision %d.\n", rev)
 }
 
 func cmdMerge(s svntest.State, cwd string, rest []string) {
@@ -335,7 +340,7 @@ func cmdMerge(s svntest.State, cwd string, rest []string) {
 	if len(paths) == 0 {
 		fail("svn: E205000: merge requires a source")
 	}
-	fmt.Printf("--- Merging differences between repository URLs into '.':\nU    src/main.go\n--- Recording mergeinfo for merge of %s into '.':\n U   .\n", paths[0])
+	outf("--- Merging differences between repository URLs into '.':\nU    src/main.go\n--- Recording mergeinfo for merge of %s into '.':\n U   .\n", paths[0])
 }
 
 func branchFromURL(s svntest.State, url string) (string, bool) {
@@ -353,6 +358,45 @@ func branchFromURL(s svntest.State, url string) (string, bool) {
 }
 
 func fail(msg string) {
-	fmt.Fprintln(os.Stderr, msg)
+	emit(os.Stderr, msg+"\n")
 	os.Exit(1)
 }
+
+// outputCodePage mirrors State.OutputCodePage for the current invocation. Zero
+// leaves output as UTF-8, which is what every test that does not care about
+// encoding gets.
+var outputCodePage int
+
+// legacyCharmap maps a Windows code page to its codec. Only the pages a test
+// would ask for are listed: 1251 and 1252 are the ANSI pages a Russian and a
+// Western install report, 866 the OEM page a Russian console uses.
+func legacyCharmap(cp int) *charmap.Charmap {
+	switch cp {
+	case 1251:
+		return charmap.Windows1251
+	case 1252:
+		return charmap.Windows1252
+	case 866:
+		return charmap.CodePage866
+	}
+	return nil
+}
+
+// emit writes text in the configured code page, standing in for the conversion
+// a real svn client does on its way out. Characters the page cannot hold are
+// replaced rather than dropped, because that is what svn.exe does with them.
+func emit(w io.Writer, text string) {
+	if cm := legacyCharmap(outputCodePage); cm != nil {
+		enc := encoding.ReplaceUnsupported(cm.NewEncoder())
+		if encoded, err := enc.String(text); err == nil {
+			_, _ = io.WriteString(w, encoded)
+			return
+		}
+	}
+	_, _ = io.WriteString(w, text)
+}
+
+// outf and outln are the encoded counterparts of fmt.Printf and fmt.Println.
+func outf(format string, a ...any) { emit(os.Stdout, fmt.Sprintf(format, a...)) }
+
+func outln(text string) { emit(os.Stdout, text+"\n") }

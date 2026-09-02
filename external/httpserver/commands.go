@@ -46,6 +46,9 @@ type StartParams struct {
 	// -plan-no-self-run flag was passed). Editor plugins set it so their panels
 	// forbid the model from leaving plan mode by itself.
 	PlanNoSelfRun *bool
+	// Debug forces debug.enabled=true when non-nil and true (the -debug flag was
+	// passed). Enables verbose diagnostics for this process.
+	Debug *bool
 	// ProjectTrust overrides mcp.project_trust when non-empty (the
 	// -mcp-project-trust flag was passed). CI jobs and container entrypoints
 	// use it to opt a trusted checkout in without editing config.yaml.
@@ -111,6 +114,9 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		v := *params.PlanNoSelfRun
 		cfg.Tools.PlanNoSelfRun = &v
 	}
+	if params.Debug != nil && *params.Debug {
+		cfg.Debug.Enabled = true
+	}
 	if strings.TrimSpace(params.ProjectTrust) != "" {
 		next := config.MCP{ProjectTrust: params.ProjectTrust}
 		if err := next.Validate(); err != nil {
@@ -123,10 +129,13 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	}
 
 	cfg.Logger.ApplyOverrides(params.LoggerOverrides)
-	log, logCloser, err := logger.New(cfg.Logger)
+	log, logLevel, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("log: %w", err)
 	}
+	logLevel.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
+	llm.SetDebugLogger(log)
+	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 	llm.LogCodexAuthNotices(log, cfg)
@@ -185,7 +194,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		}
 	}
 
-	s = New(cfg, mgr, log, paths.CWD)
+	s = New(cfg, mgr, log, paths.CWD, logLevel)
 
 	// Out-of-band bearer tokens (--auth-token, then FOXXYCODE_HTTP_TOKEN) enable auth without
 	// storing the secret in config.yaml; they union with httpserver.auth_token.
@@ -329,6 +338,7 @@ func Run(args []string, deps CommandDeps) error {
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /foxxycode/* routes (else FOXXYCODE_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
+	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
 	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
 
 	fs.Usage = func() {
@@ -361,6 +371,7 @@ func Run(args []string, deps CommandDeps) error {
 		SchedulerEnabled: *schedulerEnabled,
 		AuthToken:        strings.TrimSpace(*authToken),
 		PlanNoSelfRun:    boolFlagIfPassed(fs, config.PlanNoSelfRunFlagName, planNoSelfRun),
+		Debug:            boolFlagIfPassed(fs, config.DebugFlagName, debugFlag),
 		ProjectTrust:     strings.TrimSpace(*projectTrust),
 	})
 	if err != nil {

@@ -63,6 +63,8 @@ Multiple gateways (Telegram today, Discord/Slack tomorrow) run in the same proce
 | `gateway.telegram` | Telegram adapter only |
 | `gateway` | all adapters (currently Telegram; a superset for future integrations) |
 
+The release CLI archives and the desktop app on [GitHub Releases](https://github.com/hijera/foxxycode-agent/releases) are built with the `gateway` tag, so no self-build is needed there. The published GHCR Docker image is the exception — see the note in [Running the gateway](#running-the-gateway).
+
 Build with one tag:
 
 ```bash
@@ -348,7 +350,7 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 |---------|-------------|--------|
 | `/start` | all users | Greeting and quick introduction. |
 | `/help` | all users | Lists all available commands. |
-| `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent`, `plan`, `docs`, and `ask`. |
+| `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent`, `plan`, `docs`, `ask`, and `debug`. |
 | `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
 | `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk). |

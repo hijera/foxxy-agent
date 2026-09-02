@@ -13,11 +13,15 @@ import (
 // writer participates in rotation as configured. The returned closer must be
 // invoked at process exit; it closes the file output if any.
 //
+// The returned *slog.LevelVar backs the handler's level: call lv.Set to change
+// verbosity at runtime (the debug.enabled toggle does this through ReplaceConfig)
+// without rebuilding the logger.
+//
 // Validate is called automatically; the returned error is formatted to be
 // shown to the user as-is.
-func New(cfg config.Logger) (*slog.Logger, io.Closer, error) {
+func New(cfg config.Logger) (*slog.Logger, *slog.LevelVar, io.Closer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, noopCloser{}, err
+		return nil, nil, noopCloser{}, err
 	}
 
 	writers := make([]io.Writer, 0, len(cfg.Outputs))
@@ -32,26 +36,27 @@ func New(cfg config.Logger) (*slog.Logger, io.Closer, error) {
 		case config.LogOutputFile:
 			rf, err := newRotatingFile(cfg.File, cfg.Rotation)
 			if err != nil {
-				return nil, noopCloser{}, fmt.Errorf("logger: open file output: %w", err)
+				return nil, nil, noopCloser{}, fmt.Errorf("logger: open file output: %w", err)
 			}
 			writers = append(writers, rf)
 			fileCloser = rf
 		}
 	}
 
+	lv := NewLevelVar(cfg.Level)
 	w := io.MultiWriter(writers...)
-	handler := newHandler(w, cfg)
-	return slog.New(handler), fileCloser, nil
+	handler := newHandler(w, cfg, lv)
+	return slog.New(handler), lv, fileCloser, nil
 }
 
 // MustNew is like New but panics on error. Useful in tests and at startup
 // when a misconfigured logger should fail loud.
-func MustNew(cfg config.Logger) (*slog.Logger, io.Closer) {
-	l, c, err := New(cfg)
+func MustNew(cfg config.Logger) (*slog.Logger, *slog.LevelVar, io.Closer) {
+	l, lv, c, err := New(cfg)
 	if err != nil {
 		panic(err)
 	}
-	return l, c
+	return l, lv, c
 }
 
 type noopCloser struct{}

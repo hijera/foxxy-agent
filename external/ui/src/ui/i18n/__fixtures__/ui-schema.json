@@ -210,6 +210,12 @@
           "title": "Headless",
           "type": "boolean"
         },
+        "screenshots": {
+          "default": true,
+          "description": "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.",
+          "title": "Screenshots",
+          "type": "boolean"
+        },
         "timeout_seconds": {
           "default": 30,
           "description": "Per-action timeout for navigation, clicks, and other browser operations.",
@@ -222,9 +228,11 @@
       "x-foxxycode-property-order": [
         "enabled",
         "headless",
+        "screenshots",
         "executable_path",
         "timeout_seconds"
-      ]
+      ],
+      "x-foxxycode-requires-build-tag": "browser"
     },
     "compaction": {
       "additionalProperties": false,
@@ -308,6 +316,29 @@
         "keep_recent_turns",
         "max_tokens",
         "result_eviction"
+      ]
+    },
+    "debug": {
+      "additionalProperties": false,
+      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
+      "properties": {
+        "capture_llm": {
+          "description": "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled.",
+          "title": "Capture LLM bodies",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "Debug",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "capture_llm"
       ]
     },
     "gateways": {
@@ -645,6 +676,11 @@
             "title": "HTTP headers",
             "type": "array"
           },
+          "insecure_skip_verify": {
+            "description": "Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.",
+            "title": "Ignore SSL certificate errors",
+            "type": "boolean"
+          },
           "name": {
             "description": "Stable id referenced by the agent; must be unique in this list.",
             "title": "Server name",
@@ -673,6 +709,7 @@
           "env",
           "url",
           "headers",
+          "insecure_skip_verify",
           "disabled",
           "disabled_tools"
         ]
@@ -1335,6 +1372,7 @@
     "gateways",
     "browser",
     "vcs",
-    "ui"
+    "ui",
+    "debug"
   ]
 }

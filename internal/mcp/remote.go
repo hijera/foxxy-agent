@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,17 +16,40 @@ import (
 	"sync"
 )
 
+// httpClientFor returns the client a remote transport talks through. With
+// insecure set, TLS certificates are accepted without verification, which is
+// what lets a server behind a self-signed or expired certificate connect at
+// all; it also removes the protection against a man in the middle, so it is
+// per-server and opt-in.
+func httpClientFor(insecure bool) *http.Client {
+	if !insecure {
+		return http.DefaultClient
+	}
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		base = &http.Transport{}
+	}
+	t := base.Clone()
+	if t.TLSClientConfig == nil {
+		t.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	t.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec // intentional: the per-server insecure_skip_verify opt-in
+	return &http.Client{Transport: t}
+}
+
 // NewHTTPClient connects over the streamable HTTP transport: JSON-RPC
 // messages are POSTed to url and answered either as application/json bodies
 // or as text/event-stream chunks. When the endpoint rejects the handshake
 // (legacy servers answer POST with 4xx), the client falls back to the
 // HTTP+SSE transport at the same URL, mirroring what Cursor and Claude Code
 // do for url-only entries.
-func NewHTTPClient(ctx context.Context, name, rawURL string, headers map[string]string, log *slog.Logger) (*Client, error) {
+//
+// insecure disables TLS certificate verification for this server.
+func NewHTTPClient(ctx context.Context, name, rawURL string, headers map[string]string, insecure bool, log *slog.Logger) (*Client, error) {
 	tr := &streamableHTTPTransport{
 		url:     rawURL,
 		headers: headers,
-		hc:      http.DefaultClient,
+		hc:      httpClientFor(insecure),
 		msgs:    make(chan []byte, 16),
 		closed:  make(chan struct{}),
 	}
@@ -33,7 +57,7 @@ func NewHTTPClient(ctx context.Context, name, rawURL string, headers map[string]
 	if streamErr == nil {
 		return client, nil
 	}
-	sseClient, sseErr := NewSSEClient(ctx, name, rawURL, headers, log)
+	sseClient, sseErr := NewSSEClient(ctx, name, rawURL, headers, insecure, log)
 	if sseErr == nil {
 		log.Info("mcp streamable http failed; connected via legacy SSE", "server", name, "error", streamErr)
 		return sseClient, nil
@@ -44,8 +68,8 @@ func NewHTTPClient(ctx context.Context, name, rawURL string, headers map[string]
 // NewSSEClient connects over the legacy HTTP+SSE transport: a GET stream at
 // url announces the POST endpoint in its first event and then carries every
 // server->client JSON-RPC message.
-func NewSSEClient(ctx context.Context, name, rawURL string, headers map[string]string, log *slog.Logger) (*Client, error) {
-	tr, err := newSSETransport(ctx, name, rawURL, headers)
+func NewSSEClient(ctx context.Context, name, rawURL string, headers map[string]string, insecure bool, log *slog.Logger) (*Client, error) {
+	tr, err := newSSETransport(ctx, name, rawURL, headers, insecure)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +188,10 @@ type sseTransport struct {
 	closed   chan struct{}
 }
 
-func newSSETransport(ctx context.Context, name, rawURL string, headers map[string]string) (*sseTransport, error) {
+func newSSETransport(ctx context.Context, name, rawURL string, headers map[string]string, insecure bool) (*sseTransport, error) {
+	// One client for both halves of the transport: the GET event stream opened
+	// here and the POSTs Send makes to the announced endpoint.
+	hc := httpClientFor(insecure)
 	// The event stream must outlive the connect ctx: it carries every later
 	// response, so it gets its own lifetime, cancelled by Close. The connect
 	// phase (GET headers + endpoint event), however, must honor the caller's
@@ -183,7 +210,7 @@ func newSSETransport(ctx context.Context, name, rawURL string, headers map[strin
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("mcp %s: sse connect: %w", name, err)
@@ -198,7 +225,7 @@ func newSSETransport(ctx context.Context, name, rawURL string, headers map[strin
 
 	t := &sseTransport{
 		headers: headers,
-		hc:      http.DefaultClient,
+		hc:      hc,
 		msgs:    make(chan []byte, 16),
 		cancel:  cancel,
 		closed:  make(chan struct{}),

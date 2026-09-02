@@ -24,12 +24,13 @@ const (
 	ModePlan  Mode = "plan"
 	ModeDocs  Mode = "docs"
 	ModeAsk   Mode = "ask"
+	ModeDebug Mode = "debug"
 )
 
 // IsValidMode reports whether mode names a built-in FoxxyCode session profile.
 func IsValidMode(mode string) bool {
 	switch Mode(mode) {
-	case ModeAgent, ModePlan, ModeDocs, ModeAsk:
+	case ModeAgent, ModePlan, ModeDocs, ModeAsk, ModeDebug:
 		return true
 	default:
 		return false

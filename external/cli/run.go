@@ -20,6 +20,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/remote"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -365,10 +366,16 @@ func isolatedLogger(cfg *config.Config, home, level, file string) (*slog.Logger,
 	})
 	cfg.Logger.Outputs = []string{"file"}
 	cfg.Logger.File = path
-	log, closer, err := logger.New(cfg.Logger)
+	log, levelVar, closer, err := logger.New(cfg.Logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("log: %w", err)
 	}
+	// The console honours the diagnostics master switch the same way the other entry
+	// points do: debug.enabled (or --debug) forces debug verbosity and turns on raw
+	// LLM HTTP capture, which lands in this same log file.
+	levelVar.Set(logger.EffectiveLevel(cfg.Debug.Enabled, cfg.Logger.Level))
+	llm.SetDebugLogger(log)
+	llm.SetDebugCapture(cfg.Debug.EffectiveCapture())
 	return log, closer, nil
 }
 

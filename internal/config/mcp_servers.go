@@ -9,6 +9,11 @@ type MCPServerConfig struct {
 	Env     []EnvVarConfig     `yaml:"env"`
 	URL     string             `yaml:"url"`
 	Headers []HTTPHeaderConfig `yaml:"headers"`
+	// InsecureSkipVerify accepts the TLS certificate of an http/sse server
+	// without verifying it, which is what lets a self-signed or expired
+	// certificate connect. It also drops the protection against a man in the
+	// middle, so it is off unless the operator turns it on for that server.
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
 	// Disabled skips connecting this server without removing its definition.
 	Disabled bool `yaml:"disabled"`
 	// DisabledTools hides individual tools of this server from the agent.

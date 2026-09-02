@@ -26,7 +26,7 @@ func TestNewWritesToStdoutAndFile(t *testing.T) {
 	os.Stdout = w
 	defer func() { os.Stdout = origStdout }()
 
-	slogLog, closer, err := New(config.Logger{
+	slogLog, _, closer, err := New(config.Logger{
 		Level:   config.LogLevelDebug,
 		Outputs: []string{config.LogOutputStdout, config.LogOutputFile},
 		File:    path,
@@ -56,7 +56,7 @@ func TestNewWritesToStdoutAndFile(t *testing.T) {
 func TestNewJSONFormat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "foxxycode.log")
-	slogLog, closer, err := New(config.Logger{
+	slogLog, _, closer, err := New(config.Logger{
 		Level:   config.LogLevelInfo,
 		Outputs: []string{config.LogOutputFile},
 		File:    path,

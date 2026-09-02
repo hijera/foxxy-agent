@@ -63,9 +63,10 @@ jobs:
   # Cross-building proves the Windows code compiles, not that it works. These
   # packages own the behaviour that differs by platform - the process group
   # probe, the console shell, the background task pool that starts real
-  # processes through it - and their Windows-only tests have no other place to
-  # run. The scope is deliberately narrow; widen it as the rest of the tree is
-  # shown to hold on Windows.
+  # processes through it, and the svn client, whose output arrives in the system
+  # ANSI code page - and their Windows-only tests have no other place to run.
+  # The scope is deliberately narrow; widen it as the rest of the tree is shown
+  # to hold on Windows.
   test-windows:
     name: Test suite (Windows)
     runs-on: windows-latest
@@ -80,8 +81,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run platform tests
-        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/...
+      - name: Run platform-dependent tests
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/svnws/... ./internal/tools/svn/... ./internal/update/...
 
   lint:
     name: Lint

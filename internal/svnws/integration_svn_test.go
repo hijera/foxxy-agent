@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/svnws"
@@ -249,5 +250,95 @@ func TestRealSVNNestedUnversionedGitClone(t *testing.T) {
 	}
 	if gitInfo := gitws.Describe(inner); !gitInfo.IsGitRepo || gitInfo.Branch != "main" {
 		t.Errorf("git describe inside the subfolder: %+v", gitInfo)
+	}
+}
+
+// Non-ASCII names, log messages and file content survive the round trip through
+// the real client. This is the test that proves run()'s decode against the bytes
+// svn.exe actually writes, rather than against the fake: on Windows the client
+// converts its output to the system ANSI code page, so nothing here is UTF-8 on
+// the wire.
+func TestRealSVNNonASCIIPathsAndMessages(t *testing.T) {
+	opts := realSVN(t)
+	sample := nonASCIISample(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	url := newRepo(t, root)
+
+	// The working copy folder carries the sample too, so `svn info --xml` has to
+	// bring it back through the XML path as well.
+	wc := filepath.Join(root, sample+"-folder")
+	if _, err := svnws.Checkout(ctx, opts, url+"/trunk", wc, ""); err != nil {
+		t.Fatalf("checkout: %v", err)
+	}
+
+	name := sample + ".go"
+	content := "package main // " + sample + "\n"
+	message := "commit " + sample
+	if err := os.WriteFile(filepath.Join(wc, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svnws.Add(ctx, wc, opts, []string{name}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	status, err := svnws.Status(ctx, wc, opts, nil)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	assertReadable(t, "status", status, sample)
+
+	if _, err := svnws.Commit(ctx, wc, opts, message, []string{name}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	// Target the file rather than the working copy: svn log on '.' stops at the
+	// directory's base revision, which the commit above did not move.
+	logOut, err := svnws.Log(ctx, wc, opts, name, 5)
+	if err != nil {
+		t.Fatalf("log: %v", err)
+	}
+	assertReadable(t, "log", logOut, sample)
+	// The message went out through argv and came back through the repository, so
+	// this covers the input side as well as the decode.
+	if !strings.Contains(logOut, message) {
+		t.Errorf("log lost the commit message %q: %q", message, logOut)
+	}
+
+	// A second revision so diff has something to show; the body is file content
+	// svn copies through untouched, the header a path svn converts itself.
+	if err := os.WriteFile(filepath.Join(wc, name), []byte(content+"// "+sample+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := svnws.Diff(ctx, wc, opts, nil, "")
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	assertReadable(t, "diff", diff, sample)
+	// One buffer, two encodings: svn converts the header path to the ANSI code
+	// page but copies the body through as the file's own UTF-8 bytes. Both halves
+	// have to survive, which is what the per-line decode buys.
+	if !strings.Contains(diff, "Index: "+name) {
+		t.Errorf("diff header lost the converted path: %q", diff)
+	}
+	if !strings.Contains(diff, "+// "+sample) {
+		t.Errorf("diff body was rewritten: %q", diff)
+	}
+
+	info := svnws.Describe(ctx, wc, opts)
+	if !info.IsSVNRepo || info.Branch != "trunk" {
+		t.Fatalf("describe: %+v", info)
+	}
+	assertReadable(t, "info wc root", info.WCRoot, sample)
+}
+
+// assertReadable fails when output is not valid UTF-8 or lost the sample text -
+// the two ways undecoded client bytes show up.
+func assertReadable(t *testing.T, what, got, sample string) {
+	t.Helper()
+	if !utf8.ValidString(got) {
+		t.Errorf("%s is not valid UTF-8: %q", what, got)
+	}
+	if !strings.Contains(got, sample) {
+		t.Errorf("%s = %q, want it to contain %q", what, got, sample)
 	}
 }

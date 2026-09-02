@@ -484,7 +484,7 @@ func TestStreamableHTTPClient(t *testing.T) {
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
-	client, err := NewHTTPClient(testCtx(t), "remote", ts.URL, map[string]string{"X-Auth": "tok"}, slog.Default())
+	client, err := NewHTTPClient(testCtx(t), "remote", ts.URL, map[string]string{"X-Auth": "tok"}, false, slog.Default())
 	if err != nil {
 		t.Fatalf("NewHTTPClient: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestStreamableHTTPClientSSEResponses(t *testing.T) {
 	ts := httptest.NewServer(&fakeStreamableHandler{sseResults: true})
 	defer ts.Close()
 
-	client, err := NewHTTPClient(testCtx(t), "remote", ts.URL, nil, slog.Default())
+	client, err := NewHTTPClient(testCtx(t), "remote", ts.URL, nil, false, slog.Default())
 	if err != nil {
 		t.Fatalf("NewHTTPClient (sse bodies): %v", err)
 	}
@@ -558,6 +558,13 @@ func TestStreamableHTTPClientSSEResponses(t *testing.T) {
 // an event stream that first announces the POST endpoint, then carries every
 // JSON-RPC response; POSTs to the endpoint return 202.
 func newFakeLegacySSEServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(fakeLegacySSEMux(t))
+}
+
+// fakeLegacySSEMux is the handler behind newFakeLegacySSEServer, split out so
+// the same server can also be served over TLS.
+func fakeLegacySSEMux(t *testing.T) *http.ServeMux {
 	t.Helper()
 	type sseSession struct{ out chan []byte }
 	sessions := struct {
@@ -639,14 +646,14 @@ func newFakeLegacySSEServer(t *testing.T) *httptest.Server {
 			respond(nil)
 		}
 	})
-	return httptest.NewServer(mux)
+	return mux
 }
 
 func TestLegacySSEClient(t *testing.T) {
 	ts := newFakeLegacySSEServer(t)
 	defer ts.Close()
 
-	client, err := NewSSEClient(testCtx(t), "legacy", ts.URL+"/sse", nil, slog.Default())
+	client, err := NewSSEClient(testCtx(t), "legacy", ts.URL+"/sse", nil, false, slog.Default())
 	if err != nil {
 		t.Fatalf("NewSSEClient: %v", err)
 	}
@@ -667,7 +674,7 @@ func TestHTTPClientFallsBackToSSE(t *testing.T) {
 	ts := newFakeLegacySSEServer(t)
 	defer ts.Close()
 
-	client, err := NewHTTPClient(testCtx(t), "legacy", ts.URL+"/sse", nil, slog.Default())
+	client, err := NewHTTPClient(testCtx(t), "legacy", ts.URL+"/sse", nil, false, slog.Default())
 	if err != nil {
 		t.Fatalf("NewHTTPClient with legacy server: %v", err)
 	}
@@ -743,7 +750,7 @@ func TestSSEConnectHonorsCtxOnSilentServer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if _, err := NewSSEClient(ctx, "silent", silent.URL, nil, slog.Default()); err == nil {
+	if _, err := NewSSEClient(ctx, "silent", silent.URL, nil, false, slog.Default()); err == nil {
 		t.Fatal("silent server must error")
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
@@ -814,7 +821,7 @@ func TestSSEConnectRejectsCrossOriginEndpointEvent(t *testing.T) {
 	defer hostile.Close()
 
 	headers := map[string]string{"Authorization": "Bearer secret-token"}
-	if _, err := NewSSEClient(testCtx(t), "hostile", hostile.URL, headers, slog.Default()); err == nil {
+	if _, err := NewSSEClient(testCtx(t), "hostile", hostile.URL, headers, false, slog.Default()); err == nil {
 		t.Fatal("cross-origin endpoint event must fail the connect")
 	}
 	if leaked.Load() {

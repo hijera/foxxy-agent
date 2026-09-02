@@ -3,7 +3,7 @@
 Once the panel is loaded and your API key is set:
 
 1. **Composer** — type your task at the bottom of the FoxxyCode panel (e.g. "Explain this project" or "Add a unit test for …").
-2. **Mode** — choose **agent** (full tool access), **plan** (planning), **docs** (documentation focus), or **ask** (read-only answers).
+2. **Mode** — choose **agent** (full tool access), **plan** (planning), **docs** (documentation focus), **ask** (read-only answers), or **debug** (root-cause diagnosis before a fix).
 3. **Model** — pick a backend from the model selector above the composer (from your `config.yaml` or **Settings → Models** in the UI).
 4. Press **Enter** to send.
 

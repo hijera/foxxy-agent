@@ -56,6 +56,10 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
 		NotifyOnFinish:  args.NotifyOnFinish,
+		// A dev server or watcher is started so later steps can talk to it, so a
+		// clock must not end it; background_stop does. An explicit
+		// timeout_seconds still wins.
+		NoTimeout: isLongRunningCommand(args.Command),
 	})
 	if err != nil {
 		return "", err
@@ -63,9 +67,14 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Started background task %s: %s\n", snap.ID, snap.Command)
-	if snap.ExpectedSeconds > 0 {
-		fmt.Fprintf(&b, "Estimated %s, hard timeout %s.\n", humanSeconds(snap.ExpectedSeconds), humanSeconds(snap.TimeoutSeconds))
-	} else {
+	switch {
+	case snap.TimeoutSeconds <= 0:
+		// Work with no natural end. Saying "hard timeout 0s" here would read as an
+		// instant kill, so state the actual contract instead.
+		fmt.Fprintf(&b, "No hard timeout: this command is not expected to exit on its own, so it keeps running until you end it with %s.\n", ToolBackgroundStop)
+	case snap.ExpectedSeconds > 0:
+		fmt.Fprintf(&b, "Estimated %s (advisory only), hard timeout %s.\n", humanSeconds(snap.ExpectedSeconds), humanSeconds(snap.TimeoutSeconds))
+	default:
 		fmt.Fprintf(&b, "Hard timeout %s.\n", humanSeconds(snap.TimeoutSeconds))
 	}
 	if snap.NotifyOnFinish {

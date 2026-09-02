@@ -111,6 +111,9 @@ export const schemaTextRu: Record<string, string> = {
     "Имя HTTP-заголовка для HTTP-транспортов MCP.",
   "Header value": "Значение заголовка",
   "HTTP header value.": "Значение HTTP-заголовка.",
+  "Ignore SSL certificate errors": "Игнорировать проверку SSL",
+  "Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.":
+    "Подключаться к этому http/sse-серверу, не проверяя его TLS-сертификат, — чтобы работал самоподписанный или просроченный сертификат. Снимает защиту от подмены соединения; используйте только в доверенной сети.",
   Disabled: "Отключён",
   "Skip connecting this server without removing its definition.":
     "Не подключать этот сервер, сохранив его описание.",
@@ -415,6 +418,17 @@ export const schemaTextRu: Record<string, string> = {
   "How many rotated segments to retain; 0 uses logger defaults.":
     "Сколько ротированных сегментов хранить; 0 — значения логгера по умолчанию.",
 
+  // Debug (раздел диагностики). Не «Отладка»: эта метка уже занята режимом сессии
+  // (composer.modeDebug) и уровнем лога — три одинаковых подписи в одном UI неразличимы.
+  Debug: "Диагностика",
+  "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.":
+    "Главный переключатель подробной диагностики: логи уровня debug, сырой дамп LLM и посессионная отладочная трасса. Флаг --debug включает это на старте.",
+  "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).":
+    "Включить весь диагностический слой (форсирует уровень лога debug, дамп LLM и отладочную трассу).",
+  "Capture LLM bodies": "Дамп тел LLM",
+  "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled.":
+    "Записывать сырые HTTP request/response тела LLM на уровне debug. По умолчанию следует за Enabled; пусто означает «включено», когда Enabled.",
+
   // Sessions
   Sessions: "Сессии",
   "Where persisted chat bundles are stored.":
@@ -491,6 +505,9 @@ export const schemaTextRu: Record<string, string> = {
 
   // Browser tool
   "Browser tool": "Инструмент браузера",
+  "Screenshots": "Скриншоты",
+  "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.":
+    "Снимать экран после каждого действия и показывать модели. По умолчанию включено. Выключите для текстового режима: действия по-прежнему сообщают URL и журнал страницы, а инструменты чтения страницы и evaluate читают её текстом.",
   "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).":
     "Интерактивный инструмент автоматизации браузера (требует build-тег browser; управляет локальным Chrome/Chromium через chromedp).",
   "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.":

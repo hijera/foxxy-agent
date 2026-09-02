@@ -2,9 +2,13 @@ import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BackgroundTasksChip } from "./BackgroundTasksChip";
+import { setLocale } from "../i18n/i18n";
 import type { BackgroundTask } from "./types";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 function task(over: Partial<BackgroundTask> = {}): BackgroundTask {
   return {
@@ -63,6 +67,35 @@ test("a live chat marks the chip so it reads as active", () => {
   const chip = screen.getByTestId("bgtask-chip");
   expect(chip).toHaveTextContent("1 running task");
   expect(chip.className).toContain("is-running");
+});
+
+test("russian task counts decline with the number", () => {
+  setLocale("ru");
+  const { rerender } = render(
+    <BackgroundTasksChip
+      tasks={[task({ id: "bg_1" }), task({ id: "bg_2" })]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "Выполняются 2 задачи",
+  );
+
+  rerender(
+    <BackgroundTasksChip
+      tasks={[
+        task({ id: "bg_1" }),
+        task({ id: "bg_2" }),
+        task({ id: "bg_3" }),
+        task({ id: "bg_4" }),
+        task({ id: "bg_5" }),
+      ]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "Выполняется 5 задач",
+  );
 });
 
 test("clicking opens the panel", () => {
