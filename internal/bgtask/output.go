@@ -40,6 +40,10 @@ func (s *OutputSink) AttachFile(path string) error {
 	if err != nil {
 		return err
 	}
+	// OpenFile's mode applies only on creation. A session resumed after an
+	// upgrade may already hold an older world-readable output.log, so tighten it
+	// whenever the file is attached as well.
+	_ = file.Chmod(0o600)
 	s.mu.Lock()
 	s.file = file
 	s.mu.Unlock()

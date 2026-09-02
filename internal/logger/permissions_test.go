@@ -60,6 +60,34 @@ func TestRotatingFileTightensExistingLooseMode(t *testing.T) {
 	}
 }
 
+func TestRotatingFileTightensExistingBackupModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "foxxycode.log")
+	backup := path + ".1"
+	if err := os.WriteFile(path, []byte("current\n"), 0o644); err != nil {
+		t.Fatalf("seed current log: %v", err)
+	}
+	if err := os.WriteFile(backup, []byte("old prompt\n"), 0o644); err != nil {
+		t.Fatalf("seed backup log: %v", err)
+	}
+	rf, err := newRotatingFile(path, config.LoggerRotation{MaxSizeMB: 1, MaxFiles: 2})
+	if err != nil {
+		t.Fatalf("newRotatingFile: %v", err)
+	}
+	defer func() { _ = rf.Close() }()
+
+	info, err := os.Stat(backup)
+	if err != nil {
+		t.Fatalf("stat backup: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("pre-existing backup mode = %#o, want 0600", perm)
+	}
+}
+
 // Rotation opens a fresh file through the same path, so the replacement must be
 // owner-only too — otherwise the tightening only lasts until the first rotation.
 func TestRotatedFileKeepsOwnerOnlyMode(t *testing.T) {

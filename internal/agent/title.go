@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
+	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/prompts"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -17,26 +18,32 @@ var titleSystemPrompt string
 // titleMaxRunes clamps the final title, mirroring the KiloCode reference (~100 chars).
 const titleMaxRunes = 100
 
-// titleProvider returns the provider used for the title pass: a dedicated model when title.model is
+// titleProviderForConfig returns the provider used for the title pass: a dedicated model when title.model is
 // configured, otherwise the passed-in main provider. Any resolution error falls back to the main
 // provider rather than failing the turn. Mirrors compactionProvider.
-func (a *Agent) titleProvider(fallback llm.Provider) llm.Provider {
-	ref := strings.TrimSpace(a.cfg.Title.Model)
+//
+// Title generation runs asynchronously, while config_commit can replace a.cfg in the turn goroutine,
+// so the background pass must not read a.cfg itself.
+func (a *Agent) titleProviderForConfig(fallback llm.Provider, cfg *config.Config) llm.Provider {
+	if cfg == nil {
+		return fallback
+	}
+	ref := strings.TrimSpace(cfg.Title.Model)
 	if ref == "" {
 		return fallback
 	}
-	rm, err := a.cfg.ResolveLLM(ref)
+	rm, err := cfg.ResolveLLM(ref)
 	if err != nil || rm == nil {
 		return fallback
 	}
-	if cap := a.cfg.Title.MaxTokens; cap > 0 && (rm.MaxTokens <= 0 || rm.MaxTokens > cap) {
+	if cap := cfg.Title.MaxTokens; cap > 0 && (rm.MaxTokens <= 0 || rm.MaxTokens > cap) {
 		rm.MaxTokens = cap
 	}
 	mk := a.providerFactory
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	p, err := mk(a.llmProviderInput(rm))
+	p, err := mk(a.llmProviderInputForConfig(cfg, rm))
 	if err != nil || p == nil {
 		return fallback
 	}
@@ -48,7 +55,13 @@ func (a *Agent) titleProvider(fallback llm.Provider) llm.Provider {
 // SessionTitleUpdate so all clients update live. All failures are non-fatal: the turn continues and
 // the derived first-message title remains as a fallback. Runs off the hot path (goroutine caller).
 func (a *Agent) maybeGenerateTitle(ctx context.Context, provider llm.Provider) {
-	if !a.cfg.Title.TitleEnabled() {
+	a.maybeGenerateTitleForConfig(ctx, provider, a.cfg)
+}
+
+// maybeGenerateTitleForConfig generates a title using the configuration that was current when
+// the work was scheduled. It keeps the detached title pass independent from later config reloads.
+func (a *Agent) maybeGenerateTitleForConfig(ctx context.Context, provider llm.Provider, cfg *config.Config) {
+	if cfg == nil || !cfg.Title.TitleEnabled() {
 		return
 	}
 	// Never override a user pin, and generate at most once per session.
@@ -61,7 +74,7 @@ func (a *Agent) maybeGenerateTitle(ctx context.Context, provider llm.Provider) {
 		return
 	}
 
-	p := a.titleProvider(provider)
+	p := a.titleProviderForConfig(provider, cfg)
 	msgs := []llm.Message{
 		{Role: llm.RoleSystem, Content: prompts.WithIdentity(titleSystemPrompt)},
 		{Role: llm.RoleUser, Content: "Generate a title for this conversation:\n" + firstUser},

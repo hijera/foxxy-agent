@@ -53,6 +53,9 @@ func AppendDebugEvent(sessionDir string, ev DebugEvent) (string, error) {
 	if err != nil {
 		return path, err
 	}
+	// The mode above affects new files only. A trace from an earlier release can
+	// otherwise remain world-readable for the lifetime of its session bundle.
+	_ = f.Chmod(0o600)
 	defer func() { _ = f.Close() }()
 	if _, err := f.Write(line); err != nil {
 		return path, err

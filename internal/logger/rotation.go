@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -50,7 +52,35 @@ func newRotatingFile(path string, r config.LoggerRotation) (*rotatingFile, error
 	if err := rf.open(); err != nil {
 		return nil, err
 	}
+	rf.tightenRotatedFiles()
 	return rf, nil
+}
+
+// tightenRotatedFiles applies the owner-only mode to backups left by a previous
+// release too. open only reaches the live path; without this pass, foo.log.1
+// and friends can continue exposing old captured prompts after an upgrade.
+func (rf *rotatingFile) tightenRotatedFiles() {
+	dir := filepath.Dir(rf.path)
+	prefix := filepath.Base(rf.path) + "."
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, prefix) || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		suffix := strings.TrimPrefix(name, prefix)
+		if n, err := strconv.Atoi(suffix); err != nil || n < 1 {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		_ = os.Chmod(filepath.Join(dir, name), logFileMode)
+	}
 }
 
 // open (re)opens the file and refreshes the cached size.
