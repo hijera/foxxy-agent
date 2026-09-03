@@ -1005,57 +1005,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
-	requiresPerm := ok && tool.RequiresPermission
-
 	var sessCmdGrants, sessWriteGrants []string
 	if st := sessionStatePtr(a.state); st != nil {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
 	}
-
-	if tc.Name == "run_command" {
-		switch env.PermissionMode {
-		case config.PermModeBypass:
-			requiresPerm = false
-		case config.PermModeAcceptEdits:
-			cmd := permission.ExtractRunCommand(tc.InputJSON)
-			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		default: // ask
-			cmd := permission.ExtractRunCommand(tc.InputJSON)
-			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		}
-	} else if configWriteTool(tc.Name) {
-		// Committing or rolling back the agent's own configuration can start
-		// new MCP processes and change the permission policy itself, so
-		// accept_edits does NOT auto-approve it the way it approves project
-		// file writes. Only the explicit bypass mode skips the prompt.
-		requiresPerm = env.PermissionMode != config.PermModeBypass
-	} else if filesystemWriteTool(tc.Name) {
-		switch env.PermissionMode {
-		case config.PermModeBypass, config.PermModeAcceptEdits:
-			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
-			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
-				requiresPerm = false
-			} else {
-				requiresPerm = false // auto-approve
-			}
-		default: // ask
-			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
-			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		}
-	}
+	requiresPerm := permissionRequired(ok && tool.RequiresPermission, tc, env, sessCmdGrants, sessWriteGrants)
 
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
@@ -1071,7 +1026,15 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
 				"changes committed after that snapshot leave the active file."
 		}
-		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
+		// tools.permission_timeout_seconds bounds the wait so a connected but
+		// unresponsive client cannot hold the session turn lock forever; the
+		// default (0) keeps waiting, which is the interactive contract.
+		permCtx := ctx
+		var cancelPerm context.CancelFunc
+		if d := a.cfg.Tools.ResolvedPermissionTimeout(); d > 0 {
+			permCtx, cancelPerm = context.WithTimeout(ctx, d)
+		}
+		permResult, err := a.server.RequestPermission(permCtx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
 				ToolCallID: tc.ID,
@@ -1084,6 +1047,14 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			},
 			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
+		timedOut := permCtx.Err() == context.DeadlineExceeded
+		if cancelPerm != nil {
+			cancelPerm()
+		}
+		if timedOut {
+			a.log.Warn("permission prompt timed out; cancelling tool call",
+				"tool", tc.Name, "session", sessionID, "timeout", a.cfg.Tools.ResolvedPermissionTimeout())
+		}
 
 		if err != nil || permResult == nil || permResult.Outcome == "cancelled" || permResult.OptionID == "reject" {
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{

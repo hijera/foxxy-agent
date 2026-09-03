@@ -289,7 +289,10 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		}
 		id = preferredConsumed
 	} else {
-		id = newSessionID()
+		var err error
+		if id, err = newSessionID(); err != nil {
+			return nil, fmt.Errorf("session/new: %w", err)
+		}
 	}
 
 	m.mu.RLock()
@@ -1185,10 +1188,17 @@ func (m *Manager) connectMCPClient(ctx context.Context, cwd string, srv config.M
 	return client, nil
 }
 
-func newSessionID() string {
+// randRead is indirected so tests can exercise the entropy-failure path;
+// production always uses crypto/rand.
+var randRead = rand.Read
+
+// newSessionID mints a fresh random session id. Entropy failure is returned
+// as an error rather than panicked on: one unlucky session/new must not take
+// down the process serving every other session.
+func newSessionID() (string, error) {
 	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		panic("failed to generate session ID: " + err.Error())
+	if _, err := randRead(b); err != nil {
+		return "", fmt.Errorf("generate session id: %w", err)
 	}
-	return "sess_" + hex.EncodeToString(b)
+	return "sess_" + hex.EncodeToString(b), nil
 }

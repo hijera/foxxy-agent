@@ -145,7 +145,10 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	prefix, preview := sliceMessagesBeforeUserN(snap.Messages, params.UserMessageIndex)
 
 	// Generate new session ID.
-	newID := newSessionID()
+	newID, err := newSessionID()
+	if err != nil {
+		return nil, fmt.Errorf("branch session id: %w", err)
+	}
 
 	// Create the directory layout for the new session.
 	newDir, err := m.store.EnsureLayout(newID)

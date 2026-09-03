@@ -6,6 +6,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -171,7 +172,10 @@ func TestResolveMapsNamesAddressesAndTokens(t *testing.T) {
 func TestNewRemoteSessionIDsAreValidFolderIDs(t *testing.T) {
 	seen := map[string]bool{}
 	for range 32 {
-		id := newRemoteSessionID()
+		id, err := newRemoteSessionID()
+		if err != nil {
+			t.Fatalf("newRemoteSessionID: %v", err)
+		}
 		if err := session.ValidateFolderSessionID(id); err != nil {
 			t.Fatalf("generated id %q invalid: %v", id, err)
 		}
@@ -179,6 +183,18 @@ func TestNewRemoteSessionIDsAreValidFolderIDs(t *testing.T) {
 			t.Fatalf("duplicate id %q", id)
 		}
 		seen[id] = true
+	}
+}
+
+// TestNewRemoteSessionIDEntropyFailure pins the no-panic contract: entropy
+// exhaustion surfaces as an error instead of killing the process.
+func TestNewRemoteSessionIDEntropyFailure(t *testing.T) {
+	old := randRead
+	randRead = func([]byte) (int, error) { return 0, errors.New("boom") }
+	defer func() { randRead = old }()
+
+	if _, err := newRemoteSessionID(); err == nil {
+		t.Fatal("expected error when rand.Read fails")
 	}
 }
 

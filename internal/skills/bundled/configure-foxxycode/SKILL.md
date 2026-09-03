@@ -55,7 +55,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `rules` - project rules discovery;
 - `mcp_servers` - MCP servers started per session (stdio command, args, env; url and headers for the http/sse transports; `insecure_skip_verify` to accept a self-signed TLS certificate; disabled flag);
 - `mcp` - trust policy for project-local `.foxxycode/mcp.json` declarations (`project_trust`);
-- `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;
+- `tools` - permission mode, command allowlist, permission prompt timeout (`permission_timeout_seconds`, 0 waits forever), background execution, output limits, SSH timeouts;
 - `logger` - level, outputs, rotation;
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;

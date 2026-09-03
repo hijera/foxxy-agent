@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // PlanNoSelfRunFlagName is the CLI flag (on `foxxycode acp` / `foxxycode http`) that
@@ -42,6 +43,13 @@ type Tools struct {
 	// Values: "ask" (default), "accept_edits", "bypass".
 	PermissionMode   string   `yaml:"permission_mode"`
 	CommandAllowlist []string `yaml:"command_allowlist"`
+
+	// PermissionTimeoutSeconds bounds how long a permission prompt may wait
+	// for the operator before the tool call is cancelled instead. 0 (the
+	// default) waits forever, preserving the interactive contract; a positive
+	// value keeps an unresponsive client from holding the session turn lock
+	// indefinitely.
+	PermissionTimeoutSeconds int `yaml:"permission_timeout_seconds"`
 
 	// SSHConnectTimeout is the TCP dial timeout for SSH connections in seconds (default: 30).
 	SSHConnectTimeout int `yaml:"ssh_connect_timeout"`
@@ -141,6 +149,15 @@ func (b *ToolBackground) validate() error {
 		if v < 0 {
 			return fmt.Errorf("tools.background.%s: must be >= 0", name)
 		}
+	}
+	return nil
+}
+
+// validatePermissionTimeout rejects a negative prompt timeout so a typo
+// cannot silently re-enable the wait-forever default.
+func (c *Tools) validatePermissionTimeout() error {
+	if c.PermissionTimeoutSeconds < 0 {
+		return fmt.Errorf("tools.permission_timeout_seconds: must be >= 0")
 	}
 	return nil
 }
@@ -249,6 +266,16 @@ func (c *Tools) ResolvedPermMode() string {
 	}
 }
 
+// ResolvedPermissionTimeout returns how long a permission prompt may wait for
+// the operator before the tool call is cancelled instead. Zero (the default)
+// waits forever.
+func (c *Tools) ResolvedPermissionTimeout() time.Duration {
+	if c == nil || c.PermissionTimeoutSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(c.PermissionTimeoutSeconds) * time.Second
+}
+
 // Validate trims allowlist entries in place and normalises PermissionMode.
 func (c *Tools) Validate() error {
 	if c.PermissionMode == "" {
@@ -259,6 +286,9 @@ func (c *Tools) Validate() error {
 	}
 	if c.SSHConnectTimeout <= 0 {
 		c.SSHConnectTimeout = 30
+	}
+	if err := c.validatePermissionTimeout(); err != nil {
+		return err
 	}
 	if err := c.OutputLimits.validate(); err != nil {
 		return err

@@ -1239,6 +1239,11 @@
           "title": "Permission mode",
           "type": "string"
         },
+        "permission_timeout_seconds": {
+          "description": "How long a permission prompt may wait for the operator before the tool call is cancelled instead (0 waits forever).",
+          "title": "Permission timeout (s)",
+          "type": "integer"
+        },
         "plan_no_self_run": {
           "default": false,
           "description": "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.",
@@ -1251,6 +1256,7 @@
       "x-foxxycode-property-order": [
         "permission_mode",
         "command_allowlist",
+        "permission_timeout_seconds",
         "plan_no_self_run",
         "ask_disable_extended_tools",
         "output_limits",
