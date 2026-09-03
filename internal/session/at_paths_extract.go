@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -70,10 +71,89 @@ func continuationLooksLikeMorePath(afterSpaces string) bool {
 	return strings.ContainsAny(word, "/.")
 }
 
+// AtFileRef is one @path mention, optionally narrowed to a 1-based inclusive line range.
+type AtFileRef struct {
+	Path      string
+	StartLine int
+	EndLine   int
+}
+
+// atTerminalToken is the reserved mention resolved server-side to terminal output,
+// never to a workspace file (see internal/agent terminalMentionNote).
+const atTerminalToken = "terminal"
+
+// parseAtLineRangeSuffix reads a ":<start>-<end>" suffix at text[k:] and returns
+// the range plus the index past it. The suffix counts only when both numbers are
+// valid (1 <= start <= end) and the token ends there: the next rune must not be a
+// letter, digit, or '-', so ":21-31x" stays prose.
+func parseAtLineRangeSuffix(text string, k int) (start, end, next int, ok bool) {
+	n := len(text)
+	if k >= n || text[k] != ':' {
+		return 0, 0, k, false
+	}
+	p := k + 1
+	d0 := p
+	for p < n && text[p] >= '0' && text[p] <= '9' {
+		p++
+	}
+	if p == d0 || p >= n || text[p] != '-' {
+		return 0, 0, k, false
+	}
+	first := text[d0:p]
+	p++
+	d1 := p
+	for p < n && text[p] >= '0' && text[p] <= '9' {
+		p++
+	}
+	if p == d1 {
+		return 0, 0, k, false
+	}
+	second := text[d1:p]
+	if p < n {
+		r, _ := utf8.DecodeRuneInString(text[p:])
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '-' {
+			return 0, 0, k, false
+		}
+	}
+	if len(first) > 9 || len(second) > 9 {
+		return 0, 0, k, false
+	}
+	s := atoiDigits(first)
+	e := atoiDigits(second)
+	if s < 1 || e < s {
+		return 0, 0, k, false
+	}
+	return s, e, p, true
+}
+
+func atoiDigits(s string) int {
+	v := 0
+	for i := 0; i < len(s); i++ {
+		v = v*10 + int(s[i]-'0')
+	}
+	return v
+}
+
 // ExtractAtFilePathsFromText returns workspace-relative paths from plain @mentions.
 // Mirrors external/ui draftAt.extractAtFileAttachments (file tokens only).
 func ExtractAtFilePathsFromText(text string) []string {
 	var out []string
+	seen := make(map[string]struct{})
+	for _, ref := range ExtractAtFileRefsFromText(text) {
+		key := filepath.ToSlash(ref.Path)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, ref.Path)
+	}
+	return out
+}
+
+// ExtractAtFileRefsFromText returns @path mentions with optional ":N-M" line
+// ranges in document order. Mirrors external/ui draftAt.extractAtFileAttachments.
+func ExtractAtFileRefsFromText(text string) []AtFileRef {
+	var out []AtFileRef
 	seen := make(map[string]struct{})
 	n := len(text)
 
@@ -142,18 +222,28 @@ func ExtractAtFilePathsFromText(text string) []string {
 
 		raw := strings.TrimRight(text[j+1:k], " \t")
 		i = k
+		startLine, endLine := 0, 0
+		if raw != "" && raw == text[j+1:k] {
+			if s, e, next, ok := parseAtLineRangeSuffix(text, k); ok {
+				startLine, endLine = s, e
+				i = next
+			}
+		}
 		if raw == "" || strings.Contains(raw, "..") {
+			continue
+		}
+		if raw == atTerminalToken {
 			continue
 		}
 		if strings.HasSuffix(filepath.ToSlash(raw), "/") {
 			continue
 		}
-		key := filepath.ToSlash(raw)
+		key := fmt.Sprintf("%s#L%d-%d", filepath.ToSlash(raw), startLine, endLine)
 		if _, dup := seen[key]; dup {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, raw)
+		out = append(out, AtFileRef{Path: raw, StartLine: startLine, EndLine: endLine})
 	}
 	return out
 }
