@@ -115,6 +115,22 @@ func TestContentBlocksToText_textAndResource(t *testing.T) {
 	}
 }
 
+func TestContentBlocksToText_lineRangeFragment(t *testing.T) {
+	blocks := []acp.ContentBlock{
+		{Type: "resource", Resource: &acp.Resource{URI: "Dockerfile#L21-31", Text: "FROM x"}},
+	}
+	got := contentBlocksToText(blocks)
+	if !strings.Contains(got, `path="Dockerfile"`) ||
+		!strings.Contains(got, `name="Dockerfile"`) ||
+		!strings.Contains(got, `lines="21-31"`) ||
+		!strings.Contains(got, "FROM x") {
+		t.Fatalf("unexpected XML bundle: %s", got)
+	}
+	if strings.Contains(got, "#L21-31") {
+		t.Fatalf("fragment leaked into attributes: %s", got)
+	}
+}
+
 func TestExtractContextFiles_fileURI(t *testing.T) {
 	blocks := []acp.ContentBlock{
 		{Type: "resource", Resource: &acp.Resource{URI: "file:///tmp/x.txt", Text: "x"}},
