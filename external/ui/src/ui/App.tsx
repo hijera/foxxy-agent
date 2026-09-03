@@ -733,6 +733,10 @@ export function App() {
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
+  // Paste-to-chip literals: `path:start-end` → the exact text the user pasted,
+  // attached verbatim at send time. Lost on reload — the backend then re-reads
+  // the line range from the file instead. Capped; cleared after each send.
+  const pasteLiteralsRef = useRef<Map<string, string>>(new Map());
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
   const [worktreePref, setWorktreePref] = useState(false);
@@ -3999,11 +4003,29 @@ export function App() {
       const profileModel =
         mode === "agent" || mode === "plan" || mode === "docs" || mode === "ask";
       if (atts.length > 0 && profileModel) {
-        reqBody.attachments = atts;
+        // A ranged mention attaches the pasted literal when we still hold it;
+        // otherwise the backend reads the line range from the file.
+        reqBody.attachments = atts.map((a) => {
+          if (a.startLine == null || a.endLine == null) {
+            return { path: a.path };
+          }
+          const literal = pasteLiteralsRef.current.get(
+            `${a.path}:${a.startLine}-${a.endLine}`,
+          );
+          return {
+            path: a.path,
+            source: {
+              ...(literal != null ? { literal } : {}),
+              startLine: a.startLine,
+              endLine: a.endLine,
+            },
+          };
+        });
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
         for (const a of atts) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
+        pasteLiteralsRef.current.clear();
       }
       if (opts?.files && opts.files.length > 0) {
         const inlineFiles = await Promise.all(
@@ -4927,6 +4949,18 @@ export function App() {
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+          onPasteChipCaptured={(key, literal) => {
+            const m = pasteLiteralsRef.current;
+            m.set(key, literal);
+            // Bound the map: drop oldest entries past 32 (Map keeps insertion order).
+            while (m.size > 32) {
+              const oldest = m.keys().next().value;
+              if (oldest == null) {
+                break;
+              }
+              m.delete(oldest);
+            }
+          }}
           onSend={(text: string, files?: File[]) => {
             if (
               sessionId.trim() &&

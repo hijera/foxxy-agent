@@ -21,6 +21,12 @@ import {
   atMenuDraftAtCaret,
 } from "../skills/draftAt";
 import { normalizeRelPath } from "../skills/normalizeRelPath";
+import {
+  classifyPastedText,
+  pasteChipLiteralKey,
+  pasteChipToken,
+  shouldAttemptPasteClassify,
+} from "./pasteChip";
 import { parseDroppedPaths } from "../skills/parseDroppedPaths";
 import { subscribeFileMention } from "../skills/fileMentionBus";
 import {
@@ -278,6 +284,11 @@ export function Composer(props: {
   onChange: (v: string) => void;
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
+  /**
+   * A paste classified as a file chip captures its literal text here, keyed by
+   * `path:start-end`, so send time can attach the copied fragment verbatim.
+   */
+  onPasteChipCaptured?: (key: string, literal: string) => void;
   generating?: boolean;
   onStop?: () => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
@@ -1215,6 +1226,73 @@ export function Composer(props: {
   // → the file-mention bus. Subscribe once; insertFileMention is stable enough.
   useEffect(() => subscribeFileMention((rel) => insertFileMention(rel)), [insertFileMention]);
 
+  /**
+   * Inserts text at the live caret, preferring `execCommand("insertText")` so
+   * the paste stays in the browser's native undo stack; falls back to a manual
+   * splice. Used by the async paste-to-chip path, which resolves after
+   * `preventDefault()` — the caret may have moved meanwhile, so it is read at
+   * insertion time.
+   */
+  const insertAtLiveCaret = useCallback(
+    (insert: string) => {
+      const el = taRef.current;
+      if (!el) {
+        return;
+      }
+      el.focus();
+      let ok = false;
+      try {
+        ok = document.execCommand("insertText", false, insert);
+      } catch {
+        ok = false;
+      }
+      if (ok) {
+        return;
+      }
+      const value = el.value;
+      const caret = el.selectionStart ?? value.length;
+      const next = value.slice(0, caret) + insert + value.slice(caret);
+      props.onChange(next);
+      const pos = caret + insert.length;
+      requestAnimationFrame(() => {
+        const e2 = taRef.current;
+        if (!e2) {
+          return;
+        }
+        e2.focus();
+        e2.setSelectionRange(pos, pos);
+      });
+    },
+    [props.onChange],
+  );
+
+  /**
+   * Paste-to-chip: classifies pasted text against fragments recently copied in
+   * the IDE and inserts a mention token on a match; any non-match or failure
+   * inserts the original text unchanged.
+   */
+  const classifyAndInsertPaste = useCallback(
+    async (text: string) => {
+      const result = await classifyPastedText(text, props.sessionId || "");
+      const token = pasteChipToken(result);
+      if (token == null) {
+        insertAtLiveCaret(text);
+        return;
+      }
+      if (result.kind === "file") {
+        props.onPasteChipCaptured?.(
+          pasteChipLiteralKey(result.pathRel, result.startLine, result.endLine),
+          text,
+        );
+      }
+      const el = taRef.current;
+      const before = el ? el.value.slice(0, el.selectionStart ?? el.value.length) : "";
+      const lead = before !== "" && !/\s$/.test(before) ? " " : "";
+      insertAtLiveCaret(`${lead}${token} `);
+    },
+    [props.sessionId, props.onPasteChipCaptured, insertAtLiveCaret],
+  );
+
   /** Converts absolute dropped paths to workspace-relative via the backend (VS Code). */
   const relativizePaths = useCallback(
     async (absPaths: string[]): Promise<string[]> => {
@@ -1814,18 +1892,24 @@ export function Composer(props: {
                 }}
                 onPaste={(ev) => {
                   const images = clipboardImageFiles(ev.clipboardData);
-                  if (images.length === 0) {
+                  if (images.length > 0) {
+                    ev.preventDefault();
+                    if (!attachmentSendingEnabled) {
+                      showAttachHint();
+                      return;
+                    }
+                    setAttachedFiles((prev) => [
+                      ...prev,
+                      ...renamePastedImages(images, pastedSeqRef.current),
+                    ]);
+                    return;
+                  }
+                  const text = ev.clipboardData?.getData("text/plain") ?? "";
+                  if (!shouldAttemptPasteClassify(text, isEditorEmbed())) {
                     return;
                   }
                   ev.preventDefault();
-                  if (!attachmentSendingEnabled) {
-                    showAttachHint();
-                    return;
-                  }
-                  setAttachedFiles((prev) => [
-                    ...prev,
-                    ...renamePastedImages(images, pastedSeqRef.current),
-                  ]);
+                  void classifyAndInsertPaste(text);
                 }}
                 onScroll={() => syncComposerScroll()}
                 onKeyUp={(ev) => {
