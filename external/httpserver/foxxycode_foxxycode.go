@@ -149,6 +149,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/ide/editor-state", s.foxxycodeIdeEditorState)
 	s.mux.HandleFunc("POST /foxxycode/ide/terminal-state", s.foxxycodeIdeTerminalStatePost)
 	s.mux.HandleFunc("GET /foxxycode/ide/terminal-state", s.foxxycodeIdeTerminalStateGet)
+	s.mux.HandleFunc("POST /foxxycode/ide/copy-buffer", s.foxxycodeIdeCopyBufferPost)
+	s.mux.HandleFunc("POST /foxxycode/ide/paste-classify", s.foxxycodeIdePasteClassifyPost)
 	s.mux.HandleFunc("DELETE /foxxycode/sessions/{id}", s.foxxycodeSessionDelete)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/plan", s.foxxycodePlanGet)
 	s.mux.HandleFunc("PUT /foxxycode/sessions/{id}/plan", s.foxxycodePlanPut)

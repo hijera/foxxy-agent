@@ -1365,7 +1365,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/ide/editor-state": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Report the IDE's open tabs and active file",
-					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push the currently open editor tabs and the focused file here whenever the editor selection changes. The latest snapshot is injected into subsequent agent turns as a **`<foxxycode_ide_context>`** block so the model knows which files the user is actively viewing. Paths are absolute; **`openFiles`** may be empty and **`activeFile`** may be omitted.",
+					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push the currently open editor tabs, the focused file, and optionally the current text selection here whenever the editor state changes. The latest snapshot is injected into subsequent agent turns as a **`<foxxycode_ide_context>`** block so the model knows which files the user is actively viewing. Paths are absolute; **`openFiles`** may be empty and **`activeFile`** / **`selection`** may be omitted.",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -1382,6 +1382,16 @@ func openAPISpec() map[string]interface{} {
 											"type":        "string",
 											"description": "Absolute path of the focused editor, if any.",
 										},
+										"selection": map[string]interface{}{
+											"type":        "object",
+											"description": "Current text selection, if any. Injected as a `# Selection` section of the IDE context block and offered to the paste-to-chip copy ring.",
+											"properties": map[string]interface{}{
+												"file":      map[string]interface{}{"type": "string", "description": "Absolute path of the file the selection is in."},
+												"startLine": map[string]interface{}{"type": "integer", "description": "1-based first selected line."},
+												"endLine":   map[string]interface{}{"type": "integer", "description": "1-based last selected line (inclusive)."},
+												"text":      map[string]interface{}{"type": "string", "description": "Selected text (server caps at 16 KiB)."},
+											},
+										},
 									},
 								},
 							},
@@ -1389,6 +1399,75 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"204": map[string]interface{}{"description": "Snapshot stored"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/ide/copy-buffer": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report a fragment copied in the IDE",
+					"description": "IDE clients with real clipboard events (IntelliJ plugin) push each copied fragment here: a file fragment carries the absolute source path and 1-based inclusive line range, a terminal fragment carries the terminal name. Candidates feed **`POST /foxxycode/ide/paste-classify`** (paste-to-chip). The ring keeps the 5 most recent candidates for 15 minutes; blank or oversize (>64 KiB) texts are dropped.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"kind", "text"},
+									"properties": map[string]interface{}{
+										"kind":         map[string]interface{}{"type": "string", "enum": []interface{}{"file", "terminal"}, "description": "Where the fragment was copied from."},
+										"path":         map[string]interface{}{"type": "string", "description": "Absolute source file path (kind \"file\")."},
+										"startLine":    map[string]interface{}{"type": "integer", "description": "1-based first copied line (kind \"file\")."},
+										"endLine":      map[string]interface{}{"type": "integer", "description": "1-based last copied line, inclusive (kind \"file\")."},
+										"terminalName": map[string]interface{}{"type": "string", "description": "Source terminal name (kind \"terminal\")."},
+										"text":         map[string]interface{}{"type": "string", "description": "The copied text, verbatim."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Candidate stored"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/ide/paste-classify": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Classify pasted text against recent IDE copies",
+					"description": "The chat composer posts pasted text here to decide whether it is a fragment recently copied in the IDE (paste-to-chip). Match precedence: exact match (after CRLF/LF normalization) against the copy-buffer ring, then against the current editor selection, then substring match against tracked terminal buffers. Single-line pastes under 16 characters and pastes over 64 KiB always return **`none`**. File paths outside the workspace return **`none`**. Optional **`X-FoxxyCode-Session-ID`** header selects the session cwd used for relativization.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"text"},
+									"properties": map[string]interface{}{
+										"text": map[string]interface{}{"type": "string", "description": "The pasted text, verbatim."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Classification result",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"kind":         map[string]interface{}{"type": "string", "enum": []interface{}{"none", "file", "terminal"}},
+											"pathRel":      map[string]interface{}{"type": "string", "description": "Workspace-relative POSIX path (kind \"file\")."},
+											"startLine":    map[string]interface{}{"type": "integer", "description": "1-based first line (kind \"file\")."},
+											"endLine":      map[string]interface{}{"type": "integer", "description": "1-based last line, inclusive (kind \"file\")."},
+											"terminalName": map[string]interface{}{"type": "string", "description": "Terminal name for an `@terminal:<name>` mention; empty means use the bare `@terminal` token (kind \"terminal\")."},
+										},
+									},
+								},
+							},
+						},
 						"400": errorResponseRef(),
 					},
 				},
