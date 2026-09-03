@@ -1386,6 +1386,149 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/completion": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Suggest the code to insert at the caret",
+					"description": "Inline code autocomplete for editor plugins: one LLM call with no tools, no session and no agent loop, returning the text to insert at the caret as a greyed suggestion. **`prefix`** and **`suffix`** are the code on either side of the caret; both are truncated server-side to **`autocomplete.max_prefix_bytes`** / **`autocomplete.max_suffix_bytes`**. Per **`autocomplete.mode`** the hole reaches the model either as native fill-in-the-middle tokens through a raw completion (**`mode: \"fim\"`** in the reply) or as a chat prompt (**`\"chat\"`**); in **`auto`** a raw call that fails switches that model to chat for the rest of the process. Up to **`autocomplete.related_files`** other open workspace files (from **`POST /foxxycode/ide/editor-state`**) are excerpted into the prompt. The server decides per request whether a block or a single line is appropriate, sends matching stop sequences, streams and cuts the reply where the block ends, and cleans it of fences, re-typed caret text and anything already present in the suffix, so it can be inserted verbatim. Cancel by dropping the connection — the upstream call is bound to the request context. When **`autocomplete.enabled`** is false the endpoint answers **`200`** with an empty completion and **`enabled: false`** so clients stop asking, rather than an error status.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"prefix":   map[string]interface{}{"type": "string", "description": "Code before the caret."},
+										"suffix":   map[string]interface{}{"type": "string", "description": "Code after the caret."},
+										"path":     map[string]interface{}{"type": "string", "description": "File path, used only as a prompt hint."},
+										"language": map[string]interface{}{"type": "string", "description": "Language id, used only as a prompt hint."},
+										"debug":    map[string]interface{}{"type": "boolean", "description": "When true the reply also carries **`raw`** (the model's text before cleaning), **`multi_line`** and **`stops`**, so a quality harness can tell a bad model answer from an over-eager filter."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Suggestion (possibly empty)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"completion": map[string]interface{}{"type": "string", "description": "Text to insert at the caret; empty when nothing is suggested."},
+											"model":      map[string]interface{}{"type": "string", "description": "Logical model id that produced the suggestion."},
+											"mode":       map[string]interface{}{"type": "string", "enum": []string{"fim", "chat", ""}, "description": "How the model was asked: native fill-in-the-middle or a chat prompt; empty when no model was called."},
+											"enabled":    map[string]interface{}{"type": "boolean", "description": "False when autocomplete is switched off in config."},
+											"timed_out":  map[string]interface{}{"type": "boolean", "description": "Present and true when the model did not answer within autocomplete.timeout_ms; the completion is then empty."},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"429": map[string]interface{}{
+							"description": "The model provider rate-limited the request; **`Retry-After`** (seconds) says how long automatic requests should pause.",
+							"headers": map[string]interface{}{
+								"Retry-After": map[string]interface{}{"schema": map[string]string{"type": "integer"}},
+							},
+						},
+						"502": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/completion/config": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read the autocomplete settings an editor client needs",
+					"description": "The subset of **`config.autocomplete`** an editor plugin needs before it can behave: whether to run at all, when to ask, and how much context to send. Clients read this instead of the whole config document, so the knobs stay in one place. Unset fields come back with their defaults applied.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Client-facing autocomplete settings",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"enabled":          map[string]interface{}{"type": "boolean"},
+											"trigger":          map[string]interface{}{"type": "string", "enum": []string{"auto", "manual"}},
+											"debounce_ms":      map[string]interface{}{"type": "integer"},
+											"multi_line":       map[string]interface{}{"type": "boolean"},
+											"timeout_ms":       map[string]interface{}{"type": "integer"},
+											"max_prefix_bytes": map[string]interface{}{"type": "integer"},
+											"max_suffix_bytes": map[string]interface{}{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/completion/stats": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Inline completion counters",
+					"description": "Process-wide numbers that say whether inline completion is fast enough and accepted often enough to keep: requests split by outcome (served, empty, errors, cancelled) and by prompt mode (fim, chat, fim_fallback), latency (average and worst), token cost, and the editor-reported outcomes posted to **`POST /foxxycode/completion/feedback`** (shown, accepted, dismissed, cache_hits) with the resulting **`acceptance_rate`**.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Counters",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"requests":        map[string]interface{}{"type": "integer"},
+											"served":          map[string]interface{}{"type": "integer"},
+											"empty":           map[string]interface{}{"type": "integer"},
+											"errors":          map[string]interface{}{"type": "integer"},
+											"cancelled":       map[string]interface{}{"type": "integer"},
+											"timeouts":        map[string]interface{}{"type": "integer", "description": "Requests the model did not answer within autocomplete.timeout_ms."},
+											"rate_limited":    map[string]interface{}{"type": "integer", "description": "Requests the provider refused with 429, passed on to the client as 429 + Retry-After."},
+											"fim":             map[string]interface{}{"type": "integer"},
+											"chat":            map[string]interface{}{"type": "integer"},
+											"fim_fallback":    map[string]interface{}{"type": "integer"},
+											"fim_empty":       map[string]interface{}{"type": "integer", "description": "Raw FIM calls that answered 200 with nothing and were re-issued as chat; a streak retires FIM for that model."},
+											"reasoning_retries": map[string]interface{}{"type": "integer", "description": "Chat calls re-issued without stop sequences because the model reasons before answering and the stops cut the reasoning short; such models get no stops afterwards."},
+											"latency_avg_ms":  map[string]interface{}{"type": "integer"},
+											"latency_max_ms":  map[string]interface{}{"type": "integer"},
+											"prompt_tokens":   map[string]interface{}{"type": "integer"},
+											"output_tokens":   map[string]interface{}{"type": "integer"},
+											"shown":           map[string]interface{}{"type": "integer"},
+											"accepted":        map[string]interface{}{"type": "integer"},
+											"dismissed":       map[string]interface{}{"type": "integer"},
+											"cache_hits":      map[string]interface{}{"type": "integer"},
+											"acceptance_rate": map[string]interface{}{"type": "number"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/completion/feedback": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report what happened to a suggestion",
+					"description": "Editor plugins post one event per outcome so the counters in **`GET /foxxycode/completion/stats`** can pair model-side cost with user-side value: **`shown`** (a suggestion was drawn), **`accepted`** (Tab), **`dismissed`** (Escape), **`cache_hit`** (re-rendered from the editor's prefix cache without a request).",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"event"},
+									"properties": map[string]interface{}{
+										"event": map[string]interface{}{"type": "string", "enum": []string{"shown", "accepted", "dismissed", "cache_hit"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Counted"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/ide/editor-state": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Report the IDE's open tabs and active file",

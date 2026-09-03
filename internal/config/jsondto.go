@@ -13,6 +13,7 @@ type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
 	Agent        AgentJSON        `json:"agent,omitempty"`
+	Autocomplete AutocompleteJSON `json:"autocomplete,omitempty"`
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
@@ -287,6 +288,24 @@ type ResultEvictionJSON struct {
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
 }
 
+// AutocompleteJSON mirrors AutocompleteConfig. Enabled and MultiLine are pointers so an unset
+// value round-trips as "use the default" rather than an explicit false. Note that Enabled defaults
+// to false here, unlike the other optional sections: suggestions cost tokens per keystroke.
+type AutocompleteJSON struct {
+	Enabled        *bool   `json:"enabled,omitempty"`
+	Model          string  `json:"model,omitempty"`
+	Mode           string  `json:"mode,omitempty"`
+	Temperature    float64 `json:"temperature,omitempty"`
+	MaxTokens      int     `json:"max_tokens,omitempty"`
+	TimeoutMS      int     `json:"timeout_ms,omitempty"`
+	DebounceMS     int     `json:"debounce_ms,omitempty"`
+	Trigger        string  `json:"trigger,omitempty"`
+	MultiLine      *bool   `json:"multi_line,omitempty"`
+	MaxPrefixBytes int     `json:"max_prefix_bytes,omitempty"`
+	MaxSuffixBytes int     `json:"max_suffix_bytes,omitempty"`
+	RelatedFiles   *int    `json:"related_files,omitempty"`
+}
+
 // TitleJSON mirrors TitleConfig. Enabled is a pointer so an unset value round-trips as
 // "use default" (true) rather than an explicit false.
 type TitleJSON struct {
@@ -426,6 +445,20 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Title = TitleJSON{
 		Enabled: c.Title.Enabled, Model: c.Title.Model, MaxTokens: c.Title.MaxTokens,
+	}
+	out.Autocomplete = AutocompleteJSON{
+		Enabled:        c.Autocomplete.Enabled,
+		Model:          c.Autocomplete.Model,
+		Mode:           c.Autocomplete.Mode,
+		Temperature:    c.Autocomplete.Temperature,
+		MaxTokens:      c.Autocomplete.MaxTokens,
+		TimeoutMS:      c.Autocomplete.TimeoutMS,
+		DebounceMS:     c.Autocomplete.DebounceMS,
+		Trigger:        c.Autocomplete.Trigger,
+		MultiLine:      c.Autocomplete.MultiLine,
+		MaxPrefixBytes: c.Autocomplete.MaxPrefixBytes,
+		MaxSuffixBytes: c.Autocomplete.MaxSuffixBytes,
+		RelatedFiles:   c.Autocomplete.RelatedFiles,
 	}
 	out.HTTPServer = HTTPServerJSON{
 		Host:          c.HTTPServer.Host,
@@ -578,6 +611,20 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Title = TitleConfig{
 		Enabled: j.Title.Enabled, Model: j.Title.Model, MaxTokens: j.Title.MaxTokens,
+	}
+	cfg.Autocomplete = AutocompleteConfig{
+		Enabled:        j.Autocomplete.Enabled,
+		Model:          j.Autocomplete.Model,
+		Mode:           j.Autocomplete.Mode,
+		Temperature:    j.Autocomplete.Temperature,
+		MaxTokens:      j.Autocomplete.MaxTokens,
+		TimeoutMS:      j.Autocomplete.TimeoutMS,
+		DebounceMS:     j.Autocomplete.DebounceMS,
+		Trigger:        j.Autocomplete.Trigger,
+		MultiLine:      j.Autocomplete.MultiLine,
+		MaxPrefixBytes: j.Autocomplete.MaxPrefixBytes,
+		MaxSuffixBytes: j.Autocomplete.MaxSuffixBytes,
+		RelatedFiles:   j.Autocomplete.RelatedFiles,
 	}
 	cfg.HTTPServer = HTTPServerConfig{
 		Host:          j.HTTPServer.Host,

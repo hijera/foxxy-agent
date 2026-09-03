@@ -417,6 +417,49 @@ func UISchemaMap() map[string]interface{} {
 				"llm_first_token_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
 			},
 			nil),
+		"autocomplete": objectSchema("Autocomplete",
+			"LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.",
+			map[string]interface{}{
+				"enabled": boolProp("Enabled",
+					"Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke."),
+				"model": strProp("Completion model",
+					"Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it."),
+				"mode": map[string]interface{}{
+					"type":  "string",
+					"title": "Prompt mode",
+					"description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. " +
+						"\"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and reports an error when that is not possible.",
+					"enum": []string{AutocompleteModeAuto, AutocompleteModeChat, AutocompleteModeFIM},
+				},
+				"temperature": numProp("Temperature",
+					"Sampling temperature for suggestions. 0 (the default) is greedy: the same context yields the same suggestion, which is what lets a suggestion survive the next keystroke."),
+				"max_tokens": intProp("Suggestion max tokens",
+					"Completion token cap for one suggestion. Small values keep suggestions short and quick (default 128)."),
+				"related_files": intProp("Related files",
+					"How many other open editor tabs are excerpted (first lines: imports and signatures) into the prompt, so the model sees symbols from neighbouring files. 0 disables it (default 3)."),
+				"timeout_ms": intProp("Request timeout ms",
+					"How long one suggestion request may take before the editor abandons it (default 4000)."),
+				"debounce_ms": intProp("Debounce ms",
+					"How long typing must pause before an automatic request goes out. Ignored when the trigger is manual (default 350)."),
+				"trigger": map[string]interface{}{
+					"type":  "string",
+					"title": "Trigger",
+					"description": "When to ask the model. \"auto\" suggests while you type, after the debounce pause. " +
+						"\"manual\" suggests only when you press the editor shortcut.",
+					"enum": []string{AutocompleteTriggerAuto, AutocompleteTriggerManual},
+				},
+				"multi_line": boolProp("Multi-line suggestions",
+					"Allow one suggestion to span several lines. When off, only the first line of a suggestion is kept, so completion never grows past the caret line (default on)."),
+				"max_prefix_bytes": intProp("Max prefix bytes",
+					"How much of the text before the caret is sent as context (default 8000)."),
+				"max_suffix_bytes": intProp("Max suffix bytes",
+					"How much of the text after the caret is sent as context (default 2000)."),
+			},
+			[]string{
+				"enabled", "model", "mode", "trigger", "debounce_ms", "max_tokens", "temperature", "timeout_ms",
+				"multi_line", "related_files", "max_prefix_bytes", "max_suffix_bytes",
+			},
+			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
 				"permission_mode": map[string]interface{}{
@@ -667,7 +710,7 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
+		"providers", "models", "agent", "autocomplete", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 

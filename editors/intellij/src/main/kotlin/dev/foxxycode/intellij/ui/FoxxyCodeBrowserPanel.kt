@@ -34,6 +34,7 @@ import com.intellij.util.ui.UIUtil
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeLocaleState
 import dev.foxxycode.intellij.FoxxyCodeNotifications
+import dev.foxxycode.intellij.autocomplete.FoxxyCodeAutocompleteService
 import dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService
 import dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
@@ -150,6 +151,9 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
                 // Start reporting open terminals + recent output to the agent.
                 FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                // Pick up the backend's autocomplete settings; inline suggestions stay off
+                // until config.autocomplete enables them.
+                FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
             },
             onError = { msg -> showError(msg) }
         )
@@ -601,6 +605,7 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                         FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
                         FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
                         FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                        FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
                     },
                     onError = { msg -> showError(msg) }
                 )

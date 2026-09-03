@@ -3,6 +3,8 @@ import * as http from "http";
 export interface HttpResponse {
   status: number;
   body: string;
+  /** The Retry-After header, when the server sent one (429 from inline completion). */
+  retryAfter?: string;
 }
 
 /** Minimal GET helper with a connect/read timeout. Used for readiness probing
@@ -29,6 +31,9 @@ export interface PostOptions {
   body: string;
   contentType?: string;
   timeoutMs?: number;
+  /** Aborts the request in flight. Inline completion uses it so the next keystroke drops the
+   *  socket, which ends the backend's request context and the upstream LLM call with it. */
+  signal?: AbortSignal;
 }
 
 /** Fire-and-forget POST helper. Used for the `/foxxycode/sessions/<id>/permission` call. */
@@ -41,6 +46,7 @@ export function httpPost(url: string, opts: PostOptions): Promise<HttpResponse> 
         hostname: parsed.hostname,
         port: parsed.port,
         path: parsed.pathname + parsed.search,
+        signal: opts.signal,
         headers: {
           "Content-Type": opts.contentType ?? "application/json",
           "Content-Length": Buffer.byteLength(opts.body),
@@ -50,7 +56,14 @@ export function httpPost(url: string, opts: PostOptions): Promise<HttpResponse> 
         let body = "";
         res.setEncoding("utf8");
         res.on("data", (c: string) => (body += c));
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        res.on("end", () => {
+          const ra = res.headers["retry-after"];
+          resolve({
+            status: res.statusCode ?? 0,
+            body,
+            retryAfter: Array.isArray(ra) ? ra[0] : ra,
+          });
+        });
         res.on("error", reject);
       },
     );

@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon test test-opencode-rules check-windows lint lint-windows clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
+.PHONY: build build-acp build-desktop icon test test-opencode-rules check-windows lint lint-windows clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -183,6 +183,12 @@ PLUGIN_VERSION ?= $(VERSION)
 
 intellij-build:
 	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon buildPlugin -Pproduction=true -PpluginVersion="$(PLUGIN_VERSION)"
+
+# Live quality run of inline completion against the NeuralDeep hub. Needs NEURALDEEP_API_KEY;
+# skipped without it, so it never runs in CI. Knobs: FOXXYCODE_E2E_MODELS, FOXXYCODE_E2E_MODES,
+# FOXXYCODE_E2E_MIN_SCORE, FOXXYCODE_E2E_REPORT (see external/httpserver/e2e_neuraldeep_autocomplete_test.go).
+e2e-autocomplete:
+	go test -tags http -count=1 -timeout 45m -run TestE2ENeuralDeepAutocomplete -v ./external/httpserver/
 
 # Launch a sandbox IDE with the plugin (host-platform binary only; fast dev loop).
 intellij-run:
