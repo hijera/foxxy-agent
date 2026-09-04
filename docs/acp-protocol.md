@@ -173,7 +173,7 @@ FoxxyCode returns both **Session Config Options** (preferred by modern ACP clien
     {
       "id": "mode",
       "name": "Session mode",
-      "description": "Agent runs tools; Plan focuses on design without execution.",
+      "description": "Agent executes tasks; Plan designs; Docs maintains markdown; Ask answers questions read-only; Debug diagnoses before fixing.",
       "category": "mode",
       "type": "select",
       "currentValue": "agent",
@@ -187,6 +187,21 @@ FoxxyCode returns both **Session Config Options** (preferred by modern ACP clien
           "value": "plan",
           "name": "Plan",
           "description": "Plan and design without code execution"
+        },
+        {
+          "value": "docs",
+          "name": "Docs",
+          "description": "Generate and update project documentation"
+        },
+        {
+          "value": "ask",
+          "name": "Ask",
+          "description": "Answer questions with read-only research tools"
+        },
+        {
+          "value": "debug",
+          "name": "Debug",
+          "description": "Diagnose issues systematically before fixing them"
         }
       ]
     },
@@ -243,6 +258,21 @@ FoxxyCode returns both **Session Config Options** (preferred by modern ACP clien
         "id": "plan",
         "name": "Plan",
         "description": "Plan and design without code execution"
+      },
+      {
+        "id": "docs",
+        "name": "Docs",
+        "description": "Generate and update project documentation"
+      },
+      {
+        "id": "ask",
+        "name": "Ask",
+        "description": "Answer questions with read-only research tools"
+      },
+      {
+        "id": "debug",
+        "name": "Debug",
+        "description": "Diagnose issues systematically before fixing them"
       }
     ]
   }
@@ -505,6 +535,27 @@ Token deltas for the memory sub-agent only (not merged into `messages.json` for 
 
 See `external/memory/README.md` (including **Related work** and the link to [MemAgent](https://github.com/BytedTsinghua-SIA/MemAgent) for partial prompt and flow inspiration).
 
+
+### `debug` - Diagnostics trace event
+
+Emitted only when the diagnostics layer is on (**`debug.enabled`**, the **`--debug`** flag, or a runtime toggle through **`PUT /foxxycode/config`**). One record per boundary in the ReAct loop, so a client can render a live debug timeline. The HTTP bridge forwards these as SSE **`event: debug`**; the same records are persisted to **`<session>/debug_trace.jsonl`** and served by **`GET /foxxycode/sessions/{id}/debug`**.
+
+**`phase`** is one of **`turn_start`**, **`llm_request`**, **`llm_response`**, **`tool_start`**, **`tool_finish`**. **`title`** names the subject of the phase where there is one (the session mode on **`turn_start`**, the tool name on **`tool_start`** / **`tool_finish`**). **`_meta`** carries lightweight per-phase metadata (mode, model, message and tool counts, token usage, stop reason, tool call id and status) — never the raw LLM bodies, which go to the process log instead. Tracing is best-effort and never affects the turn.
+
+```json
+{
+  "sessionUpdate": "debug",
+  "phase": "llm_response",
+  "_meta": {
+    "stop_reason": "tool_use",
+    "input_tokens": 13003,
+    "output_tokens": 112,
+    "tool_calls": 1
+  }
+}
+```
+
+Full guide: **[docs/debugging.md](debugging.md)**.
 
 ### `current_mode_update` - Mode changed
 

@@ -29,6 +29,11 @@ val uiTestProjectDir = layout.buildDirectory.dir("uitest-project")
 // `curl http://127.0.0.1:8580/` component-tree viewer all talk to it.
 val robotServerPort = "8580"
 
+// JCEF's Chrome-DevTools-Protocol port inside the sandbox. Remote Robot stops at the Swing
+// boundary; everything the chat SPA renders is only reachable through this (CefChat.kt, the
+// `cef-*` uiConsole commands). `curl http://127.0.0.1:8581/json` lists the live page targets.
+val cefDebugPort = "8581"
+
 dependencies {
     // Plain JUnit4 unit tests (e.g. ProxyEnvironmentTest) — no IntelliJ platform needed.
     testImplementation("junit:junit:4.13.2")
@@ -80,7 +85,9 @@ fun Test.stripIntellijPlatformJvmArguments() {
 // ----------------------------------------------------------------------------------
 // foxxycode-agent: build the bundled `foxxycode` binary from source on every plugin build.
 // Mirrors the root `Makefile`: `npm --prefix external/ui run build:go` (SPA for
-// go:embed, tag `ui`) then `go build -tags "http ui scheduler memory"`.
+// go:embed, tag `ui`) then `go build -tags "http ui scheduler memory browser gateway"`.
+// Tags track the Makefile FULL_TAGS set minus `cli` (the plugin speaks ACP, never the
+// console TUI); TestBundledBinaryTagsMatchShippedTagSet keeps the two from drifting.
 //
 // The Go source is the repo root: this plugin lives at editors/intellij, so the root
 // is two levels up. There is no nested clone.
@@ -159,7 +166,7 @@ val buildTargets = (binTargets + hostTarget).distinct()
 val foxxycodeBuildTasks = buildTargets.associateWith { t ->
     tasks.register<Exec>("foxxycodeGoBuild_${t.goos}_${t.goarch}") {
         group = "foxxycode"
-        description = "Build the foxxycode binary for ${t.dirName} (http/ui/scheduler/memory)."
+        description = "Build the foxxycode binary for ${t.dirName} (http/ui/scheduler/memory/browser)."
         dependsOn(foxxycodeUiBuild)
         workingDir(foxxycodeDir)
         val outFile = foxxycodeBinRoot.get().dir(t.dirName).file(t.binName)
@@ -168,7 +175,7 @@ val foxxycodeBuildTasks = buildTargets.associateWith { t ->
         environment("CGO_ENABLED", "0")
         commandLine(
             "go", "build",
-            "-tags", "http ui scheduler memory",
+            "-tags", "http ui scheduler memory browser gateway",
             "-trimpath",
             "-ldflags", "-s -w -X github.com/hijera/foxxycode-agent/internal/version.Version=${project.version}",
             "-o", outFile.asFile.absolutePath,
@@ -396,6 +403,9 @@ tasks {
         args = listOf(uiTestProjectDir.get().asFile.absolutePath)
 
         systemProperty("robot-server.port", robotServerPort)
+        // Registry values can be overridden by a same-named system property; this makes JBCefApp
+        // start Chromium with --remote-debugging-port so tests can reach inside the chat SPA.
+        systemProperty("ide.browser.jcef.debug.port", cefDebugPort)
         // A fresh sandbox otherwise blocks on modal startup dialogs, and a modal dialog stops
         // robot-server from reaching anything behind it.
         systemProperty("jb.privacy.policy.text", "<!--999.999-->")
@@ -473,6 +483,7 @@ tasks {
         classpath = uiTest.runtimeClasspath
         mainClass.set("dev.foxxycode.intellij.uitest.UiConsoleKt")
         jvmArgs(remoteRobotJvmArgs)
+        systemProperty("foxxycode.cef.debug.url", "http://127.0.0.1:$cefDebugPort")
         // `uiScript`, not `script`: findProperty("script") resolves against the Project bean
         // before extra properties and silently hands back `false`.
         // Resolved at execution time so configuring any other task does not require the property.
@@ -497,6 +508,7 @@ tasks {
         classpath = uiTest.runtimeClasspath
         useJUnit()
         systemProperty("robot-server.url", "http://127.0.0.1:$robotServerPort")
+        systemProperty("foxxycode.cef.debug.url", "http://127.0.0.1:$cefDebugPort")
         jvmArgs(remoteRobotJvmArgs)
         stripIntellijPlatformJvmArguments()
         // Nothing here is up-to-date-able: the IDE it talks to is outside Gradle's model.

@@ -27,7 +27,7 @@
 
 - **Native desktop window (WebView2)** with desktop notifications, an audio chime, and a first-run guided tour
 - **Deep IDE integration** - open-files context (`<foxxycode_ide_context>`), terminal tracking (`@terminal`), file drag-drop mentions, project folder picker, and native IntelliJ inline diffs
-- **Interactive browser tool** - drives real Chrome via chromedp and returns screenshots to the model (`-tags=browser`) - see [browser tool](docs/browser-tool.md)
+- **Interactive browser tool** - drives real Chrome via chromedp and returns screenshots to the model; shipped in the full builds (`browser` tag) and off by default until `browser.enabled` is set - see [browser tool](docs/browser-tool.md)
 - **Automatic context compaction** - auto-summarizes long conversations (on by default)
 - **Russian settings i18n** and a full `foxxyCode` rebrand of the distribution
 
@@ -60,19 +60,24 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - [Examples (ACP over stdio)](#examples-acp-over-stdio)
 - [Persistent sessions](#persistent-sessions)
 - [Development](#development)
+- [Which build is for whom](#which-build-is-for-whom)
 - [License](#license)
 
 ## Features
 
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
-- **Four operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), and `ask` (read-only answers and investigation)
+- **Five operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), `ask` (read-only answers and investigation), and `debug` (systematic root-cause diagnosis before a fix)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
+- **Background tasks** - `run_command` can detach from the turn (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, the **Background tasks** panel shows what is still running, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a series of similar calls asks once - see [Background tasks](docs/background-tasks.md)
+- **Transcript export** - any session downloads as **PDF**, **DOCX**, **HTML**, or **JSON**. Markdown in the messages is really rendered: tables, syntax-highlighted code, nested and task lists, blockquotes, links that stay clickable, and images from the session's own `assets/`; a remote `http(s)` image is deliberately never fetched at export time. Editor panels that cannot accept a download get a separate route that writes the document to disk and reveals it in the OS file manager - see [HTTP API](docs/http-api.md)
 - **Reasoning level** - for reasoning models (gpt-5, o-series, gpt-oss, qwen3, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/config.md)
+- **Agent self-configuration** - the agent can change FoxxyCode's own configuration on request, but never behind your back: `config_get` reads a dotted path (secrets come back as `<redacted>`), `config_set` **stages** uci-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file, `config_changes` shows what is staged, `config_commit` applies the batch in one transaction - schema-validated, snapshotted to `config.yaml.prev`, hot-reloading skills, rules, tools and MCP servers, and always behind a permission dialog - while `config_revert` and `config_rollback` undo the staged or the applied batch. The bundled `/configure-foxxycode` skill teaches the syntax - see [Configuration reference](docs/config-reference.md#agent-self-configuration)
+- **Improve prompt** - a wand button on the composer's context row rewrites the draft through the model (`POST /foxxycode/enhance-prompt`); **Ctrl+Z** restores the original and a failure leaves the draft untouched - see [Embedded UI](docs/ui.md)
 - **ACP protocol** - FoxxyCode is an **ACP server** (`foxxycode acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
 - **SSH remote execution** - built-in `ssh_run_command` tool runs commands on remote hosts over pure-Go SSH (no external binary); authenticates via SSH agent (`SSH_AUTH_SOCK`) or `~/.ssh` key files — see [Configuration](docs/config.md#ssh-remote-execution)
 - **Subversion support at the git level** - when an SVN working copy is detected, an SVN chip appears next to the git chip (branch `trunk` / `branches/<name>` plus revision): switch the branch in place (`svn switch`) or check it out into its own branch folder. The agent drives Subversion through dedicated `svn_info`, `svn_status`, `svn_diff`, `svn_log`, `svn_list`, `svn_add`, `svn_revert`, `svn_resolve`, `svn_update`, `svn_commit`, `svn_switch`, `svn_merge`, `svn_checkout` tools; the mutating ones ask for permission. Git and svn detection are independent, so an SVN branch folder that also holds a git repository works with both. Switchable off in the settings (`vcs.svn.enabled`); with no svn client installed everything stays hidden — see [Configuration](docs/config-reference.md#vcssvn)
@@ -95,7 +100,7 @@ Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli browser"
 make install   # copies build/foxxycode to ~/.local/bin or /usr/local/bin
 ```
 
@@ -164,7 +169,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 ### Build tags
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli browser"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
 
 | Tag | Enables | Docs |
 |-----|---------|------|
@@ -182,7 +187,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, and **`memory`** - the same feature set as **`make build TAGS="http ui scheduler memory cli"`**.
+Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`browser`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser"`**. Unlike the release archives, it does **not** carry the **`gateway`** tag: build your own image for the messenger gateway (**`docker-compose.dev.yml`** or a custom **`BUILD_TAGS`**), see **[docs/docker.md](docs/docker.md)**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -207,7 +212,7 @@ To **build the image locally** instead, use **`docker-compose.dev.yml`**: **`doc
 http://127.0.0.1:12345/
 ```
 
-The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, **docs**, or **ask** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
+The SPA is served on **`GET /`** by **`foxxycode http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, **docs**, **ask**, or **debug** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
 
 Sanity check without a browser: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
 
@@ -265,7 +270,7 @@ Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based def
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser"`**.
 
 **`foxxycode update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/foxxycode`**) or when you run **`./build/foxxycode update`** to refresh a local build artifact.
 
@@ -361,6 +366,20 @@ The **Disable extended Ask tools** checkbox in Settings → Tools sets **`tools.
 
 Best for: answering repository questions, code reviews, and evidence-based investigation without changing project state.
 
+### Debug Mode
+
+Systematic diagnosis mode. The tool surface is the same as **agent** - the fix has to land somewhere - but the prompt changes how the agent works:
+
+- Establish the actual failure first: reproduce it, or pin down the command, input, error text, and versions
+- Reflect on 5-7 distinct possible sources across layers, then distill to the 1-2 most likely and say why the rest are ruled out
+- Validate the leading hypothesis with logging, a diagnostic print, or a focused failing test **before** changing behavior
+- Confirm the diagnosis with you through the **`question`** tool before applying a fix
+- Fix minimally, verify the original failure is gone, and remove the temporary diagnostics afterwards
+
+Ported from kilocode's **`debug`** agent, which registers the same full permissions and keeps the discipline in the prompt.
+
+Best for: root-cause analysis, regressions, intermittent failures, and any bug where a guessed fix is worse than no fix.
+
 Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Rules
@@ -412,8 +431,12 @@ See **[`docs/skills.md`](docs/skills.md)** for the full reference.
 
 ## MCP Server Integration
 
-Connect external tools via MCP servers. Configured globally in `config.yaml` or
-passed per-session by the ACP client.
+Connect external tools over MCP via `stdio` (a local command), `http` (Streamable HTTP with
+an automatic fallback to legacy SSE), or `sse`. Servers can be declared globally in
+`config.yaml` (`mcp_servers`) or in a Cursor-compatible `~/.foxxycode/mcp.json`, per project
+in `./.foxxycode/mcp.json` (a later level overrides a server by name), or passed per session
+by the ACP client. Whole servers and individual tools can be disabled in the configuration,
+through the `/foxxycode/mcp*` REST API, or in **Settings -> MCP servers** in the web UI.
 
 Example adding a GitHub MCP server in config:
 
@@ -427,11 +450,50 @@ mcp_servers:
         value: "${GITHUB_TOKEN}"
 ```
 
+The same server in `.foxxycode/mcp.json`, next to a remote one:
+
+```json
+{
+  "mcpServers": {
+    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+    "remote-tools": { "url": "https://mcp.example.com/mcp" }
+  }
+}
+```
+
+A remote server behind a self-signed or expired certificate could not be connected at all.
+For those, an entry takes `insecure_skip_verify` (`insecureSkipVerify` in `mcp.json`) - the
+**Ignore SSL certificate errors** checkbox on the server row under **Settings -> MCP servers**.
+It is off by default, shown only for `url`-backed servers, and **removes the protection against
+a man in the middle** - use it only on a trusted network. The flag is part of the approved
+declaration, so turning it on makes a project-local server ask for approval again.
+
+A project-local `./.foxxycode/mcp.json` arrives with the checkout, which means the repository -
+not you - picks the command a session would run. Such entries therefore **do not start until
+they are approved** for that working folder (`mcp.project_trust: ask`, the default):
+
+```bash
+foxxycode mcp list
+```
+
+```bash
+foxxycode mcp trust <name>
+```
+
+The same decision is available over `POST /foxxycode/mcp/{name}/trust` and from the shield
+button under **Settings -> MCP servers**. An approval binds to the working folder and to the
+digest of the declaration, so editing an entry asks again. Servers from `config.yaml` and
+`~/.foxxycode/mcp.json` are yours and never pass through the gate.
+
+For a working folder you already trust (or for CI), set `mcp.project_trust: allow` in
+`config.yaml`, or pass `--mcp-project-trust allow` to `foxxycode acp` / `foxxycode http` to
+affect just that one process; `deny` does not load project servers at all.
+
 See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
 ## Messenger gateway
 
-Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `foxxycode gateway`.
+The release CLI archives and the desktop app ship with the **`gateway`** tag, so `foxxycode gateway` works out of the box. For your own build, use **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters).
 
 ```bash
 make build TAGS="gateway.telegram"
@@ -518,7 +580,15 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.foxxycode/rules`, …)
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
+- [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and the whole-program grant
+- [Custom tools](docs/custom-tools.md) - how to add a tool of your own to the agent
+- [IntelliJ embedding](docs/intellij-embedding.md) - how the plugin hosts the SPA and the bundled binary
+- [Remote control](docs/remote-control.md) - driving a remote `foxxycode http` from the CLI or ACP
+- [Codex hooks](docs/codex-hooks.md) - how `.cursor/rules/*.mdc` reach a Codex CLI session on this repo
+- [OpenCode hooks](docs/opencode-hooks.md) - deterministic `.cursor/rules/*.mdc` delivery into OpenCode sessions
+- [ZCode hooks](docs/zcode-hooks.md) - the same for ZCode sessions
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
+- [Diagnostics](docs/debugging.md) - opt-in `debug:` layer: raw LLM capture, per-session turn trace, `GET /foxxycode/sessions/{id}/debug`, runtime toggle
 - [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 
 ## Examples (ACP over stdio)
@@ -537,7 +607,7 @@ By default, `foxxycode acp` and `foxxycode http` store each session bundle under
 
 The foxxycode_todo_* tools keep the active checklist mirrored to `todos/active.md`. A wholesale **`foxxycode_todo_plan_replace`** while items are incomplete is rejected until you finish rows or run **`foxxycode_todo_plan_archive`**; replacing when every row is **`completed`** moves the prior `active.md` into **`todos/archive/`** (`todo-<nanos>.md`). **`foxxycode_todo_plan_archive`** finishes open rows to **`completed`**, writes **`todos/archive/plan_<unix_seconds>.md`**, then clears the session plan when persistence is on.
 
-When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template. Embedded templates are assembled from section fragments under **`internal/prompts/sections/`**, while files under **`prompts.dir`** keep the legacy one-file-per-mode shape with configurable **`agent.md`**, **`plan.md`**, **`docs.md`**, and **`ask.md`** names. The todo block uses `{{if .TodoList}}` … `{{end}}` and is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
+When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template. Embedded templates are assembled from section fragments under **`internal/prompts/sections/`**, while files under **`prompts.dir`** keep the legacy one-file-per-mode shape with configurable **`agent.md`**, **`plan.md`**, and **`docs.md`** names plus fixed **`ask.md`** and **`debug.md`**. The todo block uses `{{if .TodoList}}` … `{{end}}` and is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, FoxxyCode refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
 
 ## Development
 
@@ -549,7 +619,7 @@ make test
 # Example harnesses (see examples/README.md): ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli browser"
 
 ./build/foxxycode -v    # same as --version
 
@@ -559,6 +629,25 @@ foxxycode acp --log-level debug
 # Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp/acp_e2e_todo.py)
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | foxxycode acp
 ```
+
+## Which build is for whom
+
+FoxxyCode is one source tree and one binary; builds differ by their **tag set** (see
+[Build tags](#build-tags)). The table runs from "install it and go" to "build your own".
+
+| Build | Where to get it | What is inside | Who it is for |
+|-------|-----------------|----------------|---------------|
+| **Desktop app** | `foxxycode-desktop_<version>_windows_amd64.zip` on [Releases](https://github.com/hijera/foxxycode-agent/releases) | the full set plus `desktop` (a WebView2 window, no console) | Anyone who wants an ordinary windowed app: chat, settings, notifications and an audio cue, a first-run guided tour. **Windows x64 only** |
+| **CLI release archive** | `foxxycode_<version>_<os>_<arch>.{tar.gz,zip}` on [Releases](https://github.com/hijera/foxxycode-agent/releases) | `http ui scheduler memory cli browser gateway` | **The default choice for most people.** Console TUI (`foxxycode`), web UI (`foxxycode http` -> `http://127.0.0.1:12345/`), scheduler, memory, browser tools, messenger gateway (`foxxycode gateway`). Linux, Windows, macOS (Intel and Apple Silicon) |
+| **IDE plugin** | the IntelliJ zip and the VS Code `.vsix` are attached to the same GitHub Release | the same full set, minus `cli` and `gateway` | Anyone working inside an editor: chat panel, open-files context, `@terminal`, file drag-drop, native inline diffs in IntelliJ. The binary ships inside the plugin - no separate install |
+| **Docker image** | `ghcr.io/hijera/foxxycode-agent` (`latest`, `X.Y.Z`; linux/amd64 and linux/arm64) | `http scheduler ui memory cli browser` | A server, a team, or CI: one shared instance with the web UI and the working directory mounted as a volume. **The image ships no Chrome** - derive an image for the browser tools; it carries no `gateway` tag either |
+| **Full build from source** | `make build TAGS="http ui scheduler memory cli browser gateway"` | same as the release archive | Anyone hacking on the fork, or building for a platform the releases do not cover |
+| **Lean, ACP only** | `make build` (no tags) | ACP server, sessions, prompts, tools | Embedding into an editor or a script over ACP, and minimal containers (`scratch`, distroless, read-only rootfs): no HTTP, no SPA, no scheduler, no memory - the smallest binary |
+| **Messenger gateway** | already in the CLI release archive and the desktop app; slim self-build: `make build TAGS="http ui scheduler memory gateway.telegram"` or `docker-compose.dev.yml` | the `foxxycode gateway` subcommand | A Telegram bot with per-user isolated sessions. Only the published Docker image lacks the `gateway` tag - build your own image for that |
+| **`go install`** | `go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest` | no optional tags | A quick try when all you need is ACP. No `foxxycode http`, no SPA, no scheduler - use a release archive for those |
+
+For a non-standard tag set, the **`python scripts/build.py`** wizard offers tag presets and
+target platforms - see **[docs/build.md](docs/build.md#interactive-build-wizard)**.
 
 ## License
 

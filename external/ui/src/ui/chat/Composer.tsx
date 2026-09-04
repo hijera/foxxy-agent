@@ -1539,6 +1539,7 @@ export function Composer(props: {
     if (m === "plan") return t("composer.modePlan");
     if (m === "docs") return t("composer.modeDocs");
     if (m === "ask") return t("composer.modeAsk");
+    if (m === "debug") return t("composer.modeDebug");
     if (m === "agent") return t("composer.modeAgent");
     const i = m.lastIndexOf("/");
     if (i >= 0 && i < m.length - 1) {
@@ -1551,6 +1552,7 @@ export function Composer(props: {
     if (id === "plan") return "mode-plan";
     if (id === "docs") return "mode-docs";
     if (id === "ask") return "mode-ask";
+    if (id === "debug") return "mode-debug";
     return "mode-agent";
   }
 

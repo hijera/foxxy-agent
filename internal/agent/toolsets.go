@@ -106,6 +106,9 @@ var askExtendedToolNames = []string{
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.
+// Debug mode is likewise unrestricted (full tool access, matching kilocode's Debug mode); its
+// behaviour is driven entirely by the debug.md system prompt, so it intentionally falls through
+// to the nil (unrestricted) return below instead of getting a named allowlist.
 // noSelfRun mirrors tools.plan_no_self_run: in plan mode it removes plan_exit, so the model
 // cannot switch the session to agent mode and start implementing on its own. The optional
 // askBasicOnly value mirrors tools.ask_disable_extended_tools.

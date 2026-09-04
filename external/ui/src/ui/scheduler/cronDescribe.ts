@@ -1,5 +1,13 @@
 import cronstrue from "cronstrue";
+import "cronstrue/locales/ru";
 import { getLocale, t } from "../i18n/i18n";
+
+// cronstrue types its locale as a plain string but silently falls back to
+// English for one it never loaded, so the narrowing doubles as the list of
+// locale bundles imported above.
+function cronLocale(): "en" | "ru" {
+  return getLocale() === "ru" ? "ru" : "en";
+}
 
 /**
  * Human-readable description of a 5-field cron (UTC on server).
@@ -14,7 +22,7 @@ export function describeCronScheduleUTC(spec: string): string | null {
     return cronstrue.toString(s, {
       use24HourTimeFormat: true,
       verbose: true,
-      locale: getLocale(),
+      locale: cronLocale(),
     });
   } catch {
     return null;
@@ -33,10 +41,15 @@ export function describeCronScheduleOrError(spec: string): {
     const text = cronstrue.toString(s, {
       use24HourTimeFormat: true,
       verbose: true,
-      locale: getLocale(),
+      locale: cronLocale(),
     });
     return { ok: true, text };
-  } catch {
-    return { ok: false, error: t("scheduler.cron.invalid") };
+  } catch (e) {
+    // cronstrue names the offending field ("Expression has only 3 parts..."), which is worth
+    // more to the author than a generic sentence, so the translated copy is only a fallback.
+    // It throws plain strings, not Errors, hence the second branch.
+    const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+    const msg = raw.replace(/^Error:\s*/, "").trim();
+    return { ok: false, error: msg || t("scheduler.cron.invalid") };
   }
 }

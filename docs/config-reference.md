@@ -45,6 +45,7 @@ The bundled `/configure-foxxycode` skill teaches the agent this syntax, the conf
 | [`providers`](#providers) | list | LLM API credentials and endpoints | — |
 | [`models`](#models) | list | Logical model entries selectable per session | — |
 | [`agent`](#agent) | object | ReAct loop model and safety caps | — |
+| [`autocomplete`](#autocomplete) | object | Inline code completion for the editor plugins | — |
 | [`prompts`](#prompts) | object | System prompt template overrides | — |
 | [`instructions`](#instructions) | object | Project instruction files (AGENTS.md) | — |
 | [`skills`](#skills) | object | Skill discovery directories | — |
@@ -170,7 +171,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `dir` | string | no | `""` (embedded templates) | Directory with Go text/template files. Supports `~` and `${CWD}` (session cwd at render time). Ask uses `ask.md` in this directory. |
+| `dir` | string | no | `""` (embedded templates) | Directory with Go text/template files. Supports `~` and `${CWD}` (session cwd at render time). Ask uses `ask.md` and Debug uses `debug.md` in this directory. |
 | `agent_prompt` | string | no | `agent.md` | Template file name for agent mode, inside `dir`. |
 | `plan_prompt` | string | no | `plan.md` | Template file name for plan mode, inside `dir`. |
 | `docs_prompt` | string | no | `docs.md` | Template file name for docs mode, inside `dir`. |
@@ -216,6 +217,7 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
 | `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `insecure_skip_verify` | bool | no | `false` | Accept this http/sse server's TLS certificate without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks. Setting it changes the declaration digest, so a project-local entry needs approving again. |
 | `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
 | `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
@@ -303,6 +305,21 @@ Logging (`config.Logger`, `internal/config/logger.go`). ACP flags `--log-level`,
 | `rotation.max_size_mb` | int | no | `0` | Rotate after this size in MB; `0` disables size-based rotation. |
 | `rotation.max_files` | int | no | `0` | Rotated backups to keep when `max_size_mb > 0`. |
 
+## `debug`
+
+Diagnostics master switch (`config.Debug`, `internal/config/debug.go`). Off by default and free when off. Full guide: **`docs/debugging.md`**.
+
+Not related to the `debug` **session mode** — that one changes how the model behaves, this one changes what FoxxyCode records.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `false` | Turns on the whole layer: forces the process logger to `debug` level (overriding `logger.level`), enables raw LLM HTTP capture, and writes a per-session `debug_trace.jsonl`. |
+| `capture_llm` | bool | no | unset → follows `enabled` | Gates only the raw request/response body logging. Unset means "follow `enabled`". Set explicitly to `false` to keep debug logs and the trace while suppressing bodies (which carry the whole conversation). |
+
+The `--debug` flag on `foxxycode acp`, `foxxycode http`, and `foxxycode gateway` forces `enabled: true` for that process. It only ever turns the layer **on**: the flag is applied only when explicitly passed, so a default-false flag cannot silently override a config-enabled layer. `foxxycode desktop` and the console have no flag but honour `debug.enabled` from `config.yaml`.
+
+`PUT /foxxycode/config` applies a change to `debug.enabled` **without a restart** — the log level is re-set on a shared `slog.LevelVar` and the capture flag is atomic.
+
 ## `sessions`
 
 Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
@@ -354,6 +371,31 @@ Unmarked large `read` and `grep` results collapse to short placeholders in later
 | `enabled` | bool | no | `true` | Master switch. |
 | `keep_recent` | int | no | `2` | Recent evictable results kept intact; `0` keeps none. |
 | `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted; `0` makes all results candidates. |
+
+## `autocomplete`
+
+LLM-backed inline code completion (`config.AutocompleteConfig`, `internal/config/autocomplete.go`; always compiled). This is the greyed suggestion the editor plugins draw ahead of the caret and accept with Tab. Editors fetch it over `POST /foxxycode/completion` — one single-shot LLM call with no tools, no session and no agent loop — and read `GET /foxxycode/completion/config` to learn when to ask. See [http-api.md](http-api.md).
+
+Unlike [`compaction`](#compaction) and [`title`](#title), this section is **off unless enabled explicitly**: a suggestion is requested as you type, so leaving it on by default would spend tokens on every keystroke. Point `model` at a small, fast `models[]` entry — speed beats cleverness here, because a suggestion is worthless once you have typed past it.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `false` | Turn on inline suggestions in the editor plugins. |
+| `model` | string | no | `""` (agent model) | Exact `models[].model` id used for the suggestion pass. |
+| `mode` | string | no | `auto` | How the hole reaches the model. `auto`: native fill-in-the-middle tokens through a raw completion (`POST /v1/completions`) when the model family is known (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and the provider is OpenAI-compatible, a chat prompt otherwise; a raw call that fails switches that model to chat for the rest of the process. `chat`: always a chat prompt. `fim`: always FIM tokens, and an error when that is not possible. |
+| `temperature` | number | no | `0` | Sampling temperature. Unlike `models[].temperature`, `0` here is the value rather than "unset": suggestions are greedy by default, so the same context yields the same suggestion and it survives the next keystroke. |
+| `max_tokens` | int | no | `128` | Completion token cap for one suggestion. Caps the model entry's own `max_tokens`, so sharing an entry with the agent cannot buy an 8k-token suggestion. |
+| `timeout_ms` | int | no | `4000` | How long one suggestion request may take before it is abandoned. |
+| `debounce_ms` | int | no | `350` | Typing pause before an automatic request goes out. Ignored when `trigger` is `manual`. |
+| `trigger` | string | no | `auto` | `auto` suggests while you type; `manual` suggests only on the editor shortcut. |
+| `multi_line` | bool | no | `true` | Allow a suggestion to span several lines. When `false`, only its first line is kept. Even when allowed, a block is only produced where the caret invites one: at the end of a line that opened a block, or on an empty line; with code to the right of the caret the suggestion never grows past the line. |
+| `related_files` | int | no | `3` | How many other open editor tabs (reported over `POST /foxxycode/ide/editor-state`, workspace files only) are excerpted — first 40 lines, up to 1500 bytes each — into the prompt so the model sees imports and signatures from neighbouring files. `0` disables it. |
+| `max_prefix_bytes` | int | no | `8000` | How much of the text before the caret is sent as context. |
+| `max_suffix_bytes` | int | no | `2000` | How much of the text after the caret is sent as context. |
+
+Retries are deliberately disabled for this pass regardless of `agent.llm_retry_max`: a retried suggestion lands after the user has typed past it. Qwen3-family thinking is pinned off (`chat_template_kwargs.enable_thinking: false`) regardless of the serving default, because a thinking model can spend the whole small budget inside its reasoning block and return nothing. Generation stops at sequences matched to the request — the line break for a single-line suggestion, the exact next suffix line and a blank-line run for a block — and, in chat mode, the streamed reply is cut the moment it dedents past the caret's scope. `GET /foxxycode/completion/stats` reports latency, token cost and the editor-reported acceptance rate.
+
+**Judging quality on a live hub.** `make e2e-autocomplete` with `NEURALDEEP_API_KEY` set runs `external/httpserver/e2e_neuraldeep_autocomplete_test.go`: a dozen caret positions across Go, Python, TypeScript, JavaScript and Kotlin, each with a loose acceptance rule (the idea the answer must contain, no fence, no re-typed suffix, single-line where the caret demands it), run against every model in `FOXXYCODE_E2E_MODELS` in every prompt mode in `FOXXYCODE_E2E_MODES` (default `auto,chat`, so native FIM and chat prompting can be compared per model). It prints a markdown report with the actual completions and latencies, writes it to `FOXXYCODE_E2E_REPORT` when set, and only fails below `FOXXYCODE_E2E_MIN_SCORE`. It is skipped without the key, so CI never talks to the hub.
 
 ## `title`
 
@@ -430,6 +472,7 @@ Interactive browser automation tool (`config.BrowserConfig`, `internal/config/br
 |---|---|---|---|---|---|
 | `enabled` | bool | no | `false` | — | Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for builds compiled with the `browser` tag. |
 | `headless` | bool | no | `true` | — | Run the browser without a visible window. Set to `false` to watch the automated session. |
+| `screenshots` | bool | no | `true` | — | Capture a screenshot after each action and show it to the model. Set to `false` to drive the browser text-only: actions still report the URL and the page log, and `foxxycode_browser_read_page` plus `foxxycode_browser_evaluate` read the page as text. Useful for a model without vision, and it drops the base64 image from every request. |
 | `executable_path` | string | no | `""` (auto) | — | Path to a specific Chrome/Chromium binary; empty lets chromedp auto-detect an installed browser. |
 | `timeout_seconds` | int | no | `30` | — | Per-action timeout for navigation, clicks, and other browser operations. |
 

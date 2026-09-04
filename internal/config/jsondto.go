@@ -13,6 +13,7 @@ type ConfigJSON struct {
 	Providers    []ProviderJSON   `json:"providers,omitempty"`
 	Models       []ModelJSON      `json:"models,omitempty"`
 	Agent        AgentJSON        `json:"agent,omitempty"`
+	Autocomplete AutocompleteJSON `json:"autocomplete,omitempty"`
 	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
@@ -30,6 +31,7 @@ type ConfigJSON struct {
 	UI           UIJSON           `json:"ui,omitempty"`
 	Browser      BrowserJSON      `json:"browser,omitempty"`
 	VCS          VCSJSON          `json:"vcs,omitempty"`
+	Debug        DebugJSON        `json:"debug,omitempty"`
 }
 
 // VCSJSON mirrors VCSConfig for JSON APIs.
@@ -167,15 +169,16 @@ type SkillsJSON struct {
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
 type MCPServerJSON struct {
-	Type          string           `json:"type,omitempty"`
-	Name          string           `json:"name"`
-	Command       string           `json:"command,omitempty"`
-	Args          []string         `json:"args,omitempty"`
-	Env           []EnvVarJSON     `json:"env,omitempty"`
-	URL           string           `json:"url,omitempty"`
-	Headers       []HTTPHeaderJSON `json:"headers,omitempty"`
-	Disabled      bool             `json:"disabled,omitempty"`
-	DisabledTools []string         `json:"disabled_tools,omitempty"`
+	Type               string           `json:"type,omitempty"`
+	Name               string           `json:"name"`
+	Command            string           `json:"command,omitempty"`
+	Args               []string         `json:"args,omitempty"`
+	Env                []EnvVarJSON     `json:"env,omitempty"`
+	URL                string           `json:"url,omitempty"`
+	Headers            []HTTPHeaderJSON `json:"headers,omitempty"`
+	InsecureSkipVerify bool             `json:"insecure_skip_verify,omitempty"`
+	Disabled           bool             `json:"disabled,omitempty"`
+	DisabledTools      []string         `json:"disabled_tools,omitempty"`
 }
 
 // EnvVarJSON mirrors EnvVarConfig.
@@ -197,10 +200,10 @@ type MCPJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode          string               `json:"permission_mode,omitempty"`
-	CommandAllowlist        []string             `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun           *bool                `json:"plan_no_self_run,omitempty"`
-	AskDisableExtendedTools bool                 `json:"ask_disable_extended_tools,omitempty"`
+	PermissionMode          string   `json:"permission_mode,omitempty"`
+	CommandAllowlist        []string `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun           *bool    `json:"plan_no_self_run,omitempty"`
+	AskDisableExtendedTools bool     `json:"ask_disable_extended_tools,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 	Background   ToolBackgroundJSON   `json:"background"`
@@ -236,6 +239,13 @@ type LoggerJSON struct {
 	Rotation LoggerRotationJSON `json:"rotation,omitempty"`
 }
 
+// DebugJSON mirrors Debug for JSON APIs. CaptureLLM is a pointer so an unset
+// value round-trips as "follow Enabled" rather than false.
+type DebugJSON struct {
+	Enabled    bool  `json:"enabled"`
+	CaptureLLM *bool `json:"capture_llm,omitempty"`
+}
+
 // LoggerRotationJSON mirrors LoggerRotation.
 type LoggerRotationJSON struct {
 	MaxSizeMB int `json:"max_size_mb,omitempty"`
@@ -262,12 +272,12 @@ type MemoryJSON struct {
 // "use default" (true) rather than an explicit false; KeepRecentTurns is a pointer so an explicit
 // 0 (keep nothing verbatim) round-trips distinctly from unset.
 type CompactionJSON struct {
-	Engine           string             `json:"engine,omitempty"`
-	Enabled          *bool              `json:"enabled,omitempty"`
-	Model            string             `json:"model,omitempty"`
-	ThresholdPercent int                `json:"threshold_percent,omitempty"`
-	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
-	MaxTokens        int                `json:"max_tokens,omitempty"`
+	Engine           string `json:"engine,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
+	Model            string `json:"model,omitempty"`
+	ThresholdPercent int    `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
+	MaxTokens        int    `json:"max_tokens,omitempty"`
 	// omitempty does not apply to structs; unset eviction serializes as {}.
 	ResultEviction ResultEvictionJSON `json:"result_eviction"`
 }
@@ -276,6 +286,24 @@ type ResultEvictionJSON struct {
 	Enabled        *bool `json:"enabled,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
+}
+
+// AutocompleteJSON mirrors AutocompleteConfig. Enabled and MultiLine are pointers so an unset
+// value round-trips as "use the default" rather than an explicit false. Note that Enabled defaults
+// to false here, unlike the other optional sections: suggestions cost tokens per keystroke.
+type AutocompleteJSON struct {
+	Enabled        *bool   `json:"enabled,omitempty"`
+	Model          string  `json:"model,omitempty"`
+	Mode           string  `json:"mode,omitempty"`
+	Temperature    float64 `json:"temperature,omitempty"`
+	MaxTokens      int     `json:"max_tokens,omitempty"`
+	TimeoutMS      int     `json:"timeout_ms,omitempty"`
+	DebounceMS     int     `json:"debounce_ms,omitempty"`
+	Trigger        string  `json:"trigger,omitempty"`
+	MultiLine      *bool   `json:"multi_line,omitempty"`
+	MaxPrefixBytes int     `json:"max_prefix_bytes,omitempty"`
+	MaxSuffixBytes int     `json:"max_suffix_bytes,omitempty"`
+	RelatedFiles   *int    `json:"related_files,omitempty"`
 }
 
 // TitleJSON mirrors TitleConfig. Enabled is a pointer so an unset value round-trips as
@@ -361,8 +389,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		mj := MCPServerJSON{
 			Type: s.Type, Name: s.Name, Command: s.Command,
 			Args: append([]string(nil), s.Args...), URL: s.URL,
-			Disabled:      s.Disabled,
-			DisabledTools: append([]string(nil), s.DisabledTools...),
+			InsecureSkipVerify: s.InsecureSkipVerify,
+			Disabled:           s.Disabled,
+			DisabledTools:      append([]string(nil), s.DisabledTools...),
 		}
 		for _, e := range s.Env {
 			mj.Env = append(mj.Env, EnvVarJSON(e))
@@ -398,6 +427,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		File: c.Logger.File, Format: c.Logger.Format,
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
+	out.Debug = DebugJSON{Enabled: c.Debug.Enabled, CaptureLLM: c.Debug.CaptureLLM}
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
@@ -415,6 +445,20 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Title = TitleJSON{
 		Enabled: c.Title.Enabled, Model: c.Title.Model, MaxTokens: c.Title.MaxTokens,
+	}
+	out.Autocomplete = AutocompleteJSON{
+		Enabled:        c.Autocomplete.Enabled,
+		Model:          c.Autocomplete.Model,
+		Mode:           c.Autocomplete.Mode,
+		Temperature:    c.Autocomplete.Temperature,
+		MaxTokens:      c.Autocomplete.MaxTokens,
+		TimeoutMS:      c.Autocomplete.TimeoutMS,
+		DebounceMS:     c.Autocomplete.DebounceMS,
+		Trigger:        c.Autocomplete.Trigger,
+		MultiLine:      c.Autocomplete.MultiLine,
+		MaxPrefixBytes: c.Autocomplete.MaxPrefixBytes,
+		MaxSuffixBytes: c.Autocomplete.MaxSuffixBytes,
+		RelatedFiles:   c.Autocomplete.RelatedFiles,
 	}
 	out.HTTPServer = HTTPServerJSON{
 		Host:          c.HTTPServer.Host,
@@ -509,8 +553,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		mc := MCPServerConfig{
 			Type: s.Type, Name: s.Name, Command: s.Command,
 			Args: append([]string(nil), s.Args...), URL: s.URL,
-			Disabled:      s.Disabled,
-			DisabledTools: append([]string(nil), s.DisabledTools...),
+			InsecureSkipVerify: s.InsecureSkipVerify,
+			Disabled:           s.Disabled,
+			DisabledTools:      append([]string(nil), s.DisabledTools...),
 		}
 		for _, e := range s.Env {
 			mc.Env = append(mc.Env, EnvVarConfig(e))
@@ -548,6 +593,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 			MaxSizeMB: j.Logger.Rotation.MaxSizeMB, MaxFiles: j.Logger.Rotation.MaxFiles,
 		},
 	}
+	cfg.Debug = Debug{Enabled: j.Debug.Enabled, CaptureLLM: j.Debug.CaptureLLM}
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
@@ -565,6 +611,20 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Title = TitleConfig{
 		Enabled: j.Title.Enabled, Model: j.Title.Model, MaxTokens: j.Title.MaxTokens,
+	}
+	cfg.Autocomplete = AutocompleteConfig{
+		Enabled:        j.Autocomplete.Enabled,
+		Model:          j.Autocomplete.Model,
+		Mode:           j.Autocomplete.Mode,
+		Temperature:    j.Autocomplete.Temperature,
+		MaxTokens:      j.Autocomplete.MaxTokens,
+		TimeoutMS:      j.Autocomplete.TimeoutMS,
+		DebounceMS:     j.Autocomplete.DebounceMS,
+		Trigger:        j.Autocomplete.Trigger,
+		MultiLine:      j.Autocomplete.MultiLine,
+		MaxPrefixBytes: j.Autocomplete.MaxPrefixBytes,
+		MaxSuffixBytes: j.Autocomplete.MaxSuffixBytes,
+		RelatedFiles:   j.Autocomplete.RelatedFiles,
 	}
 	cfg.HTTPServer = HTTPServerConfig{
 		Host:          j.HTTPServer.Host,

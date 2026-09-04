@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// Schema annotation keys shared with the settings form renderer. A section that
+// needs a build tag names it in SchemaRequiresBuildTag; the process serving the
+// schema adds SchemaBuildTagMissing when its own binary lacks that tag.
+const (
+	SchemaRequiresBuildTag = "x-foxxycode-requires-build-tag"
+	SchemaBuildTagMissing  = "x-foxxycode-build-tag-missing"
+)
+
 // UISchemaJSON returns a JSON Schema (draft 2020-12) document for ConfigJSON (UI editor).
 // HTTPServer is omitted; listen bind is controlled via CLI, not this form.
 func UISchemaJSON() ([]byte, error) {
@@ -49,6 +57,26 @@ func boolProp(title, description string) map[string]interface{} {
 func boolPropDefault(title, description string, value bool) map[string]interface{} {
 	out := boolProp(title, description)
 	out["default"] = value
+	return out
+}
+
+// browserSchema is the browser section. It carries the name of the build tag the
+// tool needs, so a surface rendering this form can say why the switch is inert
+// instead of showing a toggle that silently does nothing. Whether THIS binary has
+// the tag is a runtime fact and is added when the schema is served — keeping it out
+// of here is what lets the committed fixture match under every tag combination.
+func browserSchema() map[string]interface{} {
+	out := objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
+		map[string]interface{}{
+			"enabled":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
+			"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
+			"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
+			"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
+			"screenshots":     boolPropDefault("Screenshots", "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.", true),
+		},
+		[]string{"enabled", "headless", "screenshots", "executable_path", "timeout_seconds"},
+		nil)
+	out[SchemaRequiresBuildTag] = BrowserBuildTag
 	return out
 }
 
@@ -276,6 +304,8 @@ func UISchemaMap() map[string]interface{} {
 				"additionalProperties": false,
 			},
 		},
+		"insecure_skip_verify": boolProp("Ignore SSL certificate errors",
+			"Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks."),
 		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
 		"disabled_tools": map[string]interface{}{
 			"type":        "array",
@@ -387,6 +417,49 @@ func UISchemaMap() map[string]interface{} {
 				"llm_first_token_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
 			},
 			nil),
+		"autocomplete": objectSchema("Autocomplete",
+			"LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.",
+			map[string]interface{}{
+				"enabled": boolProp("Enabled",
+					"Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke."),
+				"model": strProp("Completion model",
+					"Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it."),
+				"mode": map[string]interface{}{
+					"type":  "string",
+					"title": "Prompt mode",
+					"description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. " +
+						"\"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and reports an error when that is not possible.",
+					"enum": []string{AutocompleteModeAuto, AutocompleteModeChat, AutocompleteModeFIM},
+				},
+				"temperature": numProp("Temperature",
+					"Sampling temperature for suggestions. 0 (the default) is greedy: the same context yields the same suggestion, which is what lets a suggestion survive the next keystroke."),
+				"max_tokens": intProp("Suggestion max tokens",
+					"Completion token cap for one suggestion. Small values keep suggestions short and quick (default 128)."),
+				"related_files": intProp("Related files",
+					"How many other open editor tabs are excerpted (first lines: imports and signatures) into the prompt, so the model sees symbols from neighbouring files. 0 disables it (default 3)."),
+				"timeout_ms": intProp("Request timeout ms",
+					"How long one suggestion request may take before the editor abandons it (default 4000)."),
+				"debounce_ms": intProp("Debounce ms",
+					"How long typing must pause before an automatic request goes out. Ignored when the trigger is manual (default 350)."),
+				"trigger": map[string]interface{}{
+					"type":  "string",
+					"title": "Trigger",
+					"description": "When to ask the model. \"auto\" suggests while you type, after the debounce pause. " +
+						"\"manual\" suggests only when you press the editor shortcut.",
+					"enum": []string{AutocompleteTriggerAuto, AutocompleteTriggerManual},
+				},
+				"multi_line": boolProp("Multi-line suggestions",
+					"Allow one suggestion to span several lines. When off, only the first line of a suggestion is kept, so completion never grows past the caret line (default on)."),
+				"max_prefix_bytes": intProp("Max prefix bytes",
+					"How much of the text before the caret is sent as context (default 8000)."),
+				"max_suffix_bytes": intProp("Max suffix bytes",
+					"How much of the text after the caret is sent as context (default 2000)."),
+			},
+			[]string{
+				"enabled", "model", "mode", "trigger", "debounce_ms", "max_tokens", "temperature", "timeout_ms",
+				"multi_line", "related_files", "max_prefix_bytes", "max_suffix_bytes",
+			},
+			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
 				"permission_mode": map[string]interface{}{
@@ -443,7 +516,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "MCP servers",
 			"description": "Model Context Protocol servers started or contacted for new sessions.",
 			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
+				[]string{"type", "name", "command", "args", "env", "url", "headers", "insecure_skip_verify", "disabled", "disabled_tools"},
 				[]string{"name"}),
 		},
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",
@@ -579,6 +652,13 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"level", "outputs", "file", "format", "rotation"},
 			nil),
+		"debug": objectSchema("Debug", "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
+			map[string]interface{}{
+				"enabled":     boolProp("Enabled", "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace)."),
+				"capture_llm": boolProp("Capture LLM bodies", "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled."),
+			},
+			[]string{"enabled", "capture_llm"},
+			nil),
 		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
 			map[string]interface{}{
 				"dir": strProp("Sessions directory", "Override sessions root; empty resolves under FOXXYCODE_HOME."),
@@ -593,15 +673,7 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"telegram"},
 			nil),
-		"browser": objectSchema("Browser tool", "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
-			map[string]interface{}{
-				"enabled":         boolProp("Enabled", "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds."),
-				"headless":        boolProp("Headless", "Run the browser without a visible window. Enabled by default; disable to watch the automated session."),
-				"executable_path": strProp("Browser executable", "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser."),
-				"timeout_seconds": intProp("Action timeout (seconds)", "Per-action timeout for navigation, clicks, and other browser operations."),
-			},
-			[]string{"enabled", "headless", "executable_path", "timeout_seconds"},
-			nil),
+		"browser": browserSchema(),
 		"vcs": objectSchema("Version control", "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
 			map[string]interface{}{
 				"svn": objectSchema("Subversion", "Subversion support for SVN working copies and branch folders.",
@@ -638,8 +710,8 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui",
+		"providers", "models", "agent", "autocomplete", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
+		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 
 	doc := map[string]interface{}{

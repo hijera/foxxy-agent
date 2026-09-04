@@ -89,6 +89,107 @@
         "loop_nudge_max"
       ]
     },
+    "autocomplete": {
+      "additionalProperties": false,
+      "description": "LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.",
+      "properties": {
+        "debounce_ms": {
+          "default": 350,
+          "description": "How long typing must pause before an automatic request goes out. Ignored when the trigger is manual (default 350).",
+          "title": "Debounce ms",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_prefix_bytes": {
+          "default": 8000,
+          "description": "How much of the text before the caret is sent as context (default 8000).",
+          "title": "Max prefix bytes",
+          "type": "integer"
+        },
+        "max_suffix_bytes": {
+          "default": 2000,
+          "description": "How much of the text after the caret is sent as context (default 2000).",
+          "title": "Max suffix bytes",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "default": 128,
+          "description": "Completion token cap for one suggestion. Small values keep suggestions short and quick (default 128).",
+          "title": "Suggestion max tokens",
+          "type": "integer"
+        },
+        "mode": {
+          "default": "auto",
+          "description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. \"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and reports an error when that is not possible.",
+          "enum": [
+            "auto",
+            "chat",
+            "fim"
+          ],
+          "title": "Prompt mode",
+          "type": "string"
+        },
+        "model": {
+          "description": "Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it.",
+          "title": "Completion model",
+          "type": "string"
+        },
+        "multi_line": {
+          "default": true,
+          "description": "Allow one suggestion to span several lines. When off, only the first line of a suggestion is kept, so completion never grows past the caret line (default on).",
+          "title": "Multi-line suggestions",
+          "type": "boolean"
+        },
+        "related_files": {
+          "default": 3,
+          "description": "How many other open editor tabs are excerpted (first lines: imports and signatures) into the prompt, so the model sees symbols from neighbouring files. 0 disables it (default 3).",
+          "title": "Related files",
+          "type": "integer"
+        },
+        "temperature": {
+          "description": "Sampling temperature for suggestions. 0 (the default) is greedy: the same context yields the same suggestion, which is what lets a suggestion survive the next keystroke.",
+          "title": "Temperature",
+          "type": "number"
+        },
+        "timeout_ms": {
+          "default": 4000,
+          "description": "How long one suggestion request may take before the editor abandons it (default 4000).",
+          "title": "Request timeout ms",
+          "type": "integer"
+        },
+        "trigger": {
+          "default": "auto",
+          "description": "When to ask the model. \"auto\" suggests while you type, after the debounce pause. \"manual\" suggests only when you press the editor shortcut.",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Trigger",
+          "type": "string"
+        }
+      },
+      "title": "Autocomplete",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "model",
+        "mode",
+        "trigger",
+        "debounce_ms",
+        "max_tokens",
+        "temperature",
+        "timeout_ms",
+        "multi_line",
+        "related_files",
+        "max_prefix_bytes",
+        "max_suffix_bytes"
+      ]
+    },
     "browser": {
       "additionalProperties": false,
       "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
@@ -109,6 +210,12 @@
           "title": "Headless",
           "type": "boolean"
         },
+        "screenshots": {
+          "default": true,
+          "description": "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.",
+          "title": "Screenshots",
+          "type": "boolean"
+        },
         "timeout_seconds": {
           "default": 30,
           "description": "Per-action timeout for navigation, clicks, and other browser operations.",
@@ -121,9 +228,11 @@
       "x-foxxycode-property-order": [
         "enabled",
         "headless",
+        "screenshots",
         "executable_path",
         "timeout_seconds"
-      ]
+      ],
+      "x-foxxycode-requires-build-tag": "browser"
     },
     "compaction": {
       "additionalProperties": false,
@@ -207,6 +316,29 @@
         "keep_recent_turns",
         "max_tokens",
         "result_eviction"
+      ]
+    },
+    "debug": {
+      "additionalProperties": false,
+      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.",
+      "properties": {
+        "capture_llm": {
+          "description": "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled.",
+          "title": "Capture LLM bodies",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "Debug",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "capture_llm"
       ]
     },
     "gateways": {
@@ -544,6 +676,11 @@
             "title": "HTTP headers",
             "type": "array"
           },
+          "insecure_skip_verify": {
+            "description": "Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.",
+            "title": "Ignore SSL certificate errors",
+            "type": "boolean"
+          },
           "name": {
             "description": "Stable id referenced by the agent; must be unique in this list.",
             "title": "Server name",
@@ -572,6 +709,7 @@
           "env",
           "url",
           "headers",
+          "insecure_skip_verify",
           "disabled",
           "disabled_tools"
         ]
@@ -1219,6 +1357,7 @@
     "providers",
     "models",
     "agent",
+    "autocomplete",
     "tools",
     "mcp_servers",
     "skills",
@@ -1233,6 +1372,7 @@
     "gateways",
     "browser",
     "vcs",
-    "ui"
+    "ui",
+    "debug"
   ]
 }

@@ -19,10 +19,10 @@ func openAPISpec() map[string]interface{} {
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
 			"title": "FoxxyCode HTTP API",
-			"description": "OpenAI-compatible endpoints backed by FoxxyCode sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, **docs**, and **ask** first (**`owned_by`**: **`foxxycode`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
-				"Classify POST **model** values: **agent** / **plan** / **docs** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
-				"**`metadata.model`** may appear only on agent/plan/docs/ask requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
-				"**`metadata.reasoning`** (optional, agent/plan/docs/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`** on). " +
+			"description": "OpenAI-compatible endpoints backed by FoxxyCode sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, **docs**, **ask**, and **debug** first (**`owned_by`**: **`foxxycode`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
+				"Classify POST **model** values: **agent** / **plan** / **docs** / **ask** / **debug** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
+				"**`metadata.model`** may appear only on agent/plan/docs/ask/debug requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
+				"**`metadata.reasoning`** (optional, agent/plan/docs/ask/debug only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`** on). " +
 				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: foxxycode_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
 				"Optional header **X-FoxxyCode-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
@@ -43,7 +43,7 @@ func openAPISpec() map[string]interface{} {
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
-					"description": "Returns **agent**, then **plan**, then **docs**, then **ask** (**`owned_by`**: **`foxxycode`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
+					"description": "Returns **agent**, then **plan**, then **docs**, then **ask**, then **debug** (**`owned_by`**: **`foxxycode`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
 						"Optional **`default_agent_model`** echoes configured **`agent.model`** for clients that default **`metadata.model`** on profile requests. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
@@ -64,13 +64,13 @@ func openAPISpec() map[string]interface{} {
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
-					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`docs`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
-						"Optional **`metadata`** on agent/plan/docs/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
+					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+						"Optional **`metadata`** on agent/plan/docs/ask/debug only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: foxxycode_meta`** before **`[DONE]`**). Otherwise JSON. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
-						"Every **agent**/**plan**/**docs**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
+						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
 						"The last entry in **messages** must have role **user**.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
@@ -119,7 +119,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -140,7 +140,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -671,7 +671,9 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
 					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-FoxxyCode-Session-ID`**, else the server default cwd). " +
-						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**.",
+						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**. " +
+						"**`path=:drives:`** lists the machine's drive roots instead (Windows only; **400** elsewhere), and the **`parent`** " +
+						"of a drive root is **`:drives:`** so the picker can walk up out of a volume.",
 					"operationId": "foxxycodeWorkspaceFoldersGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -682,7 +684,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "path", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Absolute folder to list.",
+							"description": "Absolute folder to list, or **`:drives:`** for the drive level.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -696,6 +698,10 @@ func openAPISpec() map[string]interface{} {
 											"object": map[string]interface{}{"type": "string", "example": "foxxycode.workspace_folders"},
 											"path":   map[string]interface{}{"type": "string"},
 											"parent": map[string]interface{}{"type": "string"},
+											"drives": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and **`true`** only on the **`:drives:`** level, whose rows are drive roots rather than folders.",
+											},
 											"folders": map[string]interface{}{
 												"type": "array",
 												"items": map[string]interface{}{
@@ -710,17 +716,17 @@ func openAPISpec() map[string]interface{} {
 									},
 								},
 							},
-							"400": errorResponseRef(),
-							"404": errorResponseRef(),
-							"500": errorResponseRef(),
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
 			"/foxxycode/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "JSON Schema for FoxxyCode YAML configuration (UI)",
-					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/foxxycode/config` and returned by **GET** `/foxxycode/config`. Includes **`providers[].name`** pattern, optional **`x-foxxycode-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
+					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/foxxycode/config` and returned by **GET** `/foxxycode/config`. Includes **`providers[].name`** pattern, optional **`x-foxxycode-provider-api-key-env-placeholder`** on **`providers[].api_key`**, and other UI hints. A section whose feature needs a Go build tag carries **`x-foxxycode-requires-build-tag`** (e.g. `browser`) in every build; the responding process adds **`x-foxxycode-build-tag-missing: true`** when its own binary was compiled without that tag, so an editor can show the section read-only instead of offering a switch that cannot take effect. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
 					"operationId": "foxxycodeConfigSchemaGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -826,6 +832,24 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Activity payload"},
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/debug": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Debug trace for a session",
+					"description": "Returns the persisted debug-trace events (**object** `foxxycode.session_debug`, **sessionId**, **events**) collected while **debug.enabled** is on: one record per turn start, LLM request/response, and tool start/finish boundary. Raw LLM HTTP bodies go to the process log; this endpoint surfaces the lightweight structured timeline. A session with no trace returns **events: null**.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Debug trace payload"},
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
 					},
 				},
 			},
@@ -1333,7 +1357,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask**/**debug** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1359,6 +1383,149 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/completion": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Suggest the code to insert at the caret",
+					"description": "Inline code autocomplete for editor plugins: one LLM call with no tools, no session and no agent loop, returning the text to insert at the caret as a greyed suggestion. **`prefix`** and **`suffix`** are the code on either side of the caret; both are truncated server-side to **`autocomplete.max_prefix_bytes`** / **`autocomplete.max_suffix_bytes`**. Per **`autocomplete.mode`** the hole reaches the model either as native fill-in-the-middle tokens through a raw completion (**`mode: \"fim\"`** in the reply) or as a chat prompt (**`\"chat\"`**); in **`auto`** a raw call that fails switches that model to chat for the rest of the process. Up to **`autocomplete.related_files`** other open workspace files (from **`POST /foxxycode/ide/editor-state`**) are excerpted into the prompt. The server decides per request whether a block or a single line is appropriate, sends matching stop sequences, streams and cuts the reply where the block ends, and cleans it of fences, re-typed caret text and anything already present in the suffix, so it can be inserted verbatim. Cancel by dropping the connection — the upstream call is bound to the request context. When **`autocomplete.enabled`** is false the endpoint answers **`200`** with an empty completion and **`enabled: false`** so clients stop asking, rather than an error status.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"prefix":   map[string]interface{}{"type": "string", "description": "Code before the caret."},
+										"suffix":   map[string]interface{}{"type": "string", "description": "Code after the caret."},
+										"path":     map[string]interface{}{"type": "string", "description": "File path, used only as a prompt hint."},
+										"language": map[string]interface{}{"type": "string", "description": "Language id, used only as a prompt hint."},
+										"debug":    map[string]interface{}{"type": "boolean", "description": "When true the reply also carries **`raw`** (the model's text before cleaning), **`multi_line`** and **`stops`**, so a quality harness can tell a bad model answer from an over-eager filter."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Suggestion (possibly empty)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"completion": map[string]interface{}{"type": "string", "description": "Text to insert at the caret; empty when nothing is suggested."},
+											"model":      map[string]interface{}{"type": "string", "description": "Logical model id that produced the suggestion."},
+											"mode":       map[string]interface{}{"type": "string", "enum": []string{"fim", "chat", ""}, "description": "How the model was asked: native fill-in-the-middle or a chat prompt; empty when no model was called."},
+											"enabled":    map[string]interface{}{"type": "boolean", "description": "False when autocomplete is switched off in config."},
+											"timed_out":  map[string]interface{}{"type": "boolean", "description": "Present and true when the model did not answer within autocomplete.timeout_ms; the completion is then empty."},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"429": map[string]interface{}{
+							"description": "The model provider rate-limited the request; **`Retry-After`** (seconds) says how long automatic requests should pause.",
+							"headers": map[string]interface{}{
+								"Retry-After": map[string]interface{}{"schema": map[string]string{"type": "integer"}},
+							},
+						},
+						"502": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/completion/config": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read the autocomplete settings an editor client needs",
+					"description": "The subset of **`config.autocomplete`** an editor plugin needs before it can behave: whether to run at all, when to ask, and how much context to send. Clients read this instead of the whole config document, so the knobs stay in one place. Unset fields come back with their defaults applied.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Client-facing autocomplete settings",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"enabled":          map[string]interface{}{"type": "boolean"},
+											"trigger":          map[string]interface{}{"type": "string", "enum": []string{"auto", "manual"}},
+											"debounce_ms":      map[string]interface{}{"type": "integer"},
+											"multi_line":       map[string]interface{}{"type": "boolean"},
+											"timeout_ms":       map[string]interface{}{"type": "integer"},
+											"max_prefix_bytes": map[string]interface{}{"type": "integer"},
+											"max_suffix_bytes": map[string]interface{}{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/completion/stats": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Inline completion counters",
+					"description": "Process-wide numbers that say whether inline completion is fast enough and accepted often enough to keep: requests split by outcome (served, empty, errors, cancelled) and by prompt mode (fim, chat, fim_fallback), latency (average and worst), token cost, and the editor-reported outcomes posted to **`POST /foxxycode/completion/feedback`** (shown, accepted, dismissed, cache_hits) with the resulting **`acceptance_rate`**.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Counters",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"requests":        map[string]interface{}{"type": "integer"},
+											"served":          map[string]interface{}{"type": "integer"},
+											"empty":           map[string]interface{}{"type": "integer"},
+											"errors":          map[string]interface{}{"type": "integer"},
+											"cancelled":       map[string]interface{}{"type": "integer"},
+											"timeouts":        map[string]interface{}{"type": "integer", "description": "Requests the model did not answer within autocomplete.timeout_ms."},
+											"rate_limited":    map[string]interface{}{"type": "integer", "description": "Requests the provider refused with 429, passed on to the client as 429 + Retry-After."},
+											"fim":             map[string]interface{}{"type": "integer"},
+											"chat":            map[string]interface{}{"type": "integer"},
+											"fim_fallback":    map[string]interface{}{"type": "integer"},
+											"fim_empty":       map[string]interface{}{"type": "integer", "description": "Raw FIM calls that answered 200 with nothing and were re-issued as chat; a streak retires FIM for that model."},
+											"reasoning_retries": map[string]interface{}{"type": "integer", "description": "Chat calls re-issued without stop sequences because the model reasons before answering and the stops cut the reasoning short; such models get no stops afterwards."},
+											"latency_avg_ms":  map[string]interface{}{"type": "integer"},
+											"latency_max_ms":  map[string]interface{}{"type": "integer"},
+											"prompt_tokens":   map[string]interface{}{"type": "integer"},
+											"output_tokens":   map[string]interface{}{"type": "integer"},
+											"shown":           map[string]interface{}{"type": "integer"},
+											"accepted":        map[string]interface{}{"type": "integer"},
+											"dismissed":       map[string]interface{}{"type": "integer"},
+											"cache_hits":      map[string]interface{}{"type": "integer"},
+											"acceptance_rate": map[string]interface{}{"type": "number"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/completion/feedback": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report what happened to a suggestion",
+					"description": "Editor plugins post one event per outcome so the counters in **`GET /foxxycode/completion/stats`** can pair model-side cost with user-side value: **`shown`** (a suggestion was drawn), **`accepted`** (Tab), **`dismissed`** (Escape), **`cache_hit`** (re-rendered from the editor's prefix cache without a request).",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"event"},
+									"properties": map[string]interface{}{
+										"event": map[string]interface{}{"type": "string", "enum": []string{"shown", "accepted", "dismissed", "cache_hit"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Counted"},
+						"400": errorResponseRef(),
 					},
 				},
 			},
@@ -2623,23 +2790,24 @@ func openAPISpec() map[string]interface{} {
 				"MCPServerRow": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"name":        map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
-						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.foxxycode/mcp.json)."},
-						"origin":      map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.foxxycode/mcp.json."},
-						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
-						"transport":   map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
-						"command":     map[string]string{"type": "string"},
-						"args":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"url":         map[string]string{"type": "string"},
-						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
-						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
-						"status":      map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
-						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
-						"source_path": map[string]string{"type": "string", "description": "File the declaration was read from."},
-						"trusted":     map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
-						"gated":       map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
-						"fingerprint": map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
+						"name":                 map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":               map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.foxxycode/mcp.json)."},
+						"origin":               map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.foxxycode/mcp.json."},
+						"readonly":             map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"transport":            map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":              map[string]string{"type": "string"},
+						"args":                 map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":                  map[string]string{"type": "string"},
+						"env":                  map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":              map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"insecure_skip_verify": map[string]interface{}{"type": "boolean", "description": "True when this http/sse server is contacted without verifying its TLS certificate."},
+						"enabled":              map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":               map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
+						"error":                map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
+						"source_path":          map[string]string{"type": "string", "description": "File the declaration was read from."},
+						"trusted":              map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
+						"gated":                map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
+						"fingerprint":          map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
 						"tools": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
@@ -2663,14 +2831,15 @@ func openAPISpec() map[string]interface{} {
 					"type":        "object",
 					"description": "One mcp.json entry (global <home>/mcp.json or project .foxxycode/mcp.json; Cursor-compatible).",
 					"properties": map[string]interface{}{
-						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
-						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
-						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"url":           map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
-						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"disabled":      map[string]interface{}{"type": "boolean"},
-						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"type":               map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
+						"command":            map[string]string{"type": "string", "description": "Executable for stdio transport."},
+						"args":               map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"env":                map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"url":                map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
+						"headers":            map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"insecureSkipVerify": map[string]interface{}{"type": "boolean", "description": "Contact this http/sse server without verifying its TLS certificate (self-signed or expired certificates). Removes the protection against a man in the middle; setting it changes the declaration digest, so a project entry needs approving again."},
+						"disabled":           map[string]interface{}{"type": "boolean"},
+						"disabledTools":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 					},
 				},
 				"FoxxyCodeConfigJSON": map[string]interface{}{
@@ -2823,7 +2992,7 @@ func openAPISpec() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"model": map[string]interface{}{
 							"type":        "string",
-							"description": "Any `id` from `GET /v1/models` (agent, plan, docs, ask, or `models[].model`).",
+							"description": "Any `id` from `GET /v1/models` (agent, plan, docs, ask, debug, or `models[].model`).",
 						},
 						"messages": map[string]interface{}{
 							"type":  "array",
@@ -2834,7 +3003,7 @@ func openAPISpec() map[string]interface{} {
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -2885,17 +3054,17 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask only, `model` key selects `models[].model`.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
 							"type":        "array",
-							"description": "Allowed only when **model** is **`agent`**, **`plan`**, **`docs`**, or **`ask`**. Hydrated text file bodies from session **cwd** **path** fields, converted to UTF-8 when the file uses another detected encoding.",
+							"description": "Allowed only when **model** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. Hydrated text file bodies from session **cwd** **path** fields, converted to UTF-8 when the file uses another detected encoding.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
 						"inline_files": map[string]interface{}{
 							"type":        "array",
-							"description": "Supported for all modes when the effective YAML model has **`multimodal: true`**. Entries sent for a non-multimodal model are ignored and never forwarded to its provider. Each accepted file is saved to `~/.foxxycode/sessions/<id>/assets/` with read-only permissions (0o444); decodable images also get a bounded PNG thumbnail for transcript history. For **`agent`** / **`plan`** / **`docs`** / **`ask`**, the model receives a `<foxxycode_session_assets>` annotation with the on-disk paths. For direct YAML model, each entry also becomes an image content part sent inline to the provider.",
+							"description": "Supported for all modes when the effective YAML model has **`multimodal: true`**. Entries sent for a non-multimodal model are ignored and never forwarded to its provider. Each accepted file is saved to `~/.foxxycode/sessions/<id>/assets/` with read-only permissions (0o444); decodable images also get a bounded PNG thumbnail for transcript history. For **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**, the model receives a `<foxxycode_session_assets>` annotation with the on-disk paths. For direct YAML model, each entry also becomes an image content part sent inline to the provider.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
 						},
 					},

@@ -6,7 +6,7 @@ Nothing agent-side is console-specific — the TUI is a fourth `UpdateSender`
 next to ACP, HTTP, and the Telegram gateway.
 
 Build: `make build TAGS=cli` (or any tag set including `cli`; the recommended
-full binary is `make build TAGS="http ui scheduler memory cli"`). In builds
+full binary is `make build TAGS="http ui scheduler memory cli browser"`). In builds
 without the tag, `foxxycode cli` explains how to rebuild and bare `foxxycode` keeps
 printing usage.
 
@@ -44,8 +44,16 @@ Top to bottom:
   (`read <path>`, `$ command`), preview capped at 10 lines, and
   `... (ctrl+o to expand)` reading the full result from
   `sessions/<id>/tool_calls/`.
-- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with `Working...` while a turn
-  runs.
+- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
+  the current step while a turn runs - verb plus target plus elapsed counter
+  (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
+  `Responding`). A plain wait escalates with time: `Waiting for the model` →
+  `The model is taking longer than usual` (15 s) → `Still no response from the
+  server` (60 s). While a permission or question modal is open the line shows
+  `Waiting for your approval` / `Waiting for your answer` with **no** counter
+  (nothing is running), and after approval it returns to the gated tool with a
+  restarted counter. Phrase table lives in `external/cli/status.go` (Go twin of
+  the SPA's `liveStatus.ts`).
 - **Plan widget**: current todo entries (`✓` done, `◐` active, `○` pending,
   `✗` failed) above the editor.
 - **Editor**: multi-line input between full-width `─` rules (green while the

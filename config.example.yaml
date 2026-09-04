@@ -125,6 +125,30 @@ agent:
   # loop_stream_repeat_cycles: 5  # identical output cycles in one stream before it is cut (0 disables)
   # loop_nudge_max: 2             # nudges before the turn is stopped
 
+# Inline code autocomplete: the greyed suggestion the editor plugins draw ahead of
+# the caret, accepted with Tab. Editors fetch it over POST /foxxycode/completion -
+# one single-shot LLM call, no tools and no agent loop.
+#
+# Off by default, unlike compaction and title: a suggestion is requested as you
+# type, so this spends tokens on every keystroke. Point model at a small, fast
+# entry from models[] - speed beats cleverness, because a suggestion is worthless
+# once you have typed past it.
+autocomplete:
+  enabled: false
+  # model: "openai/gpt-4o-mini"   # empty falls back to agent.model
+  # mode: auto                    # auto = native fill-in-the-middle for known code models (Qwen-Coder,
+  #                               #   DeepSeek-Coder, CodeLlama, StarCoder, Codestral) via /v1/completions,
+  #                               #   chat prompt otherwise; chat = always chat; fim = always FIM tokens
+  # temperature: 0                # 0 is greedy and the default (here 0 is a value, not "unset")
+  # trigger: auto                 # auto = suggest while typing; manual = only on the editor shortcut
+  # debounce_ms: 350              # typing pause before an automatic request (ignored when manual)
+  # max_tokens: 128               # cap on one suggestion
+  # timeout_ms: 4000              # give up on a suggestion request after this long
+  # multi_line: true              # false keeps only the first line; blocks only where the caret invites one
+  # related_files: 3              # other open workspace files excerpted into the prompt (0 disables)
+  # max_prefix_bytes: 8000        # text before the caret sent as context
+  # max_suffix_bytes: 2000        # text after the caret sent as context
+
 sessions:
   # Directory to store session bundles.
   # Leave empty to use default $FOXXYCODE_HOME/sessions.
@@ -139,6 +163,7 @@ prompts:
   # File names inside prompts.dir (defaults: agent.md, plan.md)
   # agent_prompt: "agent.md"
   # plan_prompt: "plan.md"
+  # Ask and Debug have no configurable filename: they always read ask.md and debug.md.
   # Per-provider prompts: pick a system prompt tuned to the active model, resolved
   # most-specific first:
   #   agent.<model-slug>.md   e.g. agent.openai-gpt-4o.md  (model-list id, "/" -> "-")
@@ -176,6 +201,14 @@ mcp_servers: []
   #   # Optional switches, also togglable from Settings -> MCP in the web UI:
   #   disabled: false
   #   disabled_tools: ["write_file"]
+
+  # Example: remote MCP server behind a self-signed certificate. Skipping the
+  # certificate check also removes the protection against a man in the middle,
+  # so turn it on only for a server you trust on a network you trust.
+  # - name: "internal"
+  #   type: "http"
+  #   url: "https://mcp.internal.lan/mcp"
+  #   insecure_skip_verify: true
 
   # Example: GitHub MCP server
   # - name: "github"
@@ -326,7 +359,7 @@ tools:
 #   model: ""
 #   max_tokens: 64          # completion cap for the title
 
-# Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
+# Messenger gateways (external/gateway/; included in release CLI archives; for a self-build: go build -tags gateway.telegram or -tags gateway).
 # Run the bot with: foxxycode gateway --config config.yaml
 # gateways:
 #   telegram:
@@ -362,6 +395,25 @@ logger:
     max_size_mb: 0
     max_files: 0
 
+# Diagnostics. Off by default and free when off. Turning it on forces the process
+# logger to debug level (regardless of logger.level above), captures raw LLM HTTP
+# request/response bodies into that log, and writes a structured per-turn timeline to
+# <session>/debug_trace.jsonl (readable at GET /foxxycode/sessions/{id}/debug and
+# streamed as SSE `event: debug`). Guide: docs/debugging.md.
+#
+# --debug on `foxxycode acp` / `http` / `gateway` forces enabled for one process; it
+# only ever turns the layer on. PUT /foxxycode/config toggles it without a restart.
+#
+# Unrelated to the `debug` session MODE (the diagnose-before-fixing persona picked
+# with model: "debug") - that one changes the model's behaviour, this one changes
+# what FoxxyCode records.
+# debug:
+#   enabled: false
+#   # Gates only the raw body capture; omit to follow `enabled`. Set false to keep
+#   # debug logs and the trace but not the bodies - a request body carries the whole
+#   # conversation, including the contents of every file the agent read.
+#   capture_llm: false
+
 # Embedded SPA preferences (desktop launcher and HTTP UI, built with -tags http,ui).
 # ui:
 #   enabled: true         # false = API-only server (no SPA at GET /); /v1/* and /foxxycode/* stay up
@@ -378,6 +430,7 @@ logger:
 # browser:
 #   enabled: false          # turn on navigate/click/fill/screenshot/... tools
 #   headless: true          # false to watch the automated session in a real window
+#   screenshots: true       # false = text-only: no image, use read_page/evaluate instead
 #   executable_path: ""     # "" = auto-detect; or a path to a Chrome/Chromium binary
 #   timeout_seconds: 30     # per-action timeout
 

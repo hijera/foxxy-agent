@@ -237,6 +237,84 @@ func assertMCPManagementWorkspace(t *testing.T, srv *Server, workspace string) {
 	}
 }
 
+// TestMCPPutRoundTripsInsecureSkipVerify pins the whole path the settings
+// checkbox drives: the flag survives the PUT into mcp.json, comes back on the
+// row so the box stays ticked, and actually reaches the transport — the server
+// here presents a certificate no root signed, so it only connects with the
+// flag set.
+func TestMCPPutRoundTripsInsecureSkipVerify(t *testing.T) {
+	selfSigned := httptest.NewTLSServer(&fakeBetaMCPHandler{token: "tok"})
+	defer selfSigned.Close()
+
+	home := t.TempDir()
+	cwd := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: cwd, ConfigPath: configPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), cwd, nil)
+	srv := New(cfg, mgr, slog.Default(), cwd)
+
+	// Global scope keeps the entry out of the workspace trust gate, so the row
+	// reports the declaration instead of asking for approval first.
+	putBody, _ := json.Marshal(config.MCPJSONServer{
+		URL:                selfSigned.URL,
+		InsecureSkipVerify: true,
+	})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(
+		http.MethodPut, "/foxxycode/mcp/selfsigned?scope=global", bytes.NewReader(putBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !entries["selfsigned"].InsecureSkipVerify {
+		t.Fatalf("mcp.json entry = %+v, want insecureSkipVerify true", entries["selfsigned"])
+	}
+
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/foxxycode/mcp", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Items []struct {
+			Name               string       `json:"name"`
+			Status             string       `json:"status"`
+			Error              string       `json:"error,omitempty"`
+			InsecureSkipVerify bool         `json:"insecure_skip_verify"`
+			Tools              []mcpToolRow `json:"tools"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 || list.Items[0].Name != "selfsigned" {
+		t.Fatalf("rows = %+v, want the selfsigned server", list.Items)
+	}
+	row := list.Items[0]
+	if !row.InsecureSkipVerify {
+		t.Error("row must report insecure_skip_verify so the checkbox renders ticked")
+	}
+	if row.Status != "connected" {
+		t.Fatalf("status = %q (%s), want connected through the self-signed certificate", row.Status, row.Error)
+	}
+	if len(row.Tools) != 1 || row.Tools[0].Name != "get_token" {
+		t.Fatalf("tools = %+v, want get_token", row.Tools)
+	}
+}
+
 func assertMCPJSONContains(t *testing.T, path, name string, want bool) {
 	t.Helper()
 	entries, err := config.ReadMCPJSONFile(path)

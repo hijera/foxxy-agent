@@ -170,6 +170,76 @@
         }
       }
     },
+    "autocomplete": {
+      "type": "object",
+      "title": "Inline code autocomplete",
+      "description": "LLM-backed inline completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab. Editors fetch it over POST /foxxycode/completion, one single-shot LLM call with no tools and no agent loop.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on inline suggestions. Unset defaults to false, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
+          "default": false
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used for the suggestion pass; empty falls back to agent.model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it.",
+          "default": ""
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "chat", "fim"],
+          "description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion (POST /v1/completions) when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and the provider allow it, and a chat prompt otherwise; a raw call that fails switches that model to chat for the rest of the process. \"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and errors when that is not possible.",
+          "default": "auto"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature for suggestions. Unlike models[].temperature, 0 here is the value rather than \"unset\": suggestions are greedy by default so the same context yields the same suggestion.",
+          "default": 0
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for one suggestion. Small values keep suggestions short and quick.",
+          "default": 128
+        },
+        "related_files": {
+          "type": "integer",
+          "description": "How many other open editor tabs (reported over POST /foxxycode/ide/editor-state, workspace files only) are excerpted into the prompt so the model sees symbols from neighbouring files. 0 disables it.",
+          "default": 3
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "How long one suggestion request may take before the editor abandons it.",
+          "default": 4000
+        },
+        "debounce_ms": {
+          "type": "integer",
+          "description": "How long typing must pause before an automatic request goes out. Ignored when trigger is manual.",
+          "default": 350
+        },
+        "trigger": {
+          "type": "string",
+          "enum": ["auto", "manual"],
+          "description": "When to ask the model: \"auto\" suggests while you type, after the debounce pause; \"manual\" suggests only on the editor shortcut.",
+          "default": "auto"
+        },
+        "multi_line": {
+          "type": "boolean",
+          "description": "Allow one suggestion to span several lines. When false only the first line of a suggestion is kept. Unset defaults to true.",
+          "default": true
+        },
+        "max_prefix_bytes": {
+          "type": "integer",
+          "description": "How much of the text before the caret is sent as context.",
+          "default": 8000
+        },
+        "max_suffix_bytes": {
+          "type": "integer",
+          "description": "How much of the text after the caret is sent as context.",
+          "default": 2000
+        }
+      }
+    },
     "prompts": {
       "type": "object",
       "title": "System prompt templates",
@@ -328,6 +398,10 @@
                 "value": { "type": "string", "description": "HTTP header value." }
               }
             }
+          },
+          "insecure_skip_verify": {
+            "type": "boolean",
+            "description": "Accept the TLS certificate of an \"http\"/\"sse\" server without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks."
           },
           "disabled": {
             "type": "boolean",
@@ -881,6 +955,11 @@
           "type": "integer",
           "description": "Per-action timeout for navigation, clicks, and other browser operations.",
           "default": 30
+        },
+        "screenshots": {
+          "type": "boolean",
+          "description": "Capture a screenshot after each browser action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and foxxycode_browser_read_page plus foxxycode_browser_evaluate read the page as text - which is all a model without vision can use anyway, and it saves the base64 image on every request.",
+          "default": true
         }
       }
     },
@@ -917,6 +996,24 @@
               "default": true
             }
           }
+        }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "title": "Debug",
+      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, and per-session debug trace. The --debug CLI flag forces enabled=true at startup.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config.",
+          "default": false
+        },
+        "capture_llm": {
+          "type": "boolean",
+          "description": "Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enabled; set to false to keep debug logs while suppressing large bodies.",
+          "default": true
         }
       }
     }

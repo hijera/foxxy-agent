@@ -111,6 +111,9 @@ export const schemaTextRu: Record<string, string> = {
     "Имя HTTP-заголовка для HTTP-транспортов MCP.",
   "Header value": "Значение заголовка",
   "HTTP header value.": "Значение HTTP-заголовка.",
+  "Ignore SSL certificate errors": "Игнорировать проверку SSL",
+  "Connect to this http/sse server without verifying its TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.":
+    "Подключаться к этому http/sse-серверу, не проверяя его TLS-сертификат, — чтобы работал самоподписанный или просроченный сертификат. Снимает защиту от подмены соединения; используйте только в доверенной сети.",
   Disabled: "Отключён",
   "Skip connecting this server without removing its definition.":
     "Не подключать этот сервер, сохранив его описание.",
@@ -155,6 +158,44 @@ export const schemaTextRu: Record<string, string> = {
   "Loop nudge max": "Макс. подсказок при зацикливании",
   "How many times one turn may be nudged back on track before the loop guard stops it.":
     "Сколько раз за один шаг модель можно подтолкнуть вернуться к задаче, прежде чем защита остановит шаг.",
+
+  // Autocomplete
+  Autocomplete: "Автодополнение",
+  "LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.":
+    "Автодополнение кода на базе LLM в плагинах редакторов: серая подсказка перед курсором, принимаемая клавишей Tab.",
+  "Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.":
+    "Включает встроенные подсказки в плагинах редакторов. По умолчанию выключено, в отличие от остальных необязательных проходов: подсказка запрашивается по мере набора, то есть расходует токены на каждое нажатие клавиши.",
+  "Completion model": "Модель автодополнения",
+  "Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it.":
+    "Модель для прохода подсказок; при пустом значении берётся модель агента ReAct. Здесь важнее скорость, чем сообразительность: подсказка бесполезна, если вы уже набрали текст дальше.",
+  "Prompt mode": "Режим промпта",
+  'How the hole in the code reaches the model. "auto" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. "chat" always sends a chat prompt. "fim" always sends FIM tokens and reports an error when that is not possible.':
+    "Как пропуск в коде попадает в модель. «auto» отправляет родные токены fill-in-the-middle через raw completion, если семейство модели (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) и провайдер это позволяют, иначе — chat-промпт. «chat» всегда отправляет chat-промпт. «fim» всегда отправляет FIM-токены и сообщает об ошибке, если это невозможно.",
+  "Sampling temperature for suggestions. 0 (the default) is greedy: the same context yields the same suggestion, which is what lets a suggestion survive the next keystroke.":
+    "Температура сэмплирования подсказок. 0 (по умолчанию) — жадный выбор: один и тот же контекст даёт одну и ту же подсказку, благодаря чему она переживает следующее нажатие клавиши.",
+  "Related files": "Связанные файлы",
+  "How many other open editor tabs are excerpted (first lines: imports and signatures) into the prompt, so the model sees symbols from neighbouring files. 0 disables it (default 3).":
+    "Сколько других открытых вкладок редактора попадает в промпт выдержками (первые строки: импорты и сигнатуры), чтобы модель видела символы из соседних файлов. 0 отключает (по умолчанию 3).",
+  Trigger: "Триггер",
+  'When to ask the model. "auto" suggests while you type, after the debounce pause. "manual" suggests only when you press the editor shortcut.':
+    "Когда обращаться к модели. «auto» подсказывает по ходу набора, после паузы дебаунса. «manual» подсказывает только по горячей клавише редактора.",
+  "Debounce ms": "Дебаунс, мс",
+  "How long typing must pause before an automatic request goes out. Ignored when the trigger is manual (default 350).":
+    "Насколько долго должен длиться перерыв в наборе, прежде чем уйдёт автоматический запрос. Игнорируется при ручном триггере (по умолчанию 350).",
+  "Suggestion max tokens": "Макс. токенов подсказки",
+  "Completion token cap for one suggestion. Small values keep suggestions short and quick (default 128).":
+    "Лимит токенов ответа на одну подсказку. Малые значения делают подсказки короткими и быстрыми (по умолчанию 128).",
+  "How long one suggestion request may take before the editor abandons it (default 4000).":
+    "Сколько может длиться один запрос подсказки, прежде чем редактор от него откажется (по умолчанию 4000).",
+  "Multi-line suggestions": "Многострочные подсказки",
+  "Allow one suggestion to span several lines. When off, only the first line of a suggestion is kept, so completion never grows past the caret line (default on).":
+    "Разрешить подсказке занимать несколько строк. Если выключено, остаётся только первая строка подсказки, и дополнение не выходит за строку курсора (по умолчанию включено).",
+  "Max prefix bytes": "Макс. байт до курсора",
+  "How much of the text before the caret is sent as context (default 8000).":
+    "Сколько текста перед курсором отправляется как контекст (по умолчанию 8000).",
+  "Max suffix bytes": "Макс. байт после курсора",
+  "How much of the text after the caret is sent as context (default 2000).":
+    "Сколько текста после курсора отправляется как контекст (по умолчанию 2000).",
 
   // Tools
   "Tools and permissions": "Инструменты и разрешения",
@@ -377,6 +418,17 @@ export const schemaTextRu: Record<string, string> = {
   "How many rotated segments to retain; 0 uses logger defaults.":
     "Сколько ротированных сегментов хранить; 0 — значения логгера по умолчанию.",
 
+  // Debug (раздел диагностики). Не «Отладка»: эта метка уже занята режимом сессии
+  // (composer.modeDebug) и уровнем лога — три одинаковых подписи в одном UI неразличимы.
+  Debug: "Диагностика",
+  "Master switch for verbose diagnostics: debug-level logs, raw LLM capture, and per-session debug trace. --debug forces this on at startup.":
+    "Главный переключатель подробной диагностики: логи уровня debug, сырой дамп LLM и посессионная отладочная трасса. Флаг --debug включает это на старте.",
+  "Turn on the whole diagnostics layer (forces debug log level, LLM capture, and debug trace).":
+    "Включить весь диагностический слой (форсирует уровень лога debug, дамп LLM и отладочную трассу).",
+  "Capture LLM bodies": "Дамп тел LLM",
+  "Log raw LLM HTTP request/response bodies at debug level. Defaults to following Enabled; unset means on when Enabled.":
+    "Записывать сырые HTTP request/response тела LLM на уровне debug. По умолчанию следует за Enabled; пусто означает «включено», когда Enabled.",
+
   // Sessions
   Sessions: "Сессии",
   "Where persisted chat bundles are stored.":
@@ -453,6 +505,9 @@ export const schemaTextRu: Record<string, string> = {
 
   // Browser tool
   "Browser tool": "Инструмент браузера",
+  "Screenshots": "Скриншоты",
+  "Capture a screenshot after each action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and the read-page and evaluate tools read the page as text.":
+    "Снимать экран после каждого действия и показывать модели. По умолчанию включено. Выключите для текстового режима: действия по-прежнему сообщают URL и журнал страницы, а инструменты чтения страницы и evaluate читают её текстом.",
   "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).":
     "Интерактивный инструмент автоматизации браузера (требует build-тег browser; управляет локальным Chrome/Chromium через chromedp).",
   "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.":
@@ -527,6 +582,12 @@ export const schemaEnumLabelRu: Record<string, string> = {
   enter: "Enter",
   ctrl_enter: "Ctrl+Enter",
   off: "Отключено",
+  // autocomplete.trigger
+  auto: "Авто",
+  manual: "Вручную",
+  // autocomplete.mode
+  chat: "Чат",
+  fim: "FIM",
   // compaction.engine
   coddy: "coddy",
   opencode: "opencode",

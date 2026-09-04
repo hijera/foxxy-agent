@@ -1,8 +1,9 @@
-.PHONY: build build-acp build-desktop icon test test-opencode-rules check-windows lint lint-windows clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target
+.PHONY: build build-acp build-desktop icon test test-opencode-rules check-windows lint lint-windows clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
+#     Recommended full binary (FULL_TAGS below; what the release CLI archives ship):
+#       make build TAGS="http ui scheduler memory cli browser gateway"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -36,7 +37,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli
+FULL_TAGS := http ui scheduler memory cli browser gateway
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -50,7 +51,7 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
-DESKTOP_TAGS := http ui scheduler memory desktop
+DESKTOP_TAGS := http ui scheduler memory desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
 # Regenerate the Windows app icon resource from the source PNG. Run manually when
@@ -69,8 +70,12 @@ build-desktop: ui-build
 	  -o $(BUILD_DIR)/foxxycode-desktop.exe ./cmd/foxxycode/
 
 ui-build:
-	npm --prefix external/ui install --no-fund --no-audit
-	npm --prefix external/ui run build:go
+# `npm --prefix DIR` installs INTO DIR but still reads package.json from the
+# current directory on Windows npm, so it fails at the repo root with a confusing
+# "Could not read package.json" pointing at a file that was never meant to exist.
+# Changing directory works the same way on every platform.
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run build:go
 
 # Build the foxxycode CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -109,6 +114,7 @@ test: test-opencode-rules
 	go test -tags=http,cli ./...
 	go test -tags=http ./...
 	go test -tags=http,memory ./...
+	go test -tags=browser ./...
 	go test -tags=scheduler ./...
 	go test -tags=scheduler,memory ./...
 	$(MAKE) ui-build
@@ -139,6 +145,7 @@ check-windows:
 	GOOS=windows go vet -tags=memory ./...
 	GOOS=windows go vet -tags=http ./...
 	GOOS=windows go vet -tags=http,memory ./...
+	GOOS=windows go vet -tags=browser ./...
 	GOOS=windows go vet -tags=scheduler ./...
 	GOOS=windows go vet -tags=scheduler,memory ./...
 	GOOS=windows go vet -tags=http,scheduler ./...
@@ -176,6 +183,12 @@ PLUGIN_VERSION ?= $(VERSION)
 
 intellij-build:
 	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon buildPlugin -Pproduction=true -PpluginVersion="$(PLUGIN_VERSION)"
+
+# Live quality run of inline completion against the NeuralDeep hub. Needs NEURALDEEP_API_KEY;
+# skipped without it, so it never runs in CI. Knobs: FOXXYCODE_E2E_MODELS, FOXXYCODE_E2E_MODES,
+# FOXXYCODE_E2E_MIN_SCORE, FOXXYCODE_E2E_REPORT (see external/httpserver/e2e_neuraldeep_autocomplete_test.go).
+e2e-autocomplete:
+	go test -tags http -count=1 -timeout 45m -run TestE2ENeuralDeepAutocomplete -v ./external/httpserver/
 
 # Launch a sandbox IDE with the plugin (host-platform binary only; fast dev loop).
 intellij-run:

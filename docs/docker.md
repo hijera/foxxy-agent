@@ -122,7 +122,7 @@ export FOXXYCODE_BUILD_TAGS="http,scheduler,ui,memory,gateway"
 docker compose -f docker-compose.dev.yml build foxxycode
 ```
 
-**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway`** (matching the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default) so the built image can run the messenger gateway; drop **`gateway`** to trim it.
+**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway`** so the built image can run the messenger gateway; drop **`gateway`** to trim it. That is a *subset* of the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default (**`http,scheduler,ui,memory,gateway,cli,browser`**) - add **`cli,browser`** if you also want the console TUI and the browser tools in the dev image.
 
 ### Run another mode (messenger gateway)
 
@@ -138,7 +138,7 @@ docker compose -f docker-compose.dev.yml logs -f foxxycode   # expect: "telegram
 
 Notes:
 
-- The **published GHCR image is built without the `gateway` tag** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory`**), so **`docker-compose.yml`** with **`FOXXYCODE_COMMAND=gateway`** needs an image built with it - use the dev file or a custom **`FOXXYCODE_IMAGE`**.
+- The **published GHCR image is built without the `gateway` tag** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,browser`**), so **`docker-compose.yml`** with **`FOXXYCODE_COMMAND=gateway`** needs an image built with it - use the dev file or a custom **`FOXXYCODE_IMAGE`**.
 - The bot token is read from **`TELEGRAM_BOT_TOKEN`** (passed through by both compose files) or **`$FOXXYCODE_HOME/.env`**; keep it out of git.
 - If your **`gateways.telegram.proxy`** points at a host-local proxy (e.g. **`socks5://127.0.0.1:7890`**), it is unreachable from inside the container - use **`host.docker.internal`** or add **`network_mode: host`** in a **`docker-compose.override.yml`**.
 - Gateway mode uses no inbound port (Telegram long-polling); the mapped **`12345`** is simply unused.
@@ -231,13 +231,14 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 
 ## What the image contains by default
 
-**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway`** (comma-separated, same meaning as **`go build -tags=`**).
+**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,cli,browser`** (comma-separated, same meaning as **`go build -tags=`**).
 
 - **`http`** - **`foxxycode http`** and REST gateway (see **[docs/http-api.md](http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/scheduler.md](scheduler.md)**).
 - **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../external/memory/README.md)**); toggle runtime behavior via **`memory.enabled`**.
 - **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/gateway.md](gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
+- **`browser`** - interactive browser tools (**[docs/browser-tool.md](browser-tool.md)**), off until **`browser.enabled`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 

@@ -446,3 +446,152 @@ test("the trust layer is localized, not English-only", async () => {
     screen.getByTestId("mcp-trust-audit-marker").getAttribute("aria-label"),
   ).toBe("Одобрить MCP-сервер audit-marker");
 });
+
+// A remote server behind a certificate the system does not trust: the checkbox
+// is the whole point of the feature, so it has to be reachable from the row
+// without opening the JSON editor.
+const remoteListResponse = {
+  object: "foxxycode.mcp_list",
+  workspace: "/work/repo",
+  project_trust: "ask",
+  items: [
+    {
+      name: "selfsigned",
+      source: "global",
+      origin: "home",
+      readonly: false,
+      transport: "http",
+      url: "https://selfsigned.local/mcp",
+      headers: { Authorization: "Bearer tok" },
+      insecure_skip_verify: false,
+      enabled: true,
+      status: "error",
+      error: "x509: certificate signed by unknown authority",
+      tools: [],
+    },
+    {
+      name: "yamlremote",
+      source: "global",
+      origin: "config",
+      readonly: true,
+      transport: "http",
+      url: "https://other.local/mcp",
+      enabled: true,
+      status: "connected",
+      tools: [],
+    },
+  ],
+};
+
+test("only remote servers get the ignore-SSL checkbox", async () => {
+  stubFetch();
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  // Every row in the default fixture is stdio: TLS has nothing to do with it.
+  expect(screen.queryByTestId("mcp-insecure-files")).toBeNull();
+  expect(screen.queryByTestId("mcp-insecure-shared")).toBeNull();
+});
+
+test("a config.yaml remote server shows the checkbox but locked", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() =>
+      Promise.resolve({ ok: true, json: async () => remoteListResponse }),
+    ),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  const editable = screen.getByTestId("mcp-insecure-selfsigned") as HTMLInputElement;
+  expect(editable.disabled).toBe(false);
+  expect(editable.checked).toBe(false);
+
+  const locked = screen.getByTestId("mcp-insecure-yamlremote") as HTMLInputElement;
+  expect(locked.disabled).toBe(true);
+});
+
+test("ticking the checkbox PUTs the whole entry with insecureSkipVerify", async () => {
+  const calls: Array<{ url: string; method: string; body?: string }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      return Promise.resolve({ ok: true, json: async () => remoteListResponse });
+    }),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  fireEvent.click(screen.getByTestId("mcp-insecure-selfsigned"));
+
+  await waitFor(() => {
+    const put = calls.find(
+      (c) =>
+        c.url === "/foxxycode/mcp/selfsigned?scope=global" && c.method === "PUT",
+    );
+    expect(put).toBeTruthy();
+    const body = JSON.parse(put?.body ?? "{}");
+    expect(body.insecureSkipVerify).toBe(true);
+    // The PUT replaces the entry, so the rest of the declaration must ride along.
+    expect(body.url).toBe("https://selfsigned.local/mcp");
+    expect(body.headers).toEqual({ Authorization: "Bearer tok" });
+  });
+});
+
+test("unticking it removes the key instead of writing an explicit false", async () => {
+  const calls: Array<{ url: string; method: string; body?: string }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          ...remoteListResponse,
+          items: [
+            { ...remoteListResponse.items[0], insecure_skip_verify: true, status: "connected" },
+            remoteListResponse.items[1],
+          ],
+        }),
+      });
+    }),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  expect(
+    (screen.getByTestId("mcp-insecure-selfsigned") as HTMLInputElement).checked,
+  ).toBe(true);
+  fireEvent.click(screen.getByTestId("mcp-insecure-selfsigned"));
+
+  await waitFor(() => {
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put).toBeTruthy();
+    expect(JSON.parse(put?.body ?? "{}").insecureSkipVerify).toBeUndefined();
+  });
+});
+
+test("the ignore-SSL control is localized", async () => {
+  initLocale("ru");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() =>
+      Promise.resolve({ ok: true, json: async () => remoteListResponse }),
+    ),
+  );
+  render(<MCPSection />);
+  await waitFor(() => expect(screen.getByTestId("mcp-list")).toBeTruthy());
+
+  expect(
+    document.querySelector(".mcp-insecure-row")?.textContent,
+  ).toContain("Игнорировать проверку SSL");
+});

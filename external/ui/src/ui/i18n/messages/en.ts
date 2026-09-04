@@ -34,6 +34,7 @@ export const messagesEn: Record<string, string> = {
   "composer.modePlan": "Plan",
   "composer.modeDocs": "Documentation",
   "composer.modeAsk": "Ask",
+  "composer.modeDebug": "Debug",
   "composer.model": "Model",
   "composer.modelTitle": "YAML backend (metadata.model)",
   "composer.reasoning": "Reasoning",
@@ -100,9 +101,14 @@ export const messagesEn: Record<string, string> = {
 
   "composer.folderModal.title": "Open folder",
   "composer.folderModal.close": "Close folder browser",
+  "composer.folderModal.pathLabel": "Folder path",
+  "composer.folderModal.pathPlaceholder": "Path",
+  "composer.folderModal.drivesPlaceholder": "This PC",
   "composer.folderModal.noSubfolders": "No subfolders",
+  "composer.folderModal.noDrives": "No drives",
   "composer.folderModal.cancel": "Cancel",
   "composer.folderModal.open": "Open",
+  "composer.folderModal.go": "Go",
   "composer.folderModal.cannotList": "Cannot list {path}",
 
   "env.banner.unreachable":
@@ -219,6 +225,7 @@ export const messagesEn: Record<string, string> = {
   "settings.sectionDesc.providers": "LLM API connections",
   "settings.sectionDesc.models": "Named model configs",
   "settings.sectionDesc.agent": "ReAct agent defaults",
+  "settings.sectionDesc.autocomplete": "Inline code suggestions",
   "settings.sectionDesc.tools": "Tool permissions & limits",
   "settings.sectionDesc.mcp_servers": "External MCP tools",
   "settings.sectionDesc.skills": "Installed slash skills",
@@ -327,6 +334,8 @@ export const messagesEn: Record<string, string> = {
   "settings.toggleOptions": "Toggle options",
   "settings.backToList": "Back to list",
   "settings.backToSections": "Back to sections",
+  "settings.buildTagMissing":
+    "This build cannot run it: the binary was compiled without the \"{tag}\" build tag, so the tools do not exist in it and the settings below have no effect. Rebuild with that tag (for example make build TAGS=\"http ui browser\") to switch it on.",
   "settings.remove": "Remove",
   "settings.add": "Add",
   "settings.showKey": "Show",
@@ -439,6 +448,13 @@ export const messagesEn: Record<string, string> = {
   "settings.mcp.trust.fact.contacts": "contacts",
   "settings.mcp.trust.fact.env": "env",
   "settings.mcp.trust.fact.headers": "headers",
+  "settings.mcp.trust.fact.tls": "tls",
+  "settings.mcp.trust.factValue.insecure": "certificate verification disabled",
+  "settings.mcp.insecureTls.label": "Ignore SSL certificate errors",
+  "settings.mcp.insecureTls.title":
+    "Connect without verifying this server's TLS certificate, so a self-signed or expired certificate works. Removes the protection against a man in the middle; use only on trusted networks.",
+  "settings.mcp.error.insecureToggle":
+    "Couldn't change SSL verification for MCP server {name}.",
   "settings.mcp.error.projectTrust": "Failed to change the project trust policy.",
   "settings.mcp.error.trust": "Couldn't approve MCP server {name}.",
   "settings.mcp.error.untrust":
@@ -505,6 +521,8 @@ export const messagesEn: Record<string, string> = {
     '"env" must be an object of string values.',
   "settings.mcp.validation.headersStringMap":
     '"headers" must be an object of string values.',
+  "settings.mcp.validation.insecureSkipVerifyBoolean":
+    '"insecureSkipVerify" must be a boolean.',
   "settings.mcp.validation.disabledBoolean": '"disabled" must be a boolean.',
   "settings.mcp.validation.disabledToolsStringArray":
     '"disabledTools" must be an array of strings.',
@@ -710,6 +728,7 @@ export const messagesEn: Record<string, string> = {
   "status.tool": "Running a tool",
   "status.thinking": "Thinking…",
   "status.memory": "Working with memory",
+  "status.config": "Updating the configuration",
   "status.awaitingPermission": "Waiting for your approval",
   "status.awaitingAnswer": "Waiting for your answer",
   "status.waitingModel": "Waiting for the model",
@@ -747,9 +766,11 @@ export const messagesEn: Record<string, string> = {
   "prompts.permissionHeader.move": "Move",
   "prompts.permissionHeader.workspace": "Workspace",
   "prompts.permissionMeta.timeout": "timeout {seconds}s",
-  "prompts.permissionMeta.chars": "{count} chars",
+  "prompts.permissionMeta.chars.one": "{count} char",
+  "prompts.permissionMeta.chars.other": "{count} chars",
   "prompts.permissionMeta.fromLine": "from line {line}",
-  "prompts.permissionMeta.lines": "{count} lines",
+  "prompts.permissionMeta.lines.one": "{count} line",
+  "prompts.permissionMeta.lines.other": "{count} lines",
   "prompts.permissionMeta.maxResults": "max {count}",
   "prompts.permissionMeta.depth": "depth {depth}",
   "prompts.permissionMeta.createParents": "create parents",
@@ -771,6 +792,7 @@ export const messagesEn: Record<string, string> = {
   "prompts.planRun": "Run plan",
   "prompts.planSaving": "Saving…",
   "prompts.planSaveFailed": "save failed ({status})",
+  "prompts.planSaveFailedNoStatus": "save failed",
   "prompts.planPreviewEmpty": "Nothing to preview yet.",
   "prompts.planBodyAriaLabel": "Plan body (markdown)",
   "prompts.planBodyPlaceholder": "Plan steps and notes…",
@@ -836,9 +858,9 @@ export const messagesEn: Record<string, string> = {
   "tasks.status.timedOut": "Timed out",
   "tasks.status.stopped": "Stopped",
   "tasks.status.orphaned": "Orphaned",
-  "tasks.chip.runningOne": "{count} running task",
-  "tasks.chip.runningMany": "{count} running tasks",
-  "tasks.chip.totalOne": "{count} background task",
-  "tasks.chip.totalMany": "{count} background tasks",
+  "tasks.chip.running.one": "{count} running task",
+  "tasks.chip.running.other": "{count} running tasks",
+  "tasks.chip.total.one": "{count} background task",
+  "tasks.chip.total.other": "{count} background tasks",
   "tasks.chip.ariaLabel": "Open background tasks: {label}",
 };

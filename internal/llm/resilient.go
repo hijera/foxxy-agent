@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -84,16 +85,56 @@ func wrapResilient(inner Provider, opts ResilientOptions) Provider {
 	return &resilientProvider{inner: inner, opts: opts.withDefaults()}
 }
 
+// Unwrap exposes the wrapped provider so optional interfaces (RawCompleter) can
+// be reached through the resilience layer.
+func (p *resilientProvider) Unwrap() Provider { return p.inner }
+
 func (p *resilientProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+	resp, err := p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
 		return p.inner.Complete(ctx, messages, tools)
+	})
+	if !isVisionRejection(err, messages) {
+		return resp, err
+	}
+	p.logVisionFallback(ctx, err)
+	stripped := messagesWithoutImages(messages)
+	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+		return p.inner.Complete(ctx, stripped, tools)
 	})
 }
 
 func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
-		return p.inner.Stream(ctx, messages, tools, onChunk)
+	// Only a request the endpoint refused outright can be safely re-issued: once a
+	// delta has reached the caller, replaying the turn would duplicate output.
+	// Atomic because a transport is free to deliver chunks from its own goroutine.
+	var emitted atomic.Bool
+	guarded := func(c StreamChunk) {
+		if c.TextDelta != "" || c.ReasoningDelta != "" || c.ToolCall != nil {
+			emitted.Store(true)
+		}
+		if onChunk != nil {
+			onChunk(c)
+		}
+	}
+	resp, err := p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+		return p.inner.Stream(ctx, messages, tools, guarded)
 	})
+	if emitted.Load() || !isVisionRejection(err, messages) {
+		return resp, err
+	}
+	p.logVisionFallback(ctx, err)
+	stripped := messagesWithoutImages(messages)
+	return p.callWithRetry(ctx, func(ctx context.Context) (*Response, error) {
+		return p.inner.Stream(ctx, stripped, tools, onChunk)
+	})
+}
+
+// logVisionFallback reports the downgrade the same way from both transports: the
+// turn survives, but the model is answering without having seen the picture, and
+// that is worth a line in the log.
+func (p *resilientProvider) logVisionFallback(ctx context.Context, err error) {
+	p.opts.Logger.WarnContext(ctx, "endpoint rejected image input; retrying without images",
+		"error", err)
 }
 
 func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.Context) (*Response, error)) (*Response, error) {
@@ -387,6 +428,15 @@ func httpStatusFromError(err error) int {
 	}
 	return 0
 }
+
+// HTTPStatus returns the HTTP status behind a provider error, or 0 when the error is not an
+// HTTP failure. Lets a caller that does not retry (inline completion) still tell a rate limit
+// from a broken model.
+func HTTPStatus(err error) int { return httpStatusFromError(err) }
+
+// RetryDelayHint returns the pause a rate-limiting server asked for - a Retry-After header or a
+// "retry in Ns" body - when the error carries one.
+func RetryDelayHint(err error) (time.Duration, bool) { return serverRetryDelay(err) }
 
 // WithAgentResilience copies agent LLM pacing settings into ProviderInput.
 // retryMax is the config-resolved value; an explicit 0 disables retries.

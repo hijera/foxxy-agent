@@ -20,6 +20,8 @@ type MCPJSONServer struct {
 	Headers       map[string]string `json:"headers,omitempty"`
 	Disabled      bool              `json:"disabled,omitempty"`
 	DisabledTools []string          `json:"disabledTools,omitempty"`
+	// InsecureSkipVerify maps to MCPServerConfig.InsecureSkipVerify.
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
 
 // mcpJSONFile mirrors the Cursor mcp.json layout: a single "mcpServers"
@@ -89,6 +91,8 @@ func mcpJSONServerToConfig(name string, e MCPJSONServer) MCPServerConfig {
 		URL:           e.URL,
 		Disabled:      e.Disabled,
 		DisabledTools: append([]string(nil), e.DisabledTools...),
+
+		InsecureSkipVerify: e.InsecureSkipVerify,
 	}
 	// Cursor url-only entries carry no explicit type; surface them as http so
 	// the connector picks the streamable HTTP transport (with its legacy-SSE
