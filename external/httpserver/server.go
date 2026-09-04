@@ -89,7 +89,7 @@ type Server struct {
 	// autocomplete holds inline-completion counters and the per-model "raw FIM
 	// failed, use chat" memory; its zero value is ready to use.
 	autocomplete autocompleteState
-	bgWG               sync.WaitGroup
+	bgWG         sync.WaitGroup
 }
 
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.

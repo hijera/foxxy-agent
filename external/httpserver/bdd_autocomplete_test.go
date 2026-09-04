@@ -119,7 +119,7 @@ func (s *autocompleteFeatureState) requestCompletionInsideFunction() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err
@@ -174,7 +174,7 @@ func (s *autocompleteFeatureState) readClientConfig() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET /foxxycode/completion/config status %d", res.StatusCode)
 	}

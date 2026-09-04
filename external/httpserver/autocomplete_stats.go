@@ -29,10 +29,10 @@ type autocompleteState struct {
 	// reasoningRetries counts chat calls re-issued without stop sequences because the model
 	// reasons before answering and the stops cut the reasoning short (see markThinking).
 	reasoningRetries atomic.Int64
-	latencyMS   atomic.Int64 // total model latency, milliseconds
-	latencyMax  atomic.Int64 // slowest single model call, milliseconds
-	promptTok   atomic.Int64
-	outputTok   atomic.Int64
+	latencyMS        atomic.Int64 // total model latency, milliseconds
+	latencyMax       atomic.Int64 // slowest single model call, milliseconds
+	promptTok        atomic.Int64
+	outputTok        atomic.Int64
 
 	// Editor-reported outcomes (POST /foxxycode/completion/feedback).
 	shown     atomic.Int64
@@ -130,26 +130,26 @@ func (st *autocompleteState) snapshot() map[string]interface{} {
 		acceptance = float64(accepted) / float64(shown)
 	}
 	return map[string]interface{}{
-		"requests":         requests,
-		"served":           served,
-		"empty":            st.empty.Load(),
-		"errors":           st.errors.Load(),
-		"cancelled":        st.cancelled.Load(),
-		"timeouts":         st.timeouts.Load(),
-		"rate_limited":     st.rateLimited.Load(),
-		"fim":              st.fim.Load(),
-		"chat":             st.chat.Load(),
-		"fim_fallback":     st.fimFallback.Load(),
-		"fim_empty":        st.fimEmpty.Load(),
+		"requests":          requests,
+		"served":            served,
+		"empty":             st.empty.Load(),
+		"errors":            st.errors.Load(),
+		"cancelled":         st.cancelled.Load(),
+		"timeouts":          st.timeouts.Load(),
+		"rate_limited":      st.rateLimited.Load(),
+		"fim":               st.fim.Load(),
+		"chat":              st.chat.Load(),
+		"fim_fallback":      st.fimFallback.Load(),
+		"fim_empty":         st.fimEmpty.Load(),
 		"reasoning_retries": st.reasoningRetries.Load(),
-		"latency_avg_ms":   avg,
-		"latency_max_ms":   st.latencyMax.Load(),
-		"prompt_tokens":    st.promptTok.Load(),
-		"output_tokens":    st.outputTok.Load(),
-		"shown":            shown,
-		"accepted":         accepted,
-		"dismissed":        st.dismissed.Load(),
-		"cache_hits":       st.cacheHits.Load(),
-		"acceptance_rate":  acceptance,
+		"latency_avg_ms":    avg,
+		"latency_max_ms":    st.latencyMax.Load(),
+		"prompt_tokens":     st.promptTok.Load(),
+		"output_tokens":     st.outputTok.Load(),
+		"shown":             shown,
+		"accepted":          accepted,
+		"dismissed":         st.dismissed.Load(),
+		"cache_hits":        st.cacheHits.Load(),
+		"acceptance_rate":   acceptance,
 	}
 }

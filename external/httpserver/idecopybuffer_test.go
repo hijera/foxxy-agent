@@ -23,7 +23,7 @@ func TestFoxxyCodeIdeCopyBufferStoresFileCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status %d, want 204", res.StatusCode)
 	}
@@ -46,7 +46,7 @@ func TestFoxxyCodeIdeCopyBufferStoresTerminalCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status %d, want 204", res.StatusCode)
 	}
@@ -67,7 +67,7 @@ func TestFoxxyCodeIdeCopyBufferRejectsBadInput(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
+		_ = res.Body.Close()
 		if res.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%q: status %d, want 400", body, res.StatusCode)
 		}

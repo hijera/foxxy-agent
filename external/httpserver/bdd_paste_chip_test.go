@@ -95,7 +95,7 @@ func (s *pasteChipState) post(path string, payload interface{}) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.result = nil
 	_ = json.NewDecoder(res.Body).Decode(&s.result)
 	return res.StatusCode, nil
