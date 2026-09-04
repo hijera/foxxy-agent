@@ -55,6 +55,8 @@ export function ChatScreen(props: {
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string, files?: File[]) => void;
+  /** Pass-through to Composer: captured paste-chip literals (see Composer). */
+  onPasteChipCaptured?: (key: string, literal: string) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
@@ -289,6 +291,9 @@ export function ChatScreen(props: {
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
+              {...(props.onPasteChipCaptured
+                ? { onPasteChipCaptured: props.onPasteChipCaptured }
+                : {})}
               {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
               {...(props.generating === true && props.onStop !== undefined
                 ? { generating: true, onStop: props.onStop }
@@ -449,6 +454,9 @@ export function ChatScreen(props: {
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
+                {...(props.onPasteChipCaptured
+                  ? { onPasteChipCaptured: props.onPasteChipCaptured }
+                  : {})}
                 {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }

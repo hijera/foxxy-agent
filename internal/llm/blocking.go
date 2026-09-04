@@ -28,6 +28,10 @@ func newBlockingProvider(inner Provider) Provider {
 	return &blockingProvider{inner: inner}
 }
 
+// Unwrap exposes the wrapped provider so optional interfaces (RawCompleter) can
+// be reached through the blocking layer.
+func (p *blockingProvider) Unwrap() Provider { return p.inner }
+
 func (p *blockingProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
 	return p.inner.Complete(ctx, messages, tools)
 }

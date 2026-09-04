@@ -5,6 +5,10 @@ import com.google.gson.JsonObject
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.event.SelectionEvent
+import com.intellij.openapi.editor.event.SelectionListener
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
@@ -49,6 +53,16 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
                     override fun selectionChanged(event: FileEditorManagerEvent) = schedule()
                 },
             )
+            // Text-selection tracking: the debounce plus the lastPayload dedupe keep
+            // the POST rate bounded even though selection events fire constantly.
+            EditorFactory.getInstance().eventMulticaster.addSelectionListener(
+                object : SelectionListener {
+                    override fun selectionChanged(e: SelectionEvent) {
+                        if (e.editor.project === project) schedule()
+                    }
+                },
+                this,
+            )
         }
         schedule()
     }
@@ -69,11 +83,11 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         val base = FoxxyCodeProcessManager.getInstance(project).baseUrl ?: return
 
         val snapshot = ApplicationManager.getApplication().runReadAction<Snapshot> {
-            if (project.isDisposed) return@runReadAction Snapshot(emptyList(), "")
+            if (project.isDisposed) return@runReadAction Snapshot(emptyList(), "", null)
             val fem = FileEditorManager.getInstance(project)
             val open = fem.openFiles.filter { it.fileSystem is LocalFileSystem }.map { it.path }
             val active = fem.selectedFiles.firstOrNull { it.fileSystem is LocalFileSystem }?.path ?: ""
-            Snapshot(open, active)
+            Snapshot(open, active, currentSelection(fem))
         }
 
         // De-duplicate, keeping the active file first (mirrors the VSCode reporter).
@@ -84,6 +98,7 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         val body = JsonObject().apply {
             add("openFiles", JsonArray().apply { ordered.forEach { add(it) } })
             addProperty("activeFile", snapshot.activeFile)
+            snapshot.selection?.let { add("selection", it) }
         }.toString()
         if (body == lastPayload) return
         lastPayload = body
@@ -108,7 +123,26 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         }
     }
 
-    private data class Snapshot(val openFiles: List<String>, val activeFile: String)
+    /** The current text selection in the focused editor (call under a read action). */
+    private fun currentSelection(fem: FileEditorManager): JsonObject? {
+        val editor = fem.selectedTextEditor ?: return null
+        val sel = editor.selectionModel
+        val text = sel.selectedText ?: return null
+        if (text.isBlank()) return null
+        val doc = editor.document
+        val vf = FileDocumentManager.getInstance().getFile(doc) ?: return null
+        if (vf.fileSystem !is LocalFileSystem) return null
+        val startLine0 = doc.getLineNumber(sel.selectionStart)
+        val endLine0 = doc.getLineNumber(sel.selectionEnd)
+        val endAtLineStart = sel.selectionEnd == doc.getLineStartOffset(endLine0)
+        return SelectionPayload.build(vf.path, startLine0, endLine0, endAtLineStart, text)
+    }
+
+    private data class Snapshot(
+        val openFiles: List<String>,
+        val activeFile: String,
+        val selection: JsonObject?,
+    )
 
     companion object {
         private const val DEBOUNCE_MS = 300

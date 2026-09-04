@@ -226,6 +226,7 @@ export const messagesRu: Record<string, string> = {
   "settings.sectionDesc.providers": "Подключения к LLM API",
   "settings.sectionDesc.models": "Именованные конфигурации моделей",
   "settings.sectionDesc.agent": "Настройки агента ReAct",
+  "settings.sectionDesc.autocomplete": "Подсказки кода в редакторе",
   "settings.sectionDesc.tools": "Разрешения и лимиты инструментов",
   "settings.sectionDesc.mcp_servers": "Внешние инструменты MCP",
   "settings.sectionDesc.skills": "Установленные слэш-навыки",

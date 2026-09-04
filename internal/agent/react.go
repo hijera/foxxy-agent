@@ -1449,9 +1449,18 @@ func wrapXMLCDATA(body string) string {
 	return "<![CDATA[" + escaped + "]]>"
 }
 
+// attachmentLineRangeRe matches the "#L<start>-<end>" resource URI fragment a
+// paste-to-chip mention carries (see internal/session lineRangeURI).
+var attachmentLineRangeRe = regexp.MustCompile(`#L(\d+)-(\d+)$`)
+
 func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	pathRaw := strings.TrimSpace(res.URI)
 	pathRaw = strings.TrimPrefix(pathRaw, "file://")
+	lines := ""
+	if m := attachmentLineRangeRe.FindStringSubmatch(pathRaw); m != nil {
+		lines = m[1] + "-" + m[2]
+		pathRaw = strings.TrimSuffix(pathRaw, m[0])
+	}
 	pathFwd := filepath.ToSlash(pathRaw)
 	name := filepath.Base(pathFwd)
 	if name == "." || name == "/" {
@@ -1462,6 +1471,10 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	b.WriteString(xmlEscapedAttr(pathFwd))
 	b.WriteString(`" name="`)
 	b.WriteString(xmlEscapedAttr(name))
+	if lines != "" {
+		b.WriteString(`" lines="`)
+		b.WriteString(lines)
+	}
 	b.WriteString(`">`)
 	b.WriteByte('\n')
 	b.WriteString(wrapXMLCDATA(res.Text))
@@ -1596,6 +1609,11 @@ func filePathsNote(parts []llm.ImagePart) string {
 // bound token usage on workspaces with many editors open.
 const ideEnvMaxTabs = 50
 
+// ideEnvMaxSelectionBytes caps the selection text included in the IDE context
+// block. Kept short — a paste-to-chip attachment carries the full fragment on
+// demand; this is ambient context only.
+const ideEnvMaxSelectionBytes = 2 * 1024
+
 // ideEnvNote builds an XML annotation describing the files the user currently
 // has open in their IDE (the focused tab plus every open tab), mirroring the
 // environment context other coding agents inject each turn. Paths are made
@@ -1606,7 +1624,7 @@ const ideEnvMaxTabs = 50
 // stripFoxxyCodeAttachmentsForUserDisplay function.
 func ideEnvNote(cwd string) string {
 	snap := ideenv.Get()
-	if snap.ActiveFile == "" && len(snap.OpenFiles) == 0 {
+	if snap.ActiveFile == "" && len(snap.OpenFiles) == 0 && snap.Selection == nil {
 		return ""
 	}
 	rel := func(p string) string {
@@ -1642,6 +1660,15 @@ func ideEnvNote(cwd string) string {
 			}
 			b.WriteString(rel(snap.OpenFiles[i]))
 		}
+	}
+	if sel := snap.Selection; sel != nil {
+		text := sel.Text
+		if len(text) > ideEnvMaxSelectionBytes {
+			text = text[len(text)-ideEnvMaxSelectionBytes:]
+		}
+		b.WriteString("\n\n# Selection\n")
+		fmt.Fprintf(&b, "%s:%d-%d\n", rel(sel.File), sel.StartLine, sel.EndLine)
+		b.WriteString(text)
 	}
 	b.WriteString("\n</foxxycode_ide_context>")
 	return b.String()

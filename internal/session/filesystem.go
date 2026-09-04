@@ -526,6 +526,9 @@ func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := StripInjectedContextBlocks(strings.TrimSpace(msg.Content))
+			// Hydrated @-mention turns also carry <foxxycode_attachment> file bodies;
+			// a title is the user's text, never the attachment XML.
+			text = StripContextBlocks(text, TagAttachment)
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -545,6 +548,9 @@ const (
 	TagIDEContext      = "foxxycode_ide_context"
 	TagTerminalContext = "foxxycode_terminal_context"
 	TagTerminalOutput  = "foxxycode_terminal_output"
+	// TagAttachment wraps a hydrated @-mention file body. Not part of
+	// injectedContextTags — transcripts keep it — but titles strip it.
+	TagAttachment = "foxxycode_attachment"
 )
 
 // injectedContextTags carries every wrapper tag, for callers that want the user's bare text.
