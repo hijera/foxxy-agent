@@ -56,6 +56,7 @@ func (s *askFeatureState) reset() error {
 		Models:    []config.ModelEntry{{Model: "openai/gpt-5", MaxTokens: 256}},
 		Agent:     config.Agent{Model: "openai/gpt-5"},
 	}
+	disableTitlePass(cfg)
 	s.agent = NewAgent(cfg, s.state, resumePermissionSender{}, nil)
 	s.agent.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
 		return s.provider, nil
