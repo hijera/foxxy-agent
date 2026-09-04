@@ -654,7 +654,7 @@ func TestCompletionExcerptsRelatedOpenFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ideenv.Set([]string{current, helper, outside}, current)
+	ideenv.Set([]string{current, helper, outside}, current, nil)
 	t.Cleanup(ideenv.Reset)
 
 	body, _ := json.Marshal(map[string]string{"prefix": "func main() {\n\tx := ", "suffix": "\n}", "path": current, "language": "go"})
@@ -688,7 +688,7 @@ func TestCompletionRelatedFilesCanBeDisabled(t *testing.T) {
 	if err := os.WriteFile(helper, []byte("package main\n\nfunc Helper() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ideenv.Set([]string{helper}, "")
+	ideenv.Set([]string{helper}, "", nil)
 	t.Cleanup(ideenv.Reset)
 
 	postCompletion(t, ts.URL, addFuncRequest)
