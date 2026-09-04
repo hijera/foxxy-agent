@@ -144,6 +144,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}", s.foxxycodeSessionAssetGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/stats", s.foxxycodeSessionStatsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/debug", s.foxxycodeSessionDebugGet)
+	s.mux.HandleFunc("POST /foxxycode/stream-tickets", s.foxxycodeStreamTicketPost)
 	s.mux.HandleFunc("PATCH /foxxycode/sessions/{id}", s.foxxycodeSessionPatch)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/workspace", s.foxxycodeSessionWorkspacePost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/cancel", s.foxxycodeSessionCancelGeneration)
@@ -1023,7 +1024,7 @@ func (s *Server) foxxycodeSessionAssetThumbnailGet(w http.ResponseWriter, r *htt
 		http.Error(w, `{"error":{"message":"thumbnail unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || info.IsDir() {
 		http.NotFound(w, r)

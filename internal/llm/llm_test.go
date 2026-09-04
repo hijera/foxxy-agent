@@ -375,7 +375,6 @@ func TestOpenAITextOnlyMessageIsString(t *testing.T) {
 	}
 }
 
-
 // TestOpenAIStreamTruncatedBeforeFirstDelta verifies that a stream cut
 // before any delta fails with a truncation error and no response: there is
 // nothing worth preserving and the call is safe to retry.

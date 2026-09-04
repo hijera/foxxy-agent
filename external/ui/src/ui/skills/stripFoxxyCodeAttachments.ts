@@ -54,7 +54,7 @@ export function parseSessionAssetFiles(
   const m = /<foxxycode_session_assets>([\s\S]*?)<\/foxxycode_session_assets>/i.exec(content);
   if (!m) return [];
   const files: { name: string; mimeType: string }[] = [];
-  for (const line of m[1].split("\n")) {
+  for (const line of (m[1] ?? "").split("\n")) {
     const t = line.trim();
     if (!t.startsWith("- /")) continue;
     const body = t.slice(2); // remove "- "

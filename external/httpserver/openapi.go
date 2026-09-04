@@ -1344,10 +1344,37 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/stream-tickets": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Mint a single-use ticket for an SSE subscription",
+					"description": "EventSource cannot set an **Authorization** header, so the SSE routes accept a credential as **`?access_token=`** - and a query string reaches access logs, proxy logs, browser history and **Referer** headers. This route trades the durable token for a weaker one: authenticate normally with **Authorization: Bearer**, receive **`{object, ticket, expiresIn, expiresAt}`**, and pass **`ticket`** as **`?access_token=`** on **GET /foxxycode/events** or **GET /foxxycode/sessions/{id}/composer-stream**. The ticket is accepted once, on those two routes only, and expires after 60 seconds, so the value that lands in a log is already spent. Tickets live in the server process and do not survive a restart. Answers **409** when no token is configured, because a ticket would then authenticate nothing. Set **`httpserver.stream_tickets_only: true`** to make this the only accepted query credential.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "A freshly minted stream ticket (Cache-Control: no-store)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"ticket":    map[string]string{"type": "string"},
+											"expiresIn": map[string]string{"type": "integer"},
+											"expiresAt": map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"401": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -1357,7 +1384,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask**/**debug** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask**/**debug** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids. Because EventSource cannot set an **Authorization** header, this route also accepts **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1476,27 +1503,27 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"requests":        map[string]interface{}{"type": "integer"},
-											"served":          map[string]interface{}{"type": "integer"},
-											"empty":           map[string]interface{}{"type": "integer"},
-											"errors":          map[string]interface{}{"type": "integer"},
-											"cancelled":       map[string]interface{}{"type": "integer"},
-											"timeouts":        map[string]interface{}{"type": "integer", "description": "Requests the model did not answer within autocomplete.timeout_ms."},
-											"rate_limited":    map[string]interface{}{"type": "integer", "description": "Requests the provider refused with 429, passed on to the client as 429 + Retry-After."},
-											"fim":             map[string]interface{}{"type": "integer"},
-											"chat":            map[string]interface{}{"type": "integer"},
-											"fim_fallback":    map[string]interface{}{"type": "integer"},
-											"fim_empty":       map[string]interface{}{"type": "integer", "description": "Raw FIM calls that answered 200 with nothing and were re-issued as chat; a streak retires FIM for that model."},
+											"requests":          map[string]interface{}{"type": "integer"},
+											"served":            map[string]interface{}{"type": "integer"},
+											"empty":             map[string]interface{}{"type": "integer"},
+											"errors":            map[string]interface{}{"type": "integer"},
+											"cancelled":         map[string]interface{}{"type": "integer"},
+											"timeouts":          map[string]interface{}{"type": "integer", "description": "Requests the model did not answer within autocomplete.timeout_ms."},
+											"rate_limited":      map[string]interface{}{"type": "integer", "description": "Requests the provider refused with 429, passed on to the client as 429 + Retry-After."},
+											"fim":               map[string]interface{}{"type": "integer"},
+											"chat":              map[string]interface{}{"type": "integer"},
+											"fim_fallback":      map[string]interface{}{"type": "integer"},
+											"fim_empty":         map[string]interface{}{"type": "integer", "description": "Raw FIM calls that answered 200 with nothing and were re-issued as chat; a streak retires FIM for that model."},
 											"reasoning_retries": map[string]interface{}{"type": "integer", "description": "Chat calls re-issued without stop sequences because the model reasons before answering and the stops cut the reasoning short; such models get no stops afterwards."},
-											"latency_avg_ms":  map[string]interface{}{"type": "integer"},
-											"latency_max_ms":  map[string]interface{}{"type": "integer"},
-											"prompt_tokens":   map[string]interface{}{"type": "integer"},
-											"output_tokens":   map[string]interface{}{"type": "integer"},
-											"shown":           map[string]interface{}{"type": "integer"},
-											"accepted":        map[string]interface{}{"type": "integer"},
-											"dismissed":       map[string]interface{}{"type": "integer"},
-											"cache_hits":      map[string]interface{}{"type": "integer"},
-											"acceptance_rate": map[string]interface{}{"type": "number"},
+											"latency_avg_ms":    map[string]interface{}{"type": "integer"},
+											"latency_max_ms":    map[string]interface{}{"type": "integer"},
+											"prompt_tokens":     map[string]interface{}{"type": "integer"},
+											"output_tokens":     map[string]interface{}{"type": "integer"},
+											"shown":             map[string]interface{}{"type": "integer"},
+											"accepted":          map[string]interface{}{"type": "integer"},
+											"dismissed":         map[string]interface{}{"type": "integer"},
+											"cache_hits":        map[string]interface{}{"type": "integer"},
+											"acceptance_rate":   map[string]interface{}{"type": "number"},
 										},
 									},
 								},
@@ -2608,7 +2635,7 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The local /foxxycode/ide/* routes stay public.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The local /foxxycode/ide/* routes stay public. The two SSE routes additionally accept `?access_token=`, which should carry a single-use ticket from POST /foxxycode/stream-tickets rather than the durable token; set httpserver.stream_tickets_only to require that.",
 				},
 			},
 			"schemas": map[string]interface{}{

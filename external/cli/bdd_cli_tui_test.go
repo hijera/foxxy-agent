@@ -349,7 +349,9 @@ func (s *cliTUIState) aConsoleAppOverStubRunner() error { return s.buildApp() }
 
 func (s *cliTUIState) theConsoleAppStarts() error { return s.startApp("") }
 
-func (s *cliTUIState) screenShowsVersionHeader() error { return s.waitScreen("foxxycode v", 2*time.Second) }
+func (s *cliTUIState) screenShowsVersionHeader() error {
+	return s.waitScreen("foxxycode v", 2*time.Second)
+}
 
 func (s *cliTUIState) screenShowsEditorBorders() error {
 	text := s.screenText()

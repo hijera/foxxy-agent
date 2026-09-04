@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -66,5 +67,47 @@ func TestReadDebugTraceSkipsMalformedLines(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Errorf("expected 2 valid events (malformed skipped), got %d", len(got))
+	}
+}
+
+// The debug trace records the same turn the diagnostics layer is dumping, down
+// to tool arguments and model metadata, so it gets the process log's file mode
+// rather than the default world-readable one.
+func TestAppendDebugEventWritesOwnerOnlyFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	path, err := AppendDebugEvent(dir, DebugEvent{Turn: 1, Phase: "turn_start", At: "2026-08-29T00:00:00Z"})
+	if err != nil {
+		t.Fatalf("AppendDebugEvent: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("debug trace mode = %#o, want 0600", perm)
+	}
+}
+
+func TestAppendDebugEventTightensExistingLooseMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not meaningful on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, debugTraceFileName)
+	if err := os.WriteFile(path, []byte("old trace\n"), 0o644); err != nil {
+		t.Fatalf("seed trace: %v", err)
+	}
+	if _, err := AppendDebugEvent(dir, DebugEvent{Turn: 1, Phase: "turn_start", At: "2026-08-29T00:00:00Z"}); err != nil {
+		t.Fatalf("AppendDebugEvent: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("existing debug trace mode = %#o, want 0600", perm)
 	}
 }

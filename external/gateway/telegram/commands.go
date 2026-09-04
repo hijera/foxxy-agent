@@ -152,7 +152,7 @@ func formatContextBreakdown(bd *session.ContextBreakdown, sessionID string) stri
 		if r.val == 0 {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("%-20s `%s`\n", r.label+":", fmtN(r.val)))
+		_, _ = fmt.Fprintf(&sb, "%-20s `%s`\n", r.label+":", fmtN(r.val))
 	}
 	sb.WriteString("\n*Total ≈ " + fmtN(bd.EstimatedTotal) + " tokens*")
 	sb.WriteString("\n_Estimate: runes ÷ 4_")

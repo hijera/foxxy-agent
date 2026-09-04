@@ -64,7 +64,7 @@ test("index.html VALID theme map stays in sync with UI_THEME_IDS", () => {
   );
   const m = html.match(/var VALID = \{([^}]*)\}/);
   expect(m, "index.html must declare the VALID theme map").toBeTruthy();
-  const keys = [...m![1].matchAll(/"?([\w-]+)"?\s*:/g)].map((k) => k[1]).sort();
+  const keys = [...m![1]!.matchAll(/"?([\w-]+)"?\s*:/g)].map((k) => k[1]).sort();
   expect(keys).toEqual([...UI_THEME_IDS].sort());
 });
 

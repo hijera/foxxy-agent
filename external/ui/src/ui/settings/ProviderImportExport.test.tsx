@@ -122,7 +122,7 @@ test("export to clipboard copies a secret-free foxxycode:// query", async () => 
     expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
   });
   const copied = (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mock
-    .calls[0][0] as string;
+    .calls[0]![0] as string;
   expect(copied.startsWith("foxxycode://provider?")).toBe(true);
   expect(copied).toContain("name=openrouter");
   expect(copied).not.toContain("sk-secret");

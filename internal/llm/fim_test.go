@@ -7,20 +7,20 @@ import (
 
 func TestFIMTemplateForKnownFamilies(t *testing.T) {
 	cases := map[string]string{
-		"neuraldeep/qwen3.6-35b-a3b":       "qwen",
-		"local/Qwen2.5-Coder-7B-Instruct":  "qwen",
-		"openai/deepseek-coder-6.7b":       "deepseek",
-		"local/codellama-13b":              "codellama",
-		"local/starcoder2-15b":             "starcoder",
-		"local/granite-8b-code":            "starcoder",
-		"mistral/codestral-latest":         "codestral",
-		"google/codegemma-7b":              "qwen",
-		"local/stable-code-instruct-3b":    "starcoder",
-		"openai/gpt-4o":                    "",
-		"anthropic/claude-sonnet-4-5":      "",
-		"neuraldeep/gpt-oss-120b":          "",
-		"neuraldeep/kimi-k2.6":             "",
-		"neuraldeep/gemma-4-31b":           "",
+		"neuraldeep/qwen3.6-35b-a3b":      "qwen",
+		"local/Qwen2.5-Coder-7B-Instruct": "qwen",
+		"openai/deepseek-coder-6.7b":      "deepseek",
+		"local/codellama-13b":             "codellama",
+		"local/starcoder2-15b":            "starcoder",
+		"local/granite-8b-code":           "starcoder",
+		"mistral/codestral-latest":        "codestral",
+		"google/codegemma-7b":             "qwen",
+		"local/stable-code-instruct-3b":   "starcoder",
+		"openai/gpt-4o":                   "",
+		"anthropic/claude-sonnet-4-5":     "",
+		"neuraldeep/gpt-oss-120b":         "",
+		"neuraldeep/kimi-k2.6":            "",
+		"neuraldeep/gemma-4-31b":          "",
 	}
 	for model, want := range cases {
 		tmpl, ok := FIMTemplateFor(model)

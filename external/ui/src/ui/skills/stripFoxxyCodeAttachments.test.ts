@@ -57,8 +57,8 @@ test("parseSessionAssetFiles extracts names from foxxycode_session_assets", () =
     "msg\n\n<foxxycode_session_assets>Uploaded files saved to session assets (read-only). You can read or copy them:\n- /home/user/.foxxycode/sessions/s1/assets/note.txt\n- /home/user/.foxxycode/sessions/s1/assets/doc_1.txt (doc.txt)\n</foxxycode_session_assets>";
   const files = parseSessionAssetFiles(content);
   expect(files).toHaveLength(2);
-  expect(files[0].name).toBe("note.txt");
-  expect(files[1].name).toBe("doc.txt");
+  expect(files[0]!.name).toBe("note.txt");
+  expect(files[1]!.name).toBe("doc.txt");
 });
 
 test("parseSessionAssetFiles returns empty for content without tag", () => {

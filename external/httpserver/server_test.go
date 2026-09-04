@@ -66,7 +66,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -142,7 +142,7 @@ func TestResponsesDocsProfileSetsSessionMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, body)
@@ -187,7 +187,7 @@ func TestResponsesAskProfileSetsSessionMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, body)
@@ -228,7 +228,7 @@ func TestResponsesDebugProfileSetsSessionMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		t.Fatalf("status %d body %s", res.StatusCode, body)
@@ -259,7 +259,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var body struct {
 		Data []struct {
 			ID         string `json:"id"`
@@ -771,7 +771,7 @@ func TestRedirectDocsToTrailingSlash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound && res.StatusCode != http.StatusMovedPermanently {
 		t.Fatalf("expected redirect, got %d", res.StatusCode)
 	}
@@ -885,7 +885,7 @@ func TestFoxxyCodeSessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 			return
 		}
 		_, _ = io.Copy(io.Discard, res.Body)
-		res.Body.Close()
+		_ = res.Body.Close()
 		reqErr <- nil
 	}()
 
@@ -1530,7 +1530,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res1.Body)
+	_, _ = ioReadAllClose(res1.Body)
 
 	payload2 := strings.NewReader(`{"model":"agent","input":"two","stream":false}`)
 	req2, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", payload2)
@@ -1539,7 +1539,7 @@ func TestResponsesMultiTurnHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res2.Body)
+	_, _ = ioReadAllClose(res2.Body)
 	if res2.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res2.StatusCode)
 	}
@@ -1720,7 +1720,7 @@ func TestFoxxyCodeSessionMessagesIncludesSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(resA.Body)
+	_, _ = ioReadAllClose(resA.Body)
 	if resA.StatusCode != http.StatusOK {
 		t.Fatalf("session A status %d", resA.StatusCode)
 	}
@@ -1738,7 +1738,7 @@ func TestFoxxyCodeSessionMessagesIncludesSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(resB.Body)
+	_, _ = ioReadAllClose(resB.Body)
 	if resB.StatusCode != http.StatusOK {
 		t.Fatalf("session B status %d", resB.StatusCode)
 	}
@@ -1873,7 +1873,7 @@ func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -2241,7 +2241,7 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -2313,7 +2313,7 @@ func TestResponsesAttachmentEncodings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		ioReadAllClose(res.Body)
+		_, _ = ioReadAllClose(res.Body)
 		return res.StatusCode
 	}
 
@@ -2434,7 +2434,7 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ioReadAllClose(res.Body)
+	_, _ = ioReadAllClose(res.Body)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", res.StatusCode)
 	}
@@ -2510,7 +2510,7 @@ func TestResolveDirectYAMLMaxTokens(t *testing.T) {
 }
 
 func ioReadAllClose(b io.ReadCloser) ([]byte, error) {
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	return io.ReadAll(b)
 }
 
@@ -2628,8 +2628,8 @@ agent:
 			return noopSender{}
 		},
 		EnsureHome: func(string) error { return nil },
-		OpenStore: func(root string, cfg *config.Config) (*session.FileStore, error) {
-			root = filepath.Join(home, "sessions")
+		OpenStore: func(_ string, cfg *config.Config) (*session.FileStore, error) {
+			root := filepath.Join(home, "sessions")
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				return nil, err
 			}
@@ -2693,7 +2693,7 @@ func TestFoxxyCodeWorkspaceContextPathParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", res.StatusCode)
 	}
@@ -2716,7 +2716,7 @@ func TestFoxxyCodeWorkspaceContextPathParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res2.Body.Close()
+	defer func() { _ = res2.Body.Close() }()
 	if res2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing path status = %d", res2.StatusCode)
 	}
@@ -2746,7 +2746,7 @@ func TestHTTPAuthChallengeHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d want 401", res.StatusCode)
 	}
@@ -2884,7 +2884,7 @@ func TestHTTPCORSPreflightAllowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("preflight status %d want 204", res.StatusCode)
 	}
@@ -2905,7 +2905,7 @@ func TestHTTPCORSDisallowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("disallowed origin got ACAO %q, want none", got)
 	}
@@ -2919,7 +2919,7 @@ func TestHTTPCORSWildcardActualRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d want 200", res.StatusCode)
 	}
@@ -2936,7 +2936,7 @@ func TestHTTPCORSDisabledNoHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("CORS disabled but ACAO set: %q", got)
 	}
@@ -2982,7 +2982,7 @@ func authGET(t *testing.T, rawURL, token string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	return res.StatusCode
 }
 
@@ -3313,10 +3313,10 @@ func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
 		} `json:"messages"`
 	}
 	if err := json.NewDecoder(msgRes.Body).Decode(&history); err != nil {
-		msgRes.Body.Close()
+		_ = msgRes.Body.Close()
 		t.Fatal(err)
 	}
-	msgRes.Body.Close()
+	_ = msgRes.Body.Close()
 	if msgRes.StatusCode != http.StatusOK {
 		t.Fatalf("messages status %d", msgRes.StatusCode)
 	}
@@ -3332,7 +3332,7 @@ func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer thumbRes.Body.Close()
+	defer func() { _ = thumbRes.Body.Close() }()
 	if thumbRes.StatusCode != http.StatusOK {
 		t.Fatalf("thumbnail status %d", thumbRes.StatusCode)
 	}

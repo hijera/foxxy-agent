@@ -138,6 +138,7 @@ func (s *evFeatureState) buildAgent() {
 		Compaction: config.CompactionConfig{ResultEviction: config.ResultEviction{Enabled: &enabled, KeepRecent: &keepRecent, MinResultBytes: &minBytes}},
 		Tools:      config.Tools{PermissionMode: config.PermModeBypass, OutputLimits: s.outputLimits},
 	}
+	disableTitlePass(cfg)
 	s.st = &session.State{ID: "sess_bdd_evict", CWD: s.cwd, Mode: session.ModeAgent, SessionDir: s.sessionDir}
 	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return s.provider, nil }

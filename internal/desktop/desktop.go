@@ -48,7 +48,7 @@ func Run(opts Options) error {
 	schedulerEnabled := fs.Bool("scheduler-enabled", true, "enable the scheduler daemon (default on in desktop; pass=false to disable)")
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage of desktop:\n")
+		_, _ = fmt.Fprintf(fs.Output(), "Usage of desktop:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(opts.Args); err != nil {

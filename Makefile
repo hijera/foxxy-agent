@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon test test-opencode-rules check-windows lint lint-windows clean install print-version hooks intellij-build intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
+.PHONY: build build-acp build-desktop icon test test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -69,13 +69,23 @@ build-desktop: ui-build
 	  -ldflags "$(DESKTOP_LDFLAGS)" \
 	  -o $(BUILD_DIR)/foxxycode-desktop.exe ./cmd/foxxycode/
 
-ui-build:
 # `npm --prefix DIR` installs INTO DIR but still reads package.json from the
 # current directory on Windows npm, so it fails at the repo root with a confusing
 # "Could not read package.json" pointing at a file that was never meant to exist.
 # Changing directory works the same way on every platform.
+ui-build:
 	cd external/ui && npm install --no-fund --no-audit
 	cd external/ui && npm run build:go
+
+# Run the SPA's own unit suite (vitest, 1000+ tests) and type-check it. Neither
+# was gated: `make test` only ever ran Go tests, and `vite build` compiles TypeScript
+# with esbuild, which strips types without checking them - so a type error shipped
+# silently. Kept separate from ui-build so a Go-only change does not pay for it,
+# and wired into `test` below.
+ui-test:
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run typecheck
+	cd external/ui && npm test
 
 # Build the foxxycode CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:
@@ -117,7 +127,10 @@ test: test-opencode-rules
 	go test -tags=browser ./...
 	go test -tags=scheduler ./...
 	go test -tags=scheduler,memory ./...
+	go test -tags=gateway ./...
+	go test -tags=http,gateway,scheduler,memory ./...
 	$(MAKE) ui-build
+	$(MAKE) ui-test
 	go test -tags=http,ui ./...
 	go test -tags=http,ui,memory ./...
 	go test -tags=http,scheduler ./...
@@ -135,7 +148,9 @@ test: test-opencode-rules
 # Windows-only tests as well.
 #
 # The ui tag is deliberately absent: it embeds assets that only exist after
-# ui-build, and it carries no platform-specific code.
+# ui-build, and it carries no platform-specific code. desktop is the reverse -
+# //go:build desktop && windows means this target is the only place it is ever
+# type-checked, so it must stay in the list.
 check-windows:
 	GOOS=windows go build ./...
 	GOOS=windows go build -tags=cli ./...
@@ -150,22 +165,59 @@ check-windows:
 	GOOS=windows go vet -tags=scheduler,memory ./...
 	GOOS=windows go vet -tags=http,scheduler ./...
 	GOOS=windows go vet -tags=http,scheduler,memory ./...
+	GOOS=windows go vet -tags=gateway ./...
+	GOOS=windows go vet -tags=desktop,http,scheduler,memory ./...
 
 # Clean build artifacts.
 clean:
 	rm -rf $(BUILD_DIR)
 
-# Run the linter (requires golangci-lint).
-# The second pass compiles the cli-tagged console surface, which the untagged
-# pass never sees.
+# Tag sets the linter must cover. A build tag hides whole files from the linter,
+# so anything not listed here is never linted: for a long time only the untagged
+# and cli passes ran, which left external/httpserver, external/memory and
+# external/scheduler - the bulk of external/ - unchecked. Keep this in sync with
+# the TAGS list at the top of this file whenever a new optional tag lands.
+#
+# The combinations compile every file at least once rather than enumerating the
+# power set: http,scheduler,memory covers the optional server surfaces together,
+# browser covers the chromedp tool, cli covers the TUI, gateway covers the
+# messenger bots (gateway.telegram is a subset of gateway). The ui tag lives in
+# lint-ui because it embeds a bundle that only exists after ui-build, and
+# desktop lives in lint-windows because it is //go:build desktop && windows.
+LINT_TAG_SETS := cli browser gateway http,scheduler,memory,gateway
+
+# Fail on every finding rather than golangci-lint's default caps
+# (max-issues-per-linter=50, max-same-issues=3), which silently hid most of a
+# backlog of identical errcheck hits behind the first three of each kind.
+LINT_FLAGS := --max-issues-per-linter 0 --max-same-issues 0
+
+# Run the linter (requires golangci-lint): the untagged pass plus one pass per
+# tag set above. Needs no npm - run `make lint-ui` for the embedded-SPA pass.
 lint:
-	golangci-lint run ./...
-	golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
+	golangci-lint run $(LINT_FLAGS) ./...
+	@for t in $(LINT_TAG_SETS); do \
+		echo "==> golangci-lint --build-tags $$t"; \
+		golangci-lint run $(LINT_FLAGS) --build-tags "$$t" ./... || exit 1; \
+	done
+
+# Lint the http+ui surface (spa_embed_ui.go and friends). Separate from lint
+# because the ui tag go:embeds external/ui/dist, which is gitignored and only
+# exists after ui-build - so this target needs Node, and plain `make lint` does not.
+lint-ui: ui-build
+	golangci-lint run $(LINT_FLAGS) --build-tags http,scheduler,memory,ui ./...
 
 # Run the linter against the Windows build, which lint above never compiles.
+# desktop is Windows-only (//go:build desktop && windows), so this is the only
+# pass that ever sees internal/desktop; it compiles without the ui tag, so no
+# bundle is needed here either.
+LINT_TAG_SETS_WINDOWS := $(LINT_TAG_SETS) desktop,http,scheduler,memory
+
 lint-windows:
-	GOOS=windows golangci-lint run ./...
-	GOOS=windows golangci-lint run --build-tags cli ./external/cli/... ./cmd/foxxycode/...
+	GOOS=windows golangci-lint run $(LINT_FLAGS) ./...
+	@for t in $(LINT_TAG_SETS_WINDOWS); do \
+		echo "==> GOOS=windows golangci-lint --build-tags $$t"; \
+		GOOS=windows golangci-lint run $(LINT_FLAGS) --build-tags "$$t" ./... || exit 1; \
+	done
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify
@@ -183,6 +235,12 @@ PLUGIN_VERSION ?= $(VERSION)
 
 intellij-build:
 	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon buildPlugin -Pproduction=true -PpluginVersion="$(PLUGIN_VERSION)"
+
+# Run the plugin's Kotlin unit tests. buildPlugin does not depend on `test`, so
+# until this existed the suite under editors/intellij/src/test was never executed
+# by any gate. Requires a JDK 17 on PATH (the plugin's toolchain).
+intellij-test:
+	cd editors/intellij && chmod +x gradlew && ./gradlew --no-daemon test
 
 # Live quality run of inline completion against the NeuralDeep hub. Needs NEURALDEEP_API_KEY;
 # skipped without it, so it never runs in CI. Knobs: FOXXYCODE_E2E_MODELS, FOXXYCODE_E2E_MODES,

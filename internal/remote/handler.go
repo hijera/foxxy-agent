@@ -501,7 +501,7 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 		Category:     "mode",
 		Type:         "select",
 		CurrentValue: mode,
-		Options: profileOptionValues(h.profileModes()),
+		Options:      profileOptionValues(h.profileModes()),
 	}}
 	if len(models) == 0 {
 		return out

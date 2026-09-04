@@ -270,9 +270,9 @@ func (s *configToolsFeatureState) reloadedTimes(want int) error {
 	return nil
 }
 
-func (s *configToolsFeatureState) reloadedOnce() error   { return s.reloadedTimes(1) }
-func (s *configToolsFeatureState) reloadedTwice() error  { return s.reloadedTimes(2) }
-func (s *configToolsFeatureState) notReloaded() error    { return s.reloadedTimes(0) }
+func (s *configToolsFeatureState) reloadedOnce() error  { return s.reloadedTimes(1) }
+func (s *configToolsFeatureState) reloadedTwice() error { return s.reloadedTimes(2) }
+func (s *configToolsFeatureState) notReloaded() error   { return s.reloadedTimes(0) }
 
 func (s *configToolsFeatureState) configPathEquals(path, want string) error {
 	if err := s.readConfigPath(path); err != nil {

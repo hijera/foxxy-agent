@@ -16,12 +16,12 @@ func (s *Server) registerOnboardingRoutes() {
 }
 
 type onboardingStatusDTO struct {
-	FirstRun        bool     `json:"first_run"`
-	HasConfig       bool     `json:"has_config"`
-	HasProviders    bool     `json:"has_providers"`
-	HasModels       bool     `json:"has_models"`
-	HasAgentModel   bool     `json:"has_agent_model"`
-	MissingAPIKeys  []string `json:"missing_api_keys"`
+	FirstRun          bool                   `json:"first_run"`
+	HasConfig         bool                   `json:"has_config"`
+	HasProviders      bool                   `json:"has_providers"`
+	HasModels         bool                   `json:"has_models"`
+	HasAgentModel     bool                   `json:"has_agent_model"`
+	MissingAPIKeys    []string               `json:"missing_api_keys"`
 	SuggestedDefaults map[string]interface{} `json:"suggested_defaults,omitempty"`
 }
 

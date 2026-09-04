@@ -44,7 +44,7 @@ export function readUiLocaleFromUrl(): UiLocale | null {
   if (!m) {
     return null;
   }
-  const raw = decodeURIComponent(m[1].replace(/\+/g, " "));
+  const raw = decodeURIComponent((m[1] ?? "").replace(/\+/g, " "));
   if (isUiLocale(raw)) {
     return raw;
   }

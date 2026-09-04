@@ -624,7 +624,6 @@ agent:
 	}
 }
 
-
 func TestMCPProjectTrustDefaultsToAskAndRejectsUnknown(t *testing.T) {
 	// An empty or unrecognised value must never widen the policy.
 	for _, in := range []string{"", "   ", "nonsense"} {

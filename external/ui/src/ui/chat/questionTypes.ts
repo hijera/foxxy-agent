@@ -1,10 +1,15 @@
 /**
  * Payload for interactive question tool (matches server SSE and POST /question).
  */
-export type FoxxyCodeQuestionOption = { label: string; description?: string };
+export type FoxxyCodeQuestionOption = {
+  label: string;
+  // `| undefined` is explicit because normQuestions writes undefined for an
+  // absent description rather than omitting the key.
+  description?: string | undefined;
+};
 
 export type FoxxyCodeQuestionItem = {
-  header?: string;
+  header?: string | undefined;
   question: string;
   options: FoxxyCodeQuestionOption[];
   multiple?: boolean;
@@ -14,7 +19,7 @@ export type FoxxyCodeQuestionItem = {
 export type FoxxyCodeQuestionPayload = {
   sessionId: string;
   requestId: string;
-  toolCallId?: string;
+  toolCallId?: string | undefined;
   questions: FoxxyCodeQuestionItem[];
 };
 

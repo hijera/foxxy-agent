@@ -103,7 +103,7 @@ func (w *backendWindow) prompt(sid, text string) (int, string) {
 	if err != nil {
 		return -1, err.Error()
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	out, _ := io.ReadAll(res.Body)
 	return res.StatusCode, string(out)
 }

@@ -298,6 +298,7 @@ tools:
 #   port: 8080
 #   auth_token: "${FOXXYCODE_HTTP_TOKEN}"  # empty = no auth; ${ENV} expanded at load; or use --auth-token
 #   public_docs: false      # keep /docs + /openapi.* open when auth is on
+#   stream_tickets_only: false  # SSE must use POST /foxxycode/stream-tickets instead of ?access_token=<auth token>
 #   allow_insecure: false   # silence the non-loopback-without-auth startup warning
 #   cors:
 #     enabled: false

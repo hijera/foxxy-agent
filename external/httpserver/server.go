@@ -47,6 +47,9 @@ type Server struct {
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// extraAuthTokens are bearer tokens supplied out-of-band via --auth-token / FOXXYCODE_HTTP_TOKEN.
 	extraAuthTokens []string
+	// streamTickets holds the short-lived, single-use credentials the SSE routes accept in
+	// place of the durable token (see stream_ticket.go).
+	streamTickets *streamTicketStore
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
 	// drives lists the machine's drive roots for the folder picker's volume
@@ -86,7 +89,7 @@ type Server struct {
 	// autocomplete holds inline-completion counters and the per-model "raw FIM
 	// failed, use chat" memory; its zero value is ready to use.
 	autocomplete autocompleteState
-	bgWG               sync.WaitGroup
+	bgWG         sync.WaitGroup
 }
 
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
@@ -130,6 +133,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
+		streamTickets:        newStreamTicketStore(),
 	}
 	s.cfgAt.Store(cfg)
 	// Several servers may share one manager (tests do), so each takes its own removable

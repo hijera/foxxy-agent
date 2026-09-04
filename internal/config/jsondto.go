@@ -317,14 +317,16 @@ type TitleJSON struct {
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
 // populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
-	Host           string           `json:"host,omitempty"`
-	Port           int              `json:"port,omitempty"`
-	AuthToken      string           `json:"auth_token,omitempty"`
-	AuthConfigured bool             `json:"auth_configured,omitempty"`
-	PublicDocs     bool             `json:"public_docs,omitempty"`
-	AllowInsecure  bool             `json:"allow_insecure,omitempty"`
-	CORS           HTTPCORSJSON     `json:"cors,omitempty"`
-	Remotes        []HTTPRemoteJSON `json:"remotes,omitempty"`
+	Host           string `json:"host,omitempty"`
+	Port           int    `json:"port,omitempty"`
+	AuthToken      string `json:"auth_token,omitempty"`
+	AuthConfigured bool   `json:"auth_configured,omitempty"`
+	PublicDocs     bool   `json:"public_docs,omitempty"`
+	// StreamTicketsOnly mirrors HTTPServerConfig.StreamTicketsOnly.
+	StreamTicketsOnly bool             `json:"stream_tickets_only,omitempty"`
+	AllowInsecure     bool             `json:"allow_insecure,omitempty"`
+	CORS              HTTPCORSJSON     `json:"cors,omitempty"`
+	Remotes           []HTTPRemoteJSON `json:"remotes,omitempty"`
 }
 
 // HTTPCORSJSON mirrors HTTPCORSConfig.
@@ -461,10 +463,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		RelatedFiles:   c.Autocomplete.RelatedFiles,
 	}
 	out.HTTPServer = HTTPServerJSON{
-		Host:          c.HTTPServer.Host,
-		Port:          c.HTTPServer.Port,
-		PublicDocs:    c.HTTPServer.PublicDocs,
-		AllowInsecure: c.HTTPServer.AllowInsecure,
+		Host:              c.HTTPServer.Host,
+		Port:              c.HTTPServer.Port,
+		PublicDocs:        c.HTTPServer.PublicDocs,
+		StreamTicketsOnly: c.HTTPServer.StreamTicketsOnly,
+		AllowInsecure:     c.HTTPServer.AllowInsecure,
 		// AuthToken is intentionally redacted; report only whether one is configured.
 		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
 		CORS: HTTPCORSJSON{
@@ -627,11 +630,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		RelatedFiles:   j.Autocomplete.RelatedFiles,
 	}
 	cfg.HTTPServer = HTTPServerConfig{
-		Host:          j.HTTPServer.Host,
-		Port:          j.HTTPServer.Port,
-		AuthToken:     j.HTTPServer.AuthToken,
-		PublicDocs:    j.HTTPServer.PublicDocs,
-		AllowInsecure: j.HTTPServer.AllowInsecure,
+		Host:              j.HTTPServer.Host,
+		Port:              j.HTTPServer.Port,
+		AuthToken:         j.HTTPServer.AuthToken,
+		PublicDocs:        j.HTTPServer.PublicDocs,
+		StreamTicketsOnly: j.HTTPServer.StreamTicketsOnly,
+		AllowInsecure:     j.HTTPServer.AllowInsecure,
 		CORS: HTTPCORSConfig{
 			Enabled:        j.HTTPServer.CORS.Enabled,
 			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),

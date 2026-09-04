@@ -1350,11 +1350,16 @@ func reasoningForStorage(trimmed, exact string, response *llm.Response) (text, s
 // title is pinned or already generated, and the detached context lets it outlive
 // the turn that started it - including a turn the user stopped. Non-fatal by design.
 func (a *Agent) startTitleGeneration(provider llm.Provider) {
+	// config_commit can replace a.cfg while this goroutine is awaiting the title
+	// completion. Config values are immutable after loading, so retaining the
+	// current pointer gives this work a stable view without synchronizing the
+	// whole ReAct loop.
+	cfg := a.cfg
 	a.titleOnce.Do(func() {
 		titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		go func() {
 			defer titleCancel()
-			a.maybeGenerateTitle(titleCtx, provider)
+			a.maybeGenerateTitleForConfig(titleCtx, provider, cfg)
 		}()
 	})
 }
@@ -1394,6 +1399,12 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
+	return a.llmProviderInputForConfig(a.cfg, rm)
+}
+
+// llmProviderInputForConfig builds provider settings from an immutable configuration snapshot.
+// It is used by detached work such as title generation, which must not race a config reload.
+func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.ResolvedLLM) llm.ProviderInput {
 	return llm.WithAgentResilience(llm.ProviderInput{
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
@@ -1405,7 +1416,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
-	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

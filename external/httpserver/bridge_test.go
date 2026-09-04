@@ -56,7 +56,7 @@ func TestForwardTextChunk_ReasoningEmittedAsReasoningContent(t *testing.T) {
 }
 
 func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
-	rec := httptest.NewRecorder()
+	rec := &syncBuffer{}
 	sender := NewSender(&config.Config{}, rec, true, "agent-model")
 	ctx := context.Background()
 	p := acp.QuestionRequestParams{
@@ -77,7 +77,7 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "event: question") {
+		if strings.Contains(rec.String(), "event: question") {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -94,7 +94,7 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 }
 
 func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
-	rec := httptest.NewRecorder()
+	rec := &syncBuffer{}
 	sender := NewSender(&config.Config{}, rec, true, "agent-model")
 	ctx := context.Background()
 	p := acp.PermissionRequestParams{
@@ -126,7 +126,7 @@ func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "event: permission") {
+		if strings.Contains(rec.String(), "event: permission") {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
