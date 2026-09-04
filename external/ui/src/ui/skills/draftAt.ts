@@ -38,12 +38,53 @@ function prefixClosedAfterFileExtensionForAtMenu(prefix: string): boolean {
   return true;
 }
 
+/** Reserved mention resolved server-side to terminal output, never a file. */
+const AT_TERMINAL_TOKEN = "terminal";
+
+/** One **`@`** mention span: a file path (optionally with a line range) or a terminal token. */
+export type AtPathSpan = {
+  start: number;
+  end: number;
+  path: string;
+  /** 1-based inclusive line range from a `":start-end"` suffix (`@f.go:21-31`). */
+  lines?: { start: number; end: number };
+  /** `"terminal"` for `@terminal` / `@terminal:<name>` tokens; files leave it unset. */
+  kind?: "terminal";
+};
+
 /**
- * Workspace-relative **`@path`** spans (files only) in document order.
- * Folder navigation tokens end with **`/`** and are omitted.
+ * Reads a `":start-end"` suffix at `text[k]`. The suffix counts only when both
+ * numbers are valid (1 <= start <= end) and the token ends there: the next
+ * char must not be a letter, digit, or `-`, so `":21-31x"` stays prose.
+ * Mirrors internal/session parseAtLineRangeSuffix.
  */
-export function listAtPathSpans(text: string): { start: number; end: number; path: string }[] {
-  const out: { start: number; end: number; path: string }[] = [];
+function parseAtLineRangeSuffix(
+  text: string,
+  k: number,
+): { start: number; end: number; next: number } | null {
+  const m = /^:(\d{1,9})-(\d{1,9})/u.exec(text.slice(k));
+  if (!m) {
+    return null;
+  }
+  const after = text[k + m[0].length];
+  if (after !== undefined && /[\p{L}\p{N}-]/u.test(after)) {
+    return null;
+  }
+  const start = Number(m[1]);
+  const end = Number(m[2]);
+  if (start < 1 || end < start) {
+    return null;
+  }
+  return { start, end, next: k + m[0].length };
+}
+
+/**
+ * Workspace-relative **`@path`** spans in document order, plus **`@terminal[:name]`**
+ * tokens marked `kind: "terminal"`. Folder navigation tokens end with **`/`** and
+ * are omitted. A `":start-end"` suffix on a file token becomes `lines`.
+ */
+export function listAtPathSpans(text: string): AtPathSpan[] {
+  const out: AtPathSpan[] = [];
   let i = 0;
   const n = text.length;
   while (i < text.length) {
@@ -94,27 +135,61 @@ export function listAtPathSpans(text: string): { start: number; end: number; pat
     if (!raw || raw.includes("..")) {
       continue;
     }
+    if (raw === AT_TERMINAL_TOKEN) {
+      // Absorb an optional ":<name>" selector (same shape as the Go-side
+      // terminalMentionRe) so the whole token renders as one chip.
+      let end = k;
+      const sel = /^:(\S+)/u.exec(text.slice(k));
+      if (sel && raw === text.slice(j + 1, k)) {
+        end = k + sel[0].length;
+        i = end;
+      }
+      out.push({ start: j, end, path: raw, kind: "terminal" });
+      continue;
+    }
     if (raw.endsWith("/")) {
       continue;
     }
-    out.push({ start: j, end: k, path: raw });
+    let end = k;
+    let lines: { start: number; end: number } | undefined;
+    if (raw === text.slice(j + 1, k)) {
+      const range = parseAtLineRangeSuffix(text, k);
+      if (range) {
+        lines = { start: range.start, end: range.end };
+        end = range.next;
+        i = end;
+      }
+    }
+    out.push({ start: j, end, path: raw, ...(lines ? { lines } : {}) });
   }
   return out;
 }
 
+/** One prompt attachment derived from an **`@path`** mention. */
+export type AtFileAttachment = { path: string; startLine?: number; endLine?: number };
+
 /**
  * Builds attachment list from **`@path`** occurrences in composer text (files only).
- * Folder navigation tokens end with **`/`** and are skipped.
+ * Folder navigation tokens end with **`/`** and terminal tokens are skipped —
+ * `@terminal[:name]` resolves server-side to terminal output, not a file.
+ * Deduped by path + line range.
  */
-export function extractAtFileAttachments(text: string): { path: string }[] {
-  const out: { path: string }[] = [];
+export function extractAtFileAttachments(text: string): AtFileAttachment[] {
+  const out: AtFileAttachment[] = [];
   const seen = new Set<string>();
   for (const sp of listAtPathSpans(text)) {
-    if (seen.has(sp.path)) {
+    if (sp.kind === "terminal") {
       continue;
     }
-    seen.add(sp.path);
-    out.push({ path: sp.path });
+    const key = sp.lines ? `${sp.path}#L${sp.lines.start}-${sp.lines.end}` : sp.path;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push({
+      path: sp.path,
+      ...(sp.lines ? { startLine: sp.lines.start, endLine: sp.lines.end } : {}),
+    });
   }
   return out;
 }

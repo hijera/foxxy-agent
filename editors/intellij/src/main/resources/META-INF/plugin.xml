@@ -24,6 +24,7 @@
         <projectService serviceImplementation="dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.clipboard.FoxxyCodeCopyBufferService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.autocomplete.FoxxyCodeAutocompleteService"/>
 
         <!-- Inline code autocomplete. The listener only asks the backend once

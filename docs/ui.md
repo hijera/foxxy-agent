@@ -75,7 +75,22 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **Paste** — an image on the clipboard is attached instead of pasted as text
   (**`onPaste`** in **`Composer.tsx`**). Browsers name every clipboard image the
   same, so pasted files are renamed **`pasted-<n>.<ext>`**. Plain-text pastes are
-  left to the browser.
+  left to the browser — except in an editor embed, where **paste-to-chip** runs
+  first (below).
+- **Paste-to-chip** (editor embeds only, Cursor-style) — a text paste is sent to
+  **`POST /foxxycode/ide/paste-classify`** (**`chat/pasteChip.ts`**, ~300 ms
+  budget). If the backend recognizes it as a fragment recently copied in the IDE
+  (the IDE reports copies via **`/foxxycode/ide/copy-buffer`** and selections via
+  editor-state), the composer inserts a mention token instead of the raw text:
+  **`@path:start-end`** for a file fragment (1-based inclusive lines) or
+  **`@terminal[:name]`** for a terminal fragment. The masked mirror renders the
+  token as a chip (**`listAtPathSpans`** absorbs the `:N-M` suffix and marks
+  terminal tokens). The pasted literal is captured in an App-held side-map
+  (`path:start-end` → text) and attached verbatim at send time as
+  **`attachments: [{path, source: {literal, startLine, endLine}}]`**; when the
+  map is gone (draft restored after reload) the backend reads the line range
+  from the file instead. Any non-match, error, or timeout degrades to a plain
+  text paste. Short single-line pastes (<16 chars) are never classified.
 - **Drop** — a file dropped anywhere on the page still inserts an **`@path`**
   mention (see the file-drop rule in **`.claude/rules/ui-spa.md`**); it does not
   attach the file. Use the paste path or the attach button for image uploads.
@@ -318,7 +333,7 @@ Transcript vs composer
 
 - **`user_message`** bubbles render **plain text** only (**`msg-user-body`**, **`white-space: pre-wrap`**). No Markdown pipeline, no transcript skill chips (**`foxxycode-skill-span`**). Slash tokens such as **`/path/to`** and YAML blocks stay exactly as persisted, with line breaks preserved.
 - Composer mirror chips (**`composer-skill-chip`**) apply **only** while editing **`#composer`**, not in the transcript.
-- Persisted user turns may carry hydrated attachments as **`foxxycode_attachment`** XML with **`path`**, **`name`**, and CDATA file bodies (**`internal/agent`**). **`stripFoxxyCodeAttachmentsForUserDisplay`** replaces each XML block with a compact **`@path`** **only when** that path is **not** already present as an **`@`** mention in the surrounding text (**avoids duplication** because the persisted turn already repeats the **`@`** in the user text plus the hydrated block).
+- Persisted user turns may carry hydrated attachments as **`foxxycode_attachment`** XML with **`path`**, **`name`**, optional **`lines`** ("N-M" for a paste-to-chip fragment), and CDATA file bodies (**`internal/agent`**). **`stripFoxxyCodeAttachmentsForUserDisplay`** replaces each XML block with a compact **`@path`** (or **`@path:N-M`** when ranged) **only when** that path **with the same range** is **not** already present as an **`@`** mention in the surrounding text (**avoids duplication** because the persisted turn already repeats the **`@`** in the user text plus the hydrated block).
 
 Verification use cases
 
