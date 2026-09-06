@@ -247,7 +247,8 @@ func TestNeuralDeepAuthEdges(t *testing.T) {
 		t.Fatalf("unknown login status = %d, want 404", res.StatusCode)
 	}
 
-	// A provider of another type conflicts.
+	// A valid name that is not saved yet is served, so a row added in the form
+	// can sign in before Save.
 	res, err = http.Get(ts.URL + "/foxxycode/providers/neuraldeep2/neuraldeep-auth")
 	if err != nil {
 		t.Fatal(err)
@@ -278,6 +279,89 @@ func TestNeuralDeepAuthEdges(t *testing.T) {
 	_ = stRes.Body.Close()
 	if !st.Connected || st.Source != "api_key" {
 		t.Fatalf("shadowed status = %+v, want connected with source api_key", st)
+	}
+}
+
+// TestNeuralDeepAuthRetypedSavedRow: the settings form retypes a saved
+// "openai" row to neuraldeep and the auth widget mounts before Save. The
+// status, sign-out and device routes must serve that name instead of
+// answering 409, and the row's own explicit key still decides the source.
+func TestNeuralDeepAuthRetypedSavedRow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("OPENAI_API_KEY", "")
+	// The sign-out below revokes on the hub best-effort; point it at a stand-in
+	// that refuses, so the test neither reaches the real hub nor waits on it.
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer hub.Close()
+	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)
+	srv := newNeuralDeepTestServer(t, home)
+	srv.activeCfg().Providers = append(srv.activeCfg().Providers, config.ProviderConfig{Name: "openai", Type: "openai"})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Drain()
+
+	readStatus := func() (int, struct {
+		Connected bool   `json:"connected"`
+		Source    string `json:"source"`
+		Error     string `json:"error"`
+	}) {
+		t.Helper()
+		res, err := http.Get(ts.URL + "/foxxycode/providers/openai/neuraldeep-auth")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st struct {
+			Connected bool   `json:"connected"`
+			Source    string `json:"source"`
+			Error     string `json:"error"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+			_ = res.Body.Close()
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode, st
+	}
+
+	code, st := readStatus()
+	if code != http.StatusOK || st.Connected || st.Source != "none" {
+		t.Fatalf("retyped row status = %d %+v, want 200 disconnected with source none", code, st)
+	}
+
+	// A login stored under that name is what the retyped row will use.
+	// The stored hub is what sign-out revokes against, so it is the stand-in too.
+	if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(home, "openai"), "sk-oauth", hub.URL, "foxxycode", "foxxycode"); err != nil {
+		t.Fatal(err)
+	}
+	code, st = readStatus()
+	if code != http.StatusOK || !st.Connected || st.Source != "oauth" {
+		t.Fatalf("retyped row with stored login = %d %+v, want 200 connected via oauth", code, st)
+	}
+
+	// The row's explicit key shadows it, exactly like a saved neuraldeep row.
+	srv.activeCfg().Providers[1].APIKey = "sk-manual"
+	code, st = readStatus()
+	if code != http.StatusOK || st.Source != "api_key" {
+		t.Fatalf("retyped row with explicit key = %d %+v, want source api_key", code, st)
+	}
+
+	// Sign-out is served too (the hub revoke is best-effort and no hub is configured here).
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/foxxycode/providers/openai/neuraldeep-auth", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("sign-out of the retyped row = %d, want 200", res.StatusCode)
+	}
+	if _, err := os.Stat(config.NeuralDeepAuthPath(home, "openai")); !os.IsNotExist(err) {
+		t.Fatalf("credential file still present after sign-out (stat err %v)", err)
 	}
 }
 

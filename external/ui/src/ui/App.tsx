@@ -2235,12 +2235,16 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelsEpoch]);
 
+  // Onboarding is decided once per page load. It used to re-run on modelsEpoch,
+  // so every Settings save re-fetched the status and reopened a picker the user
+  // had already dismissed. Re-entry is the "Restart onboarding" button
+  // (restartOnboarding below), not a save.
   useEffect(() => {
     void (async () => {
       const status = await fetchOnboardingStatus();
       setShowProviderPicker(shouldShowOnboarding(status));
     })();
-  }, [modelsEpoch]);
+  }, []);
 
   // Apply the opened session's saved model/reasoning once the backends list is
   // known. Runs whenever either input lands, so the restore is independent of

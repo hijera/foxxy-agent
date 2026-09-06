@@ -307,6 +307,44 @@ test("NeuralDeep flags a stored login issued by the other deployment's hub", asy
   );
 });
 
+test("NeuralDeep status error is retired by the next successful read", async () => {
+  // First read fails (an older server answering 409 for a row retyped in the
+  // form); the read after an endpoint change succeeds and must take the
+  // message down with it rather than leave it up until the name changes.
+  let reads = 0;
+  const fetchMock = vi.fn(async () => {
+    reads += 1;
+    if (reads === 1) {
+      return {
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "provider is not a NeuralDeep provider" }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({ connected: false, source: "none" }),
+    };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(
+    await screen.findByText("provider is not a NeuralDeep provider"),
+  ).toBeInTheDocument();
+
+  fireEvent.change(screen.getByTestId("neuraldeep-api-base"), {
+    target: { value: "https://api.neuraldeep.tech/v1" },
+  });
+  await waitFor(() =>
+    expect(
+      screen.queryByText("provider is not a NeuralDeep provider"),
+    ).toBeNull(),
+  );
+  expect(screen.getByTestId("neuraldeep-auth-sign-in")).toBeInTheDocument();
+});
+
 test("NeuralDeep keeps polling a pending login when the endpoint changes", async () => {
   let polls = 0;
   const fetchMock = vi.fn(

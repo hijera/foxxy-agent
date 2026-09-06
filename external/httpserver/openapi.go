@@ -2034,7 +2034,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get NeuralDeep sign-in status",
-					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that the form has just retyped to neuraldeep (the credential file is keyed by name alone).",
 					"operationId": "getProviderNeuralDeepAuth",
 					"parameters": []interface{}{
 						codexProviderNameParameter(),
@@ -2047,7 +2047,6 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2059,7 +2058,6 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -2932,13 +2930,14 @@ func openAPISpec() map[string]interface{} {
 				"FoxxyCodeOnboardingStatus": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"first_run":          map[string]string{"type": "boolean"},
-						"has_config":         map[string]string{"type": "boolean"},
-						"has_providers":      map[string]string{"type": "boolean"},
-						"has_models":         map[string]string{"type": "boolean"},
-						"has_agent_model":    map[string]string{"type": "boolean"},
-						"missing_api_keys":   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"suggested_defaults": map[string]interface{}{"type": "object"},
+						"first_run":             map[string]string{"type": "boolean"},
+						"has_config":            map[string]string{"type": "boolean"},
+						"has_providers":         map[string]string{"type": "boolean"},
+						"has_models":            map[string]string{"type": "boolean"},
+						"has_agent_model":       map[string]string{"type": "boolean"},
+						"has_agent_credentials": map[string]string{"type": "boolean", "description": "The provider named by agent.model has a credential source (api_key, api_key_command, NAME_API_KEY, or a stored hub/ChatGPT login). The SPA opens the provider picker when this is false."},
+						"missing_api_keys":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Providers with no credential source at all. Informational; the picker is not gated on it."},
+						"suggested_defaults":    map[string]interface{}{"type": "object"},
 					},
 				},
 				"FoxxyCodeProject": map[string]interface{}{
