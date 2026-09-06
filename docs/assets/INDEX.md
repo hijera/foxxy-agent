@@ -92,6 +92,20 @@ so each pair is a readable visual diff. English unless the name says `ru`.
 - `pr-37-onboarding-{before,after}-390-dropdown.png` - the dialog at the narrow breakpoint
 - `pr-37-onboarding-{before,after}-1280-ru-vision-picked.png` - the Russian strings for the same pick
 
+## Upstream wave 7123d25a -> 2c0872c4 (PR #56)
+
+Captured from a headless Chrome (chromedp) against the live `-tags "http ui cli memory"`
+build on `neuraldeep`, so the transcripts show real subagent and todo tool calls. Dark is
+the default theme; light frames cover the surfaces that gained colours.
+
+- `pr-56-tasks-agent-row-1280-{dark,light}.png` - Tasks panel: an `agent general` row with the «Агент» badge, `spawn_agent` call expanded with its CDATA report
+- `pr-56-tasks-agent-detail-1280-dark.png` - task detail with the subagent name and «Открыть транскрипт»
+- `pr-56-subagent-readonly-1280-{dark,light}.png` - a child `sub_…` transcript: read-only notice in place of the composer, «Открыть родительский чат»
+- `pr-56-settings-subagents-1280-{dark,light}.png` - Settings → Субагенты (enable switch, definition dirs, project trust policy)
+- `pr-56-settings-providers-neuraldeep-1280-dark.png` - NeuralDeep provider card with the API endpoint select
+- `pr-56-settings-models-reasoning-{before,after}-1280-dark.png` - «Получить уровни ризонинга» before the fetch and with `low/medium/high` written back
+- `pr-56-settings-skills-switchfield-1280-dark.png`, `pr-56-settings-tools-switchfield-1280-dark.png` - boolean settings on the shared SwitchField
+- `pr-56-todo-preview-1280-{dark,light}.png` - `foxxycode_todo_item_update` calls rendered as localized todo cards
 ## Batch uploads
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
