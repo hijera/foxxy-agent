@@ -13,9 +13,8 @@ additional tools and resources. MCP servers can be configured at these levels:
 3. **Per-session** - provided by the ACP client in `session/new` parameters
 
 Tools from all connected MCP servers are merged into the tool list passed to the LLM during
-the ReAct loop (in **`agent`** and **`plan`** modes). Ask exposes only tools whose MCP definition
-declares **`annotations.readOnlyHint: true`**, and hides all MCP tools when
-**`tools.ask_disable_extended_tools`** is enabled.
+the ReAct loop (in **`agent`**, **`plan`**, and **`debug`** modes). Ask and docs never receive MCP
+tools: MCP servers expose no enforceable read-only guarantee, so both closed surfaces leave them out.
 
 ## mcp.json (global and local)
 
@@ -89,6 +88,17 @@ child, not on what is in them.
 
 Listing servers is gated too: probing an unapproved entry would start exactly the command the
 approval is about, so `GET /foxxycode/mcp` reports it (`status: needs_approval`) instead.
+
+Subagent definitions found inside the workspace (`.foxxycode/agents`, `.claude/agents`) follow the
+same model with a **sibling store**: policy `subagents.project_trust` (`ask` / `allow` / `deny`),
+receipts in `~/.foxxycode/subagents-trust.json` keyed by the same canonical workspace path plus the
+definition name and a digest of the file, approved with `foxxycode agents trust <name>` or
+`POST /foxxycode/subagents/{name}/trust`. The two files are deliberately separate so an MCP approval
+never reads as an agent approval or the reverse. A child agent that may use MCP tools does not
+borrow the parent's connections: configured servers are re-resolved for the child's cwd
+**through this trust gate**, exactly as for a new session, and the parent's ACP client-supplied
+servers are redialed ungated, as the original connect was. A child whose tool set cannot contain
+MCP names (the built-in `explore`) never dials anything. See `docs/subagents.md`.
 
 ## Enable / disable switches
 

@@ -20,6 +20,7 @@ type ConfigJSON struct {
 	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
 	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
+	Subagents    SubagentsJSON    `json:"subagents,omitempty"`
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
@@ -116,13 +117,16 @@ type ProviderJSON struct {
 // ModelJSON mirrors ModelEntry for JSON APIs.
 // Field order and types must match ModelEntry (direct struct conversion is used below).
 type ModelJSON struct {
-	Model            string   `json:"model"`
-	MaxTokens        int      `json:"max_tokens"`
-	Temperature      float64  `json:"temperature"`
-	MaxContextTokens int      `json:"max_context_tokens,omitempty"`
-	Multimodal       bool     `json:"multimodal,omitempty"`
-	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
-	ReasoningDefault string   `json:"reasoning_default,omitempty"`
+	Model            string  `json:"model"`
+	MaxTokens        int     `json:"max_tokens"`
+	Temperature      float64 `json:"temperature"`
+	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
+	Multimodal       bool    `json:"multimodal,omitempty"`
+	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
+	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
+	// slice would collapse both into "absent" on the way out to the settings UI.
+	ReasoningLevels  *[]string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault string    `json:"reasoning_default,omitempty"`
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`
@@ -151,6 +155,7 @@ type PromptsJSON struct {
 	Dir         string                  `json:"dir,omitempty"`
 	AgentPrompt string                  `json:"agent_prompt,omitempty"`
 	PlanPrompt  string                  `json:"plan_prompt,omitempty"`
+	AskPrompt   string                  `json:"ask_prompt,omitempty"`
 	PerProvider *PerProviderPromptsJSON `json:"per_provider,omitempty"`
 }
 
@@ -200,10 +205,9 @@ type MCPJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode          string   `json:"permission_mode,omitempty"`
-	CommandAllowlist        []string `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun           *bool    `json:"plan_no_self_run,omitempty"`
-	AskDisableExtendedTools bool     `json:"ask_disable_extended_tools,omitempty"`
+	PermissionMode   string   `json:"permission_mode,omitempty"`
+	CommandAllowlist []string `json:"command_allowlist,omitempty"`
+	PlanNoSelfRun    *bool    `json:"plan_no_self_run,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 	Background   ToolBackgroundJSON   `json:"background"`
@@ -341,6 +345,17 @@ type HTTPRemoteJSON struct {
 	URL  string `json:"url"`
 }
 
+// SubagentsJSON mirrors Subagents.
+type SubagentsJSON struct {
+	Enabled               *bool    `json:"enabled,omitempty"`
+	Dirs                  []string `json:"dirs,omitempty"`
+	ProjectTrust          string   `json:"project_trust,omitempty"`
+	MaxConcurrent         int      `json:"max_concurrent,omitempty"`
+	MaxDepth              *int     `json:"max_depth,omitempty"`
+	DefaultTimeoutSeconds int      `json:"default_timeout_seconds,omitempty"`
+	MaxTurns              int      `json:"max_turns,omitempty"`
+}
+
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
 	Enabled        bool   `json:"enabled,omitempty"`
@@ -360,7 +375,13 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Providers = append(out.Providers, ProviderJSON(p))
 	}
 	for _, m := range c.Models {
-		out.Models = append(out.Models, ModelJSON(m))
+		mj := ModelJSON(m)
+		// The struct conversion shares pointer fields with the live config; hand
+		// the DTO its own copies so a caller mutating one side cannot leak into
+		// the other, as the other pointer-typed sections already do.
+		mj.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		mj.Stream = cloneBoolPtr(m.Stream)
+		out.Models = append(out.Models, mj)
 	}
 	out.Agent = AgentJSON{
 		Model:                  c.Agent.Model,
@@ -376,7 +397,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopNudgeMax:           c.Agent.LoopNudgeMax,
 	}
 	out.Prompts = PromptsJSON{
-		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt,
+		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
 	}
 	if c.Prompts.PerProvider.Enabled != nil {
 		out.Prompts.PerProvider = &PerProviderPromptsJSON{Enabled: c.Prompts.PerProvider.Enabled}
@@ -405,10 +426,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust()}
 	out.Tools = ToolsJSON{
-		PermissionMode:          c.Tools.ResolvedPermMode(),
-		CommandAllowlist:        append([]string(nil), c.Tools.CommandAllowlist...),
-		PlanNoSelfRun:           c.Tools.PlanNoSelfRun,
-		AskDisableExtendedTools: c.Tools.AskDisableExtendedTools,
+		PermissionMode:   c.Tools.ResolvedPermMode(),
+		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
+		PlanNoSelfRun:    c.Tools.PlanNoSelfRun,
 		OutputLimits: ToolOutputLimitsJSON{
 			Read: c.Tools.OutputLimits.Read, Grep: c.Tools.OutputLimits.Grep,
 			Glob: c.Tools.OutputLimits.Glob, PrintTree: c.Tools.OutputLimits.PrintTree,
@@ -482,6 +502,15 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
 	}
+	out.Subagents = SubagentsJSON{
+		Enabled:               cloneBoolPtr(c.Subagents.Enabled),
+		Dirs:                  append([]string(nil), c.Subagents.Dirs...),
+		ProjectTrust:          c.Subagents.ProjectTrust,
+		MaxConcurrent:         c.Subagents.MaxConcurrent,
+		MaxDepth:              cloneIntPtr(c.Subagents.MaxDepth),
+		DefaultTimeoutSeconds: c.Subagents.DefaultTimeoutSeconds,
+		MaxTurns:              c.Subagents.MaxTurns,
+	}
 	tg := c.Gateways.Telegram
 	tgJSON := TelegramGatewayJSON{
 		Enabled: tg.Enabled, Token: tg.Token, Proxy: tg.Proxy, RichMessages: tg.RichMessages,
@@ -515,6 +544,37 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	return out
 }
 
+// cloneBoolPtr copies a *bool so a DTO never shares a pointer with the live
+// config (nil stays nil).
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// cloneIntPtr copies a *int so a DTO never shares a pointer with the live
+// config (nil stays nil).
+func cloneIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// cloneStringsPtr copies a *[]string, keeping nil (key omitted) and a pointer
+// to an empty list (explicit []) apart.
+func cloneStringsPtr(p *[]string) *[]string {
+	if p == nil {
+		return nil
+	}
+	out := make([]string, len(*p))
+	copy(out, *p)
+	return &out
+}
+
 // JSONDTOToConfig maps JSON DTO into a new Config (Paths must be set by caller before validate).
 func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg := &Config{Paths: paths}
@@ -525,7 +585,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Providers = append(cfg.Providers, ProviderConfig(p))
 	}
 	for _, m := range j.Models {
-		cfg.Models = append(cfg.Models, ModelEntry(m))
+		me := ModelEntry(m)
+		me.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		me.Stream = cloneBoolPtr(m.Stream)
+		cfg.Models = append(cfg.Models, me)
 	}
 	cfg.Agent = Agent{
 		Model:                  j.Agent.Model,
@@ -541,7 +604,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopNudgeMax:           j.Agent.LoopNudgeMax,
 	}
 	cfg.Prompts = Prompts{
-		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt,
+		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,
 	}
 	if j.Prompts.PerProvider != nil {
 		cfg.Prompts.PerProvider = PerProviderPrompts{Enabled: j.Prompts.PerProvider.Enabled}
@@ -570,10 +633,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust}
 	cfg.Tools = Tools{
-		PermissionMode:          j.Tools.PermissionMode,
-		CommandAllowlist:        append([]string(nil), j.Tools.CommandAllowlist...),
-		PlanNoSelfRun:           j.Tools.PlanNoSelfRun,
-		AskDisableExtendedTools: j.Tools.AskDisableExtendedTools,
+		PermissionMode:   j.Tools.PermissionMode,
+		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),
+		PlanNoSelfRun:    j.Tools.PlanNoSelfRun,
 		OutputLimits: ToolOutputLimits{
 			Read: j.Tools.OutputLimits.Read, Grep: j.Tools.OutputLimits.Grep,
 			Glob: j.Tools.OutputLimits.Glob, PrintTree: j.Tools.OutputLimits.PrintTree,
@@ -647,6 +709,15 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
+	}
+	cfg.Subagents = Subagents{
+		Enabled:               cloneBoolPtr(j.Subagents.Enabled),
+		Dirs:                  append([]string(nil), j.Subagents.Dirs...),
+		ProjectTrust:          j.Subagents.ProjectTrust,
+		MaxConcurrent:         j.Subagents.MaxConcurrent,
+		MaxDepth:              cloneIntPtr(j.Subagents.MaxDepth),
+		DefaultTimeoutSeconds: j.Subagents.DefaultTimeoutSeconds,
+		MaxTurns:              j.Subagents.MaxTurns,
 	}
 	jt := j.Gateways.Telegram
 	tg := TelegramGatewayConfig{

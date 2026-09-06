@@ -9,6 +9,7 @@
   --nav: rgba(37, 37, 37, 0.6);
   --sidebar: rgba(30, 30, 30, 0.7);
   --accent: #9333ea;
+  --foxxycode-todo-completed: #34c759;
   --foxxycode-skill-chip-bg: rgba(147, 51, 234, 0.14);
   --foxxycode-skill-chip-bd: rgba(147, 51, 234, 0.52);
   --foxxycode-skill-chip-text: rgba(237, 220, 255, 0.96);
@@ -104,6 +105,7 @@
   --nav: rgba(255, 255, 255, 0.92);
   --sidebar: #ffffff;
   --accent: #7c3aed;
+  --foxxycode-todo-completed: #248a3d;
   --foxxycode-skill-chip-bg: rgba(124, 58, 237, 0.1);
   --foxxycode-skill-chip-bd: rgba(124, 58, 237, 0.35);
   --foxxycode-skill-chip-text: rgba(76, 29, 149, 0.96);
@@ -173,6 +175,7 @@
   --nav: rgba(13, 17, 28, 0.72);
   --sidebar: rgba(10, 13, 23, 0.8);
   --accent: #5865f2;
+  --foxxycode-todo-completed: #3fb950;
   --foxxycode-skill-chip-bg: rgba(88, 101, 242, 0.14);
   --foxxycode-skill-chip-bd: rgba(88, 101, 242, 0.52);
   --foxxycode-skill-chip-text: rgba(199, 204, 255, 0.96);
@@ -246,6 +249,7 @@
   --nav: rgba(0, 36, 46, 0.72);
   --sidebar: rgba(0, 28, 36, 0.8);
   --accent: #268bd2;
+  --foxxycode-todo-completed: #859900;
   --foxxycode-skill-chip-bg: rgba(38, 139, 210, 0.14);
   --foxxycode-skill-chip-bd: rgba(38, 139, 210, 0.5);
   --foxxycode-skill-chip-text: rgba(147, 161, 161, 0.96);
@@ -319,6 +323,7 @@
   --nav: rgba(31, 32, 26, 0.72);
   --sidebar: rgba(25, 26, 21, 0.8);
   --accent: #fd971f;
+  --foxxycode-todo-completed: #a6e22e;
   --foxxycode-skill-chip-bg: rgba(253, 151, 31, 0.13);
   --foxxycode-skill-chip-bd: rgba(253, 151, 31, 0.5);
   --foxxycode-skill-chip-text: rgba(255, 220, 170, 0.96);
@@ -392,6 +397,7 @@
   --nav: rgba(36, 41, 52, 0.72);
   --sidebar: rgba(30, 34, 44, 0.8);
   --accent: #88c0d0;
+  --foxxycode-todo-completed: #a3be8c;
   --foxxycode-skill-chip-bg: rgba(136, 192, 208, 0.13);
   --foxxycode-skill-chip-bd: rgba(136, 192, 208, 0.48);
   --foxxycode-skill-chip-text: rgba(216, 222, 233, 0.96);
@@ -465,6 +471,7 @@
   --nav: rgba(21, 19, 32, 0.72);
   --sidebar: rgba(18, 16, 28, 0.8);
   --accent: #c4a7e7;
+  --foxxycode-todo-completed: #9ccfd8;
   --foxxycode-skill-chip-bg: rgba(196, 167, 231, 0.13);
   --foxxycode-skill-chip-bd: rgba(196, 167, 231, 0.48);
   --foxxycode-skill-chip-text: rgba(224, 222, 244, 0.96);
@@ -2176,6 +2183,51 @@ a.rail-brand {
   animation: chat-fade-in 0.22s ease-out both;
 }
 
+/* Long-transcript scroll optimization: off-screen rows skip layout and paint.
+   `contain-intrinsic-size: auto <fallback>` reuses the last rendered height, so
+   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up.
+   `content-visibility: auto` also turns on paint containment while the row is
+   visible, which clips anything drawn outside the row box. It is therefore
+   opted in per row type: only rows whose content stays inside their own box
+   (assistant markdown, thinking / tool / compaction / memory foldouts, system
+   notices). User rows keep the hover edit button at `left: -32px`, and the
+   permission, question and plan cards cast shadows past their wrapper, so
+   those rows stay uncontained. */
+.messages-inner > .msg-assistant-stack,
+.messages-inner > .thinking-row,
+.messages-inner > .msg-system-stack {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+  /* Paint containment clips at the padding edge. Focus rings on controls at
+     the row edge (2px outline + 2px offset on the copy buttons, the
+     edge-to-edge <summary> ring) need room inside the box: pad the row and
+     pull it back with a matching negative margin so nothing moves. */
+  padding: 4px;
+  margin: -4px;
+  /* Rows size as border-box, so widen by the padding to keep the content
+     width (and therefore line wrapping) exactly as without containment. */
+  width: calc(100% + 8px);
+}
+
+/* JCEF (the IntelliJ panel, Chromium 104) raises "ResizeObserver loop limit
+   exceeded" on every transcript open when the rows above use
+   content-visibility: auto with a placeholder size: that engine flips a row
+   between its placeholder and its real box inside the same resize-observation
+   loop, and the plugin paints the notice as an error overlay. index.html marks
+   the IDE embed on <html data-embed>, so the optimization is switched off
+   there and rows lay out plainly. Guarded by the plugin's uiTest
+   (BrowserPanelUiTest.anOldTranscriptOpensWithoutAResizeObserverLoop). */
+html[data-embed="intellij"] .messages-inner > .msg-assistant-stack,
+html[data-embed="intellij"] .messages-inner > .thinking-row,
+html[data-embed="intellij"] .messages-inner > .msg-system-stack {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
+
+.messages-inner > .thinking-row {
+  max-width: calc(720px + 8px);
+}
+
 .chat-scroll-tail {
   flex: none;
   height: var(--chat-composer-reserve, 220px);
@@ -2254,6 +2306,53 @@ a.rail-brand {
 
 .chat-bottom-inner .composer-wrap {
   pointer-events: auto;
+}
+
+/* Subagent transcript: the composer's slot holds a read-only notice that points
+   back at the parent chat. Same glass card tokens as the composer so the
+   bottom of the column keeps its weight. */
+.subagent-readonly-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+}
+
+.subagent-readonly-text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.subagent-readonly-link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--accent) 10%, var(--foxxycode-blend-base));
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.subagent-readonly-link:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--foxxycode-blend-base));
 }
 
 .msg {
@@ -6310,12 +6409,6 @@ textarea#composer {
   color: var(--muted);
 }
 
-.settings-field-desc-below-checkbox {
-  margin-top: 4px;
-  margin-bottom: 0;
-  padding-left: 28px;
-}
-
 .settings-btn {
   border: 1px solid var(--foxxycode-glass-panel-border);
   background: var(--foxxycode-glass-panel-bg);
@@ -6512,10 +6605,40 @@ textarea#composer {
   gap: 4px;
 }
 
-.settings-row-inline {
-  flex-direction: row;
+/* Boolean setting (SwitchField): shared Switch + label + optional description
+   on one two-column grid. The first column is the switch's own width, the
+   first-row cells centre on each other, and the description takes the label
+   column, so its left edge follows the label whatever the switch measures.
+   Contract: DESIGN.md, "Boolean switch fields". Never lay a switch and its
+   label out inline, and never indent the description with padding. */
+.settings-switch-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
   align-items: center;
-  gap: 8px;
+}
+
+/* A real <label for>: clicking the text toggles the switch. */
+.settings-switch-field-label {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+/* Chromium 104 (JCEF) has no :has(); SwitchField sets the marker class when disabled. */
+.settings-switch-field--disabled > .settings-switch-field-label {
+  cursor: default;
+}
+
+/* Child selector on purpose: it beats the shared .settings-field-desc margin
+   by specificity, not by source order. */
+.settings-switch-field > .settings-switch-field-desc {
+  grid-column: 2;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .settings-label {
@@ -6568,6 +6691,21 @@ textarea#composer {
   background: var(--foxxycode-surface-muted);
   color: var(--muted);
   cursor: not-allowed;
+}
+
+/* Reasoning levels: the action row sits above the level list, so it keeps the
+   model-field control metrics but wraps instead of squeezing its buttons. */
+.reasoning-levels-actions {
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.reasoning-levels-actions .settings-btn {
+  flex: 0 0 auto;
+}
+
+[data-testid="reasoning-levels-field"] .settings-array {
+  margin-top: 8px;
 }
 
 .settings-array {
@@ -7742,6 +7880,170 @@ textarea#composer {
   color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
+}
+
+/* Todo tool previews use the active theme's accent for pending work and a
+   theme-specific success token for completion. The marks stay semantic even
+   when a theme's accent is not blue. */
+.todo-tool-preview-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-tool-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 12px;
+  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.todo-tool-preview-row + .todo-tool-preview-row {
+  border-top: 1px solid color-mix(in srgb, var(--text) 7%, var(--foxxycode-blend-base));
+}
+
+.todo-tool-preview-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  border: 2px solid color-mix(in srgb, var(--text) 25%, var(--foxxycode-blend-base));
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: var(--foxxycode-on-accent-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.todo-tool-preview-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todo-tool-preview-row--pending .todo-tool-preview-mark {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.todo-tool-preview-row--in_progress .todo-tool-preview-mark {
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 50%,
+    color-mix(in srgb, var(--accent) 10%, transparent) 50%
+  );
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-mark {
+  border-color: var(--foxxycode-todo-completed);
+  background: var(--foxxycode-todo-completed);
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-content {
+  color: color-mix(in srgb, var(--text) 57%, var(--foxxycode-blend-base));
+}
+
+.todo-tool-preview-row--failed .todo-tool-preview-mark {
+  border-color: var(--diff-del-no);
+  background: color-mix(in srgb, var(--diff-del-no) 14%, transparent);
+  color: var(--diff-del-no);
+}
+
+.todo-tool-preview-row--cancelled .todo-tool-preview-mark {
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+}
+
+.todo-tool-preview-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* plan_exit makes a mode transition legible without relying on the raw tool
+   result. Its active state follows the theme accent; the completed state uses
+   the semantic success token shared with completed todo items. */
+.plan-exit-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--foxxycode-blend-base));
+}
+
+.plan-exit-preview-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.plan-exit-preview--completed .plan-exit-preview-icon {
+  border-color: var(--foxxycode-todo-completed);
+  background: var(--foxxycode-todo-completed);
+  color: var(--foxxycode-on-accent-fg);
+}
+
+.plan-exit-preview-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plan-exit-preview-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.plan-exit-preview-mode {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-exit-preview-arrow {
+  color: color-mix(in srgb, var(--text) 42%, var(--foxxycode-blend-base));
+}
+
+.plan-exit-preview-mode--agent {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.plan-exit-preview-message {
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .permission-preview-fade {
@@ -9790,6 +10092,56 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .bgtask-detail-stop.scheduler-btn {
   min-height: 36px;
+}
+
+/* Agent rows: a subagent run in the pool, told apart from shell commands by a
+   small badge after the label (the label itself reads "agent <name>: ..."). */
+.bgtask-kind-badge {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  background: color-mix(in srgb, var(--accent) 14%, var(--foxxycode-blend-base));
+}
+
+/* Detail pane of an agent task: the subagent name stands where a command
+   would, next to the button that opens the child transcript. */
+.bgtask-detail-agent {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bgtask-detail-agent-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
+}
+
+.bgtask-detail-agent-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 95%, var(--foxxycode-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-open-transcript.scheduler-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1199px) {

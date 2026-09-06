@@ -9,6 +9,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	compactionKeepRecent := CompactionDefaultKeepRecentTurns
 	skillsAutoDiscovery := true
 	planNoSelfRun := false
+	subagentsEnabled := true
+	subagentsMaxDepth := SubagentsDefaultMaxDepth
 	titleEnabled := true
 	autocompleteEnabled := false
 	autocompleteMultiLine := true
@@ -64,6 +66,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Dir:         "",
 			AgentPrompt: "agent.md",
 			PlanPrompt:  "plan.md",
+			AskPrompt:   "ask.md",
 			PerProvider: &PerProviderPromptsJSON{Enabled: &perProviderEnabled},
 		},
 		Instructions: InstructionsJSON{
@@ -81,10 +84,18 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		MCPServers: []MCPServerJSON{},
 		MCP:        MCPJSON{ProjectTrust: ProjectTrustAsk},
 		Tools: ToolsJSON{
-			PermissionMode:          PermModeAsk,
-			CommandAllowlist:        nil,
-			PlanNoSelfRun:           &planNoSelfRun,
-			AskDisableExtendedTools: false,
+			PermissionMode:   PermModeAsk,
+			CommandAllowlist: nil,
+			PlanNoSelfRun:    &planNoSelfRun,
+		},
+		Subagents: SubagentsJSON{
+			Enabled:               &subagentsEnabled,
+			Dirs:                  DefaultSubagentDirs(),
+			ProjectTrust:          SubagentsProjectTrustAsk,
+			MaxConcurrent:         SubagentsDefaultMaxConcurrent,
+			MaxDepth:              &subagentsMaxDepth,
+			DefaultTimeoutSeconds: SubagentsDefaultTimeoutSeconds,
+			MaxTurns:              0,
 		},
 		Logger: LoggerJSON{
 			Level:    LogLevelInfo,

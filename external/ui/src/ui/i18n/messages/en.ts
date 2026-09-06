@@ -146,6 +146,13 @@ export const messagesEn: Record<string, string> = {
   "chat.heroVerb.automate": "automate",
   "chat.heroVerb.refactor": "refactor",
   "chat.heroVerb.plan": "plan",
+  "chat.subagentReadOnly.notice":
+    "Read-only transcript of subagent {name}. Prompts go to the parent chat.",
+  "chat.subagentReadOnly.noticeUnnamed":
+    "Read-only subagent transcript. Prompts go to the parent chat.",
+  "chat.subagentReadOnly.openParent": "Open parent chat",
+  "chat.subagentTitle": "Subagent {name}",
+  "chat.subagentTitleUnnamed": "Subagent transcript",
   "chat.newChat": "New chat",
   "chat.chatTitleAriaLabel": "Chat title",
   "chat.exportLabel": "Download session",
@@ -227,6 +234,7 @@ export const messagesEn: Record<string, string> = {
   "settings.sectionDesc.agent": "ReAct agent defaults",
   "settings.sectionDesc.autocomplete": "Inline code suggestions",
   "settings.sectionDesc.tools": "Tool permissions & limits",
+  "settings.sectionDesc.subagents": "Child agents & delegation",
   "settings.sectionDesc.mcp_servers": "External MCP tools",
   "settings.sectionDesc.skills": "Installed slash skills",
   "settings.sectionDesc.memory": "Long-term memory options",
@@ -336,6 +344,20 @@ export const messagesEn: Record<string, string> = {
   "settings.backToSections": "Back to sections",
   "settings.buildTagMissing":
     "This build cannot run it: the binary was compiled without the \"{tag}\" build tag, so the tools do not exist in it and the settings below have no effect. Rebuild with that tag (for example make build TAGS=\"http ui browser\") to switch it on.",
+  "settings.reasoning.levelsFallback": "Reasoning levels",
+  "settings.reasoning.fetch": "Fetch reasoning levels",
+  "settings.reasoning.fetching": "Fetching…",
+  "settings.reasoning.useAuto": "Use auto-detected",
+  "settings.reasoning.autoDetected":
+    "Auto-detected from the model id. Fetch the levels to review or override them.",
+  "settings.reasoning.overridden":
+    "These exact levels are offered for this model, instead of the auto-detected ones.",
+  "settings.reasoning.hidden":
+    "Empty list: the reasoning selector is hidden for this model. Use 'Use auto-detected' to go back.",
+  "settings.reasoning.noneDetected":
+    "This model id has no auto-detected reasoning levels. Add them by hand if the provider offers any.",
+  "settings.reasoning.fetchError":
+    "Couldn't fetch reasoning levels: {error}. Add them by hand below.",
   "settings.remove": "Remove",
   "settings.add": "Add",
   "settings.showKey": "Show",
@@ -374,9 +396,18 @@ export const messagesEn: Record<string, string> = {
   "settings.codexAuth.providerNameRequired":
     "Enter a provider name before signing in.",
   "settings.mcp.legend": "MCP servers",
+  "settings.neuralDeepApiBase.description":
+    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. Fetching the model list reads the saved config, so save before you fetch.",
+  "settings.neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Russia",
+  "settings.neuralDeepApiBase.optionTech":
+    "api.neuraldeep.tech — international mirror",
+  "settings.neuralDeepApiBase.unknown":
+    "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
   "settings.neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
   "settings.neuralDeepAuth.error.incompleteResponse":
     "The hub returned an incomplete sign-in response.",
+  "settings.neuralDeepAuth.hubMismatch":
+    "This login was issued by {hub}, but {endpoint} is served by a different hub, so requests with it are rejected. Sign in again to get a key for this endpoint.",
   "settings.neuralDeepAuth.fieldLabel": "NeuralDeep account",
   "settings.neuralDeepAuth.description":
     "Sign in with your NeuralDeep hub account instead of pasting a key: the hub issues a personal key for FoxxyCode. The key is stored on the FoxxyCode server and is never added to config.yaml. To use your tier's models, add them under Logical models (the model picker fetches the catalog with this login).",
@@ -620,6 +651,9 @@ export const messagesEn: Record<string, string> = {
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
   "scheduler.mode.plan": "plan",
+  "scheduler.mode.docs": "docs",
+  "scheduler.mode.ask": "ask",
+  "scheduler.mode.debug": "debug",
   "scheduler.field.model": "model",
   "scheduler.field.body": "body (markdown)",
   "scheduler.bodyAriaLabel": "Job body markdown",
@@ -701,6 +735,7 @@ export const messagesEn: Record<string, string> = {
 
   // Live status line next to the typing dots. Rendered as "<verb> <target> · <elapsed>",
   // so verbs stay short and take no trailing ellipsis (a target follows most of them).
+  "status.spawnAgent": "Running subagent",
   "status.read": "Reading",
   "status.list": "Listing",
   "status.search": "Searching",
@@ -761,6 +796,23 @@ export const messagesEn: Record<string, string> = {
   "prompts.permissionQuestion.rmRecursive": "Remove this directory tree?",
   "prompts.permissionQuestion.rmdir": "Remove this empty directory?",
   "prompts.permissionQuestion.fallback": "Allow this action?",
+  "todoPreview.header.item": "Updated item",
+  "todoPreview.header.plan": "Todo plan",
+  "todoPreview.meta.position": "{position} of {total}",
+  "todoPreview.meta.completed.one": "{count} completed",
+  "todoPreview.meta.completed.other": "{count} completed",
+  "todoPreview.meta.items.one": "{count} item",
+  "todoPreview.meta.items.other": "{count} items",
+  "todoPreview.status.pending": "Pending",
+  "todoPreview.status.inProgress": "In progress",
+  "todoPreview.status.completed": "Completed",
+  "todoPreview.status.failed": "Failed",
+  "todoPreview.status.cancelled": "Cancelled",
+  "planExit.preview.header": "Agent mode",
+  "planExit.preview.planMode": "Plan mode",
+  "planExit.preview.agentMode": "Agent mode",
+  "planExit.preview.inProgress": "Switching to Agent mode…",
+  "planExit.preview.completed": "Switched to Agent mode",
   "prompts.permissionHeader.shell": "Shell",
   "prompts.permissionHeader.sshShell": "SSH shell",
   "prompts.permissionHeader.move": "Move",
@@ -829,6 +881,10 @@ export const messagesEn: Record<string, string> = {
   // Background tasks (run_command background: true)
   "messages.toolBgTaskOpen": "Open in Tasks",
   "messages.toolBgTaskStop": "Stop",
+  "tasks.badge.agent": "agent",
+  "tasks.agentHeading": "Subagent",
+  "tasks.openTranscript": "Open transcript",
+  "tasks.openTranscriptUnavailable": "The child session is not known yet",
   "tasks.panelTitle": "Background tasks",
   "tasks.closePanel": "Close background tasks",
   "tasks.loading": "Loading…",

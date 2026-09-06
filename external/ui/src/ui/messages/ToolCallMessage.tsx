@@ -1,5 +1,6 @@
 import {
   type ReactElement,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -14,6 +15,7 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
   taskStatusLabel,
   taskTimingLine,
@@ -84,7 +86,7 @@ function QuestionToolTimelineReadout(props: {
   );
 }
 
-export function ToolCallMessage(props: {
+export const ToolCallMessage = memo(function ToolCallMessage(props: {
   toolCallId: string;
   title?: string | undefined;
   kind?: string | undefined;
@@ -93,6 +95,8 @@ export function ToolCallMessage(props: {
   resultText?: string | undefined;
   fullResultText?: string | undefined;
   resultWasTruncated?: boolean | undefined;
+  /** Final todo state saved with this call, used by structured todo previews. */
+  todoPlan?: TodoPlanEntry[] | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
@@ -122,10 +126,11 @@ export function ToolCallMessage(props: {
           title: props.title,
           kind: props.kind,
           argsText: props.argsText,
+          todoPlan: props.todoPlan,
         },
         props.argsText || "",
       ),
-    [props.argsText, props.kind, props.title],
+    [props.argsText, props.kind, props.title, props.todoPlan],
   );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
@@ -362,6 +367,8 @@ export function ToolCallMessage(props: {
     toolPreview.meta.length > 0 ||
     toolPreview.copyText.trim() !== "" ||
     (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
+    (toolPreview.kind === "todo" && toolPreview.entries.length > 0) ||
+    toolPreview.kind === "plan_exit" ||
     (toolPreview.kind === "move" &&
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
@@ -376,6 +383,10 @@ export function ToolCallMessage(props: {
     !isQuestionTool &&
     !isPatchTool &&
     !isBrowserTool &&
+    !(
+      status === "completed" &&
+      (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
+    ) &&
     !!(resultBody && resultBody.length > 0);
   const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const backgroundTask = props.backgroundTask;
@@ -461,6 +472,7 @@ export function ToolCallMessage(props: {
                 preview={toolPreview}
                 interactive={false}
                 overflowControls={isLargePreviewTool}
+                toolStatus={status}
               />
             ) : null}
             {showPatchResult || showResult ? (
@@ -531,4 +543,4 @@ export function ToolCallMessage(props: {
       </details>
     </div>
   );
-}
+});

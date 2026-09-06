@@ -271,6 +271,10 @@ Representative builtins exposed to the LLM (registry allowlist):
 
 Docs mode does not expose **`run_command`** or MCP tools because those surfaces cannot currently guarantee read-only execution. Prompts instruct the user to switch to **`agent`** mode for code or configuration changes.
 
+### Ask Mode
+
+The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/subagents.md`**).
+
 ## Built-in Tools Specification
 
 ### `read_file`

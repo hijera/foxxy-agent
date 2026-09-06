@@ -84,13 +84,14 @@ Maintains the state for each conversation session:
 - Working directory
 - Active context (skills + project rules in separate prompt sections)
 - In-memory plan entries for todo tools (**`session.Plan`**), mirrored to **`todos/active.md`** when persistence is enabled (**`filesystem.go`**)
+- Child sessions for subagent runs (**`sub_<hex>`** ids, **`subagent.go`**): **`CreateSubagentSession`**, **`RunSubagentTurn`** and **`RetireSubagentSession`** implement **`agent.SubagentRuntime`**, so a child is created, run for its one turn and retired through the manager, never built inside the agent. Every other prompt path against a child answers **`ErrSubagentReadOnly`** (**409** over HTTP); **`ListSnapshotsWith(ListOptions{IncludeSubagents: true})`** is the only listing that shows children; **`SessionTree`** / **`DeleteSessionTree`** remove a parent together with its descendants, stopping their tasks first. See **`docs/subagents.md`**.
 
 ### ReAct Agent Loop (`internal/agent`)
 
 The core reasoning engine (**`react.go`**):
 
-1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`**, **`plan`**, and **`debug`**. Ask receives only MCP tools annotated with **`readOnlyHint: true`**, unless **`tools.ask_disable_extended_tools`** is enabled. Docs has a closed tool surface with no MCP.
-2. Builds the system prompt from **`internal/prompts.Render`**. The built-in defaults are assembled from reusable section fragments under **`internal/prompts/sections/`** (one ordered manifest per mode and provider family; see **`sections.go`**), so shared blocks like the agent body, the conditional footer, and the read/search and background guidance stay in one place instead of being forked per family. Custom files under **`prompts.dir`** keep the legacy one-file-per-mode shape and bypass section assembly. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.docs_prompt`** default to **`agent.md`**, **`plan.md`**, and **`docs.md`**; Ask uses **`ask.md`**. Model-specific and family-specific built-ins resolve to a notes fragment spliced into the mode manifest (for example the **`openai`** family adds **`agent/notes_openai`**; ask ships **`openai`** and **`gpt-oss`** alternate manifests). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`** and applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no registry filtering). MCP tool definitions from connected servers are appended in **`agent`**, **`plan`**, and **`debug`**. Ask and docs have closed tool surfaces with no MCP.
+2. Builds the system prompt from **`internal/prompts.Render`**. The built-in defaults are assembled from reusable section fragments under **`internal/prompts/sections/`** (one ordered manifest per mode and provider family; see **`sections.go`**), so shared blocks like the agent body, the conditional footer, and the read/search and background guidance stay in one place instead of being forked per family. Custom files under **`prompts.dir`** keep the legacy one-file-per-mode shape and bypass section assembly. Configurable names **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, **`prompts.docs_prompt`**, and **`prompts.ask_prompt`** default to **`agent.md`**, **`plan.md`**, **`docs.md`**, and **`ask.md`**. Model-specific and family-specific built-ins resolve to a notes fragment spliced into the mode manifest (for example the **`openai`** family adds **`agent/notes_openai`**; ask ships **`openai`** and **`gpt-oss`** alternate manifests). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), mode-specific plan/todo context, optional **`Memory`**, and **`UTCNow`** (RFC3339 UTC refreshed on every render). FoxxyCode then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
@@ -199,13 +200,19 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 - **`internal/tools/todo`** - todo/plan list (**`foxxycode_todo_plan_read`**, **`foxxycode_todo_plan_replace`**,
   **`foxxycode_todo_plan_archive`**, **`foxxycode_todo_item_add`**, **`foxxycode_todo_item_remove`**,
   **`foxxycode_todo_item_update`**, **`foxxycode_todo_item_move`**)
+- **`internal/tools/spawn_agent.go`** - **`spawn_agent`**, delegation of a self-contained task to a subagent
+  (registered when **`subagents.enabled`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
+  that **`internal/agent`** wires, so the registry stays below the session layer; the runtime, the project
+  trust check and the child session live in **`internal/agent/subagent.go`**, **`internal/subagents`** and
+  **`internal/session`**. It is offered in **`agent`**, **`plan`** and **`debug`** turns and never in **`ask`**
+  or **`docs`**. See **`docs/subagents.md`**.
 
 **Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means no registry filtering. **Plan** and **Docs** use fixed registry allowlists; **`ModeAllowsMCPTools`** separately limits MCP exposure to Agent and Plan.
 
 Agents see:
 
 - **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, etc.) plus MCP tools from connected servers.
-- **`plan`** mode - **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, **`plan_read`**, and the read-only **`svn_info`** / **`svn_status`** / **`svn_diff`** / **`svn_log`** / **`svn_list`**, plus MCP tools. General workspace writes, todo tools, scheduler tools, and memory tools are not advertised to the LLM.
+- **`plan`** mode - **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_write`**, **`plan_list`**, **`plan_read`**, **`spawn_agent`** (a child of a plan-mode parent stays in plan mode), and the read-only **`svn_info`** / **`svn_status`** / **`svn_diff`** / **`svn_log`** / **`svn_list`**, plus MCP tools. General workspace writes, todo tools, scheduler tools, and memory tools are not advertised to the LLM.
 - **`docs`** mode - **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`question`**, **`docs_write`**, and **`docs_edit`**. It receives neither **`run_command`** nor MCP tools, so its only built-in mutations are the guarded Markdown writers.
 
 The Docs writers accept only **`.md`** paths inside the session CWD, reject paths that escape after resolving symlinks, and protect **`internal/prompts/`**. **`docs_write`** requires **`overwrite: true`** before replacing an existing file; **`docs_edit`** requires a non-empty exact **`oldString`** that is unique unless **`replaceAll`** is set. The Docs prompt also treats review-only requests as non-mutating and requires an explicit user request before changing documentation.
@@ -267,13 +274,16 @@ Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
 `mcp.Probe` backs the `/foxxycode/mcp` management API (connect, `tools/list`,
 close); `manage.go` resolves which file owns a server for enable/disable
 persistence. Tools from MCP servers are appended to the LLM tool list in
-**`agent`** and **`plan`** modes (see **`internal/agent/react.go`**), filtered
-per turn by the disable switches. Ask receives only tools explicitly annotated
-with **`readOnlyHint: true`** and only while its extended-tool setting is off.
+**`agent`**, **`plan`**, and **`debug`** modes (see **`internal/agent/react.go`**),
+filtered per turn by the disable switches. Ask and docs never receive MCP tools.
 
 ### Skills loader (`internal/skills`)
 
 Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.foxxycode/skills`** (foxxycode-specific), **`${CWD}/.foxxycode/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
+
+### Subagents (`internal/subagents`)
+
+Loads subagent definitions - markdown files with YAML frontmatter whose body is a child agent's role - from **`subagents.dirs`** (defaults **`${FOXXYCODE_HOME}/agents`**, **`${CWD}/.claude/agents`**, **`${CWD}/.foxxycode/agents`**; later dirs override earlier ones by name, and the two built-ins **`general`** and **`explore`** sit below all of them), decides each file's **scope** on canonical paths (**`project`** inside the workspace, **`user`** elsewhere), holds the **trust receipts** for project-scope files (**`TrustStore`**, **`<home>/subagents-trust.json`**, keyed by canonical workspace, name and file digest; policy **`subagents.project_trust`**), bounds concurrent runs with a process-wide **`Limiter`**, and renders the **catalog** (the prompt block for the parent model, the table for **`foxxycode agents list`**, the rows for **`GET /foxxycode/subagents`**). It also owns the pure narrowing rules: permission mode never widens, the child's tool set is an intersection with the parent's, timeouts resolve like the pool's. The package knows nothing about sessions or the loop; **`internal/agent/subagent.go`** applies its decisions, runs the child through the session manager and registers the run in **`internal/bgtask`** with **`Pool.Launch`**. Guide: **`docs/subagents.md`**.
 
 ### Rules engine (`internal/rules`)
 
@@ -329,12 +339,9 @@ This is unrelated to the **`debug`** session mode below; the mode changes the mo
 - Suitable for: root-cause analysis, intermittent failures, regressions, and any bug where a guessed fix is worse than none
 
 ### `ask` mode
-- Read-only question-answering surface enforced by **`internal/agent.ToolSetForMode("ask")`** and execution-time guards
-- Basic tools: repository read/search/tree, interactive questions, and skills
-- By default, also exposes web search/fetch, read-only scheduler inspection, MCP tools whose server declares **`readOnlyHint: true`**, and a guarded shell command allowlist
-- Shell syntax that can chain commands, redirect output, perform substitution, or invoke a non-read command is refused before execution
-- **`tools.ask_disable_extended_tools: true`** hides shell, MCP, web, and scheduler tools while keeping the basic read-only set
-- No file/document writers, plan/todo mutators, scheduler mutations, SSH, browser automation, or memory mutations
+- Read-only question-answering surface enforced by **`internal/agent.ToolSetForMode("ask")`** and re-checked at execution time: a call that names a tool outside the set (for example one replayed from history recorded in agent mode) is refused with a read-only notice instead of run
+- Tools: **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, and **`load_skill`**
+- No shell, no plan/todo/config tools, no MCP tools, no file/document writers, no scheduler or SSH tools, no browser automation, and no memory mutations (the memory copilot runs its recall-only pass)
 - Suitable for: repository-grounded explanations, reviews, investigation, and user questions without changing project state
 
 Mode switching:

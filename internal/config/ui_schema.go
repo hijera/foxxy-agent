@@ -229,7 +229,7 @@ func UISchemaMap() map[string]interface{} {
 			"description": "Wire protocol for this provider entry.",
 			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints."),
+		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
@@ -476,8 +476,6 @@ func UISchemaMap() map[string]interface{} {
 				},
 				"plan_no_self_run": boolProp("Forbid the model from running the plan itself",
 					"In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on."),
-				"ask_disable_extended_tools": boolPropDefault("Disable extended Ask tools",
-					"In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.", false),
 				"output_limits": objectSchema("Tool output limits",
 					"Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB per-call byte ceiling. 0 disables both limits; unset uses the built-in default.",
 					map[string]interface{}{
@@ -509,7 +507,34 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enabled", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
 					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "ask_disable_extended_tools", "output_limits", "background"},
+			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "output_limits", "background"},
+			nil),
+		"subagents": objectSchema("Subagents",
+			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+			map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Enabled",
+					"description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+				},
+				"dirs": map[string]interface{}{
+					"type":        "array",
+					"title":       "Definition directories",
+					"description": "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project definitions",
+					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+					"enum":        []string{SubagentsProjectTrustAsk, SubagentsProjectTrustAllow, SubagentsProjectTrustDeny},
+				},
+				"max_concurrent":          intProp("Max concurrent", "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued."),
+				"max_depth":               intProp("Max depth", "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere."),
+				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout."),
+				"max_turns":               intProp("Max turns", "ReAct rounds a child may take; 0 follows agent.max_turns."),
+			},
+			[]string{"enabled", "dirs", "project_trust", "max_concurrent", "max_depth", "default_timeout_seconds", "max_turns"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",
@@ -597,6 +622,7 @@ func UISchemaMap() map[string]interface{} {
 				"dir":          strProp("Prompts directory", "Optional override directory for prompt markdown files."),
 				"agent_prompt": strProp("Agent prompt file", "Filename for the main agent system prompt."),
 				"plan_prompt":  strProp("Plan prompt file", "Filename for plan-mode system prompt."),
+				"ask_prompt":   strProp("Ask prompt file", "Filename for ask-mode system prompt."),
 				"per_provider": objectSchema("Per-provider prompts",
 					"Select a system prompt tuned to the active model family (falls back to the shared prompt).",
 					map[string]interface{}{
@@ -605,7 +631,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enabled"},
 					nil),
 			},
-			[]string{"dir", "agent_prompt", "plan_prompt", "per_provider"},
+			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt", "per_provider"},
 			nil),
 		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
 			map[string]interface{}{
@@ -710,7 +736,7 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "autocomplete", "tools", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
+		"providers", "models", "agent", "autocomplete", "tools", "subagents", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 

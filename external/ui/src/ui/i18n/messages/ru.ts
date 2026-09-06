@@ -144,6 +144,13 @@ export const messagesRu: Record<string, string> = {
   "chat.heroVerb.automate": "автоматизировать",
   "chat.heroVerb.refactor": "рефакторить",
   "chat.heroVerb.plan": "спланировать",
+  "chat.subagentReadOnly.notice":
+    "Транскрипт субагента {name} доступен только для чтения. Запросы отправляются в родительский чат.",
+  "chat.subagentReadOnly.noticeUnnamed":
+    "Транскрипт субагента доступен только для чтения. Запросы отправляются в родительский чат.",
+  "chat.subagentReadOnly.openParent": "Открыть родительский чат",
+  "chat.subagentTitle": "Субагент {name}",
+  "chat.subagentTitleUnnamed": "Транскрипт субагента",
   "chat.newChat": "Новый чат",
   "chat.chatTitleAriaLabel": "Заголовок чата",
   "chat.exportLabel": "Скачать сессию",
@@ -228,6 +235,7 @@ export const messagesRu: Record<string, string> = {
   "settings.sectionDesc.agent": "Настройки агента ReAct",
   "settings.sectionDesc.autocomplete": "Подсказки кода в редакторе",
   "settings.sectionDesc.tools": "Разрешения и лимиты инструментов",
+  "settings.sectionDesc.subagents": "Дочерние агенты и делегирование",
   "settings.sectionDesc.mcp_servers": "Внешние инструменты MCP",
   "settings.sectionDesc.skills": "Установленные слэш-навыки",
   "settings.sectionDesc.memory": "Параметры долговременной памяти",
@@ -338,6 +346,20 @@ export const messagesRu: Record<string, string> = {
   "settings.backToSections": "К разделам",
   "settings.buildTagMissing":
     "В этой сборке не заработает: бинарь собран без тега «{tag}», инструментов в нём просто нет, и настройки ниже ни на что не влияют. Пересоберите с этим тегом (например make build TAGS=\"http ui browser\"), чтобы включить.",
+  "settings.reasoning.levelsFallback": "Уровни рассуждений",
+  "settings.reasoning.fetch": "Получить уровни ризонинга",
+  "settings.reasoning.fetching": "Получение уровней ризонинга…",
+  "settings.reasoning.useAuto": "Использовать автоопределение",
+  "settings.reasoning.autoDetected":
+    "Определяются автоматически по идентификатору модели. Нажмите «Получить уровни ризонинга», чтобы посмотреть или переопределить их.",
+  "settings.reasoning.overridden":
+    "Для этой модели предлагаются именно эти уровни вместо автоопределённых.",
+  "settings.reasoning.hidden":
+    "Пустой список: селектор рассуждений скрыт для этой модели. Нажмите «Использовать автоопределение», чтобы вернуть как было.",
+  "settings.reasoning.noneDetected":
+    "Для этого идентификатора уровни не определяются. Добавьте вручную, если провайдер их поддерживает.",
+  "settings.reasoning.fetchError":
+    "Не удалось получить уровни ризонинга: {error}. Добавьте их вручную ниже.",
   "settings.remove": "Удалить",
   "settings.add": "Добавить",
   "settings.showKey": "Показать",
@@ -376,9 +398,18 @@ export const messagesRu: Record<string, string> = {
   "settings.codexAuth.providerNameRequired":
     "Перед входом укажите имя провайдера.",
   "settings.mcp.legend": "Серверы MCP",
+  "settings.neuralDeepApiBase.description":
+    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, api.neuraldeep.tech — зеркало для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей читается из сохранённого конфига, поэтому сначала сохраните настройки.",
+  "settings.neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
+  "settings.neuralDeepApiBase.optionTech":
+    "api.neuraldeep.tech — зеркало для остального мира",
+  "settings.neuralDeepApiBase.unknown":
+    "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
   "settings.neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
   "settings.neuralDeepAuth.error.incompleteResponse":
     "Хаб вернул неполный ответ входа.",
+  "settings.neuralDeepAuth.hubMismatch":
+    "Этот вход выдан хабом {hub}, а {endpoint} обслуживает другой хаб, поэтому запросы с этим ключом отклоняются. Войдите заново, чтобы получить ключ для этого эндпоинта.",
   "settings.neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
   "settings.neuralDeepAuth.description":
     "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для FoxxyCode. Ключ хранится на сервере FoxxyCode и не попадает в config.yaml. Модели тарифа добавьте в разделе Логические модели - пикер моделей подтянет каталог с этим входом.",
@@ -628,6 +659,9 @@ export const messagesRu: Record<string, string> = {
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
   "scheduler.mode.plan": "plan",
+  "scheduler.mode.docs": "docs",
+  "scheduler.mode.ask": "ask",
+  "scheduler.mode.debug": "debug",
   "scheduler.field.model": "model",
   "scheduler.field.body": "body (markdown)",
   "scheduler.bodyAriaLabel": "Тело задачи (markdown)",
@@ -707,6 +741,7 @@ export const messagesRu: Record<string, string> = {
   "messages.compactionBodyAriaLabel": "Содержимое сжатого контекста",
 
   // Строка живого статуса рядом с точками: «<глагол> <цель> · <время>».
+  "status.spawnAgent": "Запускаю субагента",
   "status.read": "Читаю",
   "status.list": "Смотрю каталог",
   "status.search": "Ищу",
@@ -767,6 +802,27 @@ export const messagesRu: Record<string, string> = {
   "prompts.permissionQuestion.rmRecursive": "Удалить этот каталог целиком?",
   "prompts.permissionQuestion.rmdir": "Удалить этот пустой каталог?",
   "prompts.permissionQuestion.fallback": "Разрешить это действие?",
+  "todoPreview.header.item": "Обновлён пункт",
+  "todoPreview.header.plan": "План задач",
+  "todoPreview.meta.position": "{position} из {total}",
+  "todoPreview.meta.completed.one": "{count} выполнен",
+  "todoPreview.meta.completed.few": "{count} выполнено",
+  "todoPreview.meta.completed.many": "{count} выполнено",
+  "todoPreview.meta.completed.other": "{count} выполнено",
+  "todoPreview.meta.items.one": "{count} пункт",
+  "todoPreview.meta.items.few": "{count} пункта",
+  "todoPreview.meta.items.many": "{count} пунктов",
+  "todoPreview.meta.items.other": "{count} пункта",
+  "todoPreview.status.pending": "Ожидает",
+  "todoPreview.status.inProgress": "В работе",
+  "todoPreview.status.completed": "Выполнено",
+  "todoPreview.status.failed": "Ошибка",
+  "todoPreview.status.cancelled": "Отменено",
+  "planExit.preview.header": "Агентский режим",
+  "planExit.preview.planMode": "Режим планирования",
+  "planExit.preview.agentMode": "Агентский режим",
+  "planExit.preview.inProgress": "Переход в агентский режим…",
+  "planExit.preview.completed": "Переход в агентский режим выполнен",
   "prompts.permissionHeader.shell": "Оболочка",
   "prompts.permissionHeader.sshShell": "Оболочка SSH",
   "prompts.permissionHeader.move": "Перемещение",
@@ -840,6 +896,10 @@ export const messagesRu: Record<string, string> = {
   // Фоновые задачи (run_command background: true)
   "messages.toolBgTaskOpen": "Открыть в задачах",
   "messages.toolBgTaskStop": "Остановить",
+  "tasks.badge.agent": "агент",
+  "tasks.agentHeading": "Субагент",
+  "tasks.openTranscript": "Открыть транскрипт",
+  "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
   "tasks.panelTitle": "Фоновые задачи",
   "tasks.closePanel": "Закрыть фоновые задачи",
   "tasks.loading": "Загрузка…",

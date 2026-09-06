@@ -28,7 +28,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/tools"
-	toolshell "github.com/hijera/foxxycode-agent/internal/tools/shell"
+	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -82,6 +82,14 @@ type Agent struct {
 
 	imgMu             sync.Mutex
 	pendingToolImages []llm.ImagePart
+
+	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
+	subagentRuntime SubagentRuntime
+	// subagent is set when this session is itself a child run (see subagent.go).
+	subagent *session.SubagentMeta
+	// currentToolCallID is the tool call being executed, so a spawn can link
+	// its task to the transcript row.
+	currentToolCallID string
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -114,7 +122,7 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		log = slog.Default()
 	}
 	environment := platform.CurrentEnvironment()
-	return &Agent{
+	a := &Agent{
 		cfg:             cfg,
 		state:           state,
 		server:          server,
@@ -123,6 +131,10 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		environment:     environment,
 		providerFactory: llm.NewProvider,
 	}
+	if st := sessionStatePtr(state); st != nil {
+		a.subagent = st.Subagent()
+	}
+	return a
 }
 
 // SetProviderFactory replaces the LLM provider factory used by subsequent turns.
@@ -149,17 +161,23 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
-	// The built-in /compact command compacts history instead of running the ReAct
-	// loop. runCompactCommand persists the command text itself (so it shows in the
-	// transcript like any other message), and under the opencode engine returns a
-	// short notice instead of compacting.
-	if instructions, ok := parseCompactCommand(userText); ok {
-		return a.runCompactCommand(ctx, instructions, userText)
-	}
-	// The built-in /plugin command manages skill plugins and marketplaces
-	// deterministically, without an LLM turn; the command text is persisted too.
-	if args, ok := parsePluginCommand(userText); ok {
-		return a.runPluginCommand(ctx, args, userText)
+	// The built-in /compact and /plugin commands are operator input: they run
+	// deterministically, outside the tool set and the permission gate. A
+	// child's prompt is written by the parent model, so for a subagent the
+	// same text is an ordinary task and never reaches the built-ins.
+	if a.subagent == nil {
+		// The built-in /compact command compacts history instead of running the ReAct
+		// loop. runCompactCommand persists the command text itself (so it shows in the
+		// transcript like any other message), and under the opencode engine returns a
+		// short notice instead of compacting.
+		if instructions, ok := parseCompactCommand(userText); ok {
+			return a.runCompactCommand(ctx, instructions, userText)
+		}
+		// The built-in /plugin command manages skill plugins and marketplaces
+		// deterministically, without an LLM turn; the command text is persisted too.
+		if args, ok := parsePluginCommand(userText); ok {
+			return a.runPluginCommand(ctx, args, userText)
+		}
 	}
 
 	imageParts := a.state.TakePendingImageParts()
@@ -182,7 +200,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
-	a.runMemoryBeforeTurn(ctx, userText)
+	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -218,6 +236,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30
+	}
+	if a.subagent != nil {
+		maxTurns = a.cfg.Subagents.EffectiveMaxTurns(a.cfg.Agent.MaxTurns)
+		if a.subagent.MaxTurns > 0 {
+			maxTurns = a.subagent.MaxTurns
+		}
 	}
 
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
@@ -281,6 +305,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		a.addToolImage(llm.ImagePart{DataURL: dataURL, FilePath: filePath, Name: name})
 	}
 	a.wireFileEditHook(toolEnv)
+
+	a.applySubagentEnv(toolEnv, mode)
 
 	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
 }
@@ -941,46 +967,17 @@ func loopAbortError(c loopAbortChannel) error {
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool, turn int) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
-	defer func() { env.ToolCallID = "" }()
+	a.currentToolCallID = env.ToolCallID
+	defer func() {
+		env.ToolCallID = ""
+		a.currentToolCallID = ""
+	}()
 
 	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
 	// front so it holds regardless of the outcome below (permission denial,
 	// tool error), and so both callers — the ReAct loop and the resume-after-
 	// permission path — are covered without threading state through.
 	a.activateScopedRulesForToolCall(tc.Name, tc.InputJSON, env.CWD)
-
-	// The mode allowlist filters the definitions sent to the model; enforce it here too
-	// so a call the model was never offered cannot run (tools.plan_no_self_run only).
-	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
-	if toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly) {
-		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-			SessionUpdate: acp.UpdateTypeToolCallUpdate,
-			ToolCallID:    tc.ID,
-			Status:        "cancelled",
-		})
-		return modeToolRefusalMessage(mode, tc.Name), nil
-	}
-	if mode == string(session.ModeAsk) {
-		if strings.Contains(tc.Name, "__") && !a.askMCPToolAllowed(tc.Name, askBasicOnly) {
-			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-				SessionUpdate: acp.UpdateTypeToolCallUpdate,
-				ToolCallID:    tc.ID,
-				Status:        "cancelled",
-			})
-			return modeToolRefusalMessage(mode, tc.Name), nil
-		}
-		if tc.Name == "run_command" {
-			command := permission.ExtractRunCommand(tc.InputJSON)
-			if err := toolshell.ValidateReadOnlyCommand(command); err != nil {
-				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-					SessionUpdate: acp.UpdateTypeToolCallUpdate,
-					ToolCallID:    tc.ID,
-					Status:        "cancelled",
-				})
-				return fmt.Sprintf("error: command is not available in Ask mode: %v", err), nil
-			}
-		}
-	}
 
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {
@@ -1002,6 +999,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
 		},
 	})
+
+	// A child may only call what its effective tool set admits: the
+	// advertised definitions are filtered the same way, so this catches a
+	// hallucinated or replayed call, MCP tools included, before anything runs
+	// or asks for permission. The refusal goes through the same bookkeeping
+	// as every other outcome, so the child's transcript records it as failed.
+	if a.subagent != nil && !a.subagentAllows(tc.Name) {
+		reason := fmt.Sprintf("tool %s is not available to this subagent", tc.Name)
+		a.finishToolCall(sessionDir, sessionID, tc, reason, nil, "failed")
+		return "", fmt.Errorf("%s", reason)
+	}
+
+	// A restricted mode filters tool definitions before the LLM sees them, but a
+	// call replayed from history can still name a hidden tool; refuse it here so
+	// the mode boundary holds at execution time too.
+	if refusal, refused := toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled()); refused {
+		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
+		return refusal, nil
+	}
 
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
@@ -1085,7 +1101,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
 
-		if err != nil || permResult == nil || permResult.Outcome == "cancelled" || permResult.OptionID == "reject" {
+		if err != nil || !permission.Approved(permResult) {
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
 				ToolCallID:    tc.ID,
@@ -1122,6 +1138,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	if execErr != nil {
 		status = "failed"
 	}
+	a.emitDebug(turn, "tool_finish", tc.Name, "", map[string]interface{}{
+		"tool_call_id": tc.ID,
+		"kind":         toolKind(tc.Name),
+		"status":       status,
+		"ok":           execErr == nil,
+	})
+	a.finishToolCall(sessionDir, sessionID, tc, result, execErr, status)
+	return result, execErr
+}
+
+// finishToolCall persists the outcome of one tool call and publishes the final
+// tool_call_update: the normal completed/failed path and the mode refusal
+// (status cancelled, result carrying the refusal text) share it so the
+// transcript, the tool_calls store, and the preview stay consistent.
+func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, result string, execErr error, status string) {
+	var todoPlanSnapshot []acp.PlanEntry
+	if status == "completed" {
+		todoPlanSnapshot = todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+	}
 
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		finalText := result
@@ -1130,13 +1165,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
 		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
+		if len(todoPlanSnapshot) > 0 {
+			_ = session.WriteToolCallPlanSnapshot(sessionDir, tc.ID, todoPlanSnapshot)
+		}
 	}
-	a.emitDebug(turn, "tool_finish", tc.Name, "", map[string]interface{}{
-		"tool_call_id": tc.ID,
-		"kind":         toolKind(tc.Name),
-		"status":       status,
-		"ok":           execErr == nil,
-	})
 
 	payload := result
 	if execErr != nil {
@@ -1151,6 +1183,17 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: display}},
 		}
 	}
+	if len(todoPlanSnapshot) > 0 {
+		if previewMeta == nil {
+			previewMeta = map[string]interface{}{}
+		}
+		foxxycodeMeta, _ := previewMeta["foxxycode"].(map[string]interface{})
+		if foxxycodeMeta == nil {
+			foxxycodeMeta = map[string]interface{}{}
+			previewMeta["foxxycode"] = foxxycodeMeta
+		}
+		foxxycodeMeta["todoPlan"] = todoPlanSnapshot
+	}
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
@@ -1159,16 +1202,29 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		Content:       content,
 		Meta:          previewMeta,
 	})
+}
 
-	return result, execErr
+func todoPlanSnapshotAfterToolCall(toolName string, state SessionState, execErr error) []acp.PlanEntry {
+	if execErr != nil || state == nil {
+		return nil
+	}
+	switch toolName {
+	case todo.ToolNameItemUpdate, todo.ToolNamePlanReplace:
+		entries := state.GetPlan()
+		if len(entries) == 0 {
+			return nil
+		}
+		return append([]acp.PlanEntry(nil), entries...)
+	default:
+		return nil
+	}
 }
 
 // currentToolDefinitions builds the definition list for mode, reflecting the
 // configuration in force right now. It is called again after config_commit so a
 // tool the reload enabled or disabled reaches the model in the same turn.
 func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
-	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
-	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
+	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled())
 	available := a.registry.AllToolDefinitions()
 	if a.configReloader == nil {
 		// Without a runtime reloader the staged config flow cannot commit, so
@@ -1184,25 +1240,44 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 		available = filtered
 	}
 	defs := FilterToolDefinitions(available, toolSet)
-	if ModeAllowsMCPTools(mode, askBasicOnly) {
-		defs = append(defs, a.mcpToolDefinitions(mode, askBasicOnly)...)
+	if ModeAllowsMCPTools(mode) {
+		defs = append(defs, a.mcpToolDefinitions()...)
+	}
+	if a.subagent != nil {
+		// An empty effective set means no tools at all, not "unrestricted" as
+		// the nil ToolSet would read; the spawn refuses such a set up front,
+		// this keeps a replayed or restored child honest too.
+		if len(a.subagent.Tools) == 0 {
+			return nil
+		}
+		defs = FilterToolDefinitions(defs, ToolSet(a.subagent.Tools))
+	} else if !a.canSpawnInMode(mode) {
+		// spawn_agent is registered whenever the feature is on; a surface with no
+		// runtime (a scheduled run), a session at the depth limit or a read-only
+		// turn (ask, docs) must not advertise it.
+		filtered := make([]llm.ToolDefinition, 0, len(defs))
+		for _, d := range defs {
+			if d.Name != tools.ToolSpawnAgent {
+				filtered = append(filtered, d)
+			}
+		}
+		defs = filtered
 	}
 	return defs
 }
 
 // mcpToolDefinitions converts the tools of connected MCP clients into LLM tool
-// definitions, applying both gates a caller must never skip: the configured
-// enable/disable filter and the fork's per-mode annotation filter. Shared by the
+// definitions, applying the configured enable/disable filter. Shared by the
 // main prompt path and the permission-resume path so the two cannot drift.
 //
-// Callers are responsible for checking ModeAllowsMCPTools first; this only
-// filters within a mode that gets MCP tools at all.
-func (a *Agent) mcpToolDefinitions(mode string, askBasicOnly bool) []llm.ToolDefinition {
+// Callers are responsible for checking ModeAllowsMCPTools first: docs and ask
+// never receive MCP definitions at all.
+func (a *Agent) mcpToolDefinitions() []llm.ToolDefinition {
 	allowed := a.state.GetMCPToolFilter()
 	var defs []llm.ToolDefinition
 	for _, client := range a.state.GetMCPClients() {
 		for _, t := range client.Tools() {
-			if !allowed(client.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
+			if !allowed(client.Name(), t.Name) {
 				continue
 			}
 			defs = append(defs, t.ToLLMToolDefinition(client.Name()))
@@ -1223,26 +1298,6 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
-}
-
-func (a *Agent) askMCPToolAllowed(namespacedName string, basicOnly bool) bool {
-	idx := strings.Index(namespacedName, "__")
-	if idx <= 0 || idx >= len(namespacedName)-2 {
-		return false
-	}
-	serverName := namespacedName[:idx]
-	toolName := namespacedName[idx+2:]
-	for _, client := range a.state.GetMCPClients() {
-		if client.Name() != serverName {
-			continue
-		}
-		for _, tool := range client.Tools() {
-			if tool.Name == toolName {
-				return MCPToolAllowedForMode(string(session.ModeAsk), basicOnly, tool)
-			}
-		}
-	}
-	return false
 }
 
 // buildMessages constructs the message slice to send to the LLM.

@@ -70,7 +70,7 @@ func openAPISpec() map[string]interface{} {
 						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: foxxycode_meta`** before **`[DONE]`**). Otherwise JSON. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
-						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
+						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"The last entry in **messages** must have role **user**.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
@@ -119,7 +119,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -195,12 +195,18 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
-						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**.",
+						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
+						"Child sessions of subagent runs (**subagentRun** metadata, **sub_** ids) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
 					"parameters": append(foxxycodePagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include scheduler-run session directories in the list.",
+					}, map[string]interface{}{
+						"name":        "include_subagents",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
 					}, map[string]interface{}{
 						"name":        "include_activity",
 						"in":          "query",
@@ -741,6 +747,43 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/config/reasoning-levels": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Reasoning levels a model id offers (UI)",
+					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The provider type decides the Codex remap (**`minimal`** becomes **`none`**): **`provider_type`**, when sent, is the type currently chosen in the settings form and wins over the saved config, so an unsaved or just-retyped provider row is honoured; without it the **`model`** provider prefix is looked up in the active config. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**, reported as the flat **`{\"ok\":false,\"error\":...}`** the other **`/foxxycode/config`** routes use.",
+					"operationId": "foxxycodeConfigReasoningLevelsGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "model",
+							"in":          "query",
+							"required":    true,
+							"description": "Logical model id in the form **`provider_name/api_model_id`**. It need not be saved in **`models[]`** yet.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "valera/qwen3.8-27b",
+						},
+						map[string]interface{}{
+							"name":        "provider_type",
+							"in":          "query",
+							"required":    false,
+							"description": "Wire type of the provider currently chosen for this model in the settings form (**`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**). Overrides the saved provider's type for the Codex remap so an unsaved or just-retyped provider row resolves correctly; omit to use the saved config.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "codex",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Resolved levels, or `ok:false` with `error` for a malformed model id",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeReasoningLevelsResponse"},
+								},
+							},
+						},
+						"400": foxxycodeConfigErrorResponse("Missing `model` query parameter"),
+						"500": foxxycodeConfigErrorResponse("Configuration unavailable"),
+					},
+				},
+			},
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
@@ -899,7 +942,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/background-tasks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Background tasks of a session",
-					"description": "Lists commands the agent started with **run_command** **`background: true`**. Each row carries **id**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **foxxycode** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id}`** naming the definition and the child session whose transcript **GET /foxxycode/sessions/{session_id}/messages** serves). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **foxxycode** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -979,6 +1022,76 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/subagents": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Subagent definitions visible from a workspace",
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
+					"operationId": "listSubagents",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "foxxycode.subagent_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/subagents/{name}/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project subagent definition for a workspace",
+					"description": "Records a receipt in **`<home>/subagents-trust.json`** binding the workspace, the definition name and the digest of its current file content, so **spawn_agent** may run it under **`subagents.project_trust: ask`**. Rewriting the file changes the digest and withdraws the approval. " +
+						"Optional body **`{\"cwd\": ...}`** selects the workspace (default: the server's default cwd). **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/subagents/{name}/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project subagent approval",
+					"description": "Removes the receipt of the named definition for the workspace (optional body **`{\"cwd\": ...}`**, default: the server's default cwd). Withdrawing an approval that was never on file, or naming a built-in or user-scope definition, changes nothing and still answers with the current entry. **404** when no definition of that name is visible from the workspace; **400** for a malformed body or a relative **cwd**.",
+					"operationId": "untrustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
@@ -1015,6 +1128,7 @@ func openAPISpec() map[string]interface{} {
 				"delete": map[string]interface{}{
 					"summary": "Delete a persisted session",
 					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
+						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first, so nothing writes into a removed directory. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
 						"A session that forked from another is also retracted from the **branches.json** of its source, and a branch point left with a single thread is dropped, so the branch navigator never points at a bundle that is gone. " +
 						"Deleting an id with no bundle on disk still answers **200**.",
 					"operationId": "foxxycodeSessionDelete",
@@ -1041,6 +1155,14 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "Nothing was removed: either a cancelled turn of the session tree was still running after the settle timeout, or descendants kept appearing while the tree was being marked. Retry once the tree is quiet.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
@@ -1097,6 +1219,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The source is a subagent child session (**sub_** ids): its transcript is read-only and cannot be forked; branch the parent instead.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 					},
 				},
@@ -1210,7 +1340,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The workspace is locked (the conversation already has messages), or the session is a subagent child (**sub_** ids) whose transcript is read-only.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 					},
 				},
@@ -1222,7 +1359,8 @@ func openAPISpec() map[string]interface{} {
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
-						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows.",
+						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
+						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1736,7 +1874,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** never holds a prompt of its own (its requests are relayed to the parent chat) and answers **409**. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -1768,6 +1906,7 @@ func openAPISpec() map[string]interface{} {
 						"204": map[string]interface{}{"description": "Permission choice accepted"},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 					},
 				},
 			},
@@ -1895,9 +2034,16 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get NeuralDeep sign-in status",
-					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
 					"operationId": "getProviderNeuralDeepAuth",
-					"parameters":  []interface{}{codexProviderNameParameter()},
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "api_base", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Endpoint currently picked in the settings form (`https://api.neuraldeep.ru/v1` or `https://api.neuraldeep.tech/v1`), possibly unsaved. Omitted or unrecognized: the saved row's endpoint, falling back to the default deployment like requests do.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
@@ -1921,7 +2067,15 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `foxxycode`. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow for client `foxxycode`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/NeuralDeepAuthDeviceStartRequest"},
+							},
+						},
+					},
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
@@ -2382,7 +2536,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**; codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,vision}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,vision}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2451,7 +2605,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript (coddy compaction engine). As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript (coddy compaction engine). As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running). A child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2581,13 +2735,21 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 				"patch": map[string]interface{}{
-					"summary":     "Update design plan frontmatter fields",
-					"description": "Partial update of **name**, **overview**, and **todos** without touching the markdown body.",
+					"summary":     "Update design plan frontmatter fields, or run the plan",
+					"description": "Partial update of **name**, **overview**, and **todos** without touching the markdown body. Body **`{\"runPlan\": true}`** instead runs **RunPlan** synchronously: the session switches to **agent** mode, the plan document is injected and one agent turn runs (prefer **POST /v1/responses** with **`metadata.runPlanSlug`** for streaming). The run is admitted like any other turn (turn lock, registration, cancellation).",
 					"parameters":  []interface{}{designPlanIDParam(), designPlanSlugParam()},
 					"responses": map[string]interface{}{
 						"200": designPlanResponseRef(),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The session is in **ask** mode (read-only: switch the mode first, then run), the session is a subagent child (**sub_** ids, whose transcript is read-only), or another turn holds the turn lock.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 					},
 				},
 				"delete": map[string]interface{}{
@@ -2639,6 +2801,25 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"schemas": map[string]interface{}{
+				"SubagentCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One subagent definition as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"name":           map[string]string{"type": "string"},
+						"description":    map[string]string{"type": "string"},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"builtin", "user", "project"}},
+						"path":           map[string]string{"type": "string", "description": "Definition file; absent for built-ins."},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the definition bytes (the embedded bytes for built-ins)."},
+						"model":          map[string]string{"type": "string", "description": "models[].model id from the frontmatter, when set."},
+						"mode":           map[string]string{"type": "string", "description": "agent or plan from the frontmatter, when set."},
+						"builtin":        map[string]string{"type": "boolean"},
+						"hidden":         map[string]string{"type": "boolean", "description": "Kept out of the model-facing catalog; still spawnable by name."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
+				},
 				"DesignPlan": map[string]interface{}{
 					"type":        "object",
 					"description": "A design plan file (plans/<slug>.plan.md) inside the session bundle.",
@@ -2880,6 +3061,16 @@ func openAPISpec() map[string]interface{} {
 						"error": map[string]string{"type": "string"},
 					},
 				},
+				"NeuralDeepAuthDeviceStartRequest": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"api_base": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"https://api.neuraldeep.ru/v1", "https://api.neuraldeep.tech/v1"},
+							"description": "Deployment to sign in against; decides which hub mints the key. Empty or absent: the saved provider row's `api_base`, else the default deployment.",
+						},
+					},
+				},
 				"NeuralDeepAuthStatus": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -2894,8 +3085,36 @@ func openAPISpec() map[string]interface{} {
 							"enum":        []string{"oauth", "api_key", "api_key_command", "env", "none"},
 							"description": "Credential requests actually use. An explicit api_key / command / env var wins over a stored hub login.",
 						},
+						"hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub that issued the stored login, as recorded in the credential file. Omitted when there is no stored login.",
+						},
+						"endpoint_hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub a sign-in for the queried endpoint (`api_base`, default: the saved row's) would use. Differs from `hub` when the stored login belongs to the other deployment.",
+						},
 					},
 					"required": []string{"connected", "source"},
+				},
+				"FoxxyCodeReasoningLevelsResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":    map[string]string{"type": "boolean"},
+						"error": map[string]string{"type": "string"},
+						"model": map[string]string{"type": "string"},
+						"levels": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Levels detected for this model id, in the order the composer offers them. Empty for a model without reasoning support.",
+						},
+						"detected": map[string]interface{}{
+							"type":        "boolean",
+							"description": "False when the model id matches no reasoning family, so the UI can say so instead of writing an override.",
+						},
+					},
+					"required": []string{"ok", "levels", "detected"},
 				},
 				"CodexAuthStatus": map[string]interface{}{
 					"type": "object",
@@ -3030,7 +3249,7 @@ func openAPISpec() map[string]interface{} {
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -3081,7 +3300,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -3290,6 +3509,22 @@ func sessionBusyResponseRef() map[string]interface{} {
 	return out
 }
 
+// foxxycodeConfigErrorResponse documents the flat {"ok":false,"error":...} body that
+// writeFoxxyCodeConfigErr emits for the /foxxycode/config routes, as opposed to the
+// OpenAI-style nested ErrorEnvelope used by the /v1 surface.
+func foxxycodeConfigErrorResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"$ref": "#/components/schemas/FoxxyCodeConfigValidateResponse",
+				},
+			},
+		},
+	}
+}
+
 func errorResponseRef() map[string]interface{} {
 	return map[string]interface{}{
 		"description": "Error",
@@ -3428,4 +3663,50 @@ func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `inline; filename="openapi.json"`)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// subagentNameParam is the {name} path parameter of the subagent trust routes.
+func subagentNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Subagent definition name as listed by **GET /foxxycode/subagents**.",
+	}
+}
+
+// subagentTrustRequestBody is the optional body of the trust routes: the
+// workspace the receipt is written for.
+func subagentTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": false,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+					},
+				},
+			},
+		},
+	}
+}
+
+// subagentEntryResponse describes a 200 carrying one refreshed catalog entry.
+func subagentEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "foxxycode.subagent"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
+				},
+			},
+		},
+	}
 }

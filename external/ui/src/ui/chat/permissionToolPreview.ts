@@ -4,6 +4,10 @@ import {
   parseDiffPatch,
   type ParsedDiffLine,
 } from "../messages/parseDiff";
+import {
+  buildTodoToolPreview,
+  type TodoPlanEntry,
+} from "./todoToolPreview";
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
@@ -12,6 +16,8 @@ export type PermissionToolCallContext = {
   title?: string | undefined;
   kind?: string | undefined;
   argsText?: string | undefined;
+  /** Final todo state captured when this tool call completed. */
+  todoPlan?: TodoPlanEntry[] | undefined;
 };
 
 type PermissionPreviewBase = {
@@ -34,7 +40,13 @@ export type PermissionToolPreview =
       kind: "diff";
       lines: ParsedDiffLine[];
       hunkHeaders: Array<{ at: number; text: string }>;
-    });
+    })
+  | (PermissionPreviewBase & {
+      kind: "todo";
+      variant: "item" | "plan";
+      entries: TodoPlanEntry[];
+    })
+  | (PermissionPreviewBase & { kind: "plan_exit" });
 
 function normalizedToolName(value: string | undefined): string {
   return (value || "").replace(/^run:\s*/i, "").trim();
@@ -128,6 +140,8 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return stringArg(args, "query");
     case "mv":
       return stringArg(args, "src");
+    case "spawn_agent":
+      return stringArg(args, "agent");
     case "question":
       return "";
     default:
@@ -248,6 +262,48 @@ export function buildToolCallPreview(
   const normalized = toolName.toLowerCase();
   const args = parseArgsText(context.argsText || "") || {};
   const title = questionForTool(normalized, args);
+  const todoPreview = buildTodoToolPreview({
+    toolName,
+    argsText: context.argsText,
+    planSnapshot: context.todoPlan,
+  });
+  if (todoPreview) {
+    return {
+      toolName,
+      title,
+      header:
+        todoPreview.variant === "item"
+          ? t("todoPreview.header.item")
+          : t("todoPreview.header.plan"),
+      meta:
+        todoPreview.variant === "item"
+          ? [
+              t("todoPreview.meta.position", {
+                position: todoPreview.position,
+                total: todoPreview.total,
+              }),
+            ]
+          : [
+              tp("todoPreview.meta.completed", todoPreview.completed),
+              tp("todoPreview.meta.items", todoPreview.total),
+            ],
+      copyText: "",
+      kind: "todo",
+      variant: todoPreview.variant,
+      entries: todoPreview.entries,
+    };
+  }
+
+  if (normalized === "plan_exit") {
+    return {
+      toolName,
+      title,
+      header: t("planExit.preview.header"),
+      meta: [],
+      copyText: "",
+      kind: "plan_exit",
+    };
+  }
 
   if (normalized === "run_command" || normalized === "ssh_run_command") {
     const command = stringArg(args, "command") || fallback;

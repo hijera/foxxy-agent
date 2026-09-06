@@ -230,7 +230,11 @@ export class FoxxyCodePanelController {
             el.textContent = "FoxxyCode UI error — " + title + "\\n" + (detail || "");
           } catch (e) {}
         };
+        // A ResizeObserver loop notice is the browser deferring an observation to the
+        // next frame, not a failure of the SPA: keep it off the overlay.
+        var benign = /^ResizeObserver loop/;
         window.addEventListener("error", function (ev) {
+          if (benign.test(ev.message || "")) return;
           show(ev.message || "error", (ev.error && ev.error.stack) ? ev.error.stack : (ev.filename + ":" + ev.lineno));
         });
         window.addEventListener("unhandledrejection", function (ev) {

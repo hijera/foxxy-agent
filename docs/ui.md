@@ -123,10 +123,17 @@ round-trips through the footer Save because the whole config doc is PUT back.
 
 ## Settings: NeuralDeep sign-in
 
-- In **Settings → LLM Providers**, a row with **`type: neuraldeep`** keeps the manual **API key** field and additionally renders **Sign In with NeuralDeep** below the read-only API base (**`NeuralDeepAuthField`**). Signing in is the no-paste alternative; an explicit key always wins and the widget says so instead of pretending the login is active (**`source`** from the status endpoint).
+- In **Settings → LLM Providers**, a row with **`type: neuraldeep`** replaces the free-text **API base URL** with a dropdown of the two official deployments - **`https://api.neuraldeep.ru/v1`** (Russia) and **`https://api.neuraldeep.tech/v1`** (the international mirror) - written to **`providers[].api_base`**; the pick also decides which hub the sign-in below talks to, and the sign-in follows the dropdown as it stands in the form (the device start carries the picked endpoint), so Save is not required first. A stored **`api_base`** that is not one of the two is flagged under the field and ignored by the server. The row keeps the manual **API key** field and renders **Sign In with NeuralDeep** below the endpoint picker (**`NeuralDeepAuthField`**). Signing in is the no-paste alternative; an explicit key always wins and the widget says so instead of pretending the login is active (**`source`** from the status endpoint).
 - The button starts **`POST /foxxycode/providers/{name}/neuraldeep-auth/device`** (the hub's RFC 8628 device flow for client **`foxxycode`** — the browser and the FoxxyCode server may be different machines), opens the returned portal page with the pre-filled code, displays the one-time code, and polls **`GET .../device/{loginID}`** until completion or failure.
-- Connected state comes from **`GET /foxxycode/providers/{name}/neuraldeep-auth`** (masked key only). **Sign Out** best-effort revokes the key on the hub, then deletes the local credential through **`DELETE`**.
+- Connected state comes from **`GET /foxxycode/providers/{name}/neuraldeep-auth`** (masked key only), read for the endpoint currently picked (**`?api_base=`**). When the stored login was issued by the other deployment's hub (**`hub`** differs from **`endpoint_hub`**), a note under the status says requests with it are rejected and asks to sign in again for this endpoint; the note is suppressed while an explicit key shadows the login. A login already in progress keeps polling if the endpoint is changed meanwhile (the key comes from the hub the flow started with), and the status read afterwards flags the mismatch. **Sign Out** best-effort revokes the key on the hub, then deletes the local credential through **`DELETE`**.
 - The key never enters the settings document or browser; it is stored by the server under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**. Tier models are added under **Logical models** (the model picker fetches the provider catalog using this login); the CLI flow (**`foxxycode providers login neuraldeep`**) appends them to the config automatically.
+## Settings: boolean switch fields
+
+- Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control, its label, and the optional description on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, **System** gateway flags) and the **Skills → Skill auto-discovery** row.
+- The label sits level with the switch (vertical centres match within 1px, 8px gap) and the description starts at the label's left edge, under the label, never under the switch. The indent comes from the grid column, not from padding, so it stays correct at every viewport and if the switch is ever resized.
+- The label is a real **`<label for>`**: clicking the text toggles the switch. The switch is named by that label (**`aria-labelledby`**); when the visible text is state copy (**Enabled** / **Disabled**) the row passes an explicit **`ariaLabel`**, which takes precedence.
+- Automated checks: **`SwitchField.test.tsx`** (structure and CSS rules), **`SchemaForm.switch.test.tsx`**, **`SkillsSection.autoDiscovery.test.tsx`**. Live check: open a model form at **1280px** and **390px**, and for each **`[role=switch]`** compare **`getBoundingClientRect()`** of the switch, **`.settings-switch-field-label`**, and **`.settings-switch-field-desc`** (centre delta ≤ 1px, description left equals label left).
+
 ## Layout
 
 Desktop layout
@@ -180,6 +187,7 @@ Narrow-rail tooltips (desktop)
 ### Parallel sessions and generation cancel
 
 - Several sessions may **stream at once**, each with its own **`POST /v1/responses`** and **`X-FoxxyCode-Session-ID`**. The app keeps a **per-session shadow** transcript so rapid hash switches do not mis-route SSE updates; see **`pickStreamMutationBase`** in **`external/ui/src/ui/chat/streamMutationBase.ts`**.
+- Shadow transcripts are **bounded**: an LRU of **3** non-pinned sessions (**`ShadowTranscriptCache`** in **`external/ui/src/ui/chat/sessionTranscriptCache.ts`**). The viewed session and any session with a live stream are never evicted; an evicted session is re-fetched on the next visit with no extra request compared to today. Message rows and **`Markdown`** are memoized (**`React.memo`**, **`useStableHandler`**), so unchanged rows skip re-rendering while a token streams (**`MessageList`** still maps the transcript; branch, plan, permission and question rows are not memoized), and **`content-visibility: auto`** on assistant, thinking / tool and system rows lets off-screen rows skip layout and paint. See **`DESIGN.md`** (**Multi-session streaming and Stop**).
 - **Stop** uses **`POST /foxxycode/sessions/{id}/cancel`** and **`AbortSignal`** on the streaming **`fetch`**. The server persists **partial** assistant **`content`** for that turn when tokens had already arrived. **`GET /foxxycode/sessions/{id}/messages`** may return an older snapshot briefly; the UI **merges** with local shadow or visible rows when the response is only a prefix (**`mergeTranscriptPreferLocalSuffix`**, **`keepLocalTranscriptIfServerEmpty`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). The transcript is cleared on fetch failure **only** when the failed load targets the **currently viewed** session so Stop does not wipe the chat.
 
 Session title
@@ -188,6 +196,17 @@ Session title
 - When the title is missing, UI shows `New chat`.
 - Title is editable inline. On blur the UI saves via `PATCH /foxxycode/sessions/{id}`.
 
+### Settings: reasoning levels for a logical model
+
+Functional checklist for **Settings -> Logical models -> Reasoning levels**
+(**`ReasoningLevelsField.tsx`**, **`useReasoningLevels.ts`**):
+
+- The field owns the three states of **`models[].reasoning_levels`** and names the current one in a status line: **key absent** (auto-detected from the model id), **`[]`** (the composer **Reasoning** selector is hidden for this model), and a **non-empty list** (exactly these levels are offered). The generic array editor cannot express the first state, so a model added through Settings could otherwise never go back to auto-detection.
+- **Fetch reasoning levels** calls **`GET /foxxycode/config/reasoning-levels?model=<id>&provider_type=<type>`** with the id currently in the form - the entry does not have to be saved yet - and fills the list with what the gateway detects, under the same Codex remap the composer applies (**`minimal`** becomes **`none`**). **`provider_type`** is the type of the provider row the id points at, taken from the settings document being edited rather than from the saved config, so a provider that is not saved yet or whose type was just changed resolves the way it will after **Save**. The button is disabled until a model id is present.
+- A model id with **no** reasoning family leaves the field untouched and says so. Writing **`[]`** there would read as the explicit opt-out and hide the selector, which is the opposite of what the button was asked for. A failed request reports the error inline and also leaves the field alone.
+- The status line describes the list the operator is looking at before it repeats fetch feedback: once a level is present (fetched or added by hand) it reads as the override, and the "nothing detected" / error messages only apply while the key is still absent. Retyping the model id, or editing the list by hand (add, change, remove a level), clears that feedback and abandons any answer still in flight; an answer that arrives after the id changed, after a manual edit, or after the row was deleted from the list, is dropped rather than written over the operator's newer choice, and an answer that does land is written through the field's newest `onChange`, so a sibling field edited while the request was pending (for example the **Stream responses** switch) keeps its new value (**`useReasoningLevels`** tickets every request, so one that answers after the field moved on resolves to **`null`**).
+- **Use auto-detected** appears whenever the key is present and removes it, so the next save omits **`reasoning_levels`** and detection resumes. Removing the last level by hand is the way to reach the **`[]`** opt-out on purpose.
+- The **`[]`** opt-out and the auto-detect default survive a Settings save in both directions: **`ModelEntry.ReasoningLevels`** and **`ModelJSON.ReasoningLevels`** are **`*[]string`**, so an omitted key stays omitted in the written **`config.yaml`** instead of being serialized as **`reasoning_levels: []`**.
 ### Per-session model
 
 - **New chat** defaults **Model** from cookie **`foxxycode_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
@@ -253,7 +272,7 @@ Mode selection
 
 - UI lets the user select the FoxxyCode profiles `agent`, `plan`, `docs`, `ask`, and `debug` from `GET /v1/models`.
 - Selected mode is sent as `model` field in `POST /v1/responses`.
-- Ask uses the green mode outline and remains non-mutating. **Settings → Tools → Disable extended Ask tools** is a schema-driven checkbox for `tools.ask_disable_extended_tools`; it is off by default. When enabled, Ask retains repository read/search/tree, question, and skill tools but hides shell, MCP, web, and scheduler inspection.
+- Ask uses the green mode outline and remains non-mutating: the model is offered only repository read/search/tree, web research, question, and skill tools, and any other tool call is refused at execution time. No settings knob.
 - Debug uses the red mode outline and has the same full tool surface as Agent; only its system prompt differs (diagnose, validate, confirm, then fix minimally). No settings knob.
 
 SSE payloads
@@ -395,7 +414,7 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | Component | **`ToolCallMessage.tsx`** - **`thinking-row foxxycode-tool-call-row`**, **`details.thinking-details.foxxycode-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
 | Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**, **`thinking-label`**, **`thinking-dur`**), **`aria-label="Tool summary"`** |
 | Args | Shared **`PermissionToolPreview`** (no copy / approval actions); large **write** / **write_file**, **apply_patch**, and **edit** bodies keep measured **More…** (**`data-testid="tool-preview-more"`**) / **Less** (**`data-testid="tool-preview-less"`**) overflow controls |
-| Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
+| Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`**; completed structured todo and **`plan_exit`** cards suppress redundant boilerplate results |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /foxxycode/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
 | Full text | First result **More…**, or automatic incomplete-args recovery for restored **`apply_patch`** / **`write`** / **`write_file`** / **`edit`** cards in any status - **`GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, using JSON **`result`** and **`args`** (same object includes **`meta`**). Transcript reconciles never replace complete args with the truncated 200-char **`argsPreview`** (**`pickRicherToolArgs`**), so live cards keep full previews across permission answers |
@@ -431,21 +450,37 @@ Automated checks:
 The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/foxxycode/sessions/{id}/background-tasks*` (see `docs/background-tasks.md`).
 
 - It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
-- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`.
-- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk. **Clear** drops the finished history for the session.
+- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`. A subagent run (`kind: "agent"`, started by `spawn_agent`) is the same card with an `agent` badge after its `agent <name>: <description>` label. Its timing line shows no exit code (the pool's code for an agent run is synthetic; the status already says how it ended), and the same `taskTimingLine` feeds the detail pane and the transcript chip.
+- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk; agent rows keep the badge. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, in both sections.
 - The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
 - On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
 - A transcript `run_command` row that started a task keeps a live chip in its **collapsed** summary and gains **Open in Tasks** / **Stop** when expanded, driven by the same poll.
+- The **detail pane** of an agent task shows the subagent name instead of a command and an **Open transcript** button (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
 
 Automated checks:
 
-- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping)
-- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, empty and error states)
+- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
+- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, agent badge and Open transcript, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
 - **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
-- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
+
+### Subagent transcripts
+
+A child session (`sub_<hex>`) is read-only: `GET /foxxycode/sessions/{id}/messages` returns `subagent {parentSessionId, name, taskId}` and `readOnly: true`, and every prompt against it is refused with 409. The SPA reads those two fields (absent on an ordinary session), renders the transcript with the usual message renderer, and replaces the composer with a notice (`SubagentReadOnlyNotice`): "Read-only transcript of subagent `<name>`. Prompts go to the parent chat." with an **Open parent chat** link to `#/s/<parentSessionId>`. Retry, message editing and the plan card's **Run plan** / **Discard** are withheld for such a session (the handlers are not passed at all, so a `plan_document` card renders without its footer and its markdown editor is read-only), and the chat header reads "Subagent `<name>`" because a child has no History row to name it. Child sessions are hidden from History; the shell still fetches a `sub_*` id opened from the Tasks panel or by URL.
+
+Automated checks:
+
+- **external/ui/src/ui/chat/subagentTranscript.test.ts** (marker parsing, bare `readOnly`, `sub_*` id detection)
+- **external/ui/src/ui/chat/SubagentReadOnlyNotice.test.tsx** (copy with and without a name, parent link href, same-tab open vs modifier click)
+- **external/ui/src/ui/chat/ChatScreen.test.tsx** (notice replaces the composer in the docked and the hero layout)
+- **external/ui/src/ui/chat/subagentReadOnlyCss.test.ts** (notice and link use theme tokens)
+- **external/ui/src/ui/chat/PlanDocumentSection.test.tsx** (a card without action handlers has no footer, a read-only editor and no autosave)
+- **external/ui/src/ui/messages/MessageList.test.tsx** (plan card on a read-only transcript renders without Run plan and Discard)
+- **external/ui/src/ui/i18n/messagesParity.test.ts** (new keys exist in every dictionary)
+- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `subagents` config tab)
 
 ## Live token usage
 
@@ -543,6 +578,7 @@ UI requirements:
 Automated checks:
 
 - `external/ui/src/ui/chat/PlanDocumentSection.test.tsx`
+- `external/ui/src/ui/messages/MessageList.test.tsx` (plan card on a read-only transcript renders without Run plan and Discard)
 - `external/ui/src/ui/chat/planDocumentPlacement.test.ts`
 - `features/plan_card_placement.feature` (godog steps in `external/httpserver/bdd_plan_card_test.go`)
 
@@ -645,6 +681,14 @@ When describing a specific element, link to the relevant image file.
 ## UI test scenarios
 
 These scenarios are intended to be automated via Playwright against the Vite dev server.
+Run `npm run test:panel` from `external/ui` to drive the real server with the embedded
+SPA in a headless Chrome the way the IDE panels do (`?embed=intellij`, 360px): it
+instruments `ResizeObserver` and proves the composer-reserve write never lands in the
+frame of the observation that measured it, and that the IntelliJ error overlay ignores
+the browser's ResizeObserver loop notice (`features/ide_panel_resize_loop.feature`).
+The Chromium 104 half lives in the plugin's `uiTest`
+(`BrowserPanelUiTest.anOldTranscriptOpensWithoutAResizeObserverLoop`).
+
 Run `npm run test:layout` from `external/ui` for the bounded 390px/1280px
 column-alignment smoke. The test owns Vite and headless Chrome, waits at most
 10 seconds for readiness, limits the browser phase to 20 seconds, and cleans up

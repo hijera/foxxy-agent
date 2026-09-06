@@ -150,7 +150,7 @@ export function MessageList(props: {
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
               {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
               {...(props.onEdit
-                ? { onEdit: (c) => props.onEdit!(c, myIdx) }
+                ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
             />
@@ -261,6 +261,11 @@ export function MessageList(props: {
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();
+          // A read-only transcript (a subagent child session) passes neither
+          // handler; the card then renders without Run plan / Discard and its
+          // editor is read-only, instead of showing controls that do nothing.
+          const onPlanRun = props.onPlanDocumentRun;
+          const onPlanDiscard = props.onPlanDocumentDiscard;
           return (
             <div key={it.id} className="message-row-plan">
               <PlanDocumentSection
@@ -276,10 +281,10 @@ export function MessageList(props: {
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)
                 }
-                onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-                onDiscard={() =>
-                  props.onPlanDocumentDiscard?.(it.id, it.slug)
-                }
+                {...(onPlanRun ? { onRunPlan: () => onPlanRun(it.slug) } : {})}
+                {...(onPlanDiscard
+                  ? { onDiscard: () => onPlanDiscard(it.id, it.slug) }
+                  : {})}
               />
             </div>
           );
@@ -321,19 +326,18 @@ export function MessageList(props: {
             </div>
           );
         }
+        const rowBackgroundTask = props.backgroundTasksByToolCallId?.get(
+          it.toolCallId,
+        );
         return (
           <ToolCallMessage
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
-            {...(props.backgroundTasksByToolCallId?.get(it.toolCallId)
-              ? {
-                  backgroundTask: props.backgroundTasksByToolCallId.get(
-                    it.toolCallId,
-                  ) as BackgroundTask,
-                }
+            {...(rowBackgroundTask
+              ? { backgroundTask: rowBackgroundTask }
               : {})}
-            {...(props.backgroundNowMs !== undefined
+            {...(rowBackgroundTask && props.backgroundNowMs !== undefined
               ? { backgroundNowMs: props.backgroundNowMs }
               : {})}
             {...(props.onOpenBackgroundTask
@@ -354,6 +358,7 @@ export function MessageList(props: {
             {...(it.resultWasTruncated === true
               ? { resultWasTruncated: true }
               : {})}
+            {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

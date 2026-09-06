@@ -175,18 +175,20 @@ type ProviderInput struct {
 	NoThinking bool
 }
 
-// neuralDeepBaseURL is the fixed OpenAI-compatible endpoint of the NeuralDeep hub.
+// neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints
+// holds the full allowlist a provider may select from.
 const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
 
 // providerBaseURL resolves the base URL a provider type actually talks to.
-// neuraldeep is pinned to its single hosted endpoint, so any configured api_base
-// is ignored; every other type keeps the configured value (empty means the SDK
-// default applies).
+// neuraldeep may only pick one of its official deployments; every other type
+// keeps the configured value (empty means the SDK default applies).
 func providerBaseURL(providerType, configured string) string {
 	if providerType == "neuraldeep" {
-		// Pinned to the official endpoint; FOXXYCODE_NEURALDEEP_BASE_URL lets
-		// tests and stands redirect the process as a whole (config cannot).
-		return neuralDeepAPIBase()
+		// Pinned to the official deployments: api_base picks between them and
+		// anything else falls back to the default, so a hub-issued key cannot
+		// be aimed at an arbitrary host. FOXXYCODE_NEURALDEEP_BASE_URL still
+		// redirects the process as a whole for tests and stands.
+		return neuralDeepAPIBase(configured)
 	}
 	return strings.TrimSpace(configured)
 }

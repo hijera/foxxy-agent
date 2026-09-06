@@ -28,10 +28,8 @@ export const schemaTextRu: Record<string, string> = {
   "Wire protocol for this provider entry.":
     "Протокол обмена для этой записи провайдера.",
   "API base URL": "Базовый URL API",
-  "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.":
-    "Необязательная замена базового URL API по умолчанию для этого провайдера. Игнорируется для neuraldeep — он всегда использует https://api.neuraldeep.ru/v1.",
-  "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.":
-    "Необязательная замена базового URL API. Игнорируется для neuraldeep и codex: они используют фиксированные официальные адреса.",
+  "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.":
+    "Необязательная замена базового URL API. Для neuraldeep выбирает площадку — https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первой. Игнорируется для codex: он использует фиксированный официальный адрес.",
   "API key": "API-ключ",
   "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).":
     "Можно задать ключ напрямую, сослаться на ${ENV} в YAML (подставляется при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание имени провайдера).",
@@ -75,6 +73,28 @@ export const schemaTextRu: Record<string, string> = {
   "Stream responses": "Потоковая выдача ответа",
   "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.":
     "Оставьте включённым, чтобы получать ответ по токенам через SSE. Выключите, чтобы отправлять один блокирующий запрос и ждать ответ целиком — для серверов и прокси, которые плохо работают с потоками событий; тогда транскрипт заполняется разом, а не печатается. Недоступно для моделей codex: их бэкенд работает только потоком.",
+
+  // Subagents
+  "Subagents": "Субагенты",
+  "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.":
+    "Дочерние агенты, которым модель делегирует задачи через spawn_agent. Определения — markdown-файлы с YAML-frontmatter; каждый запуск — фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
+  "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).":
+    "Регистрировать инструмент spawn_agent и перечислять каталог субагентов в системном промпте (по умолчанию включено).",
+  "Definition directories": "Каталоги определений",
+  "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.":
+    "Сначала наименее приоритетные; более поздние записи переопределяют ранние по имени. ${FOXXYCODE_HOME} и ${CWD} раскрываются. Каталоги внутри рабочей области относятся к проектной области и подчиняются политике доверия.",
+  "Project definitions": "Проектные определения",
+  "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.":
+    "Определения из рабочей области приезжают вместе с чекаутом. «ask»: загружать, но отказывать в запуске, пока файл не одобрен для этой рабочей области на машине, где запущен foxxycode (там: foxxycode agents trust или POST /foxxycode/subagents/{name}/trust). «allow»: считать своими файлами. «deny»: никогда не читать.",
+  "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.":
+    "Сколько запусков субагентов процесс может вести одновременно (по умолчанию 4). Лишние запуски отклоняются, а не ставятся в очередь.",
+  "Max depth": "Глубина вложенности",
+  "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere.":
+    "Насколько глубоко можно вкладывать запуски: 1 — сессия запускает субагентов, которые сами запускать не могут (по умолчанию), 0 — запуск запрещён везде.",
+  "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout.":
+    "Жёсткий лимит одного запуска, если ни определение, ни вызов не задают таймаут (по умолчанию 1800); ограничен максимальным таймаутом фоновых задач.",
+  "ReAct rounds a child may take; 0 follows agent.max_turns.":
+    "Сколько раундов ReAct может сделать дочерний агент; 0 — как agent.max_turns.",
 
   // MCP servers (+ env / headers)
   "MCP servers": "Серверы MCP",
@@ -258,9 +278,6 @@ export const schemaTextRu: Record<string, string> = {
     "Запретить модели самой начать выполнять план",
   "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.":
     "В режиме плана скрывает plan_exit и отклоняет любой инструмент вне списка плана, поэтому реализацию запускаете только вы — кнопкой на карточке плана. По умолчанию выключено; плагины редакторов включают его сами.",
-  "Disable extended Ask tools": "Отключить расширенные инструменты Ask",
-  "In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.":
-    "В режиме Ask скрыть команды shell только для чтения, веб-поиск, MCP-инструменты только для чтения и инструменты просмотра планировщика. Чтение и поиск по репозиторию, дерево файлов, вопросы и навыки остаются доступны. По умолчанию отключено.",
 
   // Skills
   Skills: "Навыки",
@@ -379,6 +396,9 @@ export const schemaTextRu: Record<string, string> = {
   "Plan prompt file": "Файл промпта плана",
   "Filename for plan-mode system prompt.":
     "Имя файла системного промпта режима планирования.",
+  "Ask prompt file": "Файл промпта вопросов",
+  "Filename for ask-mode system prompt.":
+    "Имя файла системного промпта режима вопросов.",
   "Per-provider prompts": "Промпты по провайдеру",
   "Select a system prompt tuned to the active model family (falls back to the shared prompt).":
     "Выбирать системный промпт под семейство активной модели (с откатом на общий промпт).",
@@ -553,8 +573,10 @@ export const schemaEnumLabelRu: Record<string, string> = {
   anthropic: "Anthropic",
   neuraldeep: "NeuralDeep",
   codex: "Codex",
-  // tools.permission_mode
+  // tools.permission_mode / mcp.project_trust / subagents.project_trust
   ask: "Спрашивать",
+  allow: "Разрешать",
+  deny: "Запрещать",
   accept_edits: "Авто-подтверждение правок",
   bypass: "Без запросов",
   // isolation

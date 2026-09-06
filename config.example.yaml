@@ -49,15 +49,19 @@ providers:
   #   api_base: "https://api.deepseek.com/v1"
   #   api_key: "${DEEPSEEK_API_KEY}"
 
-  # NeuralDeep hub: OpenAI-compatible with a fixed endpoint, so api_base is
-  # neither needed nor honoured (requests always go to https://api.neuraldeep.ru/v1).
+  # NeuralDeep serves the same OpenAI-compatible API from two deployments:
+  # https://api.neuraldeep.ru/v1 (Russia, used when api_base is empty) and
+  # https://api.neuraldeep.tech/v1 (the mirror for everywhere else). api_base
+  # picks one - any other value falls back to the first - and the choice also
+  # decides which hub signs you in.
   # Instead of pasting a key, sign in with your hub account: `foxxycode providers
-  # login neuraldeep` (browser flow; --device for headless) or Sign In with
-  # NeuralDeep in the bundled web UI. The key lands under
-  # $FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json; an explicit api_key,
-  # api_key_command, or NEURALDEEP_API_KEY env var still wins when set.
+  # login neuraldeep` (browser flow; --device for headless, --api-base to pick
+  # the deployment) or Sign In with NeuralDeep in the bundled web UI. The key
+  # lands under $FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json; an explicit
+  # api_key, api_key_command, or NEURALDEEP_API_KEY env var still wins when set.
   # - name: neuraldeep
   #   type: neuraldeep
+  #   # api_base: "https://api.neuraldeep.tech/v1"  # outside Russia
   #   api_key: "${NEURALDEEP_API_KEY}"
 
   # Codex ChatGPT OAuth. In the bundled web UI, add/select this provider and use
@@ -81,7 +85,7 @@ models:
   # - model: "openai/gpt-5"
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
-  #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector
+  #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
 
   # NeuralDeep examples (reasoning levels auto-detect to low, medium, high).
   # - model: "neuraldeep/gpt-oss-120b"
@@ -286,10 +290,24 @@ tools:
   # VS Code plugins pass -plan-no-self-run, so their panels are guarded by default.
   # plan_no_self_run: false
 
-  # Keep Ask mode on basic repository-reading tools only. When false (default),
-  # Ask also gets guarded read-only shell, web, read-only MCP, and scheduler
-  # inspection tools.
-  # ask_disable_extended_tools: false
+# Subagents: child agents the model can delegate to with spawn_agent. A definition is a
+# markdown file with YAML frontmatter (name, description, model, mode, tools,
+# permission_mode, ...) whose body is the child's role; each run is a background task of
+# the parent session with its own child session and transcript. Definitions found inside
+# the workspace travel with the checkout, so "ask" refuses to spawn one until you approve
+# that file for that workspace on the machine running foxxycode (`foxxycode agents trust <name>`
+# there, or `POST /foxxycode/subagents/{name}/trust`). See docs/subagents.md.
+# subagents:
+#   enabled: true
+#   dirs:
+#     - "${FOXXYCODE_HOME}/agents"       # your own definitions (user scope)
+#     - "${CWD}/.claude/agents"      # project scope, Claude Code compatible
+#     - "${CWD}/.foxxycode/agents"       # project scope
+#   project_trust: ask              # ask | allow | deny
+#   max_concurrent: 4               # subagent runs in flight across the whole process
+#   max_depth: 1                    # 1 = children cannot spawn further; 0 = nobody spawns
+#   default_timeout_seconds: 1800   # hard limit when the definition and the call give none
+#   max_turns: 0                    # 0 follows agent.max_turns
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # Optional bearer auth + CORS + remote environment selector: see docs/remote-control.md.

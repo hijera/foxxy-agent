@@ -1,12 +1,28 @@
-Feature: Ask mode
-  Ask mode answers repository questions without changing the workspace.
-  It may research with explicitly read-only tools, but mutating tools are not
-  exposed to the model.
+Feature: Read-only ask mode
+  Ask mode answers questions from the repository and the web without changing
+  anything. The model is offered only the read-only tools, and a call that
+  names a hidden tool anyway - for example one echoed from history recorded in
+  agent mode - is refused when it is about to run, so the read-only promise
+  holds even when the model does not respect the tool list it was given.
 
-  Scenario: Ask answers a repository question with read-only tools
-    Given an Ask-mode session with a responding model
-    When the user asks how the repository works
-    Then the Ask prompt enforces the read-only boundary
-    And the model receives repository, shell, and web research tools
-    And the model receives no file mutation tools
-    And the Ask answer is saved in the transcript
+  Scenario: The model is offered only read-only tools
+    Given a foxxycode session in "ask" mode
+    And a model that answers directly
+    When the user asks a question
+    Then every tool offered to the model is read-only
+    And the turn ends with the model's answer
+
+  Scenario: A hidden tool call is refused instead of executed
+    Given a foxxycode session in "ask" mode
+    And a model that requests the "write" tool once, then answers
+    When the user asks a question
+    Then the file is not written
+    And the tool call is answered with the ask-mode refusal
+    And the turn ends with the model's answer
+
+  Scenario: The same call in agent mode writes the file
+    Given a foxxycode session in "agent" mode
+    And a model that requests the "write" tool once, then answers
+    When the user asks a question
+    Then the file is written
+    And the turn ends with the model's answer

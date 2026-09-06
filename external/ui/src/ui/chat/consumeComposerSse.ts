@@ -5,6 +5,7 @@ import {
   openAIStreamErrorMessage,
 } from "./streamError";
 import { parseSSEBlocks } from "./sse";
+import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { t } from "../i18n/i18n";
 import type { TokenUsage, TranscriptItem } from "./types";
 
@@ -27,6 +28,7 @@ type ToolCallStatusUpdate = {
   _meta?: {
     foxxycode?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
+      todoPlan?: unknown;
     };
   };
 };
@@ -34,6 +36,10 @@ type ToolCallStatusUpdate = {
 function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   const p = u._meta?.foxxycode?.toolResultPreview;
   return !!(p && p.truncated === true);
+}
+
+function todoPlanFromToolStatus(u: ToolCallStatusUpdate) {
+  return normalizeTodoPlanSnapshot(u._meta?.foxxycode?.todoPlan);
 }
 
 export type MemoryPhaseEvt = {
@@ -272,6 +278,7 @@ export async function consumeComposerSseReader(
                 it.resultWasTruncated = upd.resultWasTruncated;
               if (upd.fullResultText !== undefined)
                 it.fullResultText = upd.fullResultText;
+              if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
               if (upd.startedAtMs !== undefined)
                 it.startedAtMs = upd.startedAtMs;
               if (upd.finishedAtMs !== undefined)
@@ -315,6 +322,7 @@ export async function consumeComposerSseReader(
               merged.resultWasTruncated = upd.resultWasTruncated;
             if (upd.fullResultText !== undefined)
               merged.fullResultText = upd.fullResultText;
+            if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
             arr[idx] = merged;
             next = arr;
           }
@@ -745,12 +753,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -978,12 +988,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {

@@ -861,6 +861,12 @@
           "title": "Agent prompt file",
           "type": "string"
         },
+        "ask_prompt": {
+          "default": "ask.md",
+          "description": "Filename for ask-mode system prompt.",
+          "title": "Ask prompt file",
+          "type": "string"
+        },
         "dir": {
           "description": "Optional override directory for prompt markdown files.",
           "title": "Prompts directory",
@@ -896,6 +902,7 @@
         "dir",
         "agent_prompt",
         "plan_prompt",
+        "ask_prompt",
         "per_provider"
       ]
     },
@@ -911,7 +918,7 @@
         "additionalProperties": false,
         "properties": {
           "api_base": {
-            "description": "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.",
+            "description": "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.",
             "title": "API base URL",
             "type": "string"
           },
@@ -1075,6 +1082,76 @@
         "auto_discovery"
       ]
     },
+    "subagents": {
+      "additionalProperties": false,
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+      "properties": {
+        "default_timeout_seconds": {
+          "default": 1800,
+          "description": "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout.",
+          "title": "Default timeout (s)",
+          "type": "integer"
+        },
+        "dirs": {
+          "default": [
+            "${FOXXYCODE_HOME}/agents",
+            "${CWD}/.claude/agents",
+            "${CWD}/.foxxycode/agents"
+          ],
+          "description": "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Definition directories",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_concurrent": {
+          "default": 4,
+          "description": "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.",
+          "title": "Max concurrent",
+          "type": "integer"
+        },
+        "max_depth": {
+          "default": 1,
+          "description": "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere.",
+          "title": "Max depth",
+          "type": "integer"
+        },
+        "max_turns": {
+          "description": "ReAct rounds a child may take; 0 follows agent.max_turns.",
+          "title": "Max turns",
+          "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project definitions",
+          "type": "string"
+        }
+      },
+      "title": "Subagents",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "dirs",
+        "project_trust",
+        "max_concurrent",
+        "max_depth",
+        "default_timeout_seconds",
+        "max_turns"
+      ]
+    },
     "title": {
       "additionalProperties": false,
       "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session.",
@@ -1109,12 +1186,6 @@
       "additionalProperties": false,
       "description": "Filesystem and shell policy for built-in tools.",
       "properties": {
-        "ask_disable_extended_tools": {
-          "default": false,
-          "description": "In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.",
-          "title": "Disable extended Ask tools",
-          "type": "boolean"
-        },
         "background": {
           "additionalProperties": false,
           "description": "Commands the agent runs detached in the session task pool instead of blocking a turn.",
@@ -1252,7 +1323,6 @@
         "permission_mode",
         "command_allowlist",
         "plan_no_self_run",
-        "ask_disable_extended_tools",
         "output_limits",
         "background"
       ]
@@ -1359,6 +1429,7 @@
     "agent",
     "autocomplete",
     "tools",
+    "subagents",
     "mcp_servers",
     "skills",
     "memory",

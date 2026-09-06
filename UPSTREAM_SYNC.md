@@ -1474,7 +1474,263 @@ UI молча рендерились по-английски (не был зар
 
 ---
 
+## Волна `7123d25a → 2c0872c4` (теги `0.9.85`–`1.0.1`) — ГОТОВО
+
+51 не-merge коммит (2026-08-29…09-04), 329 файлов, +24k строк в upstream. Портирована
+шестнадцатью коммитами на ветке `claude/coddy-project-upstream-sync-3c908a`. Крупнейший
+блок волны — **субагенты** (`spawn_agent`, детские сессии `sub_…`, доверие к проектным
+определениям, CLI/HTTP/SPA-поверхности), портирован как **итоговое состояние**
+`git diff 7123d25a upstream/main`, а не по коммитам: upstream довёл фичу до ума пятью
+review-раундами, и промежуточные состояния собирать не имело смысла. Второй по значимости
+блок — **ask-режим**: upstream взял его из форка (`0145bf76 … ported from foxxy-agent`),
+но упростил и ужесточил; по решению пользователя форк принял upstream-вариант целиком
+(см. отдельный подраздел ниже).
+
+### Коммит 1 — ACP: ответ на permission в обеих формах (upstream `106e4d9d`, наш `ee5dad8e`)
+
+`PermissionResult.UnmarshalJSON` принимает и плоский, и вложенный `outcome`;
+`permission.Approved(*acp.PermissionResult)` — единая проверка вместо сравнения строк в
+`react.go` / `resume_permission.go`. Спека `features/acp_permission_answers.feature`.
+README-ханк upstream пропущен (описывает coddy-специфичный раздел).
+
+### Коммит 2 — CLI: reloader конфига и починка e2e-стенда (upstream `aee29651`, `e5f82782`, `a4f1f427`, `fda50894`, `71ef4dab`, наш `9bb1ddf8`)
+
+`App.cfgAt atomic.Pointer` + `replaceConfig`, `newTurnAgent` с `SetConfigReloader`;
+консоль дренирует turn-воркер перед обходом бандла сессии. Скрипты `examples/cli/*` взяты
+в финальном виде; `examples/config.demo.yaml` → `rpa/qwen3.6-35b-a3b`. В стаб-конфигах
+консольных тестов пришлось выключить форковую автогенерацию заголовка (`title.enabled:
+false`) — она съедала шаги scripted-провайдера.
+
+### Коммит 3 — ask-режим: набор инструментов «как в coddy» (upstream `0145bf76` + куски `79070b0c`, наш `c26c706f`)
+
+`askToolNames` = `read, keep_result, glob, grep, print_tree, websearch, webfetch,
+question, load_skill`; `ToolSetForMode(mode, noSelfRun)` без вариадика basic/extended;
+`toolCallRefusedByMode(mode, name, noSelfRun) (string, bool)` — один отказ на исполнении
+для ask и для plan под `plan_no_self_run`; `ModeAllowsMCPTools` → false для `docs` и
+`ask`. Удалены `tools.ask_disable_extended_tools`, `internal/tools/shell/readonly.go`
+(валидатор read-only shell) и `internal/config/ask_tools_test.go`. Добавлен ключ
+`prompts.ask_prompt` (`Prompts.AskFile()`), пропущенный через `internal/prompts/loader.go`
+как override-файл. Текст `sections/ask/*` синхронизирован с upstream `ask.md`.
+
+### Коммит 4 — ask-режим: закрытые обходы (upstream `79070b0c`, `efb39e06`, `efcd70e3`, наш `67c3f085`)
+
+`runPlanSlug`/mention-slug из metadata и PATCH `runPlan` в ask → 409 **до** взятия
+turn-лока и SSE-заголовков (`runPlanRefusedInAskMode`); `RunPlan` fail-closed; memory
+copilot в ask получает `RecallTools` (`ReadOnly` в `RunBeforeTurnOptions`, снимок режима
+в `memory_hooks`); `RecordAllowAlways` только после проверки отказа по режиму;
+`finishToolCall` — общий хвост записи результата и для отказов; `session.IsValidMode`
+вместо литералов в remote/cli/http/scheduler/telegram; remote-клиент декодирует
+`errorEnvelope` вместо «любой 409 = busy».
+
+### Коммит 5 — ask-режим: SPA, BDD/e2e, доки (upstream `28e857dd`, `dec40330`, наш `92b6e001`)
+
+Гейт `@path`-вложений через `PROFILE_MODES`; `SchedulerJobEditorSheet` знает все пять
+режимов (`JOB_MODES`, `normalizeJobMode`, ключи `scheduler.mode.docs/ask/debug`);
+`features/ask_mode_http.feature` + `bdd_ask_mode_e2e_test.go` на реальном раннере со
+стаб-бэкендом; живые `*_e2e_ask_mode.py` + `shared/ask_e2e_common.py`.
+
+### Коммит 6 — NeuralDeep: выбор эндпоинта (upstream `42cdd6ec`, `2c71fdf5`, `4e8406c1`, `70021548`, `39ca42a6`, наш `39bd358f`)
+
+`api.neuraldeep.ru` (Россия) / `api.neuraldeep.tech` (зеркало): селект
+`data-testid="neuraldeep-api-base"`, хаб входа следует выбору
+(`neuralDeepHubFor`), предупреждение о рассинхроне (`hubMismatch`), 409 на
+перекрытый device-start. Go-файлы почти не расходились с базой — чистый мёрж.
+
+### Коммит 7 — reasoning levels fetch (upstream `b5fa124e`, `860dc1a5`, `7cb91d2a`, `bb9027e1`, `92f04937`, `ffe088c4`, `26f111d7`, `6ee33470`, наш `fe547837`)
+
+Кнопка «Получить уровни ризонинга» в карточке модели: `GET`-роут
+`reasoning_levels_http.go`, `ReasoningLevelsField` + `useReasoningLevels`; `nil` и пустой
+`reasoning_levels` различаются при сохранении (`cloneStringsPtr`); ручная правка
+отменяет незавершённый fetch. Восемь upstream-коммитов сквошены в один порт с финальными
+формулировками. Форковый `ModelField` сидит `multimodal:false` — тест ожидает это поле.
+
+### Коммит 8 — превью todo-тулов и карточка plan-exit (upstream `6458e3df`, `da5c08e5`, наш `a699934b`)
+
+`todoPlanSnapshotAfterToolCall` в `finishToolCall` кладёт снимок плана в `_meta`
+(ключ ребрендирован `"coddy"` → `"foxxycode"` согласованно в Go и TS);
+`chat/todoToolPreview.ts`; статусы и (после follow-up `01611ac8`) заголовок/счётчики
+локализованы (`todoPreview.*`, `planExit.preview.*`).
+
+### Коммит 9 — SwitchField (upstream `439f1776`, наш `23c0313d`)
+
+Общий `settings/SwitchField.tsx` для булевых полей `SchemaForm`/`SkillsSection`.
+Upstream-CSS использовал `:has()`, недоступный в Chromium 104 (JCEF) — заменён
+маркер-классом `settings-switch-field--disabled`, гейт `check:compat` зелёный.
+
+### Коммит 10 — производительность транскрипта (upstream `05318397`, `ae68b261`, `2fccc112`, наш `5e48672c`)
+
+`ShadowTranscriptCache` с вытеснением устаревших сессий, `useStableHandler`, мемоизация
+семи строк сообщений, CSS-containment строк. `App.tsx` (5k строк с форковыми
+поверхностями) правился по смыслу, не патчем. `layout_browser_test.go` теперь мерит
+content-box строк (containment добавил 4px паддинга).
+
+### Коммит 11 — субагенты: конфиг, пакет, tooling, bgtask (upstream `530f049a`, наш `c15f45a5`)
+
+`internal/subagents/*` verbatim (определения, loader со scope `builtin/user/project`,
+trust receipts `<home>/subagents-trust.json`, `Limiter`, каталог); секция `subagents`
+после `tools`; `Env.SpawnAgent`/`SubagentDepth`; `bgtask.KindAgent`, `Pool.Launch`,
+`AgentInfo`. Сохранён форковый `resolveTimeoutSeconds` (`NoTimeout`, без множителя
+`ExpectedSeconds`). `background_*` уведомления не шлются при `SubagentDepth > 0`.
+
+### Коммит 12 — субагенты: сессии, runtime, промпты, тул (upstream `c2a1735c`, `2414d347`, `196a884b`…`494374c3`, наш `8b82b465`)
+
+`internal/session/subagent.go` (`CreateSubagentSession`, `RunSubagentTurn`,
+`DeleteSessionTree`, `ErrSubagentReadOnly`, `ErrReservedSessionID`), единый путь
+допуска хода `beginTurn`/`admissible`/`BeginTurn` **вокруг** форковой последовательности
+`markTurnActive` + Windows fail-fast лок + `awaitMCPReady`; дети получают клиентские
+(ACP) MCP-декларации родителя (`RememberSessionMCPDeclaration`, `AddSessionMCPClient`).
+`internal/agent/subagent.go` — spawn-хук, `applySubagentEnv`, CDATA-конверт отчёта;
+отказы allowlist'а субагента идут через `finishToolCall` после `in_progress`.
+Промпт-фрагменты `subagent_role.md`/`subagents.md` в манифестах `agent`, `plan`, `debug`.
+
+### Коммит 13 — субагенты: HTTP, CLI, gateway, remote (upstream `89ab0bd3`, `dc77be11`, `d1ae1237`, `c5b6a161`, `d0b171ac`, наш `ae2938a5`)
+
+`GET /foxxycode/subagents`, `POST …/{name}/trust|untrust`, `include_subagents` в списке
+сессий, `readOnly`+`subagent` в messages, 409 на prompt/resume/branch/fork детей,
+`ErrReservedSessionID` → 404, `DeleteSessionTree` при удалении сессии; `foxxycode agents
+list|trust|untrust`; `status.spawnAgent` в консоли; `cancelWG`/`WaitCancels` в remote.
+`openapi.go` в том же коммите; форковый PATCH-роут планов уже документировал
+`runPlan` — 409 ask-режима дописан в него, а не вторым ключом.
+
+### Коммит 14 — субагенты: SPA, доки, e2e (upstream `89ab0bd3`, `23d532fe`, код `e8466c86`, наш `3f58c3cd`)
+
+`SubagentReadOnlyNotice` вместо композера в детском транскрипте, `subagentTranscript.ts`,
+строка `agent <name>` с бейджем «Агент» и «Открыть транскрипт» в панели задач,
+`docs/subagents.md`, `docs/plans/subagents.md`, e2e `*_e2e_subagents.py`,
+`examples/agents_fixture/.foxxycode/agents/marker-reporter.md`.
+
+### Follow-up после живого прогона (наши `ba5a9ba0`, `01611ac8`)
+
+- `CreateSubagentSession` нормализовал режим switch'ем, знавшим только `plan`/`ask`, —
+  ребёнок debug-родителя создавался в `agent`. Теперь `IsValidMode`; тесты на уровне
+  сессии и через spawn-хук (`TestSpawnSubagentDebugParentForcesDebugMode`).
+- Заголовок и счётчики todo-превью («Updated item», «N of M», «N completed», «N items»)
+  были английскими литералами внутри чистого билдера — билдер отдаёт числа, строки
+  собираются через `t()`/`tp()` (en+ru).
+
+### Коммит 15 — стенды компакции для ACP и HTTP (upstream `eeb271d6`, `08afd3d4`, `5156d44a`)
+
+`examples/acp/acp_e2e_compact.py` (ручной `/compact` + авто-порог через производный конфиг с
+`max_context_tokens: 64`) и `examples/httpserver/http_e2e_compact.py` (`/compact` как промпт,
+`POST /foxxycode/sessions/{id}/compact`, форсированная компакция одноходовой сессии:
+`kept_messages: 0`) взяты в финальном виде после `5156d44a`; `cli_e2e_compact.py` в форке уже
+был. Контракт форка совпадает: `CompactSession(…, force)` и строка `/compact` в транскрипте.
+Проводка в `test_acp.sh`, `test_httpserver.sh`, `examples/README.md`. Живой прогон на
+`neuraldeep`: HTTP — все четыре проверки; ACP — ручная фаза (11 строк, 1 summary) и авто-фаза
+(7 строк, 1 summary). Ранее коммит числился в «Пропущено» — по просьбе пользователя портирован.
+
+### Follow-up после установки в PhpStorm 2022.3 (JCEF Chromium 104)
+
+Открытие старого диалога в панели IDE показывало оверлей «FoxxyCode UI error —
+ResizeObserver loop limit exceeded». Два источника: (1) `content-visibility: auto` +
+`contain-intrinsic-size` на строках транскрипта из блока G — Chromium 104 переключает
+строку между плейсхолдером и реальным боксом внутри своего же цикла наблюдений
+(в современном Chrome не воспроизводится); (2) наблюдатель `ChatScreen` за высотой
+композера писал `--chat-composer-reserve` из колбэка. Решение: для `html[data-embed=
+"intellij"]` containment строк выключен (**осознанное расхождение с upstream**, у которого
+нет JCEF-хоста), запись резерва отложена в `requestAnimationFrame`, оверлеи IntelliJ/VS Code
+игнорируют уведомления `ResizeObserver loop…`. Спека `features/ide_panel_resize_loop.feature`
+(headless Chrome, `npm run test:panel`), uiTest в стенде IDE на Chromium 104, юнит в
+`ChatScreen.test.tsx` и `transcriptRowContainmentCss.test.ts`. Попутно починен EDT-баг
+`FoxxyCodeEditorContextService` (PR #54, тег 0.2.46): снимок редактора на пуле потоков.
+
+### Ask-режим: что изменилось для пользователей форка
+
+Форк был источником ask-режима, upstream его **сузил**. После этой волны:
+
+- в ask **нет** `run_command` (даже read-only команд), MCP-тулов (в том числе с
+  `readOnlyHint`), scheduler- и svn-чтения, `background_*`, `config_get`; остаются ровно
+  девять инструментов: `read`, `keep_result`, `glob`, `grep`, `print_tree`, `websearch`,
+  `webfetch`, `question`, `load_skill` (последний — только при `skills.auto_discovery`);
+- всё вне списка отбивается на исполнении текстом «tool %q is not available in Ask mode
+  because it is not read-only», без permission-промпта, — в том числе воспроизведённые из
+  истории вызовы;
+- **breaking:** ключ `tools.ask_disable_extended_tools` удалён. YAML с этим ключом
+  по-прежнему загружается (неизвестные ключи игнорируются), но деления basic/extended
+  больше нет — проговорить в релиз-нотах;
+- новый ключ `prompts.ask_prompt` — путь к файлу-переопределению промпта ask;
+- `runPlanSlug` в metadata и PATCH `runPlan` в ask → 409; memory copilot в ask только
+  читает (`RecallTools`).
+
+### Расхождения с upstream (осознанные)
+
+- **Пять режимов вместо трёх.** Матрица спавна: `agent` → режим ребёнка по определению
+  (`mode:` в frontmatter, иначе `agent`); `plan` и `debug` → ребёнок принудительно в
+  режиме родителя; `ask` и `docs` → `spawn_agent` не предлагается и отказывается
+  (`modeMaySpawn`). `definition.go` принимает `mode: debug`.
+- **Промпты.** У форка нет плоских `agent.md`/`plan.md` — `{{.Subagents}}` и
+  `{{.SubagentRole}}` живут во фрагментах `sections/{agent,plan,debug}/`; ask-промпт
+  остаётся в `sections/ask/` с per-provider вариантами (текст синхронизирован с upstream
+  `ask.md`, `prompts.ask_prompt` — override-файл поверх).
+- `toolCallRefusedByMode` несёт форковый третий аргумент `noSelfRun` (plan-фича
+  `plan_no_self_run`).
+- Форковый `resolveTimeoutSeconds` в `bgtask` сохранён; `NoTimeout` не переопределяется.
+- MCP-коннект детей асинхронный (форковый `connectConfiguredMCPServers`), ход ребёнка
+  гейтит `awaitMCPReady`; `context.WithTimeout` только на клиентских декларациях.
+- Guard зарезервированного префикса `sub_` стоит в create-пути `loadOrCreateSession`, а
+  не в `EnsureHTTPSession` (иначе существующие дети не отдавались по HTTP).
+- Windows fail-fast turn-лок + `runWakeTurn`-ретрай уже были в форке; 409 read-only
+  ребёнка **не** ретраится (`isSubagentReadOnly` различается от busy).
+- Автогенерация заголовка выключена в стаб-стендах (`title.enabled: false`).
+- `:has()` → маркер-класс; layout-тест мерит content-box.
+- i18n сразу en+ru, все новые TSX через `t()`/`tp()`; `schema.ru.ts` дополнен блоком
+  `subagents` и строками endpoint-пикера/ask_prompt.
+- README-ханк `106e4d9d` и все PNG upstream не копируются — сняты свои (ниже).
+
+### Пропущено
+
+- `1246ee19`, `c9633eae`, `2ca7bdaf`, `7ff39c91`, `33a7d704`, `0a954c12`, `d370ef2d`,
+  PNG-часть `e8466c86` — скриншоты upstream (политика форка: свои снимки).
+- `internal/prompts/ask.md` — форк рендерит ask из `sections/ask/`.
+- Ханки «проведения режима через поверхности», где форк уже имел ask (CLI `/mode`,
+  Telegram, `/v1/models`, композер-пилюля) — сверены, различий по смыслу нет.
+
+### Гейты
+
+`go test` по всем тег-сетам (default, `http`, `memory`, `scheduler`, `cli`, `gateway`,
+`http,scheduler,memory`), `make lint`, `make check-windows`, `make lint-windows`,
+vitest 1195, `check:compat`, `test:layout`, `make build TAGS="http ui cli memory"`.
+Единичный флак `internal/agent` при параллельном прогоне с `internal/session` — три
+повторных прогона зелёные (известная особенность машины).
+
+### Живой прогон (реальный провайдер `neuraldeep`, `qwen3.6-35b-a3b`)
+
+Изолированные `FOXXYCODE_HOME`/config вне репо, ключ только через `NEURALDEEP_API_KEY`,
+рабочая папка с `.foxxycode/agents/marker-reporter.md`:
+
+- каталог субагентов → `needs_approval` для проектного `marker-reporter`; спавн отказан
+  с подсказкой; `POST …/trust` → foreground-спавн, CDATA-отчёт в транскрипте родителя;
+- `background: true` → строка `agent general` в панели задач, `background_wait` отдаёт
+  отчёт; `include_subagents` показывает ребёнка; `POST` prompt в `sub_…` → 409;
+- plan-родитель → ребёнок «## Mode: Plan»; debug-родитель → ребёнок `mode: debug`
+  (после фикса `ba5a9ba0`); docs — `spawn_agent` нет в определениях;
+- ask: ровно 9 инструментов на проводе; `runPlanSlug` → 409;
+- `DELETE` родителя → ребёнок 404;
+- Settings: fetch reasoning вернул `low/medium/high`; endpoint-пикер; SwitchField в
+  Tools/Skills/Models; todo-превью в транскрипте.
+
+Скриншоты сняты headless-Chrome с живой сборки (тёмная тема + светлая для
+поверхностей с новыми цветами): панель задач со строкой агента и детальная карточка,
+read-only детский транскрипт, Settings → Субагенты, endpoint-пикер, reasoning fetch
+до/после, SwitchField в Навыках/Инструментах, todo-превью. Панель браузера Claude
+композитит — долг прошлых волн по скриншотам этой волны не касается.
+
+---
+
 ## Последняя синхронизация
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-06 |
+| **Синхронизировано до `upstream/main`** | `2c0872c4` (2026-09-04) |
+| **Ближайший upstream-тег** | `1.0.1` |
+| **Наш коммит-порт** | ветка `claude/coddy-project-upstream-sync-3c908a`, шестнадцать коммитов (ACP permission / CLI reloader / ask-режим x3 / NeuralDeep endpoint / reasoning fetch / todo-превью / SwitchField / transcript perf / субагенты x4 / два follow-up) |
+| **Живой прогон** | `neuraldeep` `qwen3.6-35b-a3b` по HTTP: субагенты (каталог, trust, foreground/background, read-only ребёнок, режимы родителя, удаление дерева), ask (9 тулов, 409 на runPlanSlug), Settings (reasoning fetch, endpoint-пикер); скриншоты headless-Chrome с живой сборки |
+| **Отложенные follow-up** | вложить скриншоты в PR; риски волн `96c04fb → 6d46afe` и `12897ba → 1a84b37` (см. выше); четыре PNG `docs/assets/screenshot-tool-previews*.png` (долг прошлых волн) |
+
+---
+
+## Предыдущая синхронизация (`1a84b37 → 7123d25a`)
 
 | Поле | Значение |
 | --- | --- |
@@ -1598,7 +1854,7 @@ UI молча рендерились по-английски (не был зар
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 7123d25a..upstream/main` — список кандидатов.
+2. `git log --oneline --no-merges 2c0872c4..upstream/main` — список кандидатов.
 3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
 4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
 5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.

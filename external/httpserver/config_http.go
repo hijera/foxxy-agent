@@ -25,6 +25,7 @@ var (
 
 func (s *Server) registerConfigRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/config/schema", s.foxxycodeConfigSchemaGet)
+	s.mux.HandleFunc("GET /foxxycode/config/reasoning-levels", s.foxxycodeConfigReasoningLevelsGet)
 	s.mux.HandleFunc("GET /foxxycode/config", s.foxxycodeConfigGet)
 	s.mux.HandleFunc("POST /foxxycode/config/validate", s.foxxycodeConfigValidatePost)
 	s.mux.HandleFunc("PUT /foxxycode/config", s.foxxycodeConfigPut)

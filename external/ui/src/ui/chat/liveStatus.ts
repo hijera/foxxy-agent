@@ -126,6 +126,8 @@ export function statusKeyForTool(toolName: string): string {
       return "status.run";
     case "ssh_run_command":
       return "status.runRemote";
+    case "spawn_agent":
+      return "status.spawnAgent";
     case "mkdir":
       return "status.createDir";
     case "touch":

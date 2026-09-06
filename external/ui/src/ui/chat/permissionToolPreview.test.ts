@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 
 import {
   buildPermissionToolPreview,
@@ -7,6 +7,9 @@ import {
   toolCallTargetText,
 } from "./permissionToolPreview";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
+import { setLocale } from "../i18n/i18n";
+
+afterEach(() => setLocale("en"));
 
 function payload(
   toolName: string,
@@ -231,6 +234,33 @@ test("toolCallTargetText returns empty without usable arguments", () => {
   expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
   expect(toolCallTargetText({ title: "read", argsText: "{}" })).toBe("");
   expect(
+    toolCallTargetText({
+      title: "spawn_agent",
+      argsText: '{"agent":"reviewer","prompt":"review the diff"}',
+    }),
+  ).toBe("reviewer");
+  expect(
     toolCallTargetText({ title: "question", argsText: '{"path":"a.ts"}' }),
   ).toBe("");
+});
+
+test("builds a distinct preview for the plan-to-agent transition", () => {
+  expect(
+    buildToolCallPreview({ title: "plan_exit", argsText: "{}" }),
+  ).toMatchObject({
+    toolName: "plan_exit",
+    header: "Agent mode",
+    meta: [],
+    copyText: "",
+    kind: "plan_exit",
+  });
+});
+
+test("localizes the plan-to-agent transition preview", () => {
+  setLocale("ru");
+
+  expect(buildToolCallPreview({ title: "plan_exit" })).toMatchObject({
+    header: "Агентский режим",
+    kind: "plan_exit",
+  });
 });
