@@ -681,6 +681,14 @@ When describing a specific element, link to the relevant image file.
 ## UI test scenarios
 
 These scenarios are intended to be automated via Playwright against the Vite dev server.
+Run `npm run test:panel` from `external/ui` to drive the real server with the embedded
+SPA in a headless Chrome the way the IDE panels do (`?embed=intellij`, 360px): it
+instruments `ResizeObserver` and proves the composer-reserve write never lands in the
+frame of the observation that measured it, and that the IntelliJ error overlay ignores
+the browser's ResizeObserver loop notice (`features/ide_panel_resize_loop.feature`).
+The Chromium 104 half lives in the plugin's `uiTest`
+(`BrowserPanelUiTest.anOldTranscriptOpensWithoutAResizeObserverLoop`).
+
 Run `npm run test:layout` from `external/ui` for the bounded 390px/1280px
 column-alignment smoke. The test owns Vite and headless Chrome, waits at most
 10 seconds for readiness, limits the browser phase to 20 seconds, and cleans up

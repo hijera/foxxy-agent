@@ -129,15 +129,31 @@ export function ChatScreen(props: {
     const host = composerHostRef.current;
     if (!host) return;
     const extra = 10;
-    const apply = () => {
-      const h = host.getBoundingClientRect().height;
-      setComposerReserve(Math.max(140, Math.ceil(h) + extra));
+    const measure = () => Math.max(140, Math.ceil(host.getBoundingClientRect().height) + extra);
+    setComposerReserve(measure());
+    // The reserve is the height of `.chat-scroll-tail` inside the scroll
+    // container. Writing it from inside the ResizeObserver callback relayouts
+    // the transcript in the same delivery loop, and with content-visibility
+    // rows that resizes the observed host again before the loop settles:
+    // JCEF (Chromium 104) then raises "ResizeObserver loop limit exceeded"
+    // on every transcript open. Defer the write to the next frame and skip
+    // unchanged values so the loop can never feed itself.
+    let frame = 0;
+    const onResize = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const next = measure();
+        setComposerReserve((prev) => (prev === next ? prev : next));
+      });
     };
-    apply();
     const ro =
-      typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
     ro?.observe(host);
-    return () => ro?.disconnect();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      ro?.disconnect();
+    };
   }, [isEmpty, props.tokenUsage]);
 
   useEffect(() => {

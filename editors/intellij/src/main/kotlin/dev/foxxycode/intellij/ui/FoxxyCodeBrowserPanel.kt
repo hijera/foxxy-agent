@@ -742,7 +742,13 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                       el.textContent = "FoxxyCode UI error — " + title + "\n" + (detail || "");
                     } catch (e) {}
                   };
+                  // "ResizeObserver loop limit exceeded" (Chromium 104) / "...loop completed with
+                  // undelivered notifications." (newer) is the browser saying it deferred a resize
+                  // observation to the next frame, not an exception in the SPA: nothing is lost
+                  // and the page keeps working, so it must not paint the error overlay.
+                  var benign = /^ResizeObserver loop/;
                   window.addEventListener("error", function (ev) {
+                    if (benign.test(ev.message || "")) return;
                     show(ev.message || "error", (ev.error && ev.error.stack) ? ev.error.stack : (ev.filename + ":" + ev.lineno));
                   });
                   window.addEventListener("unhandledrejection", function (ev) {

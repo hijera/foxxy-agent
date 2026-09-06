@@ -35,7 +35,10 @@ import java.nio.charset.StandardCharsets
  */
 class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
     private val log = logger<FoxxyCodeEditorContextService>()
-    private val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
+    // The snapshot must be taken on the EDT: FileEditorManager.getSelectedTextEditor asserts
+    // the dispatch thread (a read action on a pooled thread is not enough), so the debounce
+    // lands on the Swing thread and only the HTTP POST moves to the pool.
+    private val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
 
     private var connected = false
     private var lastPayload: String? = null
@@ -77,18 +80,16 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         alarm.addRequest({ report() }, DEBOUNCE_MS)
     }
 
+    /** Runs on the EDT (see [alarm]); snapshots the editor state and posts it off-thread. */
     private fun report() {
         if (project.isDisposed) return
         if (!FoxxyCodeSettings.getInstance().state.trackOpenFiles) return
         val base = FoxxyCodeProcessManager.getInstance(project).baseUrl ?: return
 
-        val snapshot = ApplicationManager.getApplication().runReadAction<Snapshot> {
-            if (project.isDisposed) return@runReadAction Snapshot(emptyList(), "", null)
-            val fem = FileEditorManager.getInstance(project)
-            val open = fem.openFiles.filter { it.fileSystem is LocalFileSystem }.map { it.path }
-            val active = fem.selectedFiles.firstOrNull { it.fileSystem is LocalFileSystem }?.path ?: ""
-            Snapshot(open, active, currentSelection(fem))
-        }
+        val fem = FileEditorManager.getInstance(project)
+        val open = fem.openFiles.filter { it.fileSystem is LocalFileSystem }.map { it.path }
+        val active = fem.selectedFiles.firstOrNull { it.fileSystem is LocalFileSystem }?.path ?: ""
+        val snapshot = Snapshot(open, active, currentSelection(fem))
 
         // De-duplicate, keeping the active file first (mirrors the VSCode reporter).
         val ordered = LinkedHashSet<String>()
@@ -104,7 +105,7 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         lastPayload = body
 
         val url = (if (base.endsWith("/")) base else "$base/") + "foxxycode/ide/editor-state"
-        post(url, body)
+        ApplicationManager.getApplication().executeOnPooledThread { post(url, body) }
     }
 
     private fun post(url: String, body: String) {
@@ -123,7 +124,7 @@ class FoxxyCodeEditorContextService(private val project: Project) : Disposable {
         }
     }
 
-    /** The current text selection in the focused editor (call under a read action). */
+    /** The current text selection in the focused editor (EDT only: the getter asserts it). */
     private fun currentSelection(fem: FileEditorManager): JsonObject? {
         val editor = fem.selectedTextEditor ?: return null
         val sel = editor.selectionModel

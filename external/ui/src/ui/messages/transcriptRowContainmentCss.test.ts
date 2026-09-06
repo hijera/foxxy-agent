@@ -80,3 +80,21 @@ test("the user-row edit button still hangs outside the bubble", () => {
   expect(rule?.[0]).toMatch(/position:\s*absolute/);
   expect(rule?.[0]).toMatch(/left:\s*-\d+px/);
 });
+
+// JCEF (IntelliJ, Chromium 104) cannot run content-visibility: auto rows without
+// raising "ResizeObserver loop limit exceeded" on every transcript open; the IDE
+// embed opts out of the optimization for exactly the rows that opt in.
+test("the IntelliJ embed switches row containment off", () => {
+  const noComments = cssText().replace(/\/\*[\s\S]*?\*\//g, "");
+  const re = /([^{}]+)\{([^{}]*content-visibility:\s*visible[^{}]*)\}/g;
+  const blocks = [...noComments.matchAll(re)]
+    .map((m) => ({ selector: m[1]!.trim(), body: m[2]! }))
+    .filter((b) => b.selector.includes('html[data-embed="intellij"]'));
+  expect(blocks.length).toBe(1);
+  for (const row of [".msg-assistant-stack", ".thinking-row", ".msg-system-stack"]) {
+    expect(blocks[0]!.selector).toContain(
+      `html[data-embed="intellij"] .messages-inner > ${row}`,
+    );
+  }
+  expect(blocks[0]!.body).toMatch(/contain-intrinsic-size:\s*none/);
+});

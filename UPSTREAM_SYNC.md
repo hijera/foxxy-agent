@@ -1619,6 +1619,21 @@ list|trust|untrust`; `status.spawnAgent` в консоли; `cancelWG`/`WaitCanc
 `neuraldeep`: HTTP — все четыре проверки; ACP — ручная фаза (11 строк, 1 summary) и авто-фаза
 (7 строк, 1 summary). Ранее коммит числился в «Пропущено» — по просьбе пользователя портирован.
 
+### Follow-up после установки в PhpStorm 2022.3 (JCEF Chromium 104)
+
+Открытие старого диалога в панели IDE показывало оверлей «FoxxyCode UI error —
+ResizeObserver loop limit exceeded». Два источника: (1) `content-visibility: auto` +
+`contain-intrinsic-size` на строках транскрипта из блока G — Chromium 104 переключает
+строку между плейсхолдером и реальным боксом внутри своего же цикла наблюдений
+(в современном Chrome не воспроизводится); (2) наблюдатель `ChatScreen` за высотой
+композера писал `--chat-composer-reserve` из колбэка. Решение: для `html[data-embed=
+"intellij"]` containment строк выключен (**осознанное расхождение с upstream**, у которого
+нет JCEF-хоста), запись резерва отложена в `requestAnimationFrame`, оверлеи IntelliJ/VS Code
+игнорируют уведомления `ResizeObserver loop…`. Спека `features/ide_panel_resize_loop.feature`
+(headless Chrome, `npm run test:panel`), uiTest в стенде IDE на Chromium 104, юнит в
+`ChatScreen.test.tsx` и `transcriptRowContainmentCss.test.ts`. Попутно починен EDT-баг
+`FoxxyCodeEditorContextService` (PR #54, тег 0.2.46): снимок редактора на пуле потоков.
+
 ### Ask-режим: что изменилось для пользователей форка
 
 Форк был источником ask-режима, upstream его **сузил**. После этой волны:

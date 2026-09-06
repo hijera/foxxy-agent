@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChatScreen } from "./ChatScreen";
 
 afterEach(() => cleanup());
@@ -216,4 +216,72 @@ test("the notice also takes the hero composer's slot on an empty child transcrip
 
   expect(container.querySelector(".composer-card")).toBeNull();
   expect(screen.getByTestId("subagent-readonly-notice")).toBeInTheDocument();
+});
+
+// JCEF (Chromium 104) raised "ResizeObserver loop limit exceeded" on every
+// transcript open: the host observer wrote the scroll-tail reserve inside the
+// observer's own delivery loop. The write must wait for the next frame and a
+// repeat of the same height must not touch state at all.
+test("the composer reserve is written on the next frame, not inside the resize callback", () => {
+  const callbacks: Array<() => void> = [];
+  const RO = class {
+    constructor(cb: () => void) {
+      callbacks.push(cb);
+    }
+    observe() {}
+    disconnect() {}
+  };
+  const frames: Array<() => void> = [];
+  const prevRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  const prevRaf = globalThis.requestAnimationFrame;
+  const prevCaf = globalThis.cancelAnimationFrame;
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = RO;
+  globalThis.requestAnimationFrame = (cb) => {
+    frames.push(() => cb(0));
+    return frames.length;
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const { container } = render(
+      <ChatScreen
+        title="Hi"
+        sessionId="s1"
+        heroAccentVerb="know"
+        heroComposerFocusEpoch={0}
+        onTitleSave={() => {}}
+        items={[{ type: "user_message", id: "1", content: "x" }]}
+        draft=""
+        tokenUsage={null}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onDraftChange={() => {}}
+        onSend={() => {}}
+      />,
+    );
+    const host = container.querySelector(".chat-bottom-inner") as HTMLElement;
+    const reserveOf = () =>
+      (container.querySelector("[style*='--chat-composer-reserve']") as HTMLElement)
+        .style.getPropertyValue("--chat-composer-reserve");
+    expect(callbacks).toHaveLength(1);
+    expect(reserveOf()).toBe("140px");
+
+    host.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+    act(() => callbacks[0]!());
+    // Still the mount-time value: nothing changed inside the delivery loop.
+    expect(reserveOf()).toBe("140px");
+    expect(frames).toHaveLength(1);
+
+    act(() => frames.shift()!());
+    expect(reserveOf()).toBe("310px");
+
+    // The same height again schedules a frame but leaves the DOM alone.
+    act(() => callbacks[0]!());
+    act(() => frames.shift()!());
+    expect(reserveOf()).toBe("310px");
+  } finally {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = prevRO;
+    globalThis.requestAnimationFrame = prevRaf;
+    globalThis.cancelAnimationFrame = prevCaf;
+  }
 });

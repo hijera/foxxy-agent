@@ -2209,6 +2209,21 @@ a.rail-brand {
   width: calc(100% + 8px);
 }
 
+/* JCEF (the IntelliJ panel, Chromium 104) raises "ResizeObserver loop limit
+   exceeded" on every transcript open when the rows above use
+   content-visibility: auto with a placeholder size: that engine flips a row
+   between its placeholder and its real box inside the same resize-observation
+   loop, and the plugin paints the notice as an error overlay. index.html marks
+   the IDE embed on <html data-embed>, so the optimization is switched off
+   there and rows lay out plainly. Guarded by the plugin's uiTest
+   (BrowserPanelUiTest.anOldTranscriptOpensWithoutAResizeObserverLoop). */
+html[data-embed="intellij"] .messages-inner > .msg-assistant-stack,
+html[data-embed="intellij"] .messages-inner > .thinking-row,
+html[data-embed="intellij"] .messages-inner > .msg-system-stack {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
+
 .messages-inner > .thinking-row {
   max-width: calc(720px + 8px);
 }
