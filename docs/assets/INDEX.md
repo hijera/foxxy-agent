@@ -109,3 +109,12 @@ the default theme; light frames cover the surfaces that gained colours.
 ## Batch uploads
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
+
+## Onboarding gate fix (September 2026)
+
+Captured from headless Chrome at 1280×860 (dark, `?lang=ru`) against two live `http,ui` builds: `before` is the pre-fix `main`, `after` this branch. Config: a keyed `neuraldeep` agent provider plus a keyless `openai` row; the flow retypes `openai` to NeuralDeep in Settings and saves.
+
+- `pr-onboarding-settings-load-{before,after}-1280-dark.png` - Settings on page load: before, the provider picker already covers it; after, no picker
+- `pr-onboarding-retyped-unsaved-{before,after}-1280-dark.png` - the `openai` row retyped to NeuralDeep, not saved: before, the sign-in block shows «provider is not a NeuralDeep provider»; after, the Sign In button alone
+- `pr-onboarding-after-save-{before,after}-1280-dark.png` - right after Save: before, the picker reopens over Settings; after, the saved banner and the sign-in block stay
+- `pr-onboarding-home-reload-{before,after}-1280-dark.png` - the start screen after a reload: before, the picker; after, the composer

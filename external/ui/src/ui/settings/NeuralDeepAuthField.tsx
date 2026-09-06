@@ -90,6 +90,10 @@ export function NeuralDeepAuthField(props: {
           throw new Error(await responseError(response));
         }
         setStatus((await response.json()) as AuthStatus);
+        // A status read that succeeds retires whatever an earlier one said:
+        // the message would otherwise outlive its cause until the provider
+        // name changed.
+        setError("");
       } catch (err) {
         if (!controller.signal.aborted) {
           setError(err instanceof Error ? err.message : String(err));

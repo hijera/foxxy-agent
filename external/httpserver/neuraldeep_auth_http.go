@@ -276,9 +276,14 @@ func (s *Server) foxxycodeProviderNeuralDeepAuthDeviceGet(w http.ResponseWriter,
 	writeCodexAuthJSON(w, http.StatusOK, response)
 }
 
-// resolveNeuralDeepAuthProvider accepts saved neuraldeep providers and valid
-// unsaved names, so a provider added in the settings form can sign in before
-// the document is saved (same convention as codex).
+// resolveNeuralDeepAuthProvider accepts saved providers and valid unsaved
+// names, so a provider added in the settings form can sign in before the
+// document is saved (same convention as codex). A saved row of another type is
+// accepted too: the form may have just retyped it to neuraldeep, and the
+// widget mounts on that unsaved change. The credential file is keyed by name
+// alone, so the status, sign-in and sign-out all mean the same thing whether
+// or not the type has been saved yet; the row's own api_key / api_key_command
+// still decide the reported source.
 func (s *Server) resolveNeuralDeepAuthProvider(w http.ResponseWriter, rawName string) (string, config.ProviderConfig, bool) {
 	c := s.activeCfg()
 	if c == nil || strings.TrimSpace(c.Paths.Home) == "" {
@@ -293,11 +298,9 @@ func (s *Server) resolveNeuralDeepAuthProvider(w http.ResponseWriter, rawName st
 		return "", config.ProviderConfig{}, false
 	}
 	if saved := c.FindProvider(name); saved != nil {
-		if saved.Type != "neuraldeep" {
-			writeFoxxyCodeConfigErr(w, http.StatusConflict, "provider is not a NeuralDeep provider")
-			return "", config.ProviderConfig{}, false
-		}
-		return name, *saved, true
+		row := *saved
+		row.Type = "neuraldeep"
+		return name, row, true
 	}
 	return name, probe, true
 }
