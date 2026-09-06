@@ -1608,6 +1608,17 @@ list|trust|untrust`; `status.spawnAgent` в консоли; `cancelWG`/`WaitCanc
   были английскими литералами внутри чистого билдера — билдер отдаёт числа, строки
   собираются через `t()`/`tp()` (en+ru).
 
+### Коммит 15 — стенды компакции для ACP и HTTP (upstream `eeb271d6`, `08afd3d4`, `5156d44a`)
+
+`examples/acp/acp_e2e_compact.py` (ручной `/compact` + авто-порог через производный конфиг с
+`max_context_tokens: 64`) и `examples/httpserver/http_e2e_compact.py` (`/compact` как промпт,
+`POST /foxxycode/sessions/{id}/compact`, форсированная компакция одноходовой сессии:
+`kept_messages: 0`) взяты в финальном виде после `5156d44a`; `cli_e2e_compact.py` в форке уже
+был. Контракт форка совпадает: `CompactSession(…, force)` и строка `/compact` в транскрипте.
+Проводка в `test_acp.sh`, `test_httpserver.sh`, `examples/README.md`. Живой прогон на
+`neuraldeep`: HTTP — все четыре проверки; ACP — ручная фаза (11 строк, 1 summary) и авто-фаза
+(7 строк, 1 summary). Ранее коммит числился в «Пропущено» — по просьбе пользователя портирован.
+
 ### Ask-режим: что изменилось для пользователей форка
 
 Форк был источником ask-режима, upstream его **сузил**. После этой волны:
@@ -1655,7 +1666,6 @@ list|trust|untrust`; `status.spawnAgent` в консоли; `cancelWG`/`WaitCanc
 
 - `1246ee19`, `c9633eae`, `2ca7bdaf`, `7ff39c91`, `33a7d704`, `0a954c12`, `d370ef2d`,
   PNG-часть `e8466c86` — скриншоты upstream (политика форка: свои снимки).
-- `5156d44a` — правит `*_e2e_compact.py`, которых в форке нет.
 - `internal/prompts/ask.md` — форк рендерит ask из `sections/ask/`.
 - Ханки «проведения режима через поверхности», где форк уже имел ask (CLI `/mode`,
   Telegram, `/v1/models`, композер-пилюля) — сверены, различий по смыслу нет.
