@@ -1318,4 +1318,3 @@ func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
 		t.Fatalf("SSE todoPlan = %+v", sent)
 	}
 }
-

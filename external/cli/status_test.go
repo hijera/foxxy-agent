@@ -18,7 +18,7 @@ func TestStatusVerbForTool(t *testing.T) {
 		"write":                       "Writing",
 		"run_command":                 "Running",
 		"ssh_run_command":             "Running over SSH",
-		"spawn_agent":               "Running subagent",
+		"spawn_agent":                 "Running subagent",
 		"rmdir":                       "Deleting",
 		"webfetch":                    "Fetching",
 		"load_skill":                  "Loading a skill",

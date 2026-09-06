@@ -2,7 +2,6 @@ package agent
 
 import (
 	"testing"
-
 )
 
 // Debug mode mirrors Agent mode for tool access: it is unrestricted, MCP tools
