@@ -1048,3 +1048,48 @@ test("plan exit shows the completed mode transition without its boilerplate resu
   expect(container.querySelector(".plan-exit-preview--completed")).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
 });
+
+// A foreground spawn_agent blocks the parent turn for as long as the child
+// runs — up to half an hour — and the child's progress goes to its own
+// transcript. The parent row is the only place that wait is visible.
+test("a spawn_agent row names the agent and opens its transcript", () => {
+  const onOpenSubagentTranscript = vi.fn();
+  render(
+    <ToolCallMessage
+      toolCallId="tc-spawn"
+      title="spawn_agent"
+      status="in_progress"
+      argsText='{"agent":"explore","prompt":"survey the repo"}'
+      backgroundTask={backgroundTask({
+        id: "bg_9",
+        kind: "agent",
+        label: "agent explore: survey the repo",
+        agent: { name: "explore", session_id: "sub_0a1b" },
+        command: "",
+      })}
+      backgroundNowMs={BG_START_MS + 45_000}
+      onOpenSubagentTranscript={onOpenSubagentTranscript}
+    />,
+  );
+
+  expect(screen.getByTestId("tool-bgtask-chip-bg_9")).toHaveTextContent("explore");
+  openToolDetails();
+  fireEvent.click(screen.getByTestId("tool-bgtask-transcript-bg_9"));
+  expect(onOpenSubagentTranscript).toHaveBeenCalledWith("sub_0a1b");
+});
+
+test("a command task offers no transcript link", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-cmd"
+      title="run_command"
+      status="completed"
+      argsText='{"command":"make test","background":true}'
+      backgroundTask={backgroundTask()}
+      backgroundNowMs={BG_START_MS + 1000}
+      onOpenSubagentTranscript={() => {}}
+    />,
+  );
+  openToolDetails();
+  expect(screen.queryByTestId("tool-bgtask-transcript-bg_1")).toBeNull();
+});

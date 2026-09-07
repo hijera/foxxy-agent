@@ -931,6 +931,7 @@ export const messagesEn: Record<string, string> = {
     'Approved "{name}" for this workspace. Ask again to run it — nothing was started automatically.',
   "messages.subagentApproval.approve": "Approve",
   "messages.subagentApproval.openSettings": "Open Subagents settings",
+  "messages.toolSubagentOpenTranscript": "Open subagent transcript",
   "messages.toolBgTaskOpen": "Open in Tasks",
   "messages.toolBgTaskStop": "Stop",
   "tasks.badge.agent": "agent",

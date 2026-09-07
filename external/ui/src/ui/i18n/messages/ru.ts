@@ -948,6 +948,7 @@ export const messagesRu: Record<string, string> = {
     "Субагент «{name}» одобрен для этой рабочей папки. Попросите запустить его снова — сам он не стартовал.",
   "messages.subagentApproval.approve": "Одобрить",
   "messages.subagentApproval.openSettings": "Открыть настройки субагентов",
+  "messages.toolSubagentOpenTranscript": "Открыть транскрипт субагента",
   "messages.toolBgTaskOpen": "Открыть в задачах",
   "messages.toolBgTaskStop": "Остановить",
   "tasks.badge.agent": "агент",

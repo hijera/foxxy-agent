@@ -18,6 +18,8 @@ import { buildToolCallPreview } from "../chat/permissionToolPreview";
 import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
+  agentTaskName,
+  agentTranscriptSessionId,
   taskStatusLabel,
   taskTimingLine,
   taskTone,
@@ -115,6 +117,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
   /** Workspace of this session, for the approval offered on a refused spawn. */
   workspacePath?: string | undefined;
+  /** Opens the child transcript of a subagent this call spawned. */
+  onOpenSubagentTranscript?: ((sessionId: string) => void) | undefined;
 }) {
   const { t } = useT();
   const preview = useMemo(
@@ -407,6 +411,12 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !!(resultBody && resultBody.length > 0);
   const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const backgroundTask = props.backgroundTask;
+  // Present only for a spawn_agent row whose child session exists: the
+  // parent transcript shows the wait, the child's own transcript shows the
+  // work, and this is the link between them.
+  const subagentSessionId = backgroundTask
+    ? agentTranscriptSessionId(backgroundTask)
+    : null;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
   const hasBody =
     isQuestionTool ||
@@ -452,6 +462,15 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   aria-hidden="true"
                 />
                 <span className="tool-bgtask-chip-text">
+                  {/*
+                    A delegated step is silent by construction: the child's
+                    progress goes to its own transcript, so the parent row is
+                    the only place the wait is visible. Naming the agent turns
+                    "something is running" into "explore is running".
+                  */}
+                  {agentTaskName(backgroundTask)
+                    ? `${agentTaskName(backgroundTask)} · `
+                    : ""}
                   {taskStatusLabel(backgroundTask.status)} ·{" "}
                   {taskTimingLine(backgroundTask, backgroundNowMs)}
                 </span>
@@ -535,6 +554,19 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                     }}
                   >
                     {t("messages.toolBgTaskOpen")}
+                  </button>
+                ) : null}
+                {subagentSessionId && props.onOpenSubagentTranscript ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-transcript-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onOpenSubagentTranscript?.(subagentSessionId);
+                    }}
+                  >
+                    {t("messages.toolSubagentOpenTranscript")}
                   </button>
                 ) : null}
                 {backgroundTask.running && props.onStopBackgroundTask ? (

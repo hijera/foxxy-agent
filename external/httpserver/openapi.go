@@ -863,7 +863,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI.",
+					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI. A session live in this process also reports **messageSeq**, the number of messages in its transcript: unlike **activitySeq**, which advances once per *completed* turn, it moves **within** a turn, so a client polling a long one can tell whether a transcript reload would return anything new. It is absent for a session only on disk, because this route stays a cheap disk probe and does not load a bundle.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,

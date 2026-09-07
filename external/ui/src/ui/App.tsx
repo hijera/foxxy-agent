@@ -70,8 +70,12 @@ import {
 import { permissionPromptInsertIndex } from "./chat/permissionPromptPlacement";
 import { createTurnReplayTrimGate } from "./chat/transcriptTurnTrim";
 import {
+  diskFallbackDelayMs,
   isNoLiveTurnRelayError,
+  liveReconnectDelayMs,
   parseSessionBusyResponse,
+  shouldKeepWatching,
+  shouldReloadTranscript,
 } from "./chat/liveTurnRecovery";
 import {
   parseToolsPermissionPolicy,
@@ -884,6 +888,13 @@ export function App() {
   const userStoppedSidRef = useRef<Set<string>>(new Set());
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  // Consecutive failed /activity probes per session. Reconnects and the disk
+  // poll give up on this rather than on an attempt count: while the server
+  // still answers that the turn is alive, there is something to come back to.
+  const activityFailuresRef = useRef<Map<string, number>>(new Map());
+  // Last messageSeq seen per session, so a poll tick can skip a transcript
+  // reload that would return exactly what is already rendered.
+  const lastMessageSeqRef = useRef<Map<string, number>>(new Map());
   /** Per-session interval ids for the persisted-transcript fallback poller. */
   const diskFallbackTimerRef = useRef<Map<string, number>>(new Map());
   /**
@@ -1381,7 +1392,7 @@ export function App() {
         return next;
       });
       // Same safety net as permissions: re-attach if the stream died while pending.
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
@@ -1429,7 +1440,7 @@ export function App() {
       // Safety net: if the live stream died while this prompt was pending, the
       // turn continues server-side after the answer — re-attach so the
       // continuation renders live (no-op when a stream is already attached).
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
@@ -3445,9 +3456,6 @@ export function App() {
     });
   }
 
-  // Max auto-reconnect attempts before giving up (until the next clean stream or focus).
-  const LIVE_RECONNECT_MAX = 5;
-
   /**
    * When a live composer stream drops before its final [DONE] (e.g. the embedded
    * Chromium throttled/aborted the fetch while the webview was backgrounded), the
@@ -3472,18 +3480,30 @@ export function App() {
     }
     let active = false;
     try {
-      const act = await fetchJSON<{ turnActive?: boolean }>(
+      const act = await fetchJSON<{ turnActive?: boolean; messageSeq?: number }>(
         `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
         { headers: { [HDR]: key } },
       );
-      active = !!(act.ok && act.data?.turnActive);
+      if (!act.ok) {
+        // The server answered something other than a probe result; treat it as
+        // a failed probe so a server that has stopped answering is given up on.
+        noteActivityFailure(key);
+        markConnected(key);
+        return;
+      }
+      activityFailuresRef.current.delete(key);
+      active = !!act.data?.turnActive;
+      if (typeof act.data?.messageSeq === "number") {
+        lastMessageSeqRef.current.set(key, act.data.messageSeq);
+      }
       noteViewedTurnActive(key, active);
     } catch {
+      noteActivityFailure(key);
       markConnected(key);
       return;
     }
     if (!active) {
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       markConnected(key);
       // The turn already finished. If we got here from a dropped stream, pull the
       // persisted transcript so a stuck partial assistant is replaced by the result.
@@ -3514,21 +3534,52 @@ export function App() {
     await rejoinComposerLiveStream(key, loaded);
   }
 
-  function scheduleLiveStreamReconnect(rawSid: string, delayMs = 400): void {
+  /**
+   * Retry the re-attach, backing off but never giving up on a turn the server
+   * still reports as alive. The attempt count only sets the delay now: what
+   * ends the retries is the server no longer answering the probe, which is the
+   * only evidence that there is nothing to come back to. `delayMs` overrides
+   * the backoff for the first, deliberately quick, retry after a clean drop.
+   */
+  function scheduleLiveStreamReconnect(rawSid: string, delayMs?: number): void {
     const key = rawSid.trim();
     if (!key) return;
     if (userStoppedSidRef.current.has(key)) return;
-    const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
-    if (attempts >= LIVE_RECONNECT_MAX) {
+    if (!shouldKeepWatching(activityFailuresRef.current.get(key) ?? 0)) {
       markConnected(key);
       return;
     }
+    const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
     liveReconnectAttemptsRef.current.set(key, attempts + 1);
     markReconnecting(key);
     window.setTimeout(() => {
       // Go through the ref so the delayed call uses the current render's closure.
       reconnectLiveStreamRef.current(key, { reconcileIfDone: true });
-    }, delayMs);
+    }, delayMs ?? liveReconnectDelayMs(attempts));
+  }
+
+  /**
+   * Forget what this session's recovery loop learned: the retry budget, the
+   * failed-probe count and the last transcript size. Called wherever a turn
+   * starts, finishes cleanly or is stopped — a new turn must not inherit the
+   * previous one's give-up state.
+   */
+  function resetLiveRecoveryState(rawSid: string): void {
+    const key = rawSid.trim();
+    if (!key) return;
+    liveReconnectAttemptsRef.current.delete(key);
+    activityFailuresRef.current.delete(key);
+    lastMessageSeqRef.current.delete(key);
+  }
+
+  /** One failed /activity probe. Enough of them in a row and the session is dropped. */
+  function noteActivityFailure(rawSid: string): void {
+    const key = rawSid.trim();
+    if (!key) return;
+    activityFailuresRef.current.set(
+      key,
+      (activityFailuresRef.current.get(key) ?? 0) + 1,
+    );
   }
 
   /** Record a turnActive probe, but only for the chat the user is actually looking at. */
@@ -3542,7 +3593,7 @@ export function App() {
     const key = rawSid.trim();
     const h = diskFallbackTimerRef.current.get(key);
     if (h === undefined) return;
-    window.clearInterval(h);
+    window.clearTimeout(h);
     diskFallbackTimerRef.current.delete(key);
   }
 
@@ -3551,47 +3602,92 @@ export function App() {
    * embedded browser that keeps killing long-lived fetches. Polls the persisted
    * transcript so the turn's progress still appears without a manual page reload,
    * and stops as soon as a live stream attaches or the turn ends.
+   *
+   * It runs for as long as the server says the turn is alive. There used to be a
+   * ~5-minute tick cap here, reset only by a window focus event — which never
+   * fires for someone watching an editor panel, exactly where a delegated turn
+   * can run for half an hour. What ends the poll now is the turn ending, a live
+   * stream taking over, the user stopping, or the server no longer answering.
+   *
+   * Each tick is scheduled from the previous one rather than by setInterval, so
+   * the cadence can back off while nothing is being written, and the transcript
+   * is re-read only when `messageSeq` says it grew.
    */
   function startDiskFallbackPoll(rawSid: string): void {
     const key = rawSid.trim();
     if (!key || diskFallbackTimerRef.current.has(key)) return;
-    let ticks = 0;
-    const handle = window.setInterval(() => {
-      void (async () => {
-        ticks += 1;
-        // A live stream took over, the user stopped, or the safety cap (~5 min) hit.
-        if (
-          activeComposerSidRef.current.has(key) ||
-          userStoppedSidRef.current.has(key) ||
-          ticks > 150
-        ) {
-          stopDiskFallbackPoll(key);
+    let firstTick = true;
+    let quietTicks = 0;
+
+    const tick = async (): Promise<void> => {
+      if (
+        activeComposerSidRef.current.has(key) ||
+        userStoppedSidRef.current.has(key) ||
+        !shouldKeepWatching(activityFailuresRef.current.get(key) ?? 0)
+      ) {
+        stopDiskFallbackPoll(key);
+        return;
+      }
+      let active = false;
+      let messageSeq: number | undefined;
+      try {
+        const act = await fetchJSON<{ turnActive?: boolean; messageSeq?: number }>(
+          `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
+          { headers: { [HDR]: key } },
+        );
+        if (!act.ok) {
+          noteActivityFailure(key);
           return;
         }
-        let active = false;
-        try {
-          const act = await fetchJSON<{ turnActive?: boolean }>(
-            `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
-            { headers: { [HDR]: key } },
-          );
-          if (!act.ok) return;
-          active = !!act.data?.turnActive;
-          noteViewedTurnActive(key, active);
-        } catch {
-          return;
-        }
-        if (activeComposerSidRef.current.has(key)) return;
+        activityFailuresRef.current.delete(key);
+        active = !!act.data?.turnActive;
+        messageSeq =
+          typeof act.data?.messageSeq === "number" ? act.data.messageSeq : undefined;
+        noteViewedTurnActive(key, active);
+      } catch {
+        noteActivityFailure(key);
+        return;
+      }
+      if (activeComposerSidRef.current.has(key)) return;
+
+      const lastSeq = lastMessageSeqRef.current.get(key);
+      const reload = shouldReloadTranscript({
+        firstTick,
+        turnActive: active,
+        messageSeq,
+        lastMessageSeq: lastSeq,
+      });
+      quietTicks = reload ? 0 : quietTicks + 1;
+      firstTick = false;
+      if (messageSeq !== undefined) {
+        lastMessageSeqRef.current.set(key, messageSeq);
+      }
+      if (reload) {
         await loadMessages(key, {
           skipSetItems: viewedSessionIdRef.current.trim() !== key,
           preserveOnError: true,
         });
-        if (!active) {
-          stopDiskFallbackPoll(key);
-          void loadSessionsList(true);
-        }
-      })();
-    }, 2000);
-    diskFallbackTimerRef.current.set(key, handle);
+      }
+      if (!active) {
+        stopDiskFallbackPoll(key);
+        void loadSessionsList(true);
+      }
+    };
+
+    const schedule = () => {
+      // Re-checked every tick: a stop clears the handle, and the poll ends by
+      // simply not scheduling the next one.
+      const handle = window.setTimeout(() => {
+        void (async () => {
+          await tick();
+          if (diskFallbackTimerRef.current.has(key)) {
+            schedule();
+          }
+        })();
+      }, diskFallbackDelayMs(quietTicks));
+      diskFallbackTimerRef.current.set(key, handle);
+    };
+    schedule();
   }
 
   // Stable handles to the latest closures so once-subscribed listeners and
@@ -3933,7 +4029,7 @@ export function App() {
         startDiskFallbackPoll(key);
         return;
       }
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
 
       flushToolQueue();
       finishThinking();
@@ -4013,7 +4109,7 @@ export function App() {
       postSessionKey = sid.trim();
       // Fresh send supersedes any prior user-stop / reconnect budget for this session.
       userStoppedSidRef.current.delete(postSessionKey);
-      liveReconnectAttemptsRef.current.delete(postSessionKey);
+      resetLiveRecoveryState(postSessionKey);
       stopDiskFallbackPoll(postSessionKey);
       bumpTranscriptEpoch(postSessionKey);
       // Own the transcript before any asynchronous attachment preparation so
@@ -4364,7 +4460,7 @@ export function App() {
         finishThinking();
         return;
       }
-      liveReconnectAttemptsRef.current.delete(postSessionKey.trim());
+      resetLiveRecoveryState(postSessionKey);
 
       flushToolQueue();
 
@@ -4475,7 +4571,7 @@ export function App() {
     if (!sid) return;
     // Mark as user-stopped so a resulting stream drop is not auto-rejoined.
     userStoppedSidRef.current.add(sid);
-    liveReconnectAttemptsRef.current.delete(sid);
+    resetLiveRecoveryState(sid);
     stopDiskFallbackPoll(sid);
     // Always send the server-side cancel so Stop works even after page reload.
     void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
