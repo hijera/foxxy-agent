@@ -1026,14 +1026,14 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",
 					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
-						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **role_bytes**) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
 						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
 					"operationId": "listSubagents",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "cwd", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+							"description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -2815,6 +2815,19 @@ func openAPISpec() map[string]interface{} {
 						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
 						"trusted":        map[string]string{"type": "boolean"},
 						"needs_approval": map[string]string{"type": "boolean"},
+						"tools": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Allowlist from the frontmatter (exact names, a bare * or prefix* patterns); absent means everything the spawning session can call.",
+						},
+						"disallowed_tools": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Denylist from the frontmatter; it wins over tools.",
+						},
+						"permission_mode": map[string]interface{}{"type": "string", "enum": []string{"ask", "accept_edits", "bypass"}, "description": "Requested permission mode; absent means inherit. It can only narrow the parent's mode."},
+						"timeout_seconds": map[string]string{"type": "integer", "description": "The definition's own run limit; absent defers to the call and subagents.default_timeout_seconds."},
+						"max_turns":       map[string]string{"type": "integer", "description": "Cap on the child's ReAct rounds; absent follows subagents.max_turns, then agent.max_turns."},
+						"background":      map[string]string{"type": "boolean", "description": "The definition forces detached runs whatever the call asks for."},
+						"role_bytes":      map[string]string{"type": "integer", "description": "Size of the role body. The body itself is never served: an unapproved file's instructions must not reach a client that would render them."},
 					},
 					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
 				},
@@ -3683,7 +3696,7 @@ func subagentTrustRequestBody() map[string]interface{} {
 				"schema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**."},
 					},
 				},
 			},

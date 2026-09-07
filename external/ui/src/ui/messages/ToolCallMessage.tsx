@@ -15,6 +15,7 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
   taskStatusLabel,
@@ -23,6 +24,7 @@ import {
 } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
 import { BrowserAction } from "./BrowserAction";
+import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
 import {
   isBrowserToolName,
   parseBrowserActionResult,
@@ -111,6 +113,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   backgroundNowMs?: number | undefined;
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
+  /** Workspace of this session, for the approval offered on a refused spawn. */
+  workspacePath?: string | undefined;
 }) {
   const { t } = useT();
   const preview = useMemo(
@@ -134,6 +138,19 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
+
+  // A spawn the runtime refused may have been refused for want of an approval;
+  // the notice below decides that against the catalog, not against the text.
+  const refusedAgentName = useMemo(
+    () =>
+      refusedSpawnAgentName({
+        title: props.title,
+        kind: props.kind,
+        status: props.status,
+        argsText: props.argsText,
+      }),
+    [props.argsText, props.kind, props.status, props.title],
+  );
 
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
@@ -541,6 +558,18 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
           </div>
         ) : null}
       </details>
+      {/*
+        Outside the <details>: a refused spawn is only actionable if the user
+        sees it, and the row is collapsed by default. The notice renders
+        nothing unless the catalog confirms the definition is awaiting
+        approval, so an unrelated spawn failure adds no chrome.
+      */}
+      {refusedAgentName ? (
+        <SubagentApprovalNotice
+          agentName={refusedAgentName}
+          workspacePath={props.workspacePath}
+        />
+      ) : null}
     </div>
   );
 });

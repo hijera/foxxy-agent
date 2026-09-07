@@ -4947,6 +4947,12 @@ export function App() {
               onConfigSaved={() => setModelsEpoch((e) => e + 1)}
               initialSection={settingsSection}
               onRestartOnboarding={restartOnboarding}
+              // Subagent approvals are keyed by workspace, and spawn_agent
+              // checks the session's own cwd: the viewed session's workspace
+              // is the one the tab must ask about. Falls back to the host
+              // project root, which is the cwd an editor plugin launched the
+              // server for.
+              workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
             />
           </div>
         ) : null}

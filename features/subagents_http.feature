@@ -39,6 +39,12 @@ Feature: The HTTP surface exposes subagent runs and definitions
     And I GET the subagent catalog for the server workspace
     Then the catalog names "reviewer" as trusted
 
+  Scenario: The catalog carries what an approval would cover
+    Given a running foxxycode http server with a session
+    And the server workspace has a bounded subagent definition "reviewer" under .foxxycode/agents
+    When I GET the subagent catalog for the server workspace
+    Then the catalog reports the bounds "reviewer" declares
+
   Scenario: Deleting a running child stops its task first
     Given a running foxxycode http server with a session
     And a live child session "sub_bdd_running" of that session backed by a running subagent task
