@@ -6,6 +6,13 @@ import { permissionOptionLabel } from "../chat/permissionOptionLabel";
 import { submitPermissionChoice } from "../chat/permissionSubmit";
 import type { BackgroundTask } from "./types";
 
+/** Drops the relay's "[subagent <name>] " prefix from a forwarded prompt title. */
+export function stripSubagentTitlePrefix(title: string | undefined): string {
+  const raw = (title ?? "").trim();
+  const close = raw.startsWith("[subagent ") ? raw.indexOf("]") : -1;
+  return close >= 0 ? raw.slice(close + 1).trim() : raw;
+}
+
 /**
  * The permission prompt of a detached subagent, shown on the task that is
  * blocked on it.
@@ -51,10 +58,19 @@ export function SubagentPermissionCard(props: {
   if (!pending) {
     return null;
   }
-  // No transcript tool call to draw arguments from: the child's call lives in
-  // the child's own transcript, so the prompt body is all there is.
-  const preview = buildPermissionToolPreview(pending);
   const agentName = (pending.agent_name || props.task.agent?.name || "").trim();
+  // No transcript tool call to draw arguments from: the child's call lives in
+  // the child's own transcript, so the prompt body is all there is. The relay
+  // prefixes the title with "[subagent <name>] ", which defeats the tool-name
+  // parse and leaves the preview header blank — and the card already says
+  // whose prompt this is, so the prefix is dropped here.
+  const preview = buildPermissionToolPreview({
+    ...pending,
+    toolCall: {
+      ...pending.toolCall,
+      title: stripSubagentTitlePrefix(pending.toolCall?.title),
+    },
+  });
 
   return (
     <div

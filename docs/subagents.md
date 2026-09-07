@@ -285,7 +285,7 @@ Follow-ups, deliberately not part of this change: resuming or messaging a runnin
 
 ## Screenshots
 
-Captured from the bundled SPA against a stub model (`docs/assets/subagents/`):
+Captured from the bundled SPA against a stub model (`docs/assets/`):
 
 - `tasks-panel-agent-running-dark.png`, `tasks-panel-agent-running-light.png`: the Tasks panel with a running subagent card and its `AGENT` badge.
 - `tasks-detail-agent-running-dark.png`, `tasks-detail-agent-running-light.png`: the detail pane of a running subagent with the live log and **Open transcript**.
@@ -294,5 +294,12 @@ Captured from the bundled SPA against a stub model (`docs/assets/subagents/`):
 - `child-transcript-readonly-dark.png`, `child-transcript-readonly-light.png`: the child session opened from the panel, with the read-only notice in place of the composer.
 - `settings-grid-dark.png`: Settings with the **Subagents** entry between Tools and permissions and MCP servers (the section comes from the config schema, `subagents` in `x-foxxycode-property-order`).
 - `settings-subagents-dark.png`, `settings-subagents-light.png`, `settings-subagents-ru-dark.png`, `settings-subagents-narrow-dark.png`: the schema-driven form for `subagents.*` (enabled, definition directories, project trust policy, max concurrent, max depth, default timeout, max turns), in English and Russian, wide and at 390px.
+
+The approval surfaces of this change, captured the same way (an unapproved `reviewer` in the workspace, a user-scope `writer`):
+
+- `subagents-trust-settings-1280-{dark,light}.png`, `subagents-trust-settings-390-dark.png`: Settings -> Subagents, the catalog under the generated form, with the shield on the project row and the declaration a receipt would cover.
+- `subagents-trust-chat-refused-1280-{dark,light}.png`, `subagents-trust-chat-refused-390-dark.png`: the notice under a refused `spawn_agent` row.
+- `subagents-trust-spawn-running-1280-dark.png`: a foreground spawn in flight, the row naming the agent and offering its transcript.
+- `subagents-trust-tasks-permission-1280-{dark,light}.png`, `subagents-trust-tasks-permission-390-dark.png`: a detached child's permission prompt on its task card, and the tasks chip saying so.
 
 The finished-run captures show no exit code for an agent task (a child run is a turn, not a process); the wide finished pane is the one to compare against the `bgtask` command detail in `docs/background-tasks.md`.

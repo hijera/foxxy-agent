@@ -2,6 +2,7 @@ import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
+import { stripSubagentTitlePrefix } from "./SubagentPermissionCard";
 import type { BackgroundTask } from "./types";
 
 afterEach(() => cleanup());
@@ -339,4 +340,15 @@ test("a detached subagent's prompt is answered on its task card", async () => {
 test("a running task with no prompt carries no permission card", () => {
   renderPanel({ tasks: [agentTask()] });
   expect(screen.queryByTestId("bgtask-permission-bg_7")).toBeNull();
+});
+
+// The relay prefixes a forwarded title so the parent chat can tell whose
+// prompt it is; on a task row the card already says that, and the prefix would
+// leave the tool preview's header blank.
+test("the relay's subagent prefix is dropped from the previewed title", () => {
+  expect(stripSubagentTitlePrefix("[subagent explore] Run: run_command")).toBe(
+    "Run: run_command",
+  );
+  expect(stripSubagentTitlePrefix("Run: run_command")).toBe("Run: run_command");
+  expect(stripSubagentTitlePrefix(undefined)).toBe("");
 });

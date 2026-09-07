@@ -7458,9 +7458,31 @@ textarea#composer {
 }
 
 /* Subagents tab: the definition catalog reuses the MCP list chrome, so only
-   the two bits that have no MCP counterpart are defined here. */
-.subagents-workspace code {
+   what has no MCP counterpart is defined here.
+
+   Everything a receipt covers is long and unbreakable — an absolute definition
+   path, a digest, a comma-separated tool list. A <code> does not wrap on its
+   own, so without these rules one row widens the whole fieldset past the
+   settings panel, the row descriptions lose their ellipsis, and the approve
+   control is pushed out of sight. */
+.settings-subagents-section .subagents-catalog-box,
+.settings-subagents-section .subagents-list,
+.settings-subagents-section .mcp-list-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.subagents-workspace code,
+.settings-subagents-section .mcp-trust-note,
+.settings-subagents-section .mcp-trust-note code {
   overflow-wrap: anywhere;
+}
+
+/* The MCP facts label column is sized for "transport" and "runs"; a subagent
+   declaration's labels are longer ("permissions", "инструменты"), and at 72px
+   they wrap mid-word. */
+.settings-subagents-section .mcp-trust-facts dt {
+  flex: 0 0 104px;
 }
 
 .subagents-badge-pending {
