@@ -1,6 +1,7 @@
 import { beforeEach, expect, test } from "vitest";
 import {
   bootstrapEmbedFlag,
+  hostResolvesFileDrops,
   isEditorEmbed,
   readEmbedFromUrl,
 } from "./embedShell";
@@ -50,4 +51,18 @@ test("isEditorEmbed falls back to the data-embed DOM marker", () => {
 test("isEditorEmbed is false in a plain browser session", () => {
   expect(isEditorEmbed()).toBe(false);
   expect(bootstrapEmbedFlag()).toBe(false);
+});
+
+test("the vscode embed is an editor embed that resolves its own file drops", () => {
+  window.history.replaceState({}, "", "/?embed=vscode");
+  expect(bootstrapEmbedFlag()).toBe(true);
+  expect(isEditorEmbed()).toBe(true);
+  // Only JCEF hands the plugin the dropped paths; the VS Code iframe gets a
+  // text/uri-list and relativizes it through the backend itself.
+  expect(hostResolvesFileDrops()).toBe(false);
+});
+
+test("only the intellij embed leaves file drops to the host", () => {
+  document.documentElement.dataset.embed = "intellij";
+  expect(hostResolvesFileDrops()).toBe(true);
 });

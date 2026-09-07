@@ -118,3 +118,11 @@ Captured from headless Chrome at 1280×860 (dark, `?lang=ru`) against two live `
 - `pr-onboarding-retyped-unsaved-{before,after}-1280-dark.png` - the `openai` row retyped to NeuralDeep, not saved: before, the sign-in block shows «provider is not a NeuralDeep provider»; after, the Sign In button alone
 - `pr-onboarding-after-save-{before,after}-1280-dark.png` - right after Save: before, the picker reopens over Settings; after, the saved banner and the sign-in block stay
 - `pr-onboarding-home-reload-{before,after}-1280-dark.png` - the start screen after a reload: before, the picker; after, the composer
+
+## VS Code embed id (September 2026)
+
+Captured from headless Chrome (dark, `?lang=ru`) against the Vite dev server on this branch. The VS Code extension used to load the SPA with `?embed=intellij`; it now sends `?embed=vscode`, and the flat composer chrome is keyed on both ids, so `before` and `after` must look the same.
+
+- `pr-vscode-embed-before-intellij-id-{1280,390}-dark.png` - the start screen with `?embed=intellij` (what the extension sent before)
+- `pr-vscode-embed-after-vscode-id-{1280,390}-dark.png` - the same screen with `?embed=vscode` (what it sends now): flat 6px composer, no glass halo, identical to the intellij id
+- `pr-vscode-embed-plain-browser-1280-dark.png` - no embed id, for contrast: the browser keeps the rounded glass composer

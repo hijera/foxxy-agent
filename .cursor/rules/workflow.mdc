@@ -45,7 +45,7 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **`docs/config.schema.json`** and **`docs/config-reference.md`** updated when `internal/config` yaml fields changed.
 - **`make lint`** clean.
 - **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`. Refresh the index in **`.codex/rules.md`** when a rule file is added, renamed, or removed.
-- **Changelog** — if the change is something a user of the plugin can observe, work out the version the merge will produce and add a Russian entry to **`editors/intellij/CHANGELOG.md`** before opening the PR. Merging releases immediately, so the notes are part of the PR, not a later step. See **`.claude/rules/release-changelog.md`**.
+- **Changelog** — if the change is something a plugin user can observe, add a Russian `## Unreleased — <date>` entry before opening the PR: to **`editors/intellij/CHANGELOG.md`** for what IntelliJ users see, to **`editors/vscode/CHANGELOG.md`** for what VS Code users see, to **both** for SPA / agent behaviour changes (both plugins host the same UI). Merging releases immediately and the build stamps the heading with the tag, so the notes are part of the PR, not a later step. See **`.claude/rules/release-changelog.md`**.
 
 ## BDD specs (Gherkin)
 

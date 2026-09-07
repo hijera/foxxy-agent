@@ -4015,13 +4015,17 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
 }
 
 /*
- * IDE embedding (JCEF) — flatter, more native host look.
- * Triggered by ?embed=intellij which sets <html data-embed="intellij">.
+ * IDE embedding — flatter, more native host look.
+ * Triggered by ?embed=intellij (JCEF tool window) or ?embed=vscode (webview
+ * iframe), which set <html data-embed="intellij|vscode">. Both hosts share
+ * this chrome; only the Chromium-104 workarounds above (row containment
+ * opt-out) stay keyed on the intellij id.
  * Drops the frosted-glass halo, tightens corners, and uses a solid panel
  * background + 1px border so the composer reads as an IDE input field rather
  * than a floating glass card. Also flattens the docked vignette above it.
  */
-[data-embed="intellij"] .composer-card {
+[data-embed="intellij"] .composer-card,
+[data-embed="vscode"] .composer-card {
   border-radius: 6px;
   background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-canvas-gradient-top));
   border: 1px solid color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
@@ -4031,11 +4035,14 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
 }
 
 [data-embed="intellij"] .composer-wrap-docked .composer-card,
-[data-embed="intellij"] .hero-composer .composer-card {
+[data-embed="intellij"] .hero-composer .composer-card,
+[data-embed="vscode"] .composer-wrap-docked .composer-card,
+[data-embed="vscode"] .hero-composer .composer-card {
   box-shadow: none;
 }
 
-[data-embed="intellij"] .chat-bottom--docked::before {
+[data-embed="intellij"] .chat-bottom--docked::before,
+[data-embed="vscode"] .chat-bottom--docked::before {
   background: linear-gradient(
     to bottom,
     rgba(0, 0, 0, 0) 0%,
@@ -4043,11 +4050,13 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   );
 }
 
-[data-embed="intellij"] .hero {
+[data-embed="intellij"] .hero,
+[data-embed="vscode"] .hero {
   padding-bottom: 12px;
 }
 
-[data-embed="intellij"] .hero-title {
+[data-embed="intellij"] .hero-title,
+[data-embed="vscode"] .hero-title {
   margin-bottom: 12px;
 }
 
