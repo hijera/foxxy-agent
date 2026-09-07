@@ -276,22 +276,25 @@ vscode-build:
 vscode-build-target:
 	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile
 
+# CHANGELOG.md is snapshotted the same way: scripts/stamp-changelog.mjs rewrites its
+# `## Unreleased — <date>` heading to the version being packaged (VS Code shows the file
+# verbatim in the extension's Changelog tab), mirroring build.gradle.kts for IntelliJ.
 vscode-package:
 	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" npm run prepare-binary && npm run compile && { \
-		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; \
+		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; cp CHANGELOG.md CHANGELOG.md.vsce.bak; \
 		case "$(PLUGIN_VERSION)" in \
-			[0-9]*.[0-9]*.[0-9]*) npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
+			[0-9]*.[0-9]*.[0-9]*) node scripts/stamp-changelog.mjs "$(PLUGIN_VERSION)" && npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
 			*) npx vsce package -o foxxycode-vscode-$(PLUGIN_VERSION).vsix ;; \
 		esac; \
-		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; exit $$status; \
+		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; mv CHANGELOG.md.vsce.bak CHANGELOG.md; exit $$status; \
 	}
 
 vscode-package-target:
 	cd editors/vscode && npm install --no-fund --no-audit && FOXXYCODE_PLUGIN_VERSION="$(PLUGIN_VERSION)" node scripts/prepare-binary.mjs --target $(TARGET) && npm run compile && { \
-		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; \
+		cp package.json package.json.vsce.bak; cp package-lock.json package-lock.json.vsce.bak; cp CHANGELOG.md CHANGELOG.md.vsce.bak; \
 		case "$(PLUGIN_VERSION)" in \
-			[0-9]*.[0-9]*.[0-9]*) npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
+			[0-9]*.[0-9]*.[0-9]*) node scripts/stamp-changelog.mjs "$(PLUGIN_VERSION)" && npx vsce package "$(PLUGIN_VERSION)" --no-git-tag-version --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
 			*) npx vsce package --target $(VSCE_TARGET) -o foxxycode-vscode-$(VSCE_TARGET)-$(PLUGIN_VERSION).vsix ;; \
 		esac; \
-		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; exit $$status; \
+		status=$$?; mv package.json.vsce.bak package.json; mv package-lock.json.vsce.bak package-lock.json; mv CHANGELOG.md.vsce.bak CHANGELOG.md; exit $$status; \
 	}

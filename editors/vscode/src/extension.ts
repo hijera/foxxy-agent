@@ -5,8 +5,12 @@ import { IdeDiffService } from "./diff/ideDiffService";
 import { EditorStateService } from "./ide/editorStateService";
 import { TerminalStateService } from "./ide/terminalStateService";
 import { InlineCompletionService } from "./autocomplete/inlineCompletionService";
+import { relativizeWorkspacePaths } from "./ide/projectRelativePaths";
+import { resolveExisting, validateBinary } from "./binary/binaryResolver";
+import { execCapture } from "./binary/execCapture";
 import {
   FoxxyCodePanelController,
+  MAX_PENDING_MENTIONS,
 } from "./webview/panel";
 import { formatPanelTitle, formatViewDescription } from "./webview/panelTitle";
 import { showFirstRunIfNeeded, openWelcomeWalkthrough } from "./webview/firstRun";
@@ -23,7 +27,7 @@ import {
   initLocaleState,
   setEffectiveLocale,
 } from "./i18n/localeState";
-import { error, withProgress } from "./notifications";
+import { error, info, warn, withProgress } from "./notifications";
 
 /** FoxxyCode VS Code extension — full port of the JetBrains plugin.
  *
@@ -35,7 +39,7 @@ import { error, withProgress } from "./notifications";
  *       on a free localhost port (port 0 => auto-pick).
  *    3. Poll `http://host:port/v1/models` until ready (30s), then point a
  *       WebviewPanel/WebviewView iframe at
- *       `http://host:port/?theme=<vscodeTheme>&lang=<lang>&embed=intellij`.
+ *       `http://host:port/?theme=<vscodeTheme>&lang=<lang>&embed=vscode`.
  *    4. Subscribe to `GET /foxxycode/ide/events` for native inline diffs.
  *    5. Dispose the child process on deactivate / window close.
  *
@@ -63,6 +67,9 @@ let lastProxyEnvSig = "";
 const CACHED_LOCALE_KEY = "foxxycode.cachedLocale";
 /** Plugin version from the manifest, shown next to the panel/view title. */
 let extensionVersion = "";
+/** "Add to FoxxyCode" requests made before any webview existed; flushed into the
+ *  sidebar controller as soon as VS Code resolves the view. */
+let pendingMentions: string[] = [];
 
 /** Apply a locale switch originating from the embedded SPA: adopt it and refresh
  *  extension chrome (command titles via the `foxxycode.locale` context key). The
@@ -130,6 +137,8 @@ export function activate(context: vscode.ExtensionContext): void {
   registerCommandPair(context, "foxxycode.openSettings", () => void openSettingsUi());
   registerCommandPair(context, "foxxycode.showLogs", () => activationOutput?.show());
   registerCommandPair(context, "foxxycode.showWelcome", () => void openWelcomeWalkthrough(true));
+  registerCommandPair(context, "foxxycode.addToChat", (uri, uris) => addToChat(uri, uris));
+  registerCommandPair(context, "foxxycode.verifyBinary", () => void verifyBinary(context));
 
   // Live locale refresh + re-read settings for the next process start.
   context.subscriptions.push(
@@ -196,6 +205,84 @@ function proxyEnvSig(env: ProxyEnv): string {
 function currentWorkspaceRoot(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
+}
+
+// ---- "Add to FoxxyCode" ------------------------------------------------------
+
+/** Hands workspace-relative paths to the active webview as `@`-mentions and
+ *  brings it into view. Without a webview yet (sidebar never opened), the paths
+ *  are queued and the sidebar view is focused so VS Code resolves it; the
+ *  provider flushes the queue into the new controller. Mirrors
+ *  `FoxxyCodeAddFileAction.kt` + `FoxxyCodeBrowserPanel.requestInsertFileMentions`. */
+function requestInsertFileMentions(rels: readonly string[]): void {
+  if (rels.length === 0) return;
+  const controller = activeController();
+  if (controller) {
+    controller.insertFileMentions(rels);
+    if (controller === editorPanelController && editorPanel) {
+      editorPanel.reveal(undefined, true);
+    } else {
+      void vscode.commands.executeCommand("foxxycode.view.focus");
+    }
+    return;
+  }
+  pendingMentions.push(...rels);
+  if (pendingMentions.length > MAX_PENDING_MENTIONS) {
+    pendingMentions = pendingMentions.slice(-MAX_PENDING_MENTIONS);
+  }
+  void vscode.commands.executeCommand("foxxycode.view.focus");
+}
+
+/** Command handler. VS Code passes `(uri, uris)` from the Explorer (multi-select
+ *  aware), the tab context menu and the editor context menu; from the palette
+ *  it passes nothing, so the active editor's file is used. */
+function addToChat(uri: unknown, uris: unknown): void {
+  const list: unknown[] =
+    Array.isArray(uris) && uris.length > 0
+      ? uris
+      : uri
+        ? [uri]
+        : [vscode.window.activeTextEditor?.document.uri];
+  const files = list
+    .filter((u): u is vscode.Uri => u instanceof vscode.Uri && u.scheme === "file")
+    .map((u) => u.fsPath);
+  // Relative to the first workspace folder on purpose: that is the backend's
+  // `--cwd`, so the mention resolves on the server.
+  const rels = relativizeWorkspacePaths(currentWorkspaceRoot(), files);
+  if (rels.length === 0) {
+    void info(t("addToChat.noFiles"));
+    return;
+  }
+  activationOutput?.appendLine(`[foxxycode] add to chat: ${rels.join(", ")}`);
+  requestInsertFileMentions(rels);
+}
+
+// ---- "Verify Binary" ---------------------------------------------------------
+
+/** Runs the same checks as the IntelliJ settings page's Verify button (file
+ *  exists, `-v` runs, `http --help` shows a full build) and reports the result
+ *  as a notification. An explicit override is verified as typed, without
+ *  falling back to the bundled binary, so a wrong path is reported as such. */
+async function verifyBinary(context: vscode.ExtensionContext): Promise<void> {
+  const override = readSettings().binaryPath.trim();
+  const bin = override || resolveExisting(context.extensionPath, "");
+  const openSettingsLabel = t("process.button.openSettings");
+  const offerSettings = (choice: string | undefined): void => {
+    if (choice === openSettingsLabel) void openSettingsUi();
+  };
+  if (!bin) {
+    void warn(t("settings.status.noBinary"), openSettingsLabel).then(offerSettings);
+    return;
+  }
+  const result = await withProgress(t("settings.status.verifying"), () =>
+    validateBinary(bin, execCapture, t),
+  );
+  activationOutput?.appendLine(`[foxxycode] verify ${bin}: ${result.message}`);
+  if (result.ok) {
+    void info(result.message);
+  } else {
+    void warn(result.message, openSettingsLabel).then(offerSettings);
+  }
 }
 
 function showStartFailedNotification(msg: string): void {
@@ -298,9 +385,13 @@ function openEditorPanel(context: vscode.ExtensionContext): void {
     onRetry: () => void startController(editorPanelController!),
     onOpenSettings: () => void openSettingsUi(),
     onSpaLocale,
+    log: (line) => activationOutput?.appendLine(line),
   });
   // Surface the editor-panel toolbar buttons (gated by `foxxycode.editorPanelActive`).
   void vscode.commands.executeCommand("setContext", "foxxycode.editorPanelActive", true);
+  panel.onDidChangeViewState((e) => {
+    if (e.webviewPanel.visible) terminalStateService?.requestScreenCapture("panel-visible");
+  });
   panel.onDidDispose(() => {
     editorPanelController?.dispose();
     editorPanelController = null;
@@ -339,6 +430,16 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
       onRetry: () => void this.start(),
       onOpenSettings: () => void openSettingsUi(),
       onSpaLocale,
+      log: (line) => activationOutput?.appendLine(line),
+    });
+    // "Add to FoxxyCode" may have been invoked before the view existed.
+    if (pendingMentions.length > 0) {
+      const queued = pendingMentions;
+      pendingMentions = [];
+      this.controller.insertFileMentions(queued);
+    }
+    view.onDidChangeVisibility(() => {
+      if (view.visible) terminalStateService?.requestScreenCapture("view-visible");
     });
     void this.start();
   }

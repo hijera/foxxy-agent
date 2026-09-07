@@ -26,7 +26,12 @@
     "onView:foxxycode.view",
     "onCommand:foxxycode.openPanel",
     "onCommand:foxxycode.openPanel.ru",
-    "onCommand:foxxycode.showWelcome"
+    "onCommand:foxxycode.showWelcome",
+    "onCommand:foxxycode.showWelcome.ru",
+    "onCommand:foxxycode.addToChat",
+    "onCommand:foxxycode.addToChat.ru",
+    "onCommand:foxxycode.verifyBinary",
+    "onCommand:foxxycode.verifyBinary.ru"
   ],
   "contributes": {
     "commands": [
@@ -123,6 +128,30 @@
         "title": "%cmd.showWelcome.title.ru%",
         "category": "FoxxyCode",
         "icon": "$(question)"
+      },
+      {
+        "command": "foxxycode.addToChat",
+        "title": "%cmd.addToChat.title%",
+        "category": "FoxxyCode",
+        "icon": "$(add)"
+      },
+      {
+        "command": "foxxycode.addToChat.ru",
+        "title": "%cmd.addToChat.title.ru%",
+        "category": "FoxxyCode",
+        "icon": "$(add)"
+      },
+      {
+        "command": "foxxycode.verifyBinary",
+        "title": "%cmd.verifyBinary.title%",
+        "category": "FoxxyCode",
+        "icon": "$(verified)"
+      },
+      {
+        "command": "foxxycode.verifyBinary.ru",
+        "title": "%cmd.verifyBinary.title.ru%",
+        "category": "FoxxyCode",
+        "icon": "$(verified)"
       }
     ],
     "walkthroughs": [
@@ -263,6 +292,58 @@
         {
           "command": "foxxycode.showWelcome.ru",
           "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.addToChat",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.addToChat.ru",
+          "when": "foxxycode.locale == 'ru'"
+        },
+        {
+          "command": "foxxycode.verifyBinary",
+          "when": "foxxycode.locale == 'en'"
+        },
+        {
+          "command": "foxxycode.verifyBinary.ru",
+          "when": "foxxycode.locale == 'ru'"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "foxxycode.addToChat",
+          "when": "resourceScheme == file && !explorerResourceIsFolder && foxxycode.locale == 'en'",
+          "group": "foxxycode@1"
+        },
+        {
+          "command": "foxxycode.addToChat.ru",
+          "when": "resourceScheme == file && !explorerResourceIsFolder && foxxycode.locale == 'ru'",
+          "group": "foxxycode@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "foxxycode.addToChat",
+          "when": "resourceScheme == file && foxxycode.locale == 'en'",
+          "group": "foxxycode@1"
+        },
+        {
+          "command": "foxxycode.addToChat.ru",
+          "when": "resourceScheme == file && foxxycode.locale == 'ru'",
+          "group": "foxxycode@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "foxxycode.addToChat",
+          "when": "resourceScheme == file && foxxycode.locale == 'en'",
+          "group": "foxxycode@1"
+        },
+        {
+          "command": "foxxycode.addToChat.ru",
+          "when": "resourceScheme == file && foxxycode.locale == 'ru'",
+          "group": "foxxycode@1"
         }
       ],
       "view/title": [
@@ -386,7 +467,7 @@
         "foxxycode.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "%cfg.binaryPath.description%"
+          "markdownDescription": "%cfg.binaryPath.description%"
         },
         "foxxycode.host": {
           "type": "string",
@@ -432,6 +513,11 @@
           "type": "boolean",
           "default": true,
           "description": "%cfg.trackTerminals.description%"
+        },
+        "foxxycode.terminalClipboardCapture": {
+          "type": "boolean",
+          "default": false,
+          "description": "%cfg.terminalClipboardCapture.description%"
         },
         "foxxycode.planNoSelfRun": {
           "type": "boolean",
