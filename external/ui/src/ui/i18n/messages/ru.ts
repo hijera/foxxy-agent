@@ -992,5 +992,11 @@ export const messagesRu: Record<string, string> = {
   "tasks.chip.total.few": "{count} фоновые задачи",
   "tasks.chip.total.many": "{count} фоновых задач",
   "tasks.chip.total.other": "{count} фоновой задачи",
+  "tasks.chip.awaiting.one": "{count} субагент ждёт вашего ответа",
+  "tasks.chip.awaiting.few": "{count} субагента ждут вашего ответа",
+  "tasks.chip.awaiting.many": "{count} субагентов ждут вашего ответа",
+  "tasks.chip.awaiting.other": "{count} субагента ждут вашего ответа",
+  "tasks.permission.head": "Отсоединённый субагент ждёт вашего разрешения:",
+  "tasks.permission.headNamed": "Субагент «{name}» ждёт вашего разрешения:",
   "tasks.chip.ariaLabel": "Открыть фоновые задачи: {label}",
 };

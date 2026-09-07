@@ -198,7 +198,7 @@ import {
   listBackgroundTasks,
   stopBackgroundTask,
 } from "./tasks/api";
-import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import { awaitingPermissionCount, tasksPollIntervalMs } from "./tasks/taskStatus";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
@@ -1121,6 +1121,12 @@ export function App() {
   const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [backgroundRunning, setBackgroundRunning] = useState(0);
+  // Detached subagents blocked on a prompt. Kept as a number so the poll
+  // effect below does not restart on every list refresh.
+  const backgroundAwaiting = useMemo(
+    () => awaitingPermissionCount(backgroundTasks),
+    [backgroundTasks],
+  );
   const [backgroundOutput, setBackgroundOutput] = useState("");
   const [backgroundListError, setBackgroundListError] = useState<string | null>(
     null,
@@ -2124,7 +2130,10 @@ export function App() {
           void refreshBackgroundTaskOutput(tasksSelectedId);
         }
       },
-      tasksPollIntervalMs(backgroundRunning),
+      // A task waiting for a permission answer keeps the fast cadence even if
+      // the server has stopped counting it as running: the answer has to reach
+      // the drawer promptly, and the prompt has to leave it once answered.
+      tasksPollIntervalMs(backgroundRunning + backgroundAwaiting),
     );
     return () => window.clearInterval(id);
   }, [
@@ -2132,6 +2141,7 @@ export function App() {
     tasksOpen,
     tasksSelectedId,
     backgroundRunning,
+    backgroundAwaiting,
     refreshBackgroundTasks,
     refreshBackgroundTaskOutput,
   ]);
@@ -4974,6 +4984,9 @@ export function App() {
             }}
             onClearFinished={() => {
               void clearFinishedTasks();
+            }}
+            onRefresh={() => {
+              void refreshBackgroundTasks({ silent: true });
             }}
           />
         ) : null}

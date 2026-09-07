@@ -45,7 +45,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if !permission.Approved(perm) {
 		toolResultMsg := llm.Message{
 			Role:       llm.RoleTool,
-			Content:    "permission denied by user",
+			Content:    permissionDeniedResult(perm),
 			ToolCallID: tc.ID,
 		}
 		a.state.AddMessage(toolResultMsg)

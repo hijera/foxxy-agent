@@ -9974,6 +9974,37 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: #ff9f0a;
 }
 
+/* A detached subagent blocked on a permission prompt. The parent turn is over,
+   so this row is the only place the question can be asked - amber, and loud
+   enough that a closed drawer still advertises it through the chip. */
+.bgtask-card.is-awaiting,
+.bgtask-chip.is-awaiting {
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.bgtask-permission {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  background: color-mix(in srgb, #ff9f0a 8%, var(--foxxycode-blend-base));
+}
+
+.bgtask-permission-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
+}
+
+.bgtask-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .bgtask-dot--muted {
   background: color-mix(in srgb, var(--text) 24%, transparent);
 }

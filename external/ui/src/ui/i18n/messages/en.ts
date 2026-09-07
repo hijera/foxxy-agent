@@ -970,5 +970,9 @@ export const messagesEn: Record<string, string> = {
   "tasks.chip.running.other": "{count} running tasks",
   "tasks.chip.total.one": "{count} background task",
   "tasks.chip.total.other": "{count} background tasks",
+  "tasks.chip.awaiting.one": "{count} subagent needs your answer",
+  "tasks.chip.awaiting.other": "{count} subagents need your answer",
+  "tasks.permission.head": "A detached subagent is waiting for your approval:",
+  "tasks.permission.headNamed": "The subagent \"{name}\" is waiting for your approval:",
   "tasks.chip.ariaLabel": "Open background tasks: {label}",
 };

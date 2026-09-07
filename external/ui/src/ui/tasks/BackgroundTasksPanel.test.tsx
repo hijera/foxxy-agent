@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
 import type { BackgroundTask } from "./types";
 
@@ -280,4 +280,63 @@ test("Open transcript stays disabled until the child session is known", () => {
   expect(button).toBeDisabled();
   fireEvent.click(button);
   expect(onOpenSession).not.toHaveBeenCalled();
+});
+
+function awaitingTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  return agentTask({
+    pending_permission: {
+      sessionId: "sub_0a1b2c",
+      agent_name: "explore",
+      asked_at: new Date(START_MS + 10_000).toISOString(),
+      toolCall: {
+        toolCallId: "call_9",
+        title: "[subagent explore] Run: run_command",
+        kind: "execute",
+        content: [{ type: "content", content: { type: "text", text: "npm test" } }],
+      },
+      options: [
+        { optionId: "allow", name: "Allow once", kind: "allow_once" },
+        { optionId: "reject", name: "Reject", kind: "reject_once" },
+      ],
+    },
+    ...over,
+  });
+}
+
+// The parent turn that spawned a detached run has ended, so its prompt has no
+// chat stream to appear in: the task that is blocked has to ask.
+test("a detached subagent's prompt is answered on its task card", async () => {
+  const calls: Array<{ url: string; body?: string }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        ...(typeof init?.body === "string" ? { body: init.body } : {}),
+      });
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    }),
+  );
+  const onRefresh = vi.fn();
+  renderPanel({ tasks: [awaitingTask()], onRefresh });
+
+  const card = screen.getByTestId("bgtask-permission-bg_7");
+  expect(card).toHaveTextContent("explore");
+  expect(card).toHaveTextContent("npm test");
+
+  fireEvent.click(screen.getByTestId("bgtask-permission-allow-bg_7"));
+  await waitFor(() => expect(calls.length).toBe(1));
+  // Answered against the child session - the one actually waiting - not the
+  // parent chat the task belongs to.
+  expect(calls[0]?.url).toBe("/foxxycode/sessions/sub_0a1b2c/permission");
+  expect(calls[0]?.body).toBe(
+    JSON.stringify({ toolCallId: "call_9", optionId: "allow" }),
+  );
+  await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+  vi.unstubAllGlobals();
+});
+
+test("a running task with no prompt carries no permission card", () => {
+  renderPanel({ tasks: [agentTask()] });
+  expect(screen.queryByTestId("bgtask-permission-bg_7")).toBeNull();
 });
