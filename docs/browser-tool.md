@@ -78,6 +78,18 @@ to the model.
 
 ## Driving it without screenshots
 
+In the bundled chat, browser calls have localized action headings and a browser
+icon. Expanded calls show the target URL or CSS selector, formatted JavaScript
+for `evaluate`, and the screenshot or text result below. Long code and results
+have More/Less controls and a bounded scrolling viewport. Page logs highlight
+warnings and errors; inspect reports use tables. Screenshot previews enlarge on
+click. The same argument presentation is used when asking for permission.
+
+For `scroll`, numeric X/Y values are **relative offsets** from the current position,
+including negative values. The UI draws their direction and signed pixel values
+inside a small screen rectangle; a zero offset has no arrow. When a nonempty
+`selector` is supplied, it takes precedence over both offsets.
+
 Two of the tools never capture an image, so a model that cannot see is not stuck
 with `webfetch`:
 

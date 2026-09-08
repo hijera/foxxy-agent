@@ -1,13 +1,14 @@
 import { t, tp } from "../i18n/i18n";
 import {
+  browserActionLabel,
+  isBrowserToolName,
+} from "../messages/browserActionDisplay";
+import {
   flattenDiffLines,
   parseDiffPatch,
   type ParsedDiffLine,
 } from "../messages/parseDiff";
-import {
-  buildTodoToolPreview,
-  type TodoPlanEntry,
-} from "./todoToolPreview";
+import { buildTodoToolPreview, type TodoPlanEntry } from "./todoToolPreview";
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
@@ -29,6 +30,7 @@ type PermissionPreviewBase = {
 };
 
 export type PermissionToolPreview =
+  | (PermissionPreviewBase & { kind: "browser"; argsText: string })
   | (PermissionPreviewBase & { kind: "code"; text: string })
   | (PermissionPreviewBase & { kind: "path" })
   | (PermissionPreviewBase & {
@@ -262,6 +264,20 @@ export function buildToolCallPreview(
   const normalized = toolName.toLowerCase();
   const args = parseArgsText(context.argsText || "") || {};
   const title = questionForTool(normalized, args);
+  if (isBrowserToolName(normalized)) {
+    const argsText = Object.keys(args).length
+      ? JSON.stringify(args)
+      : context.argsText || fallback;
+    return {
+      toolName,
+      title,
+      header: browserActionLabel(toolName, argsText, "pending", t),
+      meta: [],
+      copyText: argsText,
+      kind: "browser",
+      argsText,
+    };
+  }
   const todoPreview = buildTodoToolPreview({
     toolName,
     argsText: context.argsText,
@@ -450,7 +466,8 @@ export function buildToolCallPreview(
     const meta: string[] = [];
     const offset = numberArg(args, "offset", 0);
     const limit = numberArg(args, "limit", 0);
-    if (offset > 0) meta.push(t("prompts.permissionMeta.fromLine", { line: offset }));
+    if (offset > 0)
+      meta.push(t("prompts.permissionMeta.fromLine", { line: offset }));
     if (limit > 0) meta.push(tp("prompts.permissionMeta.lines", limit));
     if (boolArg(args, "recursive", false)) {
       meta.push(t("prompts.permissionMeta.recursive"));
@@ -461,7 +478,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta,
       copyText: stringArg(args, "path"),
       kind: "path",
@@ -483,7 +501,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta,
       copyText: pattern,
       kind: "code",
@@ -496,7 +515,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta: depth > 0 ? [t("prompts.permissionMeta.depth", { depth })] : [],
       copyText: stringArg(args, "path"),
       kind: "path",
