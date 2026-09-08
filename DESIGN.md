@@ -312,7 +312,7 @@ Implementation lives in **`external/ui/src/ui/messages/ToolCallMessage.tsx`**.
 - **Controls** - **More…** (**`data-testid="tool-result-more"`**) and **Less** (**`data-testid="tool-result-less"`**) use the shared left-aligned **`tool-overflow-toggle`** tab button in **`tool-result-toggle-row`**, attached flush to the result panel's bottom border. Phone layouts increase the button's minimum height to **36px** for a more comfortable touch target.
 - **Full body** - The SPA obtains the saved full string only via **GET `/foxxycode/sessions/{sessionId}/tool-calls/{toolCallId}`** (JSON **`result`** ). **`App.tsx`** wires **`onFetchToolCallFull`** to that endpoint and merges **`fullResultText`** into transcript state (**`external/ui/src/ui/App.tsx`** ).
 
-Tool call history is persisted per session under `tool_calls/` so it can be restored after restart.
+Tool call history is persisted per session under `tool_calls/` so it can be restored after restart. The per-call directory is named after the tool call id, except that ids carrying characters that are not legal in a Windows file name (NeuralDeep-hosted models answer with harmony ids such as `functions.foxxycode_todo_plan_replace:0`) are rewritten to `[A-Za-z0-9._-]` plus a short hash suffix; `meta.json` always keeps the original `toolCallId`. Todo mutations (`foxxycode_todo_item_update`, `foxxycode_todo_plan_replace`) store their `planSnapshot` in `meta.json` before the call is marked finished, and a session branch copies the per-call directories of its copied prefix.
 
 ### Tool permission gate
 

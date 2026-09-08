@@ -1295,6 +1295,11 @@ func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadToolCallMeta: %v", err)
 	}
+	// One meta.json carries both the outcome and the snapshot: a transcript
+	// reload must never see a completed todo call without its plan rows.
+	if meta.Status != "completed" {
+		t.Fatalf("persisted Status = %q, want completed", meta.Status)
+	}
 	if len(meta.PlanSnapshot) != 2 || meta.PlanSnapshot[1].Status != "completed" {
 		t.Fatalf("persisted PlanSnapshot = %+v", meta.PlanSnapshot)
 	}

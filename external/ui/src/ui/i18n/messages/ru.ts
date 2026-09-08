@@ -805,6 +805,8 @@ export const messagesRu: Record<string, string> = {
   "todoPreview.header.item": "Обновлён пункт",
   "todoPreview.header.plan": "План задач",
   "todoPreview.meta.position": "{position} из {total}",
+  "todoPreview.meta.positionOnly": "пункт {position}",
+  "todoPreview.item.fallback": "Пункт {position}",
   "todoPreview.meta.completed.one": "{count} выполнен",
   "todoPreview.meta.completed.few": "{count} выполнено",
   "todoPreview.meta.completed.many": "{count} выполнено",

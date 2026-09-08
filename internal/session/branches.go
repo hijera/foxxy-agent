@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
@@ -163,6 +164,19 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	wrap := messagesFileData{Version: messagesLayout, Messages: prefix}
 	if err := writeJSONAtomic(msgPath, wrap); err != nil {
 		return nil, fmt.Errorf("branch messages: %w", err)
+	}
+	// The prefix keeps its tool cards, so their per-call store (args, result, the
+	// plan snapshot a todo tool recorded) travels with it; otherwise every card
+	// before the fork degrades to the bare transcript row.
+	for _, m := range prefix {
+		for _, tc := range m.ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" {
+				continue
+			}
+			if err := CopyToolCallStore(snap.Dir, newDir, tc.ID); err != nil {
+				return nil, fmt.Errorf("branch tool call %s: %w", tc.ID, err)
+			}
+		}
 	}
 
 	// Read existing branch metadata for the source session.
