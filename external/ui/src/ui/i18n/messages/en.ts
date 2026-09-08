@@ -761,6 +761,7 @@ export const messagesEn: Record<string, string> = {
   "status.backgroundStop": "Stopping a background task",
   "status.backgroundReap": "Cleaning up background tasks",
   "status.tool": "Running a tool",
+  "status.retryingModel": "Provider is not responding — retrying",
   "status.thinking": "Thinking…",
   "status.memory": "Working with memory",
   "status.config": "Updating the configuration",

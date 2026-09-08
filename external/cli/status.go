@@ -32,6 +32,10 @@ const (
 	statusWaitingModel = "Waiting for the model"
 	statusWaitingSlow  = "The model is taking longer than usual"
 	statusWaitingStuck = "Still no response from the server"
+	// statusRetryingModel covers a turn parked between two attempts at the same call
+	// because the provider produced no output. The console is the surface most likely
+	// to be left staring at a spinner for minutes, so it says so explicitly.
+	statusRetryingModel = "Provider is not responding, retrying"
 )
 
 // liveStatus is the current step of a running turn. counts is false for steps that are

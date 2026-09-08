@@ -434,6 +434,12 @@ func httpStatusFromError(err error) int {
 // from a broken model.
 func HTTPStatus(err error) int { return httpStatusFromError(err) }
 
+// IsRetryableProviderError reports whether err describes a failing endpoint rather than a
+// rejected request: the same classification the retry layer uses, exposed so the agent loop
+// can apply its own much longer schedule to the same failures. The seconds-scale retries in
+// this file absorb a hiccup; a saturated gateway is out for minutes.
+func IsRetryableProviderError(err error) bool { return isRetryableLLMError(err) }
+
 // RetryDelayHint returns the pause a rate-limiting server asked for - a Retry-After header or a
 // "retry in Ns" body - when the error carries one.
 func RetryDelayHint(err error) (time.Duration, bool) { return serverRetryDelay(err) }

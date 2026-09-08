@@ -145,6 +145,36 @@
           "default": 90000,
           "minimum": 0
         },
+        "llm_stall_timeout_ms": {
+          "type": "integer",
+          "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it, keeping the partial answer. Covers the case the first-token guard cannot: it stops at the first token and never re-arms. An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
+          "default": 60000,
+          "minimum": 0
+        },
+        "llm_stall_retry": {
+          "type": "boolean",
+          "description": "When an LLM call fails without producing any output - a silent provider, a dropped connection (unexpected EOF), a provider-side timeout (Client.Timeout), a 5xx - wait and re-issue the same request instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so no output can be duplicated.",
+          "default": true
+        },
+        "llm_stall_retry_delays_ms": {
+          "type": "array",
+          "description": "Pause before each retry, in milliseconds. The last entry repeats for every later attempt, so [60000, 180000, 300000] means one minute, then three, then five minutes for every attempt after that.",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "default": [
+            60000,
+            180000,
+            300000
+          ]
+        },
+        "llm_stall_retry_max_wait_ms": {
+          "type": "integer",
+          "description": "Total time that may be spent waiting between retries of one LLM call before the turn gives up and surfaces the error. An explicit 0 retries until the model answers or the user stops the turn.",
+          "default": 3600000,
+          "minimum": 0
+        },
         "loop_guard": {
           "type": "boolean",
           "description": "Runaway-loop protection: cut a streamed response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",

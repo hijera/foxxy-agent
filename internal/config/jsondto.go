@@ -144,6 +144,10 @@ type AgentJSON struct {
 	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
 	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
 	LLMFirstTokenTimeoutMS *int   `json:"llm_first_token_timeout_ms,omitempty"`
+	LLMStallTimeoutMS      *int   `json:"llm_stall_timeout_ms,omitempty"`
+	LLMStallRetry          *bool  `json:"llm_stall_retry,omitempty"`
+	LLMStallRetryDelaysMS  []int  `json:"llm_stall_retry_delays_ms,omitempty"`
+	LLMStallRetryMaxWaitMS *int   `json:"llm_stall_retry_max_wait_ms,omitempty"`
 	LoopGuard              *bool  `json:"loop_guard,omitempty"`
 	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
 	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
@@ -391,6 +395,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
 		LLMFirstTokenTimeoutMS: c.Agent.LLMFirstTokenTimeoutMS,
+		LLMStallTimeoutMS:      c.Agent.LLMStallTimeoutMS,
+		LLMStallRetry:          c.Agent.LLMStallRetry,
+		LLMStallRetryDelaysMS:  append([]int(nil), c.Agent.LLMStallRetryDelaysMS...),
+		LLMStallRetryMaxWaitMS: c.Agent.LLMStallRetryMaxWaitMS,
 		LoopGuard:              c.Agent.LoopGuard,
 		LoopToolRepeatLimit:    c.Agent.LoopToolRepeatLimit,
 		LoopStreamRepeatCycles: c.Agent.LoopStreamRepeatCycles,
@@ -598,6 +606,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
 		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,
 		LLMFirstTokenTimeoutMS: j.Agent.LLMFirstTokenTimeoutMS,
+		LLMStallTimeoutMS:      j.Agent.LLMStallTimeoutMS,
+		LLMStallRetry:          j.Agent.LLMStallRetry,
+		LLMStallRetryDelaysMS:  append([]int(nil), j.Agent.LLMStallRetryDelaysMS...),
+		LLMStallRetryMaxWaitMS: j.Agent.LLMStallRetryMaxWaitMS,
 		LoopGuard:              j.Agent.LoopGuard,
 		LoopToolRepeatLimit:    j.Agent.LoopToolRepeatLimit,
 		LoopStreamRepeatCycles: j.Agent.LoopStreamRepeatCycles,

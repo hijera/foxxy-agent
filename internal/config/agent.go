@@ -18,6 +18,18 @@ const (
 	// minute before its first token, and 30s cut those turns as if the provider
 	// had hung.
 	AgentDefaultLLMFirstTokenTimeoutMS = 90000
+	// AgentDefaultLLMStallTimeoutMS bounds how long a stream that has ALREADY
+	// produced output may stay silent before the turn cuts it. The first-token
+	// guard above stops for good at the first token and is never re-armed, so
+	// without this a provider that abandons a half-written answer holds the turn
+	// open until its context dies. Lower than the first-token default on purpose:
+	// measured healthy inter-frame gaps on a saturated hub were 1.5-3.9s, and a
+	// model that has already produced thousands of frames is warmed up, so a long
+	// gap mid-answer is more anomalous than a long prefill.
+	AgentDefaultLLMStallTimeoutMS = 60000
+	// AgentDefaultLLMStallRetryMaxWaitMS is the wall-clock budget for waiting out a
+	// silent provider within one LLM call. An explicit 0 means unbounded.
+	AgentDefaultLLMStallRetryMaxWaitMS = 3600000
 	// AgentDefaultLoopToolRepeatLimit is how many consecutive identical tool calls
 	// (same name, same canonical arguments) the loop guard tolerates.
 	AgentDefaultLoopToolRepeatLimit = 3
@@ -28,6 +40,12 @@ const (
 	// before the loop guard stops it.
 	AgentDefaultLoopNudgeMax = 2
 )
+
+// agentDefaultLLMStallRetryDelaysMS is the pause before each retry of a silent LLM
+// call: one minute, then three, then five - and five for every attempt after that,
+// because the last entry repeats. Long enough to outlast a saturated gateway
+// without hammering it.
+var agentDefaultLLMStallRetryDelaysMS = []int{60000, 180000, 300000}
 
 // Agent is the YAML agent section (key agent) for ReAct loop settings.
 type Agent struct {
@@ -46,6 +64,20 @@ type Agent struct {
 	// the turn cancels it. A nil pointer means the default (90000); an explicit 0
 	// disables the guard, leaving the turn context as the only bound.
 	LLMFirstTokenTimeoutMS *int `yaml:"llm_first_token_timeout_ms"`
+	// LLMStallTimeoutMS is how long a streamed LLM call that has already produced
+	// output may stay silent before the turn cuts it. A nil pointer means the
+	// default (90000); an explicit 0 disables the guard.
+	LLMStallTimeoutMS *int `yaml:"llm_stall_timeout_ms"`
+	// LLMStallRetry toggles waiting out a provider that produced no output at all
+	// and re-issuing the same call. A nil pointer means the default (true).
+	LLMStallRetry *bool `yaml:"llm_stall_retry"`
+	// LLMStallRetryDelaysMS is the pause before each retry; the last entry repeats
+	// for every later attempt. Empty means the default ladder (1m, 3m, 5m, 5m...).
+	LLMStallRetryDelaysMS []int `yaml:"llm_stall_retry_delays_ms"`
+	// LLMStallRetryMaxWaitMS caps the total time spent waiting between retries of
+	// one call. A nil pointer means the default (3600000, one hour); an explicit 0
+	// retries until the model answers or the user stops the turn.
+	LLMStallRetryMaxWaitMS *int `yaml:"llm_stall_retry_max_wait_ms"`
 	// LoopGuard toggles runaway-loop protection: aborting a streamed response that
 	// degenerates into repeating itself, and blocking identical tool calls issued
 	// over and over. A nil pointer means the default (true).
@@ -79,6 +111,45 @@ func (c *Agent) EffectiveLLMFirstTokenTimeout() time.Duration {
 		return AgentDefaultLLMFirstTokenTimeoutMS * time.Millisecond
 	}
 	return time.Duration(*c.LLMFirstTokenTimeoutMS) * time.Millisecond
+}
+
+// EffectiveLLMStallTimeout returns llm_stall_timeout_ms as a duration with the
+// default applied. An explicit 0 disables the guard.
+func (c *Agent) EffectiveLLMStallTimeout() time.Duration {
+	if c.LLMStallTimeoutMS == nil {
+		return AgentDefaultLLMStallTimeoutMS * time.Millisecond
+	}
+	return time.Duration(*c.LLMStallTimeoutMS) * time.Millisecond
+}
+
+// LLMStallRetryEnabled reports whether a silent LLM call is waited out and retried.
+// Defaults to true when unset.
+func (c *Agent) LLMStallRetryEnabled() bool {
+	return c.LLMStallRetry == nil || *c.LLMStallRetry
+}
+
+// EffectiveLLMStallRetryDelays returns llm_stall_retry_delays_ms as durations with
+// the default ladder applied. The caller repeats the last entry for every attempt
+// past the end of the slice.
+func (c *Agent) EffectiveLLMStallRetryDelays() []time.Duration {
+	src := c.LLMStallRetryDelaysMS
+	if len(src) == 0 {
+		src = agentDefaultLLMStallRetryDelaysMS
+	}
+	out := make([]time.Duration, 0, len(src))
+	for _, ms := range src {
+		out = append(out, time.Duration(ms)*time.Millisecond)
+	}
+	return out
+}
+
+// EffectiveLLMStallRetryMaxWait returns llm_stall_retry_max_wait_ms as a duration
+// with the default applied. An explicit 0 means unbounded.
+func (c *Agent) EffectiveLLMStallRetryMaxWait() time.Duration {
+	if c.LLMStallRetryMaxWaitMS == nil {
+		return AgentDefaultLLMStallRetryMaxWaitMS * time.Millisecond
+	}
+	return time.Duration(*c.LLMStallRetryMaxWaitMS) * time.Millisecond
 }
 
 // LoopGuardEnabled reports whether runaway-loop protection is active. Defaults to true when unset.
@@ -142,6 +213,25 @@ func (c *Agent) Validate() error {
 	}
 	if c.LLMFirstTokenTimeoutMS != nil && *c.LLMFirstTokenTimeoutMS < 0 {
 		return fmt.Errorf("agent.llm_first_token_timeout_ms: must be >= 0")
+	}
+	if c.LLMStallTimeoutMS != nil && *c.LLMStallTimeoutMS < 0 {
+		return fmt.Errorf("agent.llm_stall_timeout_ms: must be >= 0")
+	}
+	if c.LLMStallRetryMaxWaitMS != nil && *c.LLMStallRetryMaxWaitMS < 0 {
+		return fmt.Errorf("agent.llm_stall_retry_max_wait_ms: must be >= 0")
+	}
+	for i, ms := range c.LLMStallRetryDelaysMS {
+		if ms < 0 {
+			return fmt.Errorf("agent.llm_stall_retry_delays_ms[%d]: must be >= 0", i)
+		}
+	}
+	// Unbounded retries whose final pause is zero would re-issue the request in a
+	// tight loop against a provider that is already struggling. Every other
+	// combination is survivable, so this is the one pairing worth rejecting.
+	if c.LLMStallRetryMaxWaitMS != nil && *c.LLMStallRetryMaxWaitMS == 0 {
+		if delays := c.EffectiveLLMStallRetryDelays(); delays[len(delays)-1] <= 0 {
+			return fmt.Errorf("agent.llm_stall_retry_max_wait_ms: 0 (unbounded) requires a non-zero final delay in agent.llm_stall_retry_delays_ms")
+		}
 	}
 	if c.LoopToolRepeatLimit != nil && *c.LoopToolRepeatLimit < 0 {
 		return fmt.Errorf("agent.loop_tool_repeat_limit: must be >= 0")
