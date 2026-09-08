@@ -68,6 +68,10 @@ type stallBehaviour struct {
 	deltaThenErr string
 	// err fails the call outright without delivering anything.
 	err error
+	// cancelWithToolCall streams deltaThenErr and then returns a half-written tool
+	// call alongside context.Canceled - what the stream readers hand back when a
+	// cancelled stream is finalized mid-arguments.
+	cancelWithToolCall bool
 }
 
 // stallProvider simulates the reported hub. Each entry of script says how the
@@ -112,6 +116,15 @@ func (p *stallProvider) Stream(ctx context.Context, messages []llm.Message, _ []
 	}
 
 	switch {
+	case b.cancelWithToolCall:
+		onChunk(llm.StreamChunk{TextDelta: b.deltaThenErr})
+		return &llm.Response{
+			Content: b.deltaThenErr,
+			ToolCalls: []llm.ToolCall{
+				{ID: "call_cut", Name: "read", InputJSON: `{"path":"a.g`},
+			},
+		}, context.Canceled
+
 	case b.deltaThenErr != "":
 		onChunk(llm.StreamChunk{TextDelta: b.deltaThenErr})
 		return nil, b.err
@@ -556,5 +569,29 @@ func TestTransportFailureAfterDeltasIsNotReplayed(t *testing.T) {
 	}
 	if got := p.callCount(); got != 1 {
 		t.Errorf("provider called %d times, want 1 (delivered output must never be replayed)", got)
+	}
+}
+
+// TestStallContinuationDoesNotConsumeReactTurns is the twin of
+// TestSilentRetryDoesNotConsumeReactTurns for the other provider failure. A
+// connection that died mid-answer is not a reasoning step the model chose, so
+// carrying on must not shrink max_turns either.
+func TestStallContinuationDoesNotConsumeReactTurns(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{partial: "The first half."},
+		{partial: " A bit more."},
+		{answer: " And the rest."},
+	}}
+	h := newStallHarness(t, p, func(c *config.Agent) { c.MaxTurns = 1 })
+
+	stop, err := h.run(t)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Errorf("stop reason = %q, want end_turn with max_turns 1 and two stalls", stop)
+	}
+	if got := p.callCount(); got != 3 {
+		t.Errorf("provider called %d times, want 3", got)
 	}
 }

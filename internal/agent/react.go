@@ -440,22 +440,24 @@ func (a *Agent) runReActLoop(
 	// quarantined calls and executed nothing: it has nothing left but the loop.
 	blockedRounds := 0
 
-	// Waiting out a provider that answers nothing at all (agent.llm_stall_retry).
-	// stallRetries extends the loop bound below so a call that produced no output
-	// never costs the model a reasoning step, and stallContinues bounds how often
-	// a turn cut mid-answer is asked to carry on.
+	// Recovering from a provider that went quiet (agent.llm_stall_retry).
+	// recoveryTurns counts loop iterations spent on that rather than on advancing
+	// the model's plan - a replayed call that produced nothing, and a continuation
+	// after the connection died mid-answer. Neither is a step the model chose, so
+	// neither shrinks max_turns; both stay bounded by something else
+	// (llm_stall_retry_max_wait_ms and maxStallContinuations).
 	stalls := newStallRetry(&a.cfg.Agent)
-	stallRetries := 0
+	recoveryTurns := 0
 	stallContinues := 0
 
-	// maxTurns bounds the model's reasoning steps. A retry of a call that produced
-	// nothing is not one, so the bound grows with stallRetries and reactTurn - the
-	// index the loop body reasons with - stays the count of real steps.
-	for turn := 0; turn < maxTurns+stallRetries; turn++ {
+	// maxTurns bounds the model's reasoning steps, so the bound grows with the
+	// iterations spent recovering from a provider failure and reactTurn - the index
+	// the loop body reasons with - stays the count of real steps.
+	for turn := 0; turn < maxTurns+recoveryTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
 		}
-		reactTurn := turn - stallRetries
+		reactTurn := turn - recoveryTurns
 
 		// Tool definitions for this one request. They are normally the turn's set,
 		// but a model with nothing left but quarantined calls gets one tools-free
@@ -758,6 +760,7 @@ func (a *Agent) runReActLoop(
 					return string(acp.StopReasonRefused), stallAbortError(stallTimeout, stallContinues)
 				}
 				stallContinues++
+				recoveryTurns++
 				a.log.Warn("provider stopped sending data mid-answer; continuing",
 					"idle", stallTimeout, "continuation", stallContinues)
 				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
@@ -779,7 +782,7 @@ func (a *Agent) runReActLoop(
 				// the seconds-scale retries inside internal/llm.
 				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "no output"); {
 				case retry:
-					stallRetries++
+					recoveryTurns++
 					continue
 				case stopped:
 					return string(acp.StopReasonCancelled), nil
@@ -796,8 +799,15 @@ func (a *Agent) runReActLoop(
 			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
-				hasTools := len(response.ToolCalls) > 0
-				if hasText || hasTools || reasonTrim != "" {
+				// Tool calls are deliberately absent from what follows. A cancelled
+				// stream is finalized mid-arguments, so the readers hand back calls
+				// whose JSON was cut; and every tool_call_id an assistant message
+				// announces must get a result, or the next request in this
+				// conversation is rejected. Replaying an invalid call is worse than
+				// losing it - the same choice openai_stream.go makes for a truncated
+				// stream and persistStalledMessage makes for a stall. A response that
+				// produced only a cut call therefore persists nothing at all.
+				if hasText || reasonTrim != "" {
 					var reasoningMs int64
 					if reasonTrim != "" && !reasonClockStart.IsZero() {
 						end := reasonClockEnd
@@ -816,7 +826,6 @@ func (a *Agent) runReActLoop(
 						Content:             response.Content,
 						Reasoning:           reasonStore,
 						ReasoningSignature:  reasonSig,
-						ToolCalls:           response.ToolCalls,
 						ReasoningDurationMs: reasoningMs,
 						Model:               a.state.EffectiveModelID(a.cfg),
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -851,7 +860,7 @@ func (a *Agent) runReActLoop(
 			if !hasAnyOutput && !a.state.IsUserCancelledTurn() && stallRetryableError(streamErr) {
 				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "provider error"); {
 				case retry:
-					stallRetries++
+					recoveryTurns++
 					continue
 				case stopped:
 					return string(acp.StopReasonCancelled), nil
@@ -939,7 +948,12 @@ func (a *Agent) runReActLoop(
 
 		// After the first assistant response, generate a short session title off the hot path.
 		// Only the fresh-prompt path titles; resume/continue turns never do.
-		if allowTitleGen && reactTurn == 0 {
+		// Not gated on the loop index: a stall continuation, a loop-guard nudge or an
+		// empty-answer re-prompt all push the first real answer past index 0, and
+		// gating on it left those sessions untitled. titleOnce dedupes within the
+		// turn and maybeGenerateTitleForConfig refuses to overwrite an existing
+		// title, so calling it on every answer is both cheap and correct.
+		if allowTitleGen {
 			a.startTitleGeneration(transport.provider)
 		}
 
@@ -1127,10 +1141,8 @@ func (a *Agent) persistLoopAbortedMessage(
 	minCycles int,
 ) {
 	content := ""
-	var toolCalls []llm.ToolCall
 	if response != nil {
 		content = response.Content
-		toolCalls = response.ToolCalls
 	}
 	content, _ = trimRepeatedTail(content, minCycles)
 
@@ -1149,7 +1161,13 @@ func (a *Agent) persistLoopAbortedMessage(
 		reasonStore, reasonSig = reasoningForStorage(reasonTrim, reasonRaw, response)
 	}
 
-	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 {
+	// Tool calls are dropped rather than persisted. The guard cancelled this stream,
+	// so the readers finalized it mid-arguments and the calls may carry cut JSON;
+	// worse, the caller rebuilds the payload from session state and re-prompts
+	// immediately, so an unanswered tool_call_id here breaks the very next request
+	// of this same turn. Same rule as persistStalledMessage and the truncation path
+	// in openai_stream.go.
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" {
 		return
 	}
 
@@ -1169,7 +1187,6 @@ func (a *Agent) persistLoopAbortedMessage(
 		Content:             content,
 		Reasoning:           reasonStore,
 		ReasoningSignature:  reasonSig,
-		ToolCalls:           toolCalls,
 		ReasoningDurationMs: reasoningMs,
 		Model:               a.state.EffectiveModelID(a.cfg),
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
