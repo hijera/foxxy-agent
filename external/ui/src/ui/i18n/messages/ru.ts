@@ -694,6 +694,8 @@ export const messagesRu: Record<string, string> = {
     "Остановлено: модель повторяла одно и то же рассуждение, так и не придя к ответу.",
   "messages.loopGuardTool":
     "Остановлено: модель снова и снова запрашивала вызов {tool} с теми же аргументами.",
+  "messages.loopGuardToolCycle":
+    "Остановлено: модель повторяла одну и ту же последовательность вызовов, не продвигаясь вперёд.",
   "messages.thinkingInProgress": "думаю…",
   "messages.thinkingCompleted": "размышление",
   "messages.thinkingSummaryAriaLabel": "Сводка размышления",

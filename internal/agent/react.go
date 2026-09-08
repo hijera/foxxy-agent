@@ -90,6 +90,15 @@ type Agent struct {
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
+
+	// loopPins names read/grep results the loop guard rescued from eviction after a
+	// re-read loop, so the content the model kept circling back for stays in the
+	// projection. loopQuarantine names the calls it took away for the rest of the
+	// turn; the projection reads it too, to collapse the repeats those calls left
+	// behind. Both are guarded: the projection also runs from the compaction pass.
+	pinMu          sync.Mutex
+	loopPins       map[string]struct{}
+	loopQuarantine map[string]struct{}
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -353,7 +362,27 @@ const (
 	toolLoopNudge = "You have requested the same tool call with identical arguments several times in a row, so it was not executed again. Repeating it will not produce a different result. Use what you already have: try a different tool or different arguments, or answer the user with the information you have."
 
 	toolLoopSkippedResult = "not executed: the loop guard stopped this turn after repeated identical tool calls"
+
+	toolCycleNudge = "This call repeats a sequence of tool calls you have already run in this turn with the same arguments, so it was not executed again. Running it again will not return anything new. Note that an \"[evicted: ...]\" placeholder only means the text was dropped from your context to save room - the file has not changed, and re-reading it will produce the same content you already reasoned about. Work from what you have and take a genuinely different step, or tell the user what you cannot determine; do not repeat the sequence."
+
+	toolCycleSkippedResult = "not executed: the loop guard stopped this turn after a repeating sequence of tool calls"
+
+	// toolCycleStopNotice is the notice surfaced when a turn keeps cycling through
+	// the same sequence after every nudge. Unlike the identical-call notice it
+	// interpolates nothing, so the SPA can match it by equality
+	// (external/ui/src/ui/chat/loopGuardNotice.ts). Keep the two byte-identical.
+	toolCycleStopNotice = "stopped: the model kept repeating the same sequence of tool calls"
+
+	toolQuarantinedResult = "not executed: the loop guard has taken this call away for the rest of this turn because it was being repeated without progress. Its earlier result stands, above in this conversation. Do something different, or answer with what you already know."
+
+	loopAnswerDirective = "The tool calls you keep asking for have been taken away for the rest of this turn, and no tools are available on this request. Write your reply to the user now, using everything you have already gathered. If something could not be determined, say so plainly instead of describing the tool call you would have made."
 )
+
+// maxBlockedRoundsBeforeAnswer bounds how many rounds may consist purely of
+// quarantined calls before the loop takes the tools away for one request and asks
+// for the answer. Without it a model that knows nothing but the loop would keep
+// asking for blocked calls until max_turns, ending the turn with nothing to show.
+const maxBlockedRoundsBeforeAnswer = 2
 
 // loopAbortChannel names the streamed channel that degenerated into a loop.
 type loopAbortChannel int
@@ -392,30 +421,51 @@ func (a *Agent) runReActLoop(
 	guardOn := a.cfg.Agent.LoopGuardEnabled()
 	streamRepeatCycles := 0
 	var toolRepeats *toolRepeatDetector
+	var toolCycles *toolCycleDetector
 	loopNudgeBudget := 0
 	if guardOn {
 		streamRepeatCycles = a.cfg.Agent.EffectiveLoopStreamRepeatCycles()
 		toolRepeats = newToolRepeatDetector(a.cfg.Agent.EffectiveLoopToolRepeatLimit())
+		toolCycles = newToolCycleDetector(a.cfg.Agent.EffectiveLoopToolCycleRepeats())
 		loopNudgeBudget = a.cfg.Agent.EffectiveLoopNudgeMax()
 	}
 	loopNudges := 0
+	// stuckAction decides what happens once a tool loop has survived every nudge:
+	// quarantine the calls and carry on (the default), or end the turn.
+	stuckAction := a.cfg.Agent.EffectiveLoopStuckAction()
+	// The quarantine is per turn: what the guard took away last time must not
+	// silence a call the user has just asked for again.
+	a.resetLoopQuarantine()
+	// blockedRounds counts consecutive rounds in which the model asked only for
+	// quarantined calls and executed nothing: it has nothing left but the loop.
+	blockedRounds := 0
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
 		}
 
+		// Tool definitions for this one request. They are normally the turn's set,
+		// but a model with nothing left but quarantined calls gets one tools-free
+		// request so it has to answer from what it gathered. The system prompt is
+		// rendered from the same slice below, so its tool section disappears too.
+		callDefs := toolDefs
+		forceAnswer := blockedRounds >= maxBlockedRoundsBeforeAnswer
+		if forceAnswer {
+			callDefs = nil
+		}
+
 		a.emitDebug(turn, "turn_start", mode, "", map[string]interface{}{
 			"mode":     mode,
 			"model":    a.state.EffectiveModelID(a.cfg),
 			"messages": len(messages),
-			"tools":    len(toolDefs),
+			"tools":    len(callDefs),
 		})
 
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after foxxycode_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
+			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles)
 		}
 
 		// Auto-compaction: when the conversation approaches the context window, summarize older
@@ -424,14 +474,14 @@ func (a *Agent) runReActLoop(
 		// checks every turn against the provider's real input-token count.
 		if a.cfg.Compaction.EngineIsCoddy() {
 			if turn > 0 && a.maybeAutoCompact(ctx) {
-				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 			}
 		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
 			}
 		} else if did {
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 		}
 
 		// Call LLM and stream response.
@@ -512,14 +562,24 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
+		if forceAnswer {
+			// LLM-facing only; never persisted to the transcript, the same way the
+			// loop-guard and empty-turn nudges are. Appended after the compaction
+			// rebuild above so it cannot be swallowed by one.
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: loopAnswerDirective})
+			blockedRounds = 0
+			a.log.Warn("loop guard asked for an answer with tools withheld", "turn", turn)
+		}
+
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
 		sendMessages := a.prunedForLLM(messages)
 		a.emitDebug(turn, "llm_request", "", "", map[string]interface{}{
 			"model":    a.state.EffectiveModelID(a.cfg),
 			"messages": len(sendMessages),
+			"tools":    len(callDefs),
 		})
-		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -584,7 +644,7 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonRefused), loopAbortError(loopAbort)
 			}
 			loopNudges++
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 			nudge := streamLoopNudge
 			if loopAbort == loopAbortReasoning {
 				nudge = reasoningLoopNudge
@@ -774,21 +834,49 @@ func (a *Agent) runReActLoop(
 		}
 
 		// Execute all tool calls.
+		executedThisRound, quarantinedThisRound := 0, 0
 		for i, tc := range response.ToolCalls {
 			if ctx.Err() != nil {
 				return string(acp.StopReasonCancelled), nil
 			}
 
-			// A model stuck on the identical call (same name, same canonical arguments)
-			// would otherwise burn the whole max_turns budget without an answer. Skip
-			// the execution and tell it so; every tool_call_id still gets a result,
-			// because OpenAI-compatible endpoints reject the next request otherwise.
-			if _, tripped := toolRepeats.Observe(tc.Name, tc.InputJSON); tripped {
-				if loopNudges >= loopNudgeBudget {
+			// Already taken away earlier in this turn: answer the call without
+			// running it. This gate has to sit on the execution path rather than in
+			// the tool definitions, because executeToolCall never consults them - the
+			// same reason toolCallRefusedByMode exists (see toolsets.go).
+			if a.isQuarantined(canonicalToolCallKey(tc.Name, tc.InputJSON)) {
+				quarantinedThisRound++
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+				continue
+			}
+
+			// A model stuck on the identical call (same name, same canonical arguments),
+			// or rotating through a fixed sequence of them, would otherwise burn the
+			// whole max_turns budget without an answer. Skip the execution and tell it
+			// so; every tool_call_id still gets a result, because OpenAI-compatible
+			// endpoints reject the next request otherwise.
+			//
+			// Both detectors observe every requested call before either branch runs, so
+			// a call the repeat detector skips still lands in the cycle history. The
+			// repeat detector goes first: period one is its shape, and it trips sooner.
+			_, repeatTripped := toolRepeats.Observe(tc.Name, tc.InputJSON)
+			cyclePeriod, cycleUnit, cycleTripped := toolCycles.Observe(tc.Name, tc.InputJSON)
+			switch {
+			case repeatTripped && loopNudges >= loopNudgeBudget:
+				if stuckAction == config.AgentLoopStuckActionStop {
 					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
 					return string(acp.StopReasonRefused), fmt.Errorf(
 						"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
 				}
+				a.log.Warn("loop guard quarantined a repeated tool call", "tool", tc.Name)
+				if !a.quarantineLoop(tc, nil) {
+					quarantinedThisRound++
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+					continue
+				}
+				// read/grep fall through: one last execution, pinned, so the model
+				// finally holds stable content instead of being told no.
+			case repeatTripped:
 				loopNudges++
 				// The counter deliberately keeps running: clearing it here (as Roo does,
 				// where the trip is a blocking question to the user) would let the model
@@ -797,7 +885,32 @@ func (a *Agent) runReActLoop(
 				a.log.Warn("loop guard blocked a repeated tool call", "tool", tc.Name, "nudge", loopNudges)
 				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
 				continue
+			case cycleTripped && loopNudges >= loopNudgeBudget:
+				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
+					"tool": tc.Name, "period": cyclePeriod, "action": stuckAction,
+				})
+				if stuckAction == config.AgentLoopStuckActionStop {
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolCycleSkippedResult)
+					return string(acp.StopReasonRefused), errors.New(toolCycleStopNotice)
+				}
+				a.log.Warn("loop guard quarantined a tool-call cycle",
+					"tool", tc.Name, "period", cyclePeriod, "calls", len(cycleUnit))
+				if !a.quarantineLoop(tc, cycleUnit) {
+					quarantinedThisRound++
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+					continue
+				}
+			case cycleTripped:
+				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
+					"tool": tc.Name, "period": cyclePeriod, "nudge": loopNudges,
+				})
+				loopNudges++
+				a.log.Warn("loop guard blocked a repeating tool-call cycle",
+					"tool", tc.Name, "period", cyclePeriod, "nudge", loopNudges)
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolCycleNudge)
+				continue
 			}
+			executedThisRound++
 
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false, turn)
 
@@ -834,6 +947,15 @@ func (a *Agent) runReActLoop(
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.ConfigReloaded = false
 		}
+		// A round in which the model asked only for quarantined calls and executed
+		// nothing means it has nothing left but the loop. Counted consecutively, the
+		// same way emptyContinuations is: one executed call is progress and clears it.
+		if quarantinedThisRound > 0 && executedThisRound == 0 {
+			blockedRounds++
+		} else {
+			blockedRounds = 0
+		}
+
 		// The model made progress (executed tool calls), so reset the empty-turn counter. The
 		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow
 		// multi-step task that keeps acting between reasoning-only thoughts — otherwise a model
