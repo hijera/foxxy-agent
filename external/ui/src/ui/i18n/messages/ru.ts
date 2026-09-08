@@ -195,6 +195,8 @@ export const messagesRu: Record<string, string> = {
   "sessions.delete": "Удалить",
   "sessions.newChatFallback": "Новый чат",
   "sessions.backendUnavailable": "Бэкенд недоступен ({status})",
+  "sessions.offline": "FoxxyCode недоступен",
+  "scheduler.offline": "FoxxyCode недоступен",
   "sessions.loadingSession": "Загружаем диалог…",
   "sessions.projectOnly": "Только этот проект",
   "sessions.projectOnlyHint":

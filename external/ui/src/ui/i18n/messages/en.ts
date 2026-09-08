@@ -196,6 +196,8 @@ export const messagesEn: Record<string, string> = {
   "sessions.delete": "Delete",
   "sessions.newChatFallback": "New chat",
   "sessions.backendUnavailable": "Backend is unavailable ({status})",
+  "sessions.offline": "FoxxyCode is not reachable",
+  "scheduler.offline": "FoxxyCode is not reachable",
   "sessions.loadingSession": "Loading conversation…",
   "sessions.projectOnly": "This project only",
   "sessions.projectOnlyHint":

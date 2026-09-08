@@ -34,6 +34,7 @@ import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
 import { planSessionStatsApply } from "./chat/sessionTokenTotals";
 import { stripCompactionPreamble } from "./chat/compactionSummary";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
+import { fetchJSON } from "./env/fetchJSON";
 import {
   preserveTranscriptItemIds,
   stablePermissionPromptItemId,
@@ -365,19 +366,6 @@ function randomSessionId(): string {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return `sess_${hex}`;
-}
-
-async function fetchJSON<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<{ ok: boolean; status: number; data?: T }> {
-  const res = await fetch(path, init);
-  const status = res.status;
-  if (!res.ok) {
-    return { ok: false, status };
-  }
-  const data = (await res.json()) as T;
-  return { ok: true, status, data };
 }
 
 function newId(prefix: string): string {
@@ -2404,8 +2392,12 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
+        // status 0 is fetchJSON's "no answer from the server" (dropped connection),
+        // which has no code worth showing the user.
         setSessionsError(
-          t("sessions.backendUnavailable", { status: res.status }),
+          res.status === 0
+            ? t("sessions.offline")
+            : t("sessions.backendUnavailable", { status: res.status }),
         );
         return null;
       }
@@ -3466,6 +3458,14 @@ export function App() {
         `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
         { headers: { [HDR]: key } },
       );
+      // fetchJSON reports a dropped connection as status 0. That is not proof the
+      // turn ended, and falling through would delete the reconnect attempts and
+      // reconcile the transcript as finished. Treat it the way the transport error
+      // used to be treated before fetchJSON stopped throwing: try again later.
+      if (!act.ok && act.status === 0) {
+        markConnected(key);
+        return;
+      }
       active = !!(act.ok && act.data?.turnActive);
       noteViewedTurnActive(key, active);
     } catch {
@@ -4468,9 +4468,13 @@ export function App() {
     liveReconnectAttemptsRef.current.delete(sid);
     stopDiskFallbackPoll(sid);
     // Always send the server-side cancel so Stop works even after page reload.
+    // Fire-and-forget: if the connection is already gone the turn is unreachable
+    // anyway, and an escaping rejection would paint the IDE panel's error overlay.
     void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
       method: "POST",
       headers: { [HDR]: sid },
+    }).catch(() => {
+      /* ignore */
     });
     // Also abort the in-progress fetch request if we have one from this page session.
     postAbortBySidRef.current.get(sid)?.abort();
@@ -4522,6 +4526,9 @@ export function App() {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ selectedReasoning: lv }),
+      }).catch(() => {
+        // The choice is already applied locally and in the cookie; a lost write
+        // must not surface as an unhandled rejection.
       });
     },
     [sessionId, headers],
@@ -4543,6 +4550,9 @@ export function App() {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ selectedModelId: mid }),
+      }).catch(() => {
+        // The choice is already applied locally and in the cookie; a lost write
+        // must not surface as an unhandled rejection.
       });
     },
     [sessionId, llmModelIds, headers],
