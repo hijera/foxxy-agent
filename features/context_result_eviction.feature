@@ -3,13 +3,16 @@ Feature: Context overflow protection for read and grep results
   in the LLM context forever. Unmarked read/grep results are collapsed to short
   placeholders when building the request, while the model keeps the ones it marks
   as useful. Tool output is also capped by a per-tool line limit. The persisted
-  transcript always keeps every result in full.
+  transcript always keeps every result in full. Results the model has not read
+  yet are never collapsed: evicting one would ask it to re-read content it never
+  saw, which is how a re-read loop starts.
 
   Scenario: A marked read page survives while unmarked pages are evicted
     Given a workspace file "big.go" with 30 numbered lines
     When the model reads page 1, reads page 2, marks page 2 as useful, reads page 3, then answers
     Then the next LLM request keeps page 2 verbatim
-    And the next LLM request replaces page 1 and page 3 with placeholders
+    And the next LLM request replaces page 1 with a placeholder
+    And the next LLM request still carries page 3, which the model has not read yet
     And the next LLM request has one tool result per tool call
     And the persisted transcript still contains all three pages in full
 

@@ -687,6 +687,8 @@ export const messagesEn: Record<string, string> = {
     "Stopped: the model kept repeating the same reasoning without reaching an answer.",
   "messages.loopGuardTool":
     "Stopped: the model kept requesting the same {tool} call with identical arguments.",
+  "messages.loopGuardToolCycle":
+    "Stopped: the model kept running the same sequence of tool calls without making progress.",
   "messages.thinkingInProgress": "thinking...",
   "messages.thinkingCompleted": "thinking",
   "messages.thinkingSummaryAriaLabel": "Thinking summary",

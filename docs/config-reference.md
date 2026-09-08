@@ -161,10 +161,12 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. A server-provided pause (`Retry-After-Ms` / `Retry-After` headers, `Limit resets at` / `retry in Ns` body phrases) overrides the exponential backoff, capped at 60s. |
 | `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms, retry attempts included (e.g. `12000` on strict free tiers). |
 | `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
-| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
+| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through. |
 | `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
 | `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
-| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it stops the turn with a notice. |
+| `loop_tool_cycle_repeats` | int | no | `3` | Repetitions of the same *sequence* of tool calls before the guard steps in — what catches a model rotating through several calls instead of repeating one; `0` disables the check. Sequences of 2 to 8 calls are searched for, and because a lap is allowed to vary, a longer rotation is usually caught earlier through a shorter sub-pattern inside it. |
+| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it acts on a loop. |
+| `loop_stuck_action` | string | no | `quarantine` | What the guard does once a tool loop has survived every nudge. `quarantine` takes the looping calls away for the rest of the turn and lets it run on to a real answer, asking for that answer with the tools withheld if nothing else is left; `stop` ends the turn with a notice. A degenerate output stream always stops the turn regardless. |
 
 ## `prompts`
 

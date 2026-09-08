@@ -121,13 +121,17 @@ agent:
   # llm_min_interval_ms: 0        # min gap between LLM calls; e.g. 12000 on strict free tiers
   # llm_first_token_timeout_ms: 90000  # cancel a silent streamed call after this long (0 disables)
   # Runaway-loop protection. Cuts a streamed response that degenerates into
-  # repeating the same passage, and blocks a tool requested over and over with
-  # identical arguments. The model is nudged back on track first; only a turn
-  # that keeps looping is stopped with a notice.
+  # repeating the same passage, blocks a tool requested over and over with
+  # identical arguments, and blocks a whole sequence of calls the model keeps
+  # rotating through. The model is nudged back on track first; a loop that
+  # survives every nudge is taken away for the rest of the turn while the turn
+  # runs on to a real answer (loop_stuck_action: stop ends it instead).
   # loop_guard: true
   # loop_tool_repeat_limit: 3     # identical tool calls in a row before intervening (0 disables)
   # loop_stream_repeat_cycles: 5  # identical output cycles in one stream before it is cut (0 disables)
-  # loop_nudge_max: 2             # nudges before the turn is stopped
+  # loop_tool_cycle_repeats: 3    # repeats of the same sequence of calls before intervening (0 disables)
+  # loop_nudge_max: 2             # nudges before the guard acts on a loop
+  # loop_stuck_action: quarantine # then "quarantine" the looping calls, or "stop" the turn
 
 # Inline code autocomplete: the greyed suggestion the editor plugins draw ahead of
 # the caret, accepted with Tab. Editors fetch it over POST /foxxycode/completion -
