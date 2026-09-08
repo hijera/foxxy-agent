@@ -272,6 +272,9 @@ Mode selection
 
 - UI lets the user select the FoxxyCode profiles `agent`, `plan`, `docs`, `ask`, and `debug` from `GET /v1/models`.
 - Selected mode is sent as `model` field in `POST /v1/responses`.
+- **Mode is session state, both ways.** Changing it `PATCH`es `mode` on `/foxxycode/sessions/{id}` right away, so a profile picked without sending a turn is not lost on reload; **opening a session** restores it from `GET /foxxycode/sessions/{id}/messages` field `mode`. A **new chat** always starts in `agent` (New chat and picking a local draft both reset it — there is no mode cookie).
+- **A switch the backend makes itself** — running a plan, or the model calling `plan_exit` — arrives as the named SSE event `mode` (payload `currentModeId`) and repaints the composer. Without it the pill kept saying `plan` while the session had moved to `agent`, and the next turn's top-level `model` wrote `plan` straight back onto the session. The post-turn transcript read adopts the session's mode as a fallback for a stream that was cut, but never over a mode the user switched while that turn was running.
+- The selection a session carries (mode, model, reasoning) is applied **once per session open**, not on every transcript reconcile: `loadMessages` also runs after each turn and on reconnect, and re-applying its snapshot reverted a pick the user had just made (see `shouldApplySessionSelection` in `chat/sessionSelectionApply.ts`).
 - Ask uses the green mode outline and remains non-mutating: the model is offered only repository read/search/tree, web research, question, and skill tools, and any other tool call is refused at execution time. No settings knob.
 - Debug uses the red mode outline and has the same full tool surface as Agent; only its system prompt differs (diagnose, validate, confirm, then fix minimally). No settings knob.
 
@@ -282,8 +285,11 @@ SSE payloads
   - `tool_call`
   - `tool_call_update`
   - `plan`
+  - `mode` (`currentModeId`; the backend switched the session profile itself — a plan run, or `plan_exit`)
   - `token_usage`
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
+  - `memory_phase`, `memory_chunk`, `compaction`, `mcp_phase`, `debug`, `available_commands`
+  - `permission`, `question`, and the terminal `foxxycode_meta` before `data: [DONE]`
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
 ## Composer primary action (`#btn-send`)

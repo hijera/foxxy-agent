@@ -73,6 +73,9 @@ python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
 python3 "$HTTP_DIR/http_e2e_compact.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
+# Mode and model are session state: stored without a turn, reported back on the
+# transcript read, and a plan run announces its own switch back to agent.
+python3 "$HTTP_DIR/http_e2e_mode_model_sync.py"
 # Ask profile reads but never writes; agent on the same session still writes.
 python3 "$HTTP_DIR/http_e2e_ask_mode.py"
 # Stages, commits, and rolls back a config edit; leaves the server config unchanged.

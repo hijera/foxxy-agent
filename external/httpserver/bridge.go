@@ -219,6 +219,12 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("debug", u)
 	case acp.AvailableCommandsUpdate:
 		return s.writeNamedEventJSON("available_commands", u)
+	// The session profile changed under the client - a plan run or a plan_exit
+	// call switching back to agent. Without this frame the composer keeps its
+	// old pill and posts a profile the session has already left, which the next
+	// turn writes straight back onto the session.
+	case acp.ModeUpdate:
+		return s.writeNamedEventJSON("mode", u)
 	default:
 		return nil
 	}

@@ -159,7 +159,26 @@ export type ConsumeComposerSseParams = {
    * backend sends nothing at all once the servers are connected.
    */
   onMcpConnecting?: (connecting: boolean) => void;
+  /**
+   * FoxxyCode extension. Fired when the backend switched the session profile on
+   * its own — a plan run, or the model calling `plan_exit`. Without it the
+   * composer keeps the pill the user last picked and the next turn posts a
+   * profile the session has already left.
+   */
+  onModeChanged?: (mode: string) => void;
 };
+
+/** Profile id of a `event: mode` payload (ACP `current_mode_update`), or "". */
+export function sessionModeFromEvent(data: string): string {
+  try {
+    const payload = JSON.parse(data) as { currentModeId?: unknown };
+    return typeof payload.currentModeId === "string"
+      ? payload.currentModeId.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
 const PLAN_META_KIND = "foxxycode.dev/planKind";
@@ -233,6 +252,7 @@ export async function consumeComposerSseReader(
     onCompaction,
     onMcpConnecting,
     onDesignPlan,
+    onModeChanged,
   } = p;
 
       // Chronological transcript model: tool_call / thinking rows are appended in
@@ -599,6 +619,14 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "mode") {
+            const modeId = sessionModeFromEvent(ev.data);
+            if (modeId) {
+              onModeChanged?.(modeId);
+            }
+            continue;
+          }
+
           if (ev.event === "mcp_phase") {
             try {
               const payload = JSON.parse(ev.data) as { phase?: string };
@@ -921,6 +949,13 @@ export async function consumeComposerSseReader(
             const slug = designPlanSlugFromEvent(ev.data);
             if (slug) {
               onDesignPlan?.(slug);
+            }
+            continue;
+          }
+          if (ev.event === "mode") {
+            const modeId = sessionModeFromEvent(ev.data);
+            if (modeId) {
+              onModeChanged?.(modeId);
             }
             continue;
           }
