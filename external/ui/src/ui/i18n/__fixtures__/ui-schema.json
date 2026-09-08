@@ -32,7 +32,7 @@
         },
         "loop_guard": {
           "default": true,
-          "description": "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "description": "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.",
           "title": "Loop guard",
           "type": "boolean"
         },
@@ -46,6 +46,22 @@
           "default": 5,
           "description": "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
           "title": "Loop stream repeat cycles",
+          "type": "integer"
+        },
+        "loop_stuck_action": {
+          "default": "quarantine",
+          "description": "What the guard does once a tool loop has survived every nudge. \"quarantine\" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; \"stop\" ends the turn with a notice.",
+          "enum": [
+            "quarantine",
+            "stop"
+          ],
+          "title": "Loop stuck action",
+          "type": "string"
+        },
+        "loop_tool_cycle_repeats": {
+          "default": 3,
+          "description": "Repetitions of the same sequence of tool calls before the loop guard steps in, which is what catches a model rotating through several calls instead of repeating one (0 disables the check).",
+          "title": "Loop tool cycle repeats",
           "type": "integer"
         },
         "loop_tool_repeat_limit": {
@@ -86,6 +102,8 @@
         "loop_guard",
         "loop_tool_repeat_limit",
         "loop_stream_repeat_cycles",
+        "loop_tool_cycle_repeats",
+        "loop_stuck_action",
         "loop_nudge_max"
       ]
     },

@@ -66,8 +66,8 @@ func (m *Manager) executeScroll(_ context.Context, argsJSON string, env *tooling
 			`if(!el){return false;}el.scrollIntoView({block:'center',inline:'center'});return true;})()`, strconv.Quote(sel))
 		desc = "scrolled to " + sel
 	} else {
-		js = fmt.Sprintf(`(function(){window.scrollTo(%d,%d);return true;})()`, args.X, args.Y)
-		desc = fmt.Sprintf("scrolled to (%d,%d)", args.X, args.Y)
+		js = fmt.Sprintf(`(function(){window.scrollBy({left:%d,top:%d,behavior:'instant'});return true;})()`, args.X, args.Y)
+		desc = fmt.Sprintf("scrolled by (%d,%d)", args.X, args.Y)
 	}
 
 	var ok bool

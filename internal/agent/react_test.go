@@ -1323,3 +1323,172 @@ func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
 		t.Fatalf("SSE todoPlan = %+v", sent)
 	}
 }
+
+// rotatingToolProvider cycles through a fixed set of globs, the shape a model
+// falls into when it keeps re-fetching context it believes it lost. No two
+// consecutive calls are identical, so toolRepeatDetector never sees it. Once
+// answerWhenBlocked turns true it stops calling tools and answers instead, which
+// is what a model does after the guard has taken the loop away.
+type rotatingToolProvider struct {
+	calls    int
+	patterns []string
+	// answerWhenBlocked makes the model give up on tools after this many calls.
+	answerAfter int
+	// toollessCalls counts requests that arrived with no tool definitions.
+	toollessCalls int
+	answer        string
+}
+
+func (p *rotatingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *rotatingToolProvider) Stream(_ context.Context, _ []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	if len(defs) == 0 {
+		p.toollessCalls++
+		answer := p.answer
+		if answer == "" {
+			answer = "here is what I found"
+		}
+		onChunk(llm.StreamChunk{TextDelta: answer})
+		return &llm.Response{Content: answer, StopReason: "end_turn"}, nil
+	}
+	if p.answerAfter > 0 && p.calls >= p.answerAfter {
+		answer := p.answer
+		if answer == "" {
+			answer = "here is what I found"
+		}
+		onChunk(llm.StreamChunk{TextDelta: answer})
+		return &llm.Response{Content: answer, StopReason: "end_turn"}, nil
+	}
+	tc := llm.ToolCall{
+		ID:        fmt.Sprintf("call_%d", p.calls),
+		Name:      "glob",
+		InputJSON: fmt.Sprintf(`{"pattern":%q}`, p.patterns[p.calls%len(p.patterns)]),
+	}
+	p.calls++
+	onChunk(llm.StreamChunk{ToolCall: &tc})
+	return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+}
+
+func loopGuardAgent(t *testing.T, id string, provider llm.Provider, stuckAction string, maxTurns int) (*Agent, *session.State) {
+	t.Helper()
+	st := &session.State{ID: id, CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: maxTurns, LoopStuckAction: stuckAction},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	return ag, st
+}
+
+// everyCallAnswered asserts the invariant OpenAI-compatible endpoints depend on:
+// a tool_call_id that was announced must carry a result.
+func everyCallAnswered(t *testing.T, st *session.State) {
+	t.Helper()
+	announced, results := 0, map[string]bool{}
+	for _, m := range st.GetMessages() {
+		announced += len(m.ToolCalls)
+		if m.Role == llm.RoleTool {
+			results[m.ToolCallID] = true
+		}
+	}
+	if len(results) != announced {
+		t.Fatalf("%d tool calls announced but %d results recorded", announced, len(results))
+	}
+}
+
+func TestLoopGuardQuarantineLetsTheTurnFinish(t *testing.T) {
+	// The model rotates until the guard takes the loop away, then answers - the
+	// point of quarantining rather than ending the turn is that this answer still
+	// reaches the user.
+	provider := &rotatingToolProvider{
+		patterns:    []string{"**/*a.go", "**/*b.go", "**/*c.go"},
+		answerAfter: 12,
+		answer:      "three packages match",
+	}
+	ag, st := loopGuardAgent(t, "sess_quarantine", provider, "", 20)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if err != nil {
+		t.Fatalf("a quarantined loop must not fail the turn: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	last := st.GetMessages()[len(st.GetMessages())-1]
+	if !strings.Contains(last.Content, "three packages match") {
+		t.Fatalf("the turn lost the model's answer: %q", last.Content)
+	}
+	var blocked int
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.Content == toolQuarantinedResult {
+			blocked++
+		}
+	}
+	if blocked == 0 {
+		t.Fatal("the guard never took the loop away")
+	}
+	everyCallAnswered(t, st)
+}
+
+func TestLoopGuardForcesAnAnswerWhenOnlyBlockedCallsRemain(t *testing.T) {
+	// This model knows nothing but the loop. Quarantine alone would let it ask for
+	// blocked calls until max_turns and end with nothing, so the guard withholds
+	// the tools for one request and takes the answer.
+	provider := &rotatingToolProvider{patterns: []string{"**/*a.go", "**/*b.go", "**/*c.go"}}
+	maxTurns := 20
+	ag, st := loopGuardAgent(t, "sess_forced_answer", provider, "", maxTurns)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if err != nil {
+		t.Fatalf("the turn must end with an answer, not an error: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	if provider.toollessCalls == 0 {
+		t.Fatal("the guard never withheld the tools, so the model was never made to answer")
+	}
+	if provider.calls >= maxTurns {
+		t.Fatalf("ran %d tool-calling turns of %d; the guard should cut in well before max_turns", provider.calls, maxTurns)
+	}
+	everyCallAnswered(t, st)
+}
+
+func TestLoopGuardStopActionStillEndsTheTurn(t *testing.T) {
+	// The ported behaviour stays available behind agent.loop_stuck_action: stop.
+	provider := &rotatingToolProvider{patterns: []string{"**/*a.go", "**/*b.go", "**/*c.go"}}
+	maxTurns := 20
+	ag, st := loopGuardAgent(t, "sess_stop_cycle", provider, config.AgentLoopStuckActionStop, maxTurns)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q (err %v), want agent_refused", stop, err)
+	}
+	if err == nil || err.Error() != toolCycleStopNotice {
+		t.Fatalf("err = %v, want the cycle notice the SPA localizes", err)
+	}
+	if provider.calls >= maxTurns {
+		t.Fatalf("the cycle ran for %d turns, want it cut well before max_turns %d", provider.calls, maxTurns)
+	}
+	everyCallAnswered(t, st)
+}
+
+func TestLoopGuardStopActionKeepsIdenticalRunsOnTheRepeatCheck(t *testing.T) {
+	// One pattern: every call is identical, which is the repeat detector's shape,
+	// and its notice must not be replaced by the cycle one.
+	provider := &rotatingToolProvider{patterns: []string{"**/*a.go"}}
+	ag, st := loopGuardAgent(t, "sess_stop_identical", provider, config.AgentLoopStuckActionStop, 20)
+
+	_, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if err == nil || !strings.Contains(err.Error(), "with identical arguments") {
+		t.Fatalf("err = %v, want the identical-arguments notice, not the cycle one", err)
+	}
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (m.Content == toolCycleNudge || m.Content == toolCycleSkippedResult) {
+			t.Fatal("the cycle detector claimed a run the repeat detector owns")
+		}
+	}
+}

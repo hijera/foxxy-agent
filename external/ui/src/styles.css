@@ -3390,6 +3390,157 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.browser-tool-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--muted);
+}
+.browser-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-field-label,
+.browser-content-head {
+  font-size: 12px;
+  color: var(--muted);
+}
+.browser-selector code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.browser-selector .hljs-selector-class,
+.browser-selector .hljs-selector-id,
+.browser-selector .hljs-selector-attr {
+  color: var(--accent);
+}
+.browser-content {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.browser-content-head .md-copy {
+  position: static;
+  flex-shrink: 0;
+}
+.browser-content-viewport {
+  max-height: 180px;
+  overflow-x: auto;
+}
+.browser-content-viewport--clip {
+  overflow-y: hidden;
+}
+.browser-content-viewport--scroll {
+  max-height: 360px;
+  overflow-y: auto;
+}
+.browser-content-viewport pre {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.browser-code .browser-content-viewport pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.browser-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+}
+.browser-result .tool-call-result-head {
+  padding: 0;
+  border: 0;
+}
+.browser-result--failed {
+  border-color: var(--foxxycode-status-error);
+}
+.browser-result--failed .tool-call-result-head,
+.browser-log-line--error {
+  color: var(--foxxycode-status-error);
+}
+.browser-log-line--warning {
+  color: var(--foxxycode-status-warn);
+}
+.browser-permission-preview > .browser-action {
+  padding: 12px;
+  box-sizing: border-box;
+}
+.browser-result-note {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.browser-scroll-screen {
+  box-shadow: inset 0 0 0 1px var(--foxxycode-glass-panel-border);
+  width: 260px;
+  max-width: 100%;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 10px;
+  background: var(--foxxycode-surface-raised);
+  color: var(--accent);
+}
+.browser-scroll-screen svg {
+  display: block;
+  width: 100%;
+}
+.browser-scroll-screen text {
+  fill: var(--text);
+  font-size: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+}
+.browser-scroll-guides {
+  stroke: var(--foxxycode-glass-panel-border);
+  stroke-dasharray: 3 5;
+  fill: none;
+}
+.browser-inspect-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: 12px;
+}
+.browser-inspect-table th,
+.browser-inspect-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.browser-inspect-table th {
+  font-weight: 500;
+  color: var(--muted);
+}
+.browser-inspect-table td {
+  white-space: pre-wrap;
 }
 
 .browser-action-line {
@@ -3406,10 +3557,10 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   display: block;
   padding: 0;
   margin: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--panel2, var(--panel));
+  background: var(--foxxycode-surface-raised);
   cursor: zoom-in;
   max-width: 100%;
   width: fit-content;
