@@ -110,6 +110,13 @@ the default theme; light frames cover the surfaces that gained colours.
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
 
+## Todo tool card without a plan snapshot (September 2026)
+
+Captured from headless Chrome at 1280×1000 (dark, RU) against two live `http,ui` builds: `before` is the pre-fix `main` (0.2.51), `after` this branch. Two persisted fixture sessions carry the same transcript (`foxxycode_todo_plan_replace` + `foxxycode_todo_item_update`); one has the plan snapshot in `tool_calls/<id>/meta.json`, the other does not (what a write race, a failed enrichment, a session branch, or a pre-snapshot session leaves on disk).
+
+- `pr-todo-card-nosnapshot-{before,after}-1280-dark.png` - no snapshot on disk: before, both rows degrade to the generic tool card (raw JSON args + «Результат / updated item 1»); after, the plan is rebuilt from the call arguments (the list from the `markdown`, the item as «Пункт 2 · В работе»)
+- `pr-todo-card-snapshot-{before,after}-1280-dark.png` - snapshot on disk: byte-identical, the existing card is untouched
+
 ## Onboarding gate fix (September 2026)
 
 Captured from headless Chrome at 1280×860 (dark, `?lang=ru`) against two live `http,ui` builds: `before` is the pre-fix `main`, `after` this branch. Config: a keyed `neuraldeep` agent provider plus a keyless `openai` row; the flow retypes `openai` to NeuralDeep in Settings and saves.

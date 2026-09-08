@@ -36,7 +36,10 @@ export function stableUserItemId(userTurnIndex: number): string {
 
 /**
  * After rebuilding transcript from the server, reuse React keys (and plan expanded)
- * from the previous in-memory list when rows describe the same step.
+ * from the previous in-memory list when rows describe the same step. A tool call
+ * also keeps the todo plan snapshot it already showed when the server row carries
+ * none: the snapshot reaches the client once over SSE, and a reload that finds it
+ * missing on disk (write race, branch, failed enrichment) must not blank the card.
  */
 export function preserveTranscriptItemIds(
   merged: TranscriptItem[],
@@ -58,6 +61,14 @@ export function preserveTranscriptItemIds(
       matched = true;
       if (row.type === "plan_document" && prev.type === "plan_document") {
         out.push({ ...row, id: prev.id, expanded: prev.expanded });
+      } else if (
+        row.type === "tool_call" &&
+        prev.type === "tool_call" &&
+        !(row.todoPlan && row.todoPlan.length > 0) &&
+        prev.todoPlan &&
+        prev.todoPlan.length > 0
+      ) {
+        out.push({ ...row, id: prev.id, todoPlan: prev.todoPlan });
       } else {
         out.push({ ...row, id: prev.id });
       }
