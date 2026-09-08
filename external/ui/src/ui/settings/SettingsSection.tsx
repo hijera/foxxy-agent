@@ -20,6 +20,7 @@ import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
+import { SubagentsSection } from "./SubagentsSection";
 import { ProviderExportButtons } from "./ProviderExportButtons";
 import { ProviderImportMenu } from "./ProviderImportMenu";
 import { uniqueProviderName } from "./providerTransfer";
@@ -193,6 +194,8 @@ export function SettingsSection(props: {
   isMobileShell?: boolean;
   /** Reopen the onboarding form + guided tour (rendered in the Appearance tab). */
   onRestartOnboarding?: (() => void) | undefined;
+  /** Workspace of the viewed session; the Subagents tab asks about it. */
+  workspacePath?: string | undefined;
 }) {
   const { t } = useT();
   const { section, schema, doc, setDoc } = props;
@@ -270,6 +273,24 @@ export function SettingsSection(props: {
   // edit the settings document at all.
   if (section.kind === "mcp") {
     return <MCPSection />;
+  }
+
+  // Subagents edits the config section like any object tab, and additionally
+  // lists the definitions of the viewed session's workspace so a project-scope
+  // one can be approved here instead of from a terminal.
+  if (section.kind === "subagents") {
+    const sub = props_.subagents;
+    if (!sub) {
+      return <p className="settings-muted">{t("settings.sectionSchemaUnavailable")}</p>;
+    }
+    return (
+      <SubagentsSection
+        schema={sub}
+        value={asObject(doc.subagents)}
+        onChange={(v) => setKey("subagents", v)}
+        workspacePath={props.workspacePath}
+      />
+    );
   }
 
   const key = section.schemaKey ?? section.id;

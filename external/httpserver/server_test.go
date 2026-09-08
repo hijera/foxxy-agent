@@ -1137,6 +1137,85 @@ func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	}
 }
 
+// activitySeq only moves when a turn completes, so a client watching a long
+// turn cannot tell from it whether the transcript grew. messageSeq answers
+// that - for a session live in this process; a cold one is left alone, because
+// this route must stay a cheap disk probe.
+func TestFoxxyCodeSessionActivityReportsMessageSeqForLiveSessions(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	read := func(id string) map[string]interface{} {
+		t.Helper()
+		resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions/" + url.PathEscape(id) + "/activity")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("activity status %d: %s", resHTTP.StatusCode, b)
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatalf("body %s: %v", b, err)
+		}
+		return parsed
+	}
+
+	body := read(sid)
+	first, ok := body["messageSeq"].(float64)
+	if !ok || first < 1 {
+		t.Fatalf("messageSeq = %v, want the live transcript size", body["messageSeq"])
+	}
+	beforeActivity := body["activitySeq"]
+
+	// One more message, no completed turn: activitySeq stands still while
+	// messageSeq moves. That difference is the whole point of the new field.
+	st := mgr.SessionByID(sid)
+	if st == nil {
+		t.Fatal("session is not live")
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "and another"})
+	body = read(sid)
+	if second, _ := body["messageSeq"].(float64); second != first+1 {
+		t.Fatalf("messageSeq %v -> %v, want +1", first, second)
+	}
+	if body["activitySeq"] != beforeActivity {
+		t.Fatalf("activitySeq moved without a completed turn: %v -> %v", beforeActivity, body["activitySeq"])
+	}
+
+	// A bundle that is only on disk answers without the key rather than being
+	// loaded: this route is polled, and loading a bundle per poll is not.
+	mgr.ForgetLiveSession(sid)
+	if mgr.SessionByID(sid) != nil {
+		t.Fatal("the session is still live after ForgetLiveSession")
+	}
+	body = read(sid)
+	if _, present := body["messageSeq"]; present {
+		t.Fatalf("a cold session reported messageSeq: %v", body["messageSeq"])
+	}
+	if mgr.SessionByID(sid) != nil {
+		t.Fatal("the activity probe loaded the bundle")
+	}
+}
+
 func TestFoxxyCodeSessionActivityReportsPermissionPending(t *testing.T) {
 	mgr, srv, sessRoot := testHTTPServerPersist(t)
 	store := &session.FileStore{Root: sessRoot}
