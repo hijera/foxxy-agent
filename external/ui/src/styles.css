@@ -3499,13 +3499,40 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   overflow-wrap: anywhere;
 }
 .browser-scroll-screen {
-  box-shadow: inset 0 0 0 1px var(--foxxycode-glass-panel-border);
   width: 260px;
   max-width: 100%;
-  border: 1px solid var(--foxxycode-glass-panel-border);
-  border-radius: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--muted);
+  border-radius: 5px;
   background: var(--foxxycode-surface-raised);
   color: var(--accent);
+}
+.browser-scroll-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--muted);
+  background: var(--foxxycode-glass-panel-border);
+}
+.browser-scroll-window-dots {
+  display: flex;
+  gap: 4px;
+}
+.browser-scroll-window-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.browser-scroll-address {
+  flex: 1;
+  height: 10px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 3px;
+  background: var(--foxxycode-surface-raised);
 }
 .browser-scroll-screen svg {
   display: block;
