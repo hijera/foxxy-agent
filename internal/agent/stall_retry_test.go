@@ -112,3 +112,48 @@ func TestStallRetryCustomLadder(t *testing.T) {
 		}
 	}
 }
+
+// TestTrimToResumeBoundary pins the seam fix. The inputs are the shapes a real
+// stall produces; the qwen3.6 case is the one measured live against
+// api.neuraldeep.ru, where the model resumed by restarting the line it was cut
+// in and duplicated the fragment.
+func TestTrimToResumeBoundary(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "drops the unfinished list item",
+			in:   "1. Use the active voice.\n2. Name the failing operation.\n3. Include the",
+			want: "1. Use the active voice.\n2. Name the failing operation.\n",
+		},
+		{
+			name: "prose falls back to the last sentence end",
+			in:   "A mutex guards shared state. It also prev",
+			want: "A mutex guards shared state.",
+		},
+		{
+			name: "a single unfinished sentence is kept rather than discarded",
+			in:   "The quick brown fox jum",
+			want: "The quick brown fox jum",
+		},
+		{
+			name: "text already ending on a boundary is untouched",
+			in:   "1. First rule.\n2. Second rule.\n",
+			want: "1. First rule.\n2. Second rule.\n",
+		},
+		{
+			name: "empty stays empty",
+			in:   "",
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trimToResumeBoundary(tc.in); got != tc.want {
+				t.Errorf("trimToResumeBoundary(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

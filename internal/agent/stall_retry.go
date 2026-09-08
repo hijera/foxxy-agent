@@ -182,6 +182,30 @@ func (a *Agent) waitForStalledProvider(ctx context.Context, s *stallRetry, sessi
 	return true, false
 }
 
+// trimToResumeBoundary cuts a stalled partial answer back to a point the model can
+// resume from cleanly.
+//
+// A stream can stop anywhere - mid-word, mid-list-item - and a model asked to
+// carry on restarts the line it was interrupted in rather than continuing the
+// fragment. Measured live against qwen3.6 on api.neuraldeep.ru: a partial ending
+// "1. Use the" came back as "1. Use the1. Use the active voice ...", duplicating
+// the fragment at the seam no matter how firmly the nudge says not to repeat.
+//
+// Dropping the unfinished trailing line makes both model behaviours safe: whether
+// it repeats that line or starts the next one, the text joins up exactly once.
+// Prose with no line breaks falls back to the last sentence end. A partial with
+// neither is left alone - keeping text the user watched arrive beats discarding
+// all of it to avoid a seam.
+func trimToResumeBoundary(s string) string {
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		return s[:i+1]
+	}
+	if i := strings.LastIndexAny(s, ".!?"); i >= 0 && i+1 < len(s) {
+		return s[:i+1]
+	}
+	return s
+}
+
 // persistStalledMessage stores the partial assistant message from a stream the
 // stall guard cut, and reports whether anything was worth keeping.
 //
@@ -198,7 +222,7 @@ func (a *Agent) persistStalledMessage(
 ) bool {
 	content := ""
 	if response != nil {
-		content = response.Content
+		content = trimToResumeBoundary(response.Content)
 	}
 	reasonRaw := reasoningBuf.String()
 	reasonTrim := strings.TrimSpace(reasonRaw)
