@@ -963,8 +963,8 @@ func TestAgentStallRetryKnobs(t *testing.T) {
 	if !unset.LLMStallRetryEnabled() {
 		t.Error("stall retry must default to on")
 	}
-	if got := unset.EffectiveLLMStallTimeout(); got != 60*time.Second {
-		t.Errorf("unset llm_stall_timeout_ms = %v, want 60s", got)
+	if got := unset.EffectiveLLMStallTimeout(); got != 5*time.Minute {
+		t.Errorf("unset llm_stall_timeout_ms = %v, want 5m", got)
 	}
 	if got := unset.EffectiveLLMStallRetryMaxWait(); got != config.AgentDefaultLLMStallRetryMaxWaitMS*time.Millisecond {
 		t.Errorf("unset llm_stall_retry_max_wait_ms = %v, want 1h", got)

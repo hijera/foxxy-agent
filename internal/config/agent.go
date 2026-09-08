@@ -22,11 +22,17 @@ const (
 	// produced output may stay silent before the turn cuts it. The first-token
 	// guard above stops for good at the first token and is never re-armed, so
 	// without this a provider that abandons a half-written answer holds the turn
-	// open until its context dies. Lower than the first-token default on purpose:
-	// measured healthy inter-frame gaps on a saturated hub were 1.5-3.9s, and a
-	// model that has already produced thousands of frames is warmed up, so a long
-	// gap mid-answer is more anomalous than a long prefill.
-	AgentDefaultLLMStallTimeoutMS = 60000
+	// open until its context dies.
+	//
+	// Five minutes, matching the stream_idle_timeout_ms default the Codex CLI uses
+	// for the same job. Deliberately far above the measured healthy inter-frame gap
+	// (1.5-3.9s on a saturated hub) because the two mistakes cost very differently:
+	// waiting too long merely delays a turn that was already stuck, while cutting
+	// too early throws away a half-written answer and spends a continuation, and a
+	// reasoning model can legitimately go quiet for minutes mid-answer. The stall
+	// this bounds holds the connection open indefinitely, so a patient guard still
+	// ends it.
+	AgentDefaultLLMStallTimeoutMS = 300000
 	// AgentDefaultLLMStallRetryMaxWaitMS is the wall-clock budget for waiting out a
 	// silent provider within one LLM call. An explicit 0 means unbounded.
 	AgentDefaultLLMStallRetryMaxWaitMS = 3600000

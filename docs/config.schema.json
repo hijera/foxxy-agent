@@ -148,7 +148,7 @@
         "llm_stall_timeout_ms": {
           "type": "integer",
           "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it, keeping the partial answer. Covers the case the first-token guard cannot: it stops at the first token and never re-arms. An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
-          "default": 60000,
+          "default": 300000,
           "minimum": 0
         },
         "llm_stall_retry": {

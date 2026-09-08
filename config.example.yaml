@@ -128,7 +128,7 @@ agent:
   # transcript, so nothing can be duplicated; a 4xx the endpoint refused is not
   # retried. A stream that stops mid-answer keeps what arrived instead, and the
   # model is asked to continue.
-  # llm_stall_timeout_ms: 60000   # cut a stream that stopped sending data mid-answer (0 disables)
+  # llm_stall_timeout_ms: 300000  # cut a stream that stopped sending data mid-answer (0 disables)
   # llm_stall_retry: true         # wait and retry a call that failed without producing output
   # llm_stall_retry_delays_ms: [60000, 180000, 300000]  # last entry repeats: 1min, 3min, then every 5min
   # llm_stall_retry_max_wait_ms: 3600000  # total wait before giving up (0 = retry until Stop)
