@@ -155,9 +155,17 @@ directly. The only EventSource route is `GET /foxxycode/sessions/{id}/composer-s
    cookie; state-changing routes enforce Origin/CSRF. (Recommended; keeps secrets out of JS
    and URLs.)
 2. **Short-lived stream ticket** — an authenticated request mints a single-purpose,
-   short-TTL ticket accepted only by the composer-stream GET.
+   short-TTL ticket accepted only by the composer-stream GET. **Implemented**:
+   `POST /foxxycode/stream-tickets` (normal bearer auth) returns
+   `{object, ticket, expiresIn, expiresAt}`; the ticket is single-use, expires after
+   60 seconds, and is accepted only by `GET /foxxycode/events` and
+   `GET /foxxycode/sessions/{id}/composer-stream`. Tickets are process-local and do
+   not survive a restart. Set `httpserver.stream_tickets_only: true` to refuse the
+   durable token in `?access_token=` altogether, so no lasting credential reaches an
+   access log.
 3. If a query token is ever retained, it is SSE-GET-only, off by default, and redacted in
-   logs.
+   logs. **Today** the durable token is still accepted on the two SSE GETs for backward
+   compatibility; `stream_tickets_only` turns that off.
 
 Phase 1 can ship **API-only** (Bearer header) first; the cookie login + SPA unlock panel is
 a later sub-commit so `-tags http,ui` stays green.

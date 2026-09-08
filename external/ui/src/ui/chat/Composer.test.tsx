@@ -1249,6 +1249,32 @@ test("in the IntelliJ embed the drop is claimed but left to the host", async () 
   vi.unstubAllGlobals();
 });
 
+// The VS Code webview shares the intellij flat chrome but not the drop gate: its drops carry
+// a text/uri-list the page can relativize itself, and the extension has no JS bridge into the
+// cross-origin iframe to insert the mention for it.
+test("in the VS Code embed the page resolves the drop itself", async () => {
+  document.documentElement.dataset.embed = "vscode";
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ items: [{ path_rel: "src/app/main.ts", ok: true }] }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  renderDropComposer();
+
+  const { defaultPrevented } = dispatchDrop("file:///C:/project/src/app/main.ts");
+
+  expect(defaultPrevented).toBe(true);
+  const ta = screen.getByLabelText("Message") as HTMLTextAreaElement;
+  await waitFor(() => {
+    expect(ta.value).toBe("@src/app/main.ts ");
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/foxxycode/workspace/relativize",
+    expect.objectContaining({ method: "POST" }),
+  );
+  vi.unstubAllGlobals();
+});
+
 test("enhance button shares the composer context row with workspace controls", () => {
   render(
     <Composer

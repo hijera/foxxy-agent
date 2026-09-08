@@ -47,11 +47,18 @@ type Server struct {
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// extraAuthTokens are bearer tokens supplied out-of-band via --auth-token / FOXXYCODE_HTTP_TOKEN.
 	extraAuthTokens []string
+	// streamTickets holds the short-lived, single-use credentials the SSE routes accept in
+	// place of the durable token (see stream_ticket.go).
+	streamTickets *streamTicketStore
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
 	// drives lists the machine's drive roots for the folder picker's volume
 	// level (Windows only; empty elsewhere). Tests override.
 	drives func() []string
+	// neuralDeepHubFor maps a neuraldeep api_base to the hub that mints keys
+	// for it (llm.NeuralDeepHubFor). Tests substitute stand-in hubs per
+	// deployment.
+	neuralDeepHubFor func(apiBase string) string
 
 	// projects tracks the current project folder and recent list; nil
 	// degrades the /foxxycode/project endpoints gracefully.
@@ -82,7 +89,11 @@ type Server struct {
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
-	bgWG               sync.WaitGroup
+
+	// autocomplete holds inline-completion counters and the per-model "raw FIM
+	// failed, use chat" memory; its zero value is ready to use.
+	autocomplete autocompleteState
+	bgWG         sync.WaitGroup
 }
 
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
@@ -121,11 +132,13 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
 		drives:               platform.Drives,
+		neuralDeepHubFor:     llm.NeuralDeepHubFor,
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
+		streamTickets:        newStreamTicketStore(),
 	}
 	s.cfgAt.Store(cfg)
 	// Several servers may share one manager (tests do), so each takes its own removable
@@ -381,6 +394,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-FoxxyCode-Session-ID", sessionID)
 	}
+	// A subagent's child session is a read-only transcript for every caller;
+	// even a direct completion would append to it.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 
 	if httpModelIsFoxxyCodeProfile(model) {
 		st.SetMode(model)
@@ -390,6 +408,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+		if runPlanRefusedInAskMode(model, req.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
 			return
 		}
 	} else if completionMetadataForbidden(req.Metadata) {
@@ -447,6 +469,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if !req.Stream {
 				if errors.Is(err, session.ErrSessionTurnBusy) {
 					writeSessionBusy(w, sessionID, sessionBusyMessage)
+					return
+				}
+				if isSubagentReadOnly(err) {
+					// A child transcript is read-only for every caller; 409, not 500,
+					// and never the busy retry path.
+					http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 					return
 				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
@@ -581,6 +609,11 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		}
 		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.sessionDefaultCWD())
 		if err != nil {
+			if errors.Is(err, session.ErrReservedSessionID) {
+				// Only the runtime creates sub_ sessions; a header naming an
+				// unknown one is a missing session, not a request for a new one.
+				return nil, "", false, errSessionNotFound
+			}
 			return nil, "", false, err
 		}
 		return st2, sid, false, nil
@@ -730,6 +763,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-FoxxyCode-Session-ID", sid)
 	}
+	// See handleChatCompletions: a child session is read-only for every caller.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 
 	if httpModelIsFoxxyCodeProfile(model) {
 		st.SetMode(model)
@@ -739,6 +776,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+		if runPlanRefusedInAskMode(model, body.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
 			return
 		}
 	} else if completionMetadataForbidden(body.Metadata) {
@@ -842,6 +883,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			if !body.Stream {
 				if errors.Is(err, session.ErrSessionTurnBusy) {
 					writeSessionBusy(w, sid, sessionBusyMessage)
+					return
+				}
+				if isSubagentReadOnly(err) {
+					// A child transcript is read-only for every caller; 409, not 500,
+					// and never the busy retry path.
+					http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 					return
 				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)

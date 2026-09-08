@@ -94,6 +94,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.MCP.Validate(); err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
+	if err := cfg.Subagents.Validate(); err != nil {
+		return err
+	}
 	if err := cfg.Tools.Validate(); err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
@@ -108,6 +111,9 @@ func validateSubconfigs(cfg *Config) error {
 	}
 	if err := cfg.Title.Validate(cfg); err != nil {
 		return fmt.Errorf("title: %w", err)
+	}
+	if err := cfg.Autocomplete.Validate(cfg); err != nil {
+		return fmt.Errorf("autocomplete: %w", err)
 	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
@@ -163,6 +169,7 @@ func applyDefaults(cfg *Config) {
 		return ExpandFOXXYCODEHomeOnly(s, p)
 	})
 	cfg.Rules.ApplyDefaults()
+	cfg.Subagents.ApplyDefaults(p)
 
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()
@@ -172,6 +179,9 @@ func applyDefaults(cfg *Config) {
 
 	cfg.Title.Normalize()
 	cfg.Title.ApplyDefaults()
+
+	cfg.Autocomplete.Normalize()
+	cfg.Autocomplete.ApplyDefaults()
 
 	cfg.Scheduler.Normalize(p)
 	cfg.Scheduler.ApplyDefaults(p)

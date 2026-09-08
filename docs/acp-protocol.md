@@ -338,7 +338,7 @@ After **`plan_write`**, FoxxyCode publishes:
 }
 ```
 
-FoxxyCode switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan.
+FoxxyCode switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan. In **ask** mode the hook is refused with an error and a `@plans/<slug>.plan.md` mention is only inlined as reading material: switch the mode first, then run.
 
 2. **Portable** - client sets `mode` to **agent**, then `session/prompt` referencing `@plans/<slug>.plan.md` or text like *implement the plan my-feature*.
 
@@ -372,6 +372,12 @@ Send a user message, starts the ReAct loop.
 ```
 
 Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cancelled`
+
+### Subagent runs and child sessions (FoxxyCode-specific)
+
+Nothing protocol-level changes when the agent delegates to a subagent (`docs/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session (a `sub_…` id) and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
+
+Child sessions are read-only transcripts. `session/list` omits them, `session/load` replays one like any other bundle, and `session/prompt` against a `sub_…` id returns an error naming the parent (`subagent sessions are read-only transcripts: sub_… belongs to sess_…`); the run-plan `_meta` hook is covered by the same guard.
 
 ### `session/cancel`
 
@@ -632,17 +638,19 @@ These requests are sent only when `permission_mode` is `ask` (commands and write
 }
 ```
 
-**Response:**
+**Response:** the protocol nests the outcome in its own object, which is what editors such as Zed send:
+
 ```json
 {
   "jsonrpc": "2.0",
   "id": 10,
   "result": {
-    "outcome": "allow",
-    "optionId": "allow"
+    "outcome": { "outcome": "selected", "optionId": "allow" }
   }
 }
 ```
+
+A dismissed request answers `{ "outcome": { "outcome": "cancelled" } }`. FoxxyCode also accepts the flat form its own surfaces and some editor extensions send (`{"outcome": "selected", "optionId": "allow"}`), and reads both the same way: the call proceeds unless the outcome is `cancelled` or the chosen `optionId` is `reject`. Picking `allow_always` (or the program-wide `allow_always_<program>` option) also stores a session grant, so the same command does not ask again.
 
 ## Question Requests (Agent -> Client, expects response)
 

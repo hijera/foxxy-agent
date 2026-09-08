@@ -129,7 +129,7 @@ func TestDirectYAMLNonStreamCallsComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", res.StatusCode)
 	}
@@ -213,7 +213,7 @@ func TestSenderIdleKeepaliveWritesCommentFrames(t *testing.T) {
 	out := &syncBuffer{}
 	sender := NewSender(&config.Config{}, out, true, "agent-model")
 
-	stop := sender.startIdleKeepalive(15*time.Millisecond)
+	stop := sender.startIdleKeepalive(15 * time.Millisecond)
 	deadline := time.Now().Add(2 * time.Second)
 	for !strings.Contains(out.String(), ": keepalive\n\n") && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -235,7 +235,7 @@ func TestSenderIdleKeepaliveStaysQuietWhileFramesFlow(t *testing.T) {
 	out := &syncBuffer{}
 	sender := NewSender(&config.Config{}, out, true, "agent-model")
 
-	stop := sender.startIdleKeepalive(200*time.Millisecond)
+	stop := sender.startIdleKeepalive(200 * time.Millisecond)
 	for i := 0; i < 8; i++ {
 		if err := sender.SendSessionUpdate("s", acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeAgentMessageChunk,

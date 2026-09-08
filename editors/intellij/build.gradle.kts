@@ -225,6 +225,12 @@ java {
 // shows in Settings | Plugins. It is written in Russian for a human reader, not as a
 // commit list, and its sections are versioned `## X.Y.Z — YYYY-MM-DD`, newest first.
 //
+// The newest section is written `## Unreleased — YYYY-MM-DD` instead: while a PR is open
+// nobody can know which patch version its merge will be tagged with (another PR merging
+// first shifts it), and guessing produced notes filed one version above the tag that
+// shipped them. stampUnreleased resolves that heading to the version actually being
+// built, which is the tag the release workflow just created.
+//
 // The markdown is rendered here rather than through the org.jetbrains.changelog plugin
 // so the build needs no extra dependency. Only the subset the file actually uses is
 // supported: level-2 version headings, paragraphs, `**bold**`, and `code`.
@@ -232,24 +238,44 @@ java {
 val changelogFile = layout.projectDirectory.file("CHANGELOG.md").asFile
 val changeNotesSections = 3
 
-/** One `## X.Y.Z — date` section with its body lines. */
-data class ChangelogEntry(val version: String, val heading: String, val body: List<String>)
+/** One changelog section. [version] is empty for the not-yet-tagged `## Unreleased` one. */
+data class ChangelogEntry(val version: String, val date: String, val body: List<String>) {
+    val heading: String
+        get() = if (version.isEmpty()) "Unreleased — $date" else "$version — $date"
+}
 
 fun parseChangelog(text: String): List<ChangelogEntry> {
     val headingRe = Regex("""^##\s+(\d+\.\d+\.\d+)\s*[—-]\s*(.+)$""")
+    val unreleasedRe = Regex("""^##\s+Unreleased\s*[—-]\s*(.+)$""")
     val entries = mutableListOf<ChangelogEntry>()
     var current: ChangelogEntry? = null
     for (line in text.lines()) {
-        val m = headingRe.find(line.trim())
-        if (m != null) {
+        val trimmed = line.trim()
+        val released = headingRe.find(trimmed)
+        val unreleased = unreleasedRe.find(trimmed)
+        if (released != null) {
             current?.let { entries += it }
-            current = ChangelogEntry(m.groupValues[1], line.trim().removePrefix("##").trim(), mutableListOf())
+            current = ChangelogEntry(released.groupValues[1], released.groupValues[2].trim(), mutableListOf())
+        } else if (unreleased != null) {
+            current?.let { entries += it }
+            current = ChangelogEntry("", unreleased.groupValues[1].trim(), mutableListOf())
         } else if (current != null) {
             (current.body as MutableList<String>) += line
         }
     }
     current?.let { entries += it }
     return entries
+}
+
+/**
+ * stampUnreleased gives the `## Unreleased` section the version being built, so the notes an
+ * author wrote without knowing their release number ship under the number they got. Only a
+ * real release stamps: a dev build (`0.0.0-dev-<sha>`) of an open PR has not been released
+ * under any number, so its heading honestly stays "Unreleased".
+ */
+fun stampUnreleased(entries: List<ChangelogEntry>, built: String): List<ChangelogEntry> {
+    if (!Regex("""^\d+\.\d+\.\d+$""").matches(built)) return entries
+    return entries.map { if (it.version.isEmpty()) it.copy(version = built) else it }
 }
 
 fun escapeHtml(s: String): String =
@@ -278,21 +304,22 @@ fun renderChangeNotes(entries: List<ChangelogEntry>): String = buildString {
 
 /**
  * changeNotesHtml renders the newest sections, putting the version being built first when
- * the changelog knows it. A dev build (`0.0.0-dev-<sha>`) has no section of its own, so it
- * simply shows the latest released ones; a missing or unreadable file leaves the notes
- * empty rather than failing the build.
+ * the changelog knows it — which after stampUnreleased it does whenever the PR being
+ * released wrote an `## Unreleased` section. A release with no section of its own simply
+ * shows the latest ones; a missing or unreadable file leaves the notes empty rather than
+ * failing the build.
  */
 val changeNotesHtml: String by lazy {
     if (!changelogFile.isFile) {
         logger.warn("CHANGELOG.md not found at ${changelogFile.path}; the plugin ships without change notes.")
         return@lazy ""
     }
-    val entries = parseChangelog(changelogFile.readText(Charsets.UTF_8))
+    val built = version.toString()
+    val entries = stampUnreleased(parseChangelog(changelogFile.readText(Charsets.UTF_8)), built)
     if (entries.isEmpty()) {
         logger.warn("CHANGELOG.md has no `## X.Y.Z — date` sections; the plugin ships without change notes.")
         return@lazy ""
     }
-    val built = version.toString()
     if (entries.none { it.version == built } && !built.contains("dev")) {
         logger.warn("CHANGELOG.md has no section for version $built — the IDE will show older notes instead.")
     }

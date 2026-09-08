@@ -238,7 +238,7 @@ func (s *wakeStreamState) iSubscribeToTheComposerStream() error {
 			body.WriteString(sc.Text())
 			body.WriteString("\n")
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		text := body.String()
 		// The wake is started from a goroutine, so the first subscribe can land before
 		// the relay is registered; that answers "no active composer stream" at once.

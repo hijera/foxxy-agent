@@ -5,7 +5,9 @@
   "main": "app.js",
   "scripts": {
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "test:layout": "go test -tags=http,ui,browser -run=^TestUILayoutColumnsAlign$ -count=1 -timeout=45s .",
+    "test:panel": "go test -tags=http,ui,browser -run=^TestIDEPanelResizeLoopFeature$ -count=1 -timeout=180s ../httpserver",
     "test:watch": "vitest",
     "dev": "vite",
     "build": "vite build",

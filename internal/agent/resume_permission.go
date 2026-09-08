@@ -32,13 +32,17 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	mode := a.state.GetMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
-	if st := sessionStatePtr(a.state); st != nil {
+	// A call the current mode refuses (a pending agent-mode write approved
+	// after switching to ask) must not leave an "allow always" grant behind:
+	// the grant would outlive the refusal and apply once the mode changes back.
+	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled())
+	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
 	}
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
 	}
-	if perm.Outcome == "cancelled" || perm.OptionID == "reject" {
+	if !permission.Approved(perm) {
 		toolResultMsg := llm.Message{
 			Role:       llm.RoleTool,
 			Content:    "permission denied by user",
@@ -125,6 +129,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
+	a.applySubagentEnv(env, mode)
 	a.wireFileEditHook(env)
 	return env
 }

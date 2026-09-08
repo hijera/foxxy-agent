@@ -65,8 +65,8 @@ func TestMatchScopedIgnoresUnscopedRules(t *testing.T) {
 	globbed := &rules.Rule{
 		ID: "cursor:go", Name: "go",
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto,
-		Globs:       []string{"**/*.go"},
-		Content:     "glob body",
+		Globs:   []string{"**/*.go"},
+		Content: "glob body",
 	}
 	catalog := []*rules.Rule{always, globbed}
 	if got := rules.MatchScoped(catalog, []string{filepath.Join("/proj", "main.go")}); len(got) != 0 {

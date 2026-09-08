@@ -154,6 +154,14 @@ type SessionMeta struct {
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
 	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
 	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
+	// Subagent-run bundle: a child session spawned by another session's
+	// spawn_agent call; omitted for normal chats. The pool task that represents
+	// the run lives under ParentSessionID.
+	SubagentRun     bool   `json:"subagentRun,omitempty"`
+	ParentSessionID string `json:"parentSessionId,omitempty"`
+	SubagentName    string `json:"subagentName,omitempty"`
+	SubagentTaskID  string `json:"subagentTaskId,omitempty"`
+	SubagentDepth   int    `json:"subagentDepth,omitempty"`
 	// ActivitySeq increments when an agent turn completes (multi-surface unread indicator).
 	ActivitySeq uint64 `json:"activitySeq,omitempty"`
 	// ReadActivitySeq tracks the last activity generation the user marked as read.
@@ -169,6 +177,16 @@ func (m SessionMeta) ExcludedFromComposerSessionList(sessionFolderName string) b
 	}
 	s := strings.TrimSpace(sessionFolderName)
 	return strings.HasPrefix(s, "sched_")
+}
+
+// IsSubagentRun reports whether this bundle is a child session spawned by
+// another session (by its meta, or by the sub_ folder prefix for a bundle whose
+// meta was never completed).
+func (m SessionMeta) IsSubagentRun(sessionFolderName string) bool {
+	if m.SubagentRun {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(sessionFolderName), subagentSessionPrefix)
 }
 
 type messagesFileData struct {
@@ -296,9 +314,26 @@ type SessionListEntry struct {
 	UpdatedAt string
 }
 
+// ListOptions selects which persisted sessions ListSnapshotsWith returns.
+type ListOptions struct {
+	// CWD keeps only sessions saved with this working directory when non-empty.
+	CWD string
+	// IncludeSchedulerRuns adds bundles created by scheduler runs (sched_ ids).
+	IncludeSchedulerRuns bool
+	// IncludeSubagents adds child sessions spawned by spawn_agent (sub_ ids).
+	IncludeSubagents bool
+}
+
 // ListSnapshots scans Root for persisted sessions (requires session.json).
 // When includeSchedulerRuns is false, sessions marked schedulerRun in session.json (or folder id prefix sched_) are omitted (default composer list).
+// Subagent child sessions are always omitted here; use ListSnapshotsWith to include them.
 func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) ([]SessionListEntry, error) {
+	return f.ListSnapshotsWith(ListOptions{CWD: cwdFilter, IncludeSchedulerRuns: includeSchedulerRuns})
+}
+
+// ListSnapshotsWith scans Root for persisted sessions matching opts.
+func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, error) {
+	cwdFilter := opts.CWD
 	var out []SessionListEntry
 	if f.Root == "" {
 		return out, nil
@@ -321,7 +356,10 @@ func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) (
 		if err != nil {
 			continue
 		}
-		if !includeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
+		if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
+			continue
+		}
+		if !opts.IncludeSubagents && meta.IsSubagentRun(id) {
 			continue
 		}
 		if cwdFilter != "" && meta.CWD != cwdFilter {
@@ -460,6 +498,13 @@ func (f *FileStore) Save(state *State) error {
 		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
 		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
 	}
+	if sub := state.Subagent(); sub != nil {
+		meta.SubagentRun = true
+		meta.ParentSessionID = strings.TrimSpace(sub.ParentSessionID)
+		meta.SubagentName = strings.TrimSpace(sub.Name)
+		meta.SubagentTaskID = strings.TrimSpace(sub.TaskID)
+		meta.SubagentDepth = sub.Depth
+	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
 	meta.PermissionMode = state.GetPermissionMode()
@@ -526,6 +571,9 @@ func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := StripInjectedContextBlocks(strings.TrimSpace(msg.Content))
+			// Hydrated @-mention turns also carry <foxxycode_attachment> file bodies;
+			// a title is the user's text, never the attachment XML.
+			text = StripContextBlocks(text, TagAttachment)
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -545,6 +593,9 @@ const (
 	TagIDEContext      = "foxxycode_ide_context"
 	TagTerminalContext = "foxxycode_terminal_context"
 	TagTerminalOutput  = "foxxycode_terminal_output"
+	// TagAttachment wraps a hydrated @-mention file body. Not part of
+	// injectedContextTags — transcripts keep it — but titles strip it.
+	TagAttachment = "foxxycode_attachment"
 )
 
 // injectedContextTags carries every wrapper tag, for callers that want the user's bare text.

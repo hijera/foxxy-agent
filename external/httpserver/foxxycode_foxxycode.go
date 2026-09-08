@@ -128,6 +128,10 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions", s.foxxycodeSessionsList)
 	s.mux.HandleFunc("POST /foxxycode/describe", s.foxxycodeDescribePost)
 	s.mux.HandleFunc("POST /foxxycode/enhance-prompt", s.foxxycodeEnhancePromptPost)
+	s.mux.HandleFunc("POST /foxxycode/completion", s.foxxycodeCompletionPost)
+	s.mux.HandleFunc("GET /foxxycode/completion/config", s.foxxycodeCompletionConfigGet)
+	s.mux.HandleFunc("GET /foxxycode/completion/stats", s.foxxycodeCompletionStatsGet)
+	s.mux.HandleFunc("POST /foxxycode/completion/feedback", s.foxxycodeCompletionFeedbackPost)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/activity", s.foxxycodeSessionActivityGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/messages", s.foxxycodeSessionMessagesGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/export", s.foxxycodeSessionExportGet)
@@ -140,6 +144,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/assets/{name}", s.foxxycodeSessionAssetGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/stats", s.foxxycodeSessionStatsGet)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/debug", s.foxxycodeSessionDebugGet)
+	s.mux.HandleFunc("POST /foxxycode/stream-tickets", s.foxxycodeStreamTicketPost)
 	s.mux.HandleFunc("PATCH /foxxycode/sessions/{id}", s.foxxycodeSessionPatch)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/workspace", s.foxxycodeSessionWorkspacePost)
 	s.mux.HandleFunc("POST /foxxycode/sessions/{id}/cancel", s.foxxycodeSessionCancelGeneration)
@@ -150,6 +155,8 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/ide/editor-state", s.foxxycodeIdeEditorState)
 	s.mux.HandleFunc("POST /foxxycode/ide/terminal-state", s.foxxycodeIdeTerminalStatePost)
 	s.mux.HandleFunc("GET /foxxycode/ide/terminal-state", s.foxxycodeIdeTerminalStateGet)
+	s.mux.HandleFunc("POST /foxxycode/ide/copy-buffer", s.foxxycodeIdeCopyBufferPost)
+	s.mux.HandleFunc("POST /foxxycode/ide/paste-classify", s.foxxycodeIdePasteClassifyPost)
 	s.mux.HandleFunc("DELETE /foxxycode/sessions/{id}", s.foxxycodeSessionDelete)
 	s.mux.HandleFunc("GET /foxxycode/sessions/{id}/plan", s.foxxycodePlanGet)
 	s.mux.HandleFunc("PUT /foxxycode/sessions/{id}/plan", s.foxxycodePlanPut)
@@ -157,6 +164,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
 	s.registerBackgroundRoutes()
+	s.registerSubagentRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
@@ -258,6 +266,12 @@ func (s *Server) foxxycodeSessionPermissionPost(w http.ResponseWriter, r *http.R
 	}
 	ok := CompletePermissionAnswer(id, tcid, res)
 	if !ok {
+		// A child session never owns a prompt of its own (its requests are
+		// relayed to the parent chat), and a resume would build an agent on
+		// it; a read-only transcript answers 409 instead of 404.
+		if rejectSubagentTurn(w, s.persistedSessionState(r.Context(), id)) {
+			return
+		}
 		if s.tryResumePendingPermission(r.Context(), id, tcid, res) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -375,16 +389,17 @@ func (s *Server) foxxycodeDescribePost(w http.ResponseWriter, r *http.Request) {
 }
 
 type foxxycodeToolCallRow struct {
-	ToolCallID             string `json:"toolCallId"`
-	Name                   string `json:"name,omitempty"`
-	Kind                   string `json:"kind,omitempty"`
-	Status                 string `json:"status,omitempty"`
-	StartedAt              string `json:"startedAt,omitempty"`
-	FinishedAt             string `json:"finishedAt,omitempty"`
-	ArgsPreview            string `json:"argsPreview,omitempty"`
-	ResultPreview          string `json:"resultPreview,omitempty"`
-	ResultPreviewTruncated bool   `json:"resultPreviewTruncated,omitempty"`
-	ResultTotalLines       int    `json:"resultTotalLines,omitempty"`
+	ToolCallID             string          `json:"toolCallId"`
+	Name                   string          `json:"name,omitempty"`
+	Kind                   string          `json:"kind,omitempty"`
+	Status                 string          `json:"status,omitempty"`
+	StartedAt              string          `json:"startedAt,omitempty"`
+	FinishedAt             string          `json:"finishedAt,omitempty"`
+	ArgsPreview            string          `json:"argsPreview,omitempty"`
+	ResultPreview          string          `json:"resultPreview,omitempty"`
+	ResultPreviewTruncated bool            `json:"resultPreviewTruncated,omitempty"`
+	ResultTotalLines       int             `json:"resultTotalLines,omitempty"`
+	PlanSnapshot           []acp.PlanEntry `json:"planSnapshot,omitempty"`
 }
 
 func previewText(s string, max int) string {
@@ -546,6 +561,7 @@ func (s *Server) foxxycodeToolCallsList(w http.ResponseWriter, r *http.Request) 
 				}
 				ordered[i].row.StartedAt = meta.StartedAt
 				ordered[i].row.FinishedAt = meta.FinishedAt
+				ordered[i].row.PlanSnapshot = append([]acp.PlanEntry(nil), meta.PlanSnapshot...)
 			}
 			if args, err := session.ReadToolCallArgs(sd, id); err == nil {
 				ordered[i].row.ArgsPreview = previewText(args, 200)
@@ -747,7 +763,11 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
-	rows, err := fs.ListSnapshots("", includeScheduler)
+	includeSubagents := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_subagents")), "true")
+	rows, err := fs.ListSnapshotsWith(session.ListOptions{
+		IncludeSchedulerRuns: includeScheduler,
+		IncludeSubagents:     includeSubagents,
+	})
 	if err != nil {
 		s.log.Error("foxxycode sessions list", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
@@ -805,6 +825,11 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 		}
 		if row.CWD != "" {
 			ent["cwd"] = row.CWD
+		}
+		if includeSubagents {
+			if link := subagentRowLink(fs, row.SessionID); link != nil {
+				ent["subagent"] = link
+			}
 		}
 		if includeActivity {
 			dir := fs.SessionPath(row.SessionID)
@@ -1017,7 +1042,7 @@ func (s *Server) foxxycodeSessionAssetThumbnailGet(w http.ResponseWriter, r *htt
 		http.Error(w, `{"error":{"message":"thumbnail unavailable"}}`, http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
 	if err != nil || info.IsDir() {
 		http.NotFound(w, r)
@@ -1043,6 +1068,12 @@ func (s *Server) foxxycodeSessionMessagesGet(w http.ResponseWriter, r *http.Requ
 		"object":    "foxxycode.messages",
 		"sessionId": id,
 		"messages":  llmMsgsToFoxxyCodeOpenAIForSession(id, st.GetMessages()),
+	}
+	// A child session is a read-only transcript: the SPA drops the composer
+	// and links back to the parent chat and to the task in its drawer.
+	if meta := st.Subagent(); meta != nil {
+		out["readOnly"] = true
+		out["subagent"] = subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
@@ -1162,22 +1193,29 @@ func (s *Server) foxxycodeSessionDelete(w http.ResponseWriter, r *http.Request) 
 	if fs == nil {
 		return
 	}
-	// Terminate anything this session left running before its bundle (and the
-	// task logs inside it) go away.
-	bgtask.Default().StopSession(id)
-	s.mgr.ForgetLiveSession(id)
 	// Retract the session from the branch file of whatever it forked from, so the
 	// branch navigator stops offering a thread that no longer exists. Read-side
 	// filtering covers the failure case, so a prune error must not block delete.
+	// It reads the session's own branch file, so it runs before the bundle goes.
 	if err := s.mgr.PruneBranchRefs(id); err != nil {
 		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
 	}
-	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
-		if !os.IsNotExist(err) {
-			s.log.Error("foxxycode session delete", "error", err)
-			http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
+	// The manager removes the whole tree: the tasks representing this session's
+	// subagent runs (and their descendants) are stopped and awaited first, then
+	// every remaining task of every node, then the bundles deepest first, so
+	// nothing writes into a directory that is already gone. An id with no bundle
+	// on disk removes nothing and still answers 200.
+	if err := s.mgr.DeleteSessionTree(id, bgtask.Default()); err != nil {
+		if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) {
+			// A turn of the tree ignored its cancellation, or descendants
+			// kept appearing while the tree was being marked; nothing was
+			// removed, the client may retry once the tree is quiet.
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 			return
 		}
+		s.log.Error("foxxycode session delete", "error", err)
+		http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"object": "foxxycode.session_deleted", "id": id})

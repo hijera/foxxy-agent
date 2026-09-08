@@ -81,8 +81,8 @@ func (d debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // on Close it logs the capped response excerpt. It never blocks streaming: Read
 // returns as soon as src yields.
 type teeBody struct {
-	src   io.ReadCloser
-	buf   bytes.Buffer
+	src    io.ReadCloser
+	buf    bytes.Buffer
 	capped bool
 }
 

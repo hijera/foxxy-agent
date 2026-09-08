@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import { useStableHandler } from "./components/useStableHandler";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
@@ -54,6 +55,11 @@ import {
 } from "./chat/transcriptServerSnapshot";
 import { pinPlanDocumentsToTurnEnd } from "./chat/planDocumentPlacement";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { ShadowTranscriptCache } from "./chat/sessionTranscriptCache";
+import {
+  parseSubagentTranscriptMeta,
+  type SubagentTranscriptMeta,
+} from "./chat/subagentTranscript";
 import { shouldApplyTranscriptSnapshot } from "./chat/transcriptSnapshotGuard";
 import {
   mergePermissionPromptsIntoTranscript,
@@ -81,6 +87,7 @@ import {
   upsertQuestionPromptRecord,
 } from "./chat/questionPromptSessionStore";
 import { pickRicherToolArgs } from "./chat/toolCallArgs";
+import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
@@ -265,6 +272,7 @@ type ToolCallListRow = {
   argsPreview?: string;
   resultPreview?: string;
   resultPreviewTruncated?: boolean;
+  planSnapshot?: unknown;
 };
 
 function readMessageCreatedAtUTC(
@@ -733,6 +741,10 @@ export function App() {
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
+  // Paste-to-chip literals: `path:start-end` → the exact text the user pasted,
+  // attached verbatim at send time. Lost on reload — the backend then re-reads
+  // the line range from the file instead. Capped; cleared after each send.
+  const pasteLiteralsRef = useRef<Map<string, string>>(new Map());
   // Workspace context chips: folder / git branch / worktree state per session.
   const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
   const [worktreePref, setWorktreePref] = useState(false);
@@ -852,8 +864,15 @@ export function App() {
     output: number;
     total: number;
   }>({ input: 0, output: 0, total: 0 });
-  /** Per-session shadow transcript while that session streams in the background. */
-  const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
+  /**
+   * Per-session shadow transcript while that session streams in the
+   * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
+   * write through `set` records recency, so `evictStaleSessionCaches` sees
+   * every entry.
+   */
+  const streamShadowBySidRef = useRef(
+    new ShadowTranscriptCache<TranscriptItem[]>(),
+  );
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
@@ -957,6 +976,26 @@ export function App() {
       }
       return prev;
     });
+  }
+
+  /**
+   * Drops least-recently-used shadow transcripts beyond the cache cap so old
+   * dialogs stop accumulating in memory. The session about to be viewed and
+   * any session with a live composer stream are pinned; evicted sessions are
+   * simply re-fetched via loadMessages on the next visit.
+   */
+  function evictStaleSessionCaches(nextViewedSid: string) {
+    const active = new Set<string>(activeComposerSidRef.current);
+    for (const k of postAbortBySidRef.current.keys()) active.add(k);
+    for (const k of relayAbortBySidRef.current.keys()) active.add(k);
+    for (const k of streamingAssistantBySidRef.current.keys()) active.add(k);
+    const victims = streamShadowBySidRef.current.evict({
+      viewedSid: nextViewedSid,
+      activeStreamSids: active,
+    });
+    for (const sid of victims) {
+      relayLastEventIdBySidRef.current.delete(sid);
+    }
   }
 
   const generating = useMemo(() => {
@@ -1390,6 +1429,10 @@ export function App() {
     [],
   );
 
+  /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  const [subagentTranscript, setSubagentTranscript] =
+    useState<SubagentTranscriptMeta | null>(null);
+
   const currentTitle = useMemo(() => {
     if (!sessionId) {
       return t("chat.newChat");
@@ -1402,8 +1445,18 @@ export function App() {
     }
     const row = sessions.find((s) => s.id === sessionId);
     const title = (row?.title || "").trim();
-    return title || t("chat.newChat");
-  }, [sessionId, sessions, describePreview, locale]);
+    if (title) {
+      return title;
+    }
+    // A child session has no History row to name it, so name it by its role.
+    if (subagentTranscript) {
+      const name = subagentTranscript.name.trim();
+      return name
+        ? t("chat.subagentTitle", { name })
+        : t("chat.subagentTitleUnnamed");
+    }
+    return t("chat.newChat");
+  }, [sessionId, sessions, describePreview, locale, subagentTranscript]);
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();
@@ -2182,12 +2235,16 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelsEpoch]);
 
+  // Onboarding is decided once per page load. It used to re-run on modelsEpoch,
+  // so every Settings save re-fetched the status and reopened a picker the user
+  // had already dismissed. Re-entry is the "Restart onboarding" button
+  // (restartOnboarding below), not a save.
   useEffect(() => {
     void (async () => {
       const status = await fetchOnboardingStatus();
       setShowProviderPicker(shouldShowOnboarding(status));
     })();
-  }, [modelsEpoch]);
+  }, []);
 
   // Apply the opened session's saved model/reasoning once the backends list is
   // known. Runs whenever either input lands, so the restore is independent of
@@ -2502,13 +2559,18 @@ export function App() {
           ? { allowWhileActive: opts.allowApplyWhileActive }
           : {}),
       });
-    const viewingTrim = viewedSessionIdRef.current.trim();
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
       selectedModelId?: string;
       selectedReasoning?: string;
       memoryTurns?: MemoryTurnApi[];
+      subagent?: {
+        parentSessionId?: string;
+        name?: string;
+        taskId?: string;
+      } | null;
+      readOnly?: boolean;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -2519,15 +2581,19 @@ export function App() {
     }>(`/foxxycode/sessions/${encodeURIComponent(sid)}/messages`, {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
+    // Re-read the viewed session after the await: the viewer may have moved
+    // on while the request was in flight, and a stale response must neither
+    // clear the new session's rows nor merge them into this session's shadow.
+    const viewingNow = viewedSessionIdRef.current.trim();
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
-        if (viewingTrim === sid && canApplySnapshot()) {
+        if (viewingNow === sid && canApplySnapshot()) {
           setItems([]);
         }
       }
       return null;
     }
-    if (viewingTrim === sid && canApplySnapshot()) {
+    if (viewingNow === sid && canApplySnapshot()) {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
@@ -2536,6 +2602,8 @@ export function App() {
         model: (res.data.model || res.data.selectedModelId || "").trim(),
         reasoning: (res.data.selectedReasoning || "").trim(),
       });
+      // A child session locks the composer; an ordinary one carries no marker.
+      setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
     }
     type UILogRow = {
       id: string;
@@ -2810,6 +2878,8 @@ export function App() {
         if (row.resultPreview) merged.resultText = row.resultPreview;
         if (row.resultPreviewTruncated === true)
           merged.resultWasTruncated = true;
+        const todoPlan = normalizeTodoPlanSnapshot(row.planSnapshot);
+        if (todoPlan !== undefined) merged.todoPlan = todoPlan;
         const st = parseRFC3339ms(row.startedAt);
         const fin = parseRFC3339ms(row.finishedAt);
         if (st != null && fin != null && fin >= st) {
@@ -2826,7 +2896,7 @@ export function App() {
         : undefined
       : prevShadow && prevShadow.length > 0
         ? prevShadow
-        : viewingTrim === sid
+        : viewingNow === sid
           ? itemsRef.current
           : undefined;
     const mergedTranscript = mergeTranscriptPreferLocalSuffix(
@@ -2852,7 +2922,7 @@ export function App() {
       keepLocalTranscriptIfServerEmpty({
         serverNext: merged,
         sid,
-        viewingSid: viewingTrim,
+        viewingSid: viewingNow,
         prevShadow,
         prevItems: itemsRef.current,
       }) ?? merged;
@@ -2878,6 +2948,7 @@ export function App() {
     if (opts?.skipSetItems) {
       if (canApplySnapshot()) {
         streamShadowBySidRef.current.set(sid, applied);
+        evictStaleSessionCaches(viewedSessionIdRef.current);
       }
       return applied;
     }
@@ -2908,6 +2979,13 @@ export function App() {
       return withBranches;
     }
     streamShadowBySidRef.current.set(sid, withBranches);
+    evictStaleSessionCaches(viewedSessionIdRef.current);
+    // The viewer moved on while this fetch was in flight (the user picked
+    // another session or went home): keep the shadow for the next visit, but
+    // never paint a stale transcript under the current route.
+    if (viewedSessionIdRef.current.trim() !== sid) {
+      return withBranches;
+    }
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2982,6 +3060,8 @@ export function App() {
     } else {
       setItems([]);
     }
+    streamShadowBySidRef.current.touch(id);
+    evictStaleSessionCaches(id);
   }
 
   function goHome() {
@@ -3005,6 +3085,7 @@ export function App() {
     setContextBreakdown(null);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -3122,6 +3203,7 @@ export function App() {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setSubagentTranscript(null);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -3309,6 +3391,7 @@ export function App() {
           it.resultWasTruncated = update.resultWasTruncated;
         if (update.fullResultText !== undefined)
           it.fullResultText = update.fullResultText;
+        if (update.todoPlan !== undefined) it.todoPlan = update.todoPlan;
         if (update.startedAtMs !== undefined)
           it.startedAtMs = update.startedAtMs;
         if (update.finishedAtMs !== undefined)
@@ -3346,6 +3429,7 @@ export function App() {
         merged.resultWasTruncated = update.resultWasTruncated;
       if (update.fullResultText !== undefined)
         merged.fullResultText = update.fullResultText;
+      if (update.todoPlan !== undefined) merged.todoPlan = update.todoPlan;
       next[idx] = merged;
       return next;
     });
@@ -3870,6 +3954,9 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      // The session is no longer pinned; bound the cache now rather than
+      // only after the reconciliation below succeeds.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
       if (reconcileOnExit) {
         const viewing = viewedSessionIdRef.current.trim();
@@ -3996,18 +4083,31 @@ export function App() {
         stream: true,
       };
       const atts = extractAtFileAttachments(text);
-      const profileModel =
-        mode === "agent" ||
-        mode === "plan" ||
-        mode === "docs" ||
-        mode === "ask" ||
-        mode === "debug";
+      const profileModel = (PROFILE_MODES as readonly string[]).includes(mode);
       if (atts.length > 0 && profileModel) {
-        reqBody.attachments = atts;
+        // A ranged mention attaches the pasted literal when we still hold it;
+        // otherwise the backend reads the line range from the file.
+        reqBody.attachments = atts.map((a) => {
+          if (a.startLine == null || a.endLine == null) {
+            return { path: a.path };
+          }
+          const literal = pasteLiteralsRef.current.get(
+            `${a.path}:${a.startLine}-${a.endLine}`,
+          );
+          return {
+            path: a.path,
+            source: {
+              ...(literal != null ? { literal } : {}),
+              startLine: a.startLine,
+              endLine: a.endLine,
+            },
+          };
+        });
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
         for (const a of atts) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
+        pasteLiteralsRef.current.clear();
       }
       if (opts?.files && opts.files.length > 0) {
         const inlineFiles = await Promise.all(
@@ -4102,10 +4202,11 @@ export function App() {
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
         relayAbortBySidRef.current.get(oldKey)?.abort();
         relayAbortBySidRef.current.delete(oldKey);
-        const sh = streamShadowBySidRef.current.get(oldKey);
-        streamShadowBySidRef.current.delete(oldKey);
-        if (sh) {
-          streamShadowBySidRef.current.set(postSessionKey, sh);
+        streamShadowBySidRef.current.rename(oldKey, postSessionKey);
+        const relayCursor = relayLastEventIdBySidRef.current.get(oldKey);
+        relayLastEventIdBySidRef.current.delete(oldKey);
+        if (relayCursor !== undefined) {
+          relayLastEventIdBySidRef.current.set(postSessionKey, relayCursor);
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
@@ -4353,6 +4454,9 @@ export function App() {
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
       releaseSessionId?.(sidEffective);
+      // A background stream that just finished on a no-longer-recent session
+      // should release its transcript without waiting for the next navigation.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
     }
   }
 
@@ -4539,6 +4643,16 @@ export function App() {
     }
   }, [sessionId]);
 
+  /** Opens a session in this tab: the child transcript behind an agent task,
+   *  or the parent chat from a read-only notice. Same path as a History pick,
+   *  so the panel closes and the hash becomes `#/s/<id>`. */
+  const openSessionInPlace = (targetId: string) => {
+    const id = targetId.trim();
+    if (id) {
+      pickSession(id);
+    }
+  };
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -4667,6 +4781,50 @@ export function App() {
       return next;
     });
   };
+
+  // Identity-stable handlers for the React.memo message rows: a shell
+  // re-render (every streamed token) must not invalidate their props.
+  const handleEditUserMessage = useStableHandler(
+    (content: string, userMsgIdx: number) => {
+      const assetNote = extractSessionAssetsXml(content);
+      setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
+      setEditingUserMsgIdx(userMsgIdx);
+      setEditingAssetNote(assetNote);
+      setEditingFiles(parseSessionAssetFiles(content));
+    },
+  );
+  const handleStopBackgroundTask = useStableHandler((id: string) => {
+    void stopBackgroundTaskById(id);
+  });
+  const handleFetchToolCallFull = useStableHandler(
+    async (toolCallId: string) => {
+      if (!sessionId) return;
+      const det = await fetchJSON<{
+        args?: string;
+        result?: string;
+        meta?: {
+          status?: string;
+          kind?: string;
+          name?: string;
+          planSnapshot?: unknown;
+        };
+      }>(
+        `/foxxycode/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+        { headers },
+      );
+      if (!det.ok || !det.data) return;
+      const meta = det.data.meta || {};
+      const patch: Record<string, unknown> = { toolCallId };
+      if (meta.name) patch.title = meta.name;
+      if (meta.kind) patch.kind = meta.kind;
+      if (meta.status) patch.status = meta.status;
+      const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
+      if (todoPlan !== undefined) patch.todoPlan = todoPlan;
+      if (det.data.args) patch.argsText = det.data.args;
+      if (det.data.result !== undefined) patch.fullResultText = det.data.result;
+      upsertToolCall(patch as any);
+    },
+  );
 
   return (
     <div
@@ -4803,6 +4961,7 @@ export function App() {
             nowMs={backgroundNowMs}
             onClose={closeTasksDrawer}
             onOpenTask={openBackgroundTask}
+            onOpenSession={openSessionInPlace}
             onBackToList={backToBackgroundTaskList}
             onStopTask={(id) => {
               void stopBackgroundTaskById(id);
@@ -4820,9 +4979,9 @@ export function App() {
           backgroundTasksByToolCallId={backgroundTasksByToolCallId}
           backgroundNowMs={backgroundNowMs}
           onOpenBackgroundTask={openBackgroundTask}
-          onStopBackgroundTask={(id: string) => {
-            void stopBackgroundTaskById(id);
-          }}
+          onStopBackgroundTask={handleStopBackgroundTask}
+          subagentTranscript={subagentTranscript}
+          onOpenSession={openSessionInPlace}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           svnFolderPref={svnFolderPref}
@@ -4887,51 +5046,68 @@ export function App() {
               ),
             );
           }}
-          onPlanDocumentRun={(slug) => {
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            void streamResponses(t("chat.runPlanMessage"), {
-              modeOverride: "agent",
-              runPlanSlug: slug,
-            });
-          }}
-          onPlanDocumentDiscard={async (itemId, slug) => {
-            const sid = sessionId.trim();
-            if (!sid) return;
-            try {
-              await fetch(
-                `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
-                {
-                  method: "DELETE",
-                  headers,
+          // A subagent transcript is read-only: like onEdit below, Run plan and
+          // Discard are withheld rather than stubbed, so the plan card renders
+          // without its footer and its editor is read-only.
+          {...(subagentTranscript
+            ? {}
+            : {
+                onPlanDocumentRun: (slug: string) => {
+                  if (
+                    sessionId.trim() &&
+                    activeComposerSidRef.current.has(sessionId.trim())
+                  ) {
+                    return;
+                  }
+                  void streamResponses(t("chat.runPlanMessage"), {
+                    modeOverride: "agent",
+                    runPlanSlug: slug,
+                  });
                 },
-              );
-            } catch {
-              return;
-            }
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, discarded: true }
-                  : x,
-              ),
-            );
-          }}
-          onEdit={(content, userMsgIdx) => {
-            const assetNote = extractSessionAssetsXml(content);
-            setDraft(stripFoxxyCodeAttachmentsForUserDisplay(content));
-            setEditingUserMsgIdx(userMsgIdx);
-            setEditingAssetNote(assetNote);
-            setEditingFiles(parseSessionAssetFiles(content));
-          }}
+                onPlanDocumentDiscard: async (itemId: string, slug: string) => {
+                  const sid = sessionId.trim();
+                  if (!sid) return;
+                  try {
+                    await fetch(
+                      `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                      {
+                        method: "DELETE",
+                        headers,
+                      },
+                    );
+                  } catch {
+                    return;
+                  }
+                  setItems((prev) =>
+                    prev.map((x) =>
+                      x.id === itemId && x.type === "plan_document"
+                        ? { ...x, discarded: true }
+                        : x,
+                    ),
+                  );
+                },
+              })}
+          {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+          onPasteChipCaptured={(key, literal) => {
+            const m = pasteLiteralsRef.current;
+            m.set(key, literal);
+            // Bound the map: drop oldest entries past 32 (Map keeps insertion order).
+            while (m.size > 32) {
+              const oldest = m.keys().next().value;
+              if (oldest == null) {
+                break;
+              }
+              m.delete(oldest);
+            }
+          }}
           onSend={(text: string, files?: File[]) => {
+            // A subagent transcript is read-only: the server answers 409.
+            if (subagentTranscript) {
+              return;
+            }
             if (
               sessionId.trim() &&
               activeComposerSidRef.current.has(sessionId.trim())
@@ -4951,27 +5127,7 @@ export function App() {
               void streamResponses(text, files ? { files } : undefined);
             }
           }}
-          onFetchToolCallFull={async (toolCallId: string) => {
-            if (!sessionId) return;
-            const det = await fetchJSON<{
-              args?: string;
-              result?: string;
-              meta?: { status?: string; kind?: string; name?: string };
-            }>(
-              `/foxxycode/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
-              { headers },
-            );
-            if (!det.ok || !det.data) return;
-            const meta = det.data.meta || {};
-            const patch: Record<string, unknown> = { toolCallId };
-            if (meta.name) patch.title = meta.name;
-            if (meta.kind) patch.kind = meta.kind;
-            if (meta.status) patch.status = meta.status;
-            if (det.data.args) patch.argsText = det.data.args;
-            if (det.data.result !== undefined)
-              patch.fullResultText = det.data.result;
-            upsertToolCall(patch as any);
-          }}
+          onFetchToolCallFull={handleFetchToolCallFull}
         />
         <ProviderPickerDialog
           open={showProviderPicker}

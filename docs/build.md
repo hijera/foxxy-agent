@@ -10,7 +10,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**. CI uses **`golangci/golangci-lint-action@v7`** or newer (v6 supports only golangci-lint v1).
+- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`http,scheduler,memory,gateway`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
 - **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../scripts/build.py)); stdlib only, no `pip` packages.
 
 ## Interactive build wizard

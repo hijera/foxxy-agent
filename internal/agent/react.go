@@ -28,7 +28,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/tools"
-	toolshell "github.com/hijera/foxxycode-agent/internal/tools/shell"
+	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -82,6 +82,23 @@ type Agent struct {
 
 	imgMu             sync.Mutex
 	pendingToolImages []llm.ImagePart
+
+	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
+	subagentRuntime SubagentRuntime
+	// subagent is set when this session is itself a child run (see subagent.go).
+	subagent *session.SubagentMeta
+	// currentToolCallID is the tool call being executed, so a spawn can link
+	// its task to the transcript row.
+	currentToolCallID string
+
+	// loopPins names read/grep results the loop guard rescued from eviction after a
+	// re-read loop, so the content the model kept circling back for stays in the
+	// projection. loopQuarantine names the calls it took away for the rest of the
+	// turn; the projection reads it too, to collapse the repeats those calls left
+	// behind. Both are guarded: the projection also runs from the compaction pass.
+	pinMu          sync.Mutex
+	loopPins       map[string]struct{}
+	loopQuarantine map[string]struct{}
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -114,7 +131,7 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		log = slog.Default()
 	}
 	environment := platform.CurrentEnvironment()
-	return &Agent{
+	a := &Agent{
 		cfg:             cfg,
 		state:           state,
 		server:          server,
@@ -123,6 +140,10 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		environment:     environment,
 		providerFactory: llm.NewProvider,
 	}
+	if st := sessionStatePtr(state); st != nil {
+		a.subagent = st.Subagent()
+	}
+	return a
 }
 
 // SetProviderFactory replaces the LLM provider factory used by subsequent turns.
@@ -149,17 +170,23 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
-	// The built-in /compact command compacts history instead of running the ReAct
-	// loop. runCompactCommand persists the command text itself (so it shows in the
-	// transcript like any other message), and under the opencode engine returns a
-	// short notice instead of compacting.
-	if instructions, ok := parseCompactCommand(userText); ok {
-		return a.runCompactCommand(ctx, instructions, userText)
-	}
-	// The built-in /plugin command manages skill plugins and marketplaces
-	// deterministically, without an LLM turn; the command text is persisted too.
-	if args, ok := parsePluginCommand(userText); ok {
-		return a.runPluginCommand(ctx, args, userText)
+	// The built-in /compact and /plugin commands are operator input: they run
+	// deterministically, outside the tool set and the permission gate. A
+	// child's prompt is written by the parent model, so for a subagent the
+	// same text is an ordinary task and never reaches the built-ins.
+	if a.subagent == nil {
+		// The built-in /compact command compacts history instead of running the ReAct
+		// loop. runCompactCommand persists the command text itself (so it shows in the
+		// transcript like any other message), and under the opencode engine returns a
+		// short notice instead of compacting.
+		if instructions, ok := parseCompactCommand(userText); ok {
+			return a.runCompactCommand(ctx, instructions, userText)
+		}
+		// The built-in /plugin command manages skill plugins and marketplaces
+		// deterministically, without an LLM turn; the command text is persisted too.
+		if args, ok := parsePluginCommand(userText); ok {
+			return a.runPluginCommand(ctx, args, userText)
+		}
 	}
 
 	imageParts := a.state.TakePendingImageParts()
@@ -182,7 +209,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
-	a.runMemoryBeforeTurn(ctx, userText)
+	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -218,6 +245,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30
+	}
+	if a.subagent != nil {
+		maxTurns = a.cfg.Subagents.EffectiveMaxTurns(a.cfg.Agent.MaxTurns)
+		if a.subagent.MaxTurns > 0 {
+			maxTurns = a.subagent.MaxTurns
+		}
 	}
 
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
@@ -282,6 +315,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 	a.wireFileEditHook(toolEnv)
 
+	a.applySubagentEnv(toolEnv, mode)
+
 	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
 }
 
@@ -327,7 +362,27 @@ const (
 	toolLoopNudge = "You have requested the same tool call with identical arguments several times in a row, so it was not executed again. Repeating it will not produce a different result. Use what you already have: try a different tool or different arguments, or answer the user with the information you have."
 
 	toolLoopSkippedResult = "not executed: the loop guard stopped this turn after repeated identical tool calls"
+
+	toolCycleNudge = "This call repeats a sequence of tool calls you have already run in this turn with the same arguments, so it was not executed again. Running it again will not return anything new. Note that an \"[evicted: ...]\" placeholder only means the text was dropped from your context to save room - the file has not changed, and re-reading it will produce the same content you already reasoned about. Work from what you have and take a genuinely different step, or tell the user what you cannot determine; do not repeat the sequence."
+
+	toolCycleSkippedResult = "not executed: the loop guard stopped this turn after a repeating sequence of tool calls"
+
+	// toolCycleStopNotice is the notice surfaced when a turn keeps cycling through
+	// the same sequence after every nudge. Unlike the identical-call notice it
+	// interpolates nothing, so the SPA can match it by equality
+	// (external/ui/src/ui/chat/loopGuardNotice.ts). Keep the two byte-identical.
+	toolCycleStopNotice = "stopped: the model kept repeating the same sequence of tool calls"
+
+	toolQuarantinedResult = "not executed: the loop guard has taken this call away for the rest of this turn because it was being repeated without progress. Its earlier result stands, above in this conversation. Do something different, or answer with what you already know."
+
+	loopAnswerDirective = "The tool calls you keep asking for have been taken away for the rest of this turn, and no tools are available on this request. Write your reply to the user now, using everything you have already gathered. If something could not be determined, say so plainly instead of describing the tool call you would have made."
 )
+
+// maxBlockedRoundsBeforeAnswer bounds how many rounds may consist purely of
+// quarantined calls before the loop takes the tools away for one request and asks
+// for the answer. Without it a model that knows nothing but the loop would keep
+// asking for blocked calls until max_turns, ending the turn with nothing to show.
+const maxBlockedRoundsBeforeAnswer = 2
 
 // loopAbortChannel names the streamed channel that degenerated into a loop.
 type loopAbortChannel int
@@ -366,30 +421,51 @@ func (a *Agent) runReActLoop(
 	guardOn := a.cfg.Agent.LoopGuardEnabled()
 	streamRepeatCycles := 0
 	var toolRepeats *toolRepeatDetector
+	var toolCycles *toolCycleDetector
 	loopNudgeBudget := 0
 	if guardOn {
 		streamRepeatCycles = a.cfg.Agent.EffectiveLoopStreamRepeatCycles()
 		toolRepeats = newToolRepeatDetector(a.cfg.Agent.EffectiveLoopToolRepeatLimit())
+		toolCycles = newToolCycleDetector(a.cfg.Agent.EffectiveLoopToolCycleRepeats())
 		loopNudgeBudget = a.cfg.Agent.EffectiveLoopNudgeMax()
 	}
 	loopNudges := 0
+	// stuckAction decides what happens once a tool loop has survived every nudge:
+	// quarantine the calls and carry on (the default), or end the turn.
+	stuckAction := a.cfg.Agent.EffectiveLoopStuckAction()
+	// The quarantine is per turn: what the guard took away last time must not
+	// silence a call the user has just asked for again.
+	a.resetLoopQuarantine()
+	// blockedRounds counts consecutive rounds in which the model asked only for
+	// quarantined calls and executed nothing: it has nothing left but the loop.
+	blockedRounds := 0
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
 		}
 
+		// Tool definitions for this one request. They are normally the turn's set,
+		// but a model with nothing left but quarantined calls gets one tools-free
+		// request so it has to answer from what it gathered. The system prompt is
+		// rendered from the same slice below, so its tool section disappears too.
+		callDefs := toolDefs
+		forceAnswer := blockedRounds >= maxBlockedRoundsBeforeAnswer
+		if forceAnswer {
+			callDefs = nil
+		}
+
 		a.emitDebug(turn, "turn_start", mode, "", map[string]interface{}{
 			"mode":     mode,
 			"model":    a.state.EffectiveModelID(a.cfg),
 			"messages": len(messages),
-			"tools":    len(toolDefs),
+			"tools":    len(callDefs),
 		})
 
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after foxxycode_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
+			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles)
 		}
 
 		// Auto-compaction: when the conversation approaches the context window, summarize older
@@ -398,14 +474,14 @@ func (a *Agent) runReActLoop(
 		// checks every turn against the provider's real input-token count.
 		if a.cfg.Compaction.EngineIsCoddy() {
 			if turn > 0 && a.maybeAutoCompact(ctx) {
-				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 			}
 		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
 			}
 		} else if did {
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 		}
 
 		// Call LLM and stream response.
@@ -486,14 +562,24 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
+		if forceAnswer {
+			// LLM-facing only; never persisted to the transcript, the same way the
+			// loop-guard and empty-turn nudges are. Appended after the compaction
+			// rebuild above so it cannot be swallowed by one.
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: loopAnswerDirective})
+			blockedRounds = 0
+			a.log.Warn("loop guard asked for an answer with tools withheld", "turn", turn)
+		}
+
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
 		sendMessages := a.prunedForLLM(messages)
 		a.emitDebug(turn, "llm_request", "", "", map[string]interface{}{
 			"model":    a.state.EffectiveModelID(a.cfg),
 			"messages": len(sendMessages),
+			"tools":    len(callDefs),
 		})
-		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -558,7 +644,7 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonRefused), loopAbortError(loopAbort)
 			}
 			loopNudges++
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 			nudge := streamLoopNudge
 			if loopAbort == loopAbortReasoning {
 				nudge = reasoningLoopNudge
@@ -748,21 +834,49 @@ func (a *Agent) runReActLoop(
 		}
 
 		// Execute all tool calls.
+		executedThisRound, quarantinedThisRound := 0, 0
 		for i, tc := range response.ToolCalls {
 			if ctx.Err() != nil {
 				return string(acp.StopReasonCancelled), nil
 			}
 
-			// A model stuck on the identical call (same name, same canonical arguments)
-			// would otherwise burn the whole max_turns budget without an answer. Skip
-			// the execution and tell it so; every tool_call_id still gets a result,
-			// because OpenAI-compatible endpoints reject the next request otherwise.
-			if _, tripped := toolRepeats.Observe(tc.Name, tc.InputJSON); tripped {
-				if loopNudges >= loopNudgeBudget {
+			// Already taken away earlier in this turn: answer the call without
+			// running it. This gate has to sit on the execution path rather than in
+			// the tool definitions, because executeToolCall never consults them - the
+			// same reason toolCallRefusedByMode exists (see toolsets.go).
+			if a.isQuarantined(canonicalToolCallKey(tc.Name, tc.InputJSON)) {
+				quarantinedThisRound++
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+				continue
+			}
+
+			// A model stuck on the identical call (same name, same canonical arguments),
+			// or rotating through a fixed sequence of them, would otherwise burn the
+			// whole max_turns budget without an answer. Skip the execution and tell it
+			// so; every tool_call_id still gets a result, because OpenAI-compatible
+			// endpoints reject the next request otherwise.
+			//
+			// Both detectors observe every requested call before either branch runs, so
+			// a call the repeat detector skips still lands in the cycle history. The
+			// repeat detector goes first: period one is its shape, and it trips sooner.
+			_, repeatTripped := toolRepeats.Observe(tc.Name, tc.InputJSON)
+			cyclePeriod, cycleUnit, cycleTripped := toolCycles.Observe(tc.Name, tc.InputJSON)
+			switch {
+			case repeatTripped && loopNudges >= loopNudgeBudget:
+				if stuckAction == config.AgentLoopStuckActionStop {
 					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
 					return string(acp.StopReasonRefused), fmt.Errorf(
 						"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
 				}
+				a.log.Warn("loop guard quarantined a repeated tool call", "tool", tc.Name)
+				if !a.quarantineLoop(tc, nil) {
+					quarantinedThisRound++
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+					continue
+				}
+				// read/grep fall through: one last execution, pinned, so the model
+				// finally holds stable content instead of being told no.
+			case repeatTripped:
 				loopNudges++
 				// The counter deliberately keeps running: clearing it here (as Roo does,
 				// where the trip is a blocking question to the user) would let the model
@@ -771,7 +885,32 @@ func (a *Agent) runReActLoop(
 				a.log.Warn("loop guard blocked a repeated tool call", "tool", tc.Name, "nudge", loopNudges)
 				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
 				continue
+			case cycleTripped && loopNudges >= loopNudgeBudget:
+				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
+					"tool": tc.Name, "period": cyclePeriod, "action": stuckAction,
+				})
+				if stuckAction == config.AgentLoopStuckActionStop {
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolCycleSkippedResult)
+					return string(acp.StopReasonRefused), errors.New(toolCycleStopNotice)
+				}
+				a.log.Warn("loop guard quarantined a tool-call cycle",
+					"tool", tc.Name, "period", cyclePeriod, "calls", len(cycleUnit))
+				if !a.quarantineLoop(tc, cycleUnit) {
+					quarantinedThisRound++
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+					continue
+				}
+			case cycleTripped:
+				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
+					"tool": tc.Name, "period": cyclePeriod, "nudge": loopNudges,
+				})
+				loopNudges++
+				a.log.Warn("loop guard blocked a repeating tool-call cycle",
+					"tool", tc.Name, "period", cyclePeriod, "nudge", loopNudges)
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolCycleNudge)
+				continue
 			}
+			executedThisRound++
 
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false, turn)
 
@@ -808,6 +947,15 @@ func (a *Agent) runReActLoop(
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.ConfigReloaded = false
 		}
+		// A round in which the model asked only for quarantined calls and executed
+		// nothing means it has nothing left but the loop. Counted consecutively, the
+		// same way emptyContinuations is: one executed call is progress and clears it.
+		if quarantinedThisRound > 0 && executedThisRound == 0 {
+			blockedRounds++
+		} else {
+			blockedRounds = 0
+		}
+
 		// The model made progress (executed tool calls), so reset the empty-turn counter. The
 		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow
 		// multi-step task that keeps acting between reasoning-only thoughts — otherwise a model
@@ -941,46 +1089,17 @@ func loopAbortError(c loopAbortChannel) error {
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool, turn int) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
-	defer func() { env.ToolCallID = "" }()
+	a.currentToolCallID = env.ToolCallID
+	defer func() {
+		env.ToolCallID = ""
+		a.currentToolCallID = ""
+	}()
 
 	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
 	// front so it holds regardless of the outcome below (permission denial,
 	// tool error), and so both callers — the ReAct loop and the resume-after-
 	// permission path — are covered without threading state through.
 	a.activateScopedRulesForToolCall(tc.Name, tc.InputJSON, env.CWD)
-
-	// The mode allowlist filters the definitions sent to the model; enforce it here too
-	// so a call the model was never offered cannot run (tools.plan_no_self_run only).
-	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
-	if toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly) {
-		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-			SessionUpdate: acp.UpdateTypeToolCallUpdate,
-			ToolCallID:    tc.ID,
-			Status:        "cancelled",
-		})
-		return modeToolRefusalMessage(mode, tc.Name), nil
-	}
-	if mode == string(session.ModeAsk) {
-		if strings.Contains(tc.Name, "__") && !a.askMCPToolAllowed(tc.Name, askBasicOnly) {
-			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-				SessionUpdate: acp.UpdateTypeToolCallUpdate,
-				ToolCallID:    tc.ID,
-				Status:        "cancelled",
-			})
-			return modeToolRefusalMessage(mode, tc.Name), nil
-		}
-		if tc.Name == "run_command" {
-			command := permission.ExtractRunCommand(tc.InputJSON)
-			if err := toolshell.ValidateReadOnlyCommand(command); err != nil {
-				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-					SessionUpdate: acp.UpdateTypeToolCallUpdate,
-					ToolCallID:    tc.ID,
-					Status:        "cancelled",
-				})
-				return fmt.Sprintf("error: command is not available in Ask mode: %v", err), nil
-			}
-		}
-	}
 
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {
@@ -1002,6 +1121,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
 		},
 	})
+
+	// A child may only call what its effective tool set admits: the
+	// advertised definitions are filtered the same way, so this catches a
+	// hallucinated or replayed call, MCP tools included, before anything runs
+	// or asks for permission. The refusal goes through the same bookkeeping
+	// as every other outcome, so the child's transcript records it as failed.
+	if a.subagent != nil && !a.subagentAllows(tc.Name) {
+		reason := fmt.Sprintf("tool %s is not available to this subagent", tc.Name)
+		a.finishToolCall(sessionDir, sessionID, tc, reason, nil, "failed")
+		return "", fmt.Errorf("%s", reason)
+	}
+
+	// A restricted mode filters tool definitions before the LLM sees them, but a
+	// call replayed from history can still name a hidden tool; refuse it here so
+	// the mode boundary holds at execution time too.
+	if refusal, refused := toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled()); refused {
+		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
+		return refusal, nil
+	}
 
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
@@ -1056,7 +1194,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				"tool", tc.Name, "session", sessionID, "timeout", a.cfg.Tools.ResolvedPermissionTimeout())
 		}
 
-		if err != nil || permResult == nil || permResult.Outcome == "cancelled" || permResult.OptionID == "reject" {
+		if err != nil || !permission.Approved(permResult) {
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
 				ToolCallID:    tc.ID,
@@ -1093,6 +1231,29 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	if execErr != nil {
 		status = "failed"
 	}
+	a.emitDebug(turn, "tool_finish", tc.Name, "", map[string]interface{}{
+		"tool_call_id": tc.ID,
+		"kind":         toolKind(tc.Name),
+		"status":       status,
+		"ok":           execErr == nil,
+	})
+	a.finishToolCall(sessionDir, sessionID, tc, result, execErr, status)
+	return result, execErr
+}
+
+// finishToolCall persists the outcome of one tool call and publishes the final
+// tool_call_update: the normal completed/failed path and the mode refusal
+// (status cancelled, result carrying the refusal text) share it so the
+// transcript, the tool_calls store, and the preview stay consistent.
+//
+// The plan snapshot is written before the call is marked finished: a transcript
+// reload that reads meta.json in between then sees an in_progress call that
+// already carries its plan rows, never a completed call without them.
+func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, result string, execErr error, status string) {
+	var todoPlanSnapshot []acp.PlanEntry
+	if status == "completed" {
+		todoPlanSnapshot = todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+	}
 
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		finalText := result
@@ -1100,14 +1261,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			finalText = fmt.Sprintf("error: %v", execErr)
 		}
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
+		if len(todoPlanSnapshot) > 0 {
+			_ = session.WriteToolCallPlanSnapshot(sessionDir, tc.ID, todoPlanSnapshot)
+		}
 		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
 	}
-	a.emitDebug(turn, "tool_finish", tc.Name, "", map[string]interface{}{
-		"tool_call_id": tc.ID,
-		"kind":         toolKind(tc.Name),
-		"status":       status,
-		"ok":           execErr == nil,
-	})
 
 	payload := result
 	if execErr != nil {
@@ -1122,6 +1280,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: display}},
 		}
 	}
+	previewMeta = session.AttachTodoPlanMeta(previewMeta, todoPlanSnapshot)
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
@@ -1130,16 +1289,29 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		Content:       content,
 		Meta:          previewMeta,
 	})
+}
 
-	return result, execErr
+func todoPlanSnapshotAfterToolCall(toolName string, state SessionState, execErr error) []acp.PlanEntry {
+	if execErr != nil || state == nil {
+		return nil
+	}
+	switch toolName {
+	case todo.ToolNameItemUpdate, todo.ToolNamePlanReplace:
+		entries := state.GetPlan()
+		if len(entries) == 0 {
+			return nil
+		}
+		return append([]acp.PlanEntry(nil), entries...)
+	default:
+		return nil
+	}
 }
 
 // currentToolDefinitions builds the definition list for mode, reflecting the
 // configuration in force right now. It is called again after config_commit so a
 // tool the reload enabled or disabled reaches the model in the same turn.
 func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
-	askBasicOnly := a.cfg.Tools.AskDisableExtendedTools
-	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled(), askBasicOnly)
+	toolSet := ToolSetForMode(mode, a.cfg.Tools.PlanNoSelfRunEnabled())
 	available := a.registry.AllToolDefinitions()
 	if a.configReloader == nil {
 		// Without a runtime reloader the staged config flow cannot commit, so
@@ -1155,25 +1327,44 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 		available = filtered
 	}
 	defs := FilterToolDefinitions(available, toolSet)
-	if ModeAllowsMCPTools(mode, askBasicOnly) {
-		defs = append(defs, a.mcpToolDefinitions(mode, askBasicOnly)...)
+	if ModeAllowsMCPTools(mode) {
+		defs = append(defs, a.mcpToolDefinitions()...)
+	}
+	if a.subagent != nil {
+		// An empty effective set means no tools at all, not "unrestricted" as
+		// the nil ToolSet would read; the spawn refuses such a set up front,
+		// this keeps a replayed or restored child honest too.
+		if len(a.subagent.Tools) == 0 {
+			return nil
+		}
+		defs = FilterToolDefinitions(defs, ToolSet(a.subagent.Tools))
+	} else if !a.canSpawnInMode(mode) {
+		// spawn_agent is registered whenever the feature is on; a surface with no
+		// runtime (a scheduled run), a session at the depth limit or a read-only
+		// turn (ask, docs) must not advertise it.
+		filtered := make([]llm.ToolDefinition, 0, len(defs))
+		for _, d := range defs {
+			if d.Name != tools.ToolSpawnAgent {
+				filtered = append(filtered, d)
+			}
+		}
+		defs = filtered
 	}
 	return defs
 }
 
 // mcpToolDefinitions converts the tools of connected MCP clients into LLM tool
-// definitions, applying both gates a caller must never skip: the configured
-// enable/disable filter and the fork's per-mode annotation filter. Shared by the
+// definitions, applying the configured enable/disable filter. Shared by the
 // main prompt path and the permission-resume path so the two cannot drift.
 //
-// Callers are responsible for checking ModeAllowsMCPTools first; this only
-// filters within a mode that gets MCP tools at all.
-func (a *Agent) mcpToolDefinitions(mode string, askBasicOnly bool) []llm.ToolDefinition {
+// Callers are responsible for checking ModeAllowsMCPTools first: docs and ask
+// never receive MCP definitions at all.
+func (a *Agent) mcpToolDefinitions() []llm.ToolDefinition {
 	allowed := a.state.GetMCPToolFilter()
 	var defs []llm.ToolDefinition
 	for _, client := range a.state.GetMCPClients() {
 		for _, t := range client.Tools() {
-			if !allowed(client.Name(), t.Name) || !MCPToolAllowedForMode(mode, askBasicOnly, t) {
+			if !allowed(client.Name(), t.Name) {
 				continue
 			}
 			defs = append(defs, t.ToLLMToolDefinition(client.Name()))
@@ -1194,26 +1385,6 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
-}
-
-func (a *Agent) askMCPToolAllowed(namespacedName string, basicOnly bool) bool {
-	idx := strings.Index(namespacedName, "__")
-	if idx <= 0 || idx >= len(namespacedName)-2 {
-		return false
-	}
-	serverName := namespacedName[:idx]
-	toolName := namespacedName[idx+2:]
-	for _, client := range a.state.GetMCPClients() {
-		if client.Name() != serverName {
-			continue
-		}
-		for _, tool := range client.Tools() {
-			if tool.Name == toolName {
-				return MCPToolAllowedForMode(string(session.ModeAsk), basicOnly, tool)
-			}
-		}
-	}
-	return false
 }
 
 // buildMessages constructs the message slice to send to the LLM.
@@ -1321,11 +1492,16 @@ func reasoningForStorage(trimmed, exact string, response *llm.Response) (text, s
 // title is pinned or already generated, and the detached context lets it outlive
 // the turn that started it - including a turn the user stopped. Non-fatal by design.
 func (a *Agent) startTitleGeneration(provider llm.Provider) {
+	// config_commit can replace a.cfg while this goroutine is awaiting the title
+	// completion. Config values are immutable after loading, so retaining the
+	// current pointer gives this work a stable view without synchronizing the
+	// whole ReAct loop.
+	cfg := a.cfg
 	a.titleOnce.Do(func() {
 		titleCtx, titleCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		go func() {
 			defer titleCancel()
-			a.maybeGenerateTitle(titleCtx, provider)
+			a.maybeGenerateTitleForConfig(titleCtx, provider, cfg)
 		}()
 	})
 }
@@ -1365,6 +1541,12 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
+	return a.llmProviderInputForConfig(a.cfg, rm)
+}
+
+// llmProviderInputForConfig builds provider settings from an immutable configuration snapshot.
+// It is used by detached work such as title generation, which must not race a config reload.
+func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.ResolvedLLM) llm.ProviderInput {
 	return llm.WithAgentResilience(llm.ProviderInput{
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
@@ -1376,7 +1558,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
-	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
@@ -1409,9 +1591,18 @@ func wrapXMLCDATA(body string) string {
 	return "<![CDATA[" + escaped + "]]>"
 }
 
+// attachmentLineRangeRe matches the "#L<start>-<end>" resource URI fragment a
+// paste-to-chip mention carries (see internal/session lineRangeURI).
+var attachmentLineRangeRe = regexp.MustCompile(`#L(\d+)-(\d+)$`)
+
 func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	pathRaw := strings.TrimSpace(res.URI)
 	pathRaw = strings.TrimPrefix(pathRaw, "file://")
+	lines := ""
+	if m := attachmentLineRangeRe.FindStringSubmatch(pathRaw); m != nil {
+		lines = m[1] + "-" + m[2]
+		pathRaw = strings.TrimSuffix(pathRaw, m[0])
+	}
 	pathFwd := filepath.ToSlash(pathRaw)
 	name := filepath.Base(pathFwd)
 	if name == "." || name == "/" {
@@ -1422,6 +1613,10 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	b.WriteString(xmlEscapedAttr(pathFwd))
 	b.WriteString(`" name="`)
 	b.WriteString(xmlEscapedAttr(name))
+	if lines != "" {
+		b.WriteString(`" lines="`)
+		b.WriteString(lines)
+	}
 	b.WriteString(`">`)
 	b.WriteByte('\n')
 	b.WriteString(wrapXMLCDATA(res.Text))
@@ -1556,6 +1751,11 @@ func filePathsNote(parts []llm.ImagePart) string {
 // bound token usage on workspaces with many editors open.
 const ideEnvMaxTabs = 50
 
+// ideEnvMaxSelectionBytes caps the selection text included in the IDE context
+// block. Kept short — a paste-to-chip attachment carries the full fragment on
+// demand; this is ambient context only.
+const ideEnvMaxSelectionBytes = 2 * 1024
+
 // ideEnvNote builds an XML annotation describing the files the user currently
 // has open in their IDE (the focused tab plus every open tab), mirroring the
 // environment context other coding agents inject each turn. Paths are made
@@ -1566,7 +1766,7 @@ const ideEnvMaxTabs = 50
 // stripFoxxyCodeAttachmentsForUserDisplay function.
 func ideEnvNote(cwd string) string {
 	snap := ideenv.Get()
-	if snap.ActiveFile == "" && len(snap.OpenFiles) == 0 {
+	if snap.ActiveFile == "" && len(snap.OpenFiles) == 0 && snap.Selection == nil {
 		return ""
 	}
 	rel := func(p string) string {
@@ -1602,6 +1802,15 @@ func ideEnvNote(cwd string) string {
 			}
 			b.WriteString(rel(snap.OpenFiles[i]))
 		}
+	}
+	if sel := snap.Selection; sel != nil {
+		text := sel.Text
+		if len(text) > ideEnvMaxSelectionBytes {
+			text = text[len(text)-ideEnvMaxSelectionBytes:]
+		}
+		b.WriteString("\n\n# Selection\n")
+		fmt.Fprintf(&b, "%s:%d-%d\n", rel(sel.File), sel.StartLine, sel.EndLine)
+		b.WriteString(text)
 	}
 	b.WriteString("\n</foxxycode_ide_context>")
 	return b.String()

@@ -91,6 +91,11 @@ jobs:
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
+      # buildPlugin does not run the test task, so the Kotlin suite needs its own
+      # step or it never executes in CI.
+      - name: Run plugin unit tests
+        run: make intellij-test
+
       - name: Build plugin (all platforms)
         run: make intellij-build PLUGIN_VERSION="${{ steps.ver.outputs.version }}"
 

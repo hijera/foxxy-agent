@@ -4,7 +4,7 @@ import { t } from "../i18n/i18n";
 import { tSchemaEnumLabel, tSchemaText } from "../i18n/schemaStrings";
 import { Combobox } from "./Combobox";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
-import { Switch } from "./Switch";
+import { SwitchField } from "./SwitchField";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
 export function IconTrash(props: { className?: string }) {
@@ -357,22 +357,13 @@ function SchemaField(props: {
         ? Boolean(schema.default)
         : Boolean(value);
     return (
-      <div className="settings-row">
-        <div className="settings-row-inline">
-          <Switch
-            checked={checked}
-            onChange={(next) => onChange(next)}
-            ariaLabel={label}
-            disabled={disabled}
-          />
-          <span>{label}</span>
-        </div>
-        {desc ? (
-          <p className="settings-field-desc settings-field-desc-below-checkbox">
-            {desc}
-          </p>
-        ) : null}
-      </div>
+      <SwitchField
+        checked={checked}
+        onChange={(next) => onChange(next)}
+        label={label}
+        description={desc || undefined}
+        disabled={disabled}
+      />
     );
   }
 

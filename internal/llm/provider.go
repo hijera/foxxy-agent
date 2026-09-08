@@ -159,20 +159,36 @@ type ProviderInput struct {
 	// streamed body read (providers[].timeout_ms). Zero means no client
 	// timeout; the turn context stays the only bound.
 	Timeout time.Duration
+	// Stop lists sequences at which generation halts; the matched sequence is
+	// not part of the returned text. Inline completion uses it to stop at the
+	// line the caret's suffix already holds instead of spending the token budget
+	// re-typing it.
+	Stop []string
+	// Deterministic sends temperature 0 explicitly. A zero Temperature alone is
+	// treated as "unset" and leaves the provider's own default in force, which
+	// for most servers is well above 0.
+	Deterministic bool
+	// NoThinking pins reasoning off for models whose thinking is a serving-side
+	// default rather than an effort tier (Qwen3: chat_template_kwargs.enable_thinking).
+	// Without it a small max_tokens budget can be spent entirely inside the
+	// thinking block, leaving an empty answer.
+	NoThinking bool
 }
 
-// neuralDeepBaseURL is the fixed OpenAI-compatible endpoint of the NeuralDeep hub.
+// neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints
+// holds the full allowlist a provider may select from.
 const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
 
 // providerBaseURL resolves the base URL a provider type actually talks to.
-// neuraldeep is pinned to its single hosted endpoint, so any configured api_base
-// is ignored; every other type keeps the configured value (empty means the SDK
-// default applies).
+// neuraldeep may only pick one of its official deployments; every other type
+// keeps the configured value (empty means the SDK default applies).
 func providerBaseURL(providerType, configured string) string {
 	if providerType == "neuraldeep" {
-		// Pinned to the official endpoint; FOXXYCODE_NEURALDEEP_BASE_URL lets
-		// tests and stands redirect the process as a whole (config cannot).
-		return neuralDeepAPIBase()
+		// Pinned to the official deployments: api_base picks between them and
+		// anything else falls back to the default, so a hub-issued key cannot
+		// be aimed at an arbitrary host. FOXXYCODE_NEURALDEEP_BASE_URL still
+		// redirects the process as a whole for tests and stands.
+		return neuralDeepAPIBase(configured)
 	}
 	return strings.TrimSpace(configured)
 }
@@ -206,11 +222,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort).withTuning(p)
 	case "codex":
 		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
 		// intentionally ignored: OAuth tokens go to the official Codex backend unless

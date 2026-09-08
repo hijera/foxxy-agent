@@ -45,12 +45,14 @@ The bundled `/configure-foxxycode` skill teaches the agent this syntax, the conf
 | [`providers`](#providers) | list | LLM API credentials and endpoints | — |
 | [`models`](#models) | list | Logical model entries selectable per session | — |
 | [`agent`](#agent) | object | ReAct loop model and safety caps | — |
+| [`autocomplete`](#autocomplete) | object | Inline code completion for the editor plugins | — |
 | [`prompts`](#prompts) | object | System prompt template overrides | — |
 | [`instructions`](#instructions) | object | Project instruction files (AGENTS.md) | — |
 | [`skills`](#skills) | object | Skill discovery directories | — |
 | [`rules`](#rules) | object | Project rules discovery | — |
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
 | [`mcp`](#mcp) | object | Trust policy for project-local MCP discovery | — |
+| [`subagents`](#subagents) | object | Subagent definitions, trust policy and pool bounds | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
@@ -69,8 +71,8 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
-| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints; `neuraldeep` uses its fixed endpoint; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
-| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep` and `type: codex`, which use fixed official endpoints. |
+| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints; `neuraldeep` uses NeuralDeep's OpenAI-compatible endpoint, selected from its two official deployments with `api_base`; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
+| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. For `type: neuraldeep` it selects the deployment - `https://api.neuraldeep.ru/v1` (Russia, the default) or `https://api.neuraldeep.tech/v1` (the international mirror); any other value falls back to the default. Ignored for `type: codex`, which always uses a fixed official endpoint. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). For `type: neuraldeep`, when the key is empty from all three sources the key stored by `foxxycode providers login <name>` (`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`) is used - an explicit key always wins over the stored login. |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | environment proxy | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Overrides a proxy inherited from the environment (`HTTP_PROXY`/`HTTPS_PROXY` — the IDE plugin forwards the editor's proxy this way); `NO_PROXY` is still honored and local addresses always connect directly. When empty, the environment proxy is used, or a direct connection when there is none. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
@@ -125,7 +127,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
 | `stream` | bool | no | `true` | Transport. Omitted or `true` streams the answer over SSE. `false` sends one blocking completion request and delivers the whole answer at once. Rejected for `type: codex` providers, whose backend is streaming-only. |
-| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series, `gpt-oss*`, `qwen3*` (qwen3, qwen3.5, qwen3.6, ...) and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. For `qwen3*` on OpenAI-compatible providers a selected level also sends `chat_template_kwargs` `{"enable_thinking": true}`. |
+| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; OpenAI o-series, `gpt-oss*`, `qwen3*`, and Claude extended-thinking models → `low,medium,high`). Explicit `[]` hides the selector. Both states survive a Settings save: the key is omitted from the written YAML when unset rather than serialized as `[]`. Settings → Logical models → **Fetch reasoning levels** fills this list from `GET /foxxycode/config/reasoning-levels`. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
 ```yaml
@@ -159,10 +161,12 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. A server-provided pause (`Retry-After-Ms` / `Retry-After` headers, `Limit resets at` / `retry in Ns` body phrases) overrides the exponential backoff, capped at 60s. |
 | `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms, retry attempts included (e.g. `12000` on strict free tiers). |
 | `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
-| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
+| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through. |
 | `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
 | `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
-| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it stops the turn with a notice. |
+| `loop_tool_cycle_repeats` | int | no | `3` | Repetitions of the same *sequence* of tool calls before the guard steps in — what catches a model rotating through several calls instead of repeating one; `0` disables the check. Sequences of 2 to 8 calls are searched for, and because a lap is allowed to vary, a longer rotation is usually caught earlier through a shorter sub-pattern inside it. |
+| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it acts on a loop. |
+| `loop_stuck_action` | string | no | `quarantine` | What the guard does once a tool loop has survived every nudge. `quarantine` takes the looping calls away for the rest of the turn and lets it run on to a real answer, asking for that answer with the tools withheld if nothing else is left; `stop` ends the turn with a notice. A degenerate output stream always stops the turn regardless. |
 
 ## `prompts`
 
@@ -174,6 +178,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 | `agent_prompt` | string | no | `agent.md` | Template file name for agent mode, inside `dir`. |
 | `plan_prompt` | string | no | `plan.md` | Template file name for plan mode, inside `dir`. |
 | `docs_prompt` | string | no | `docs.md` | Template file name for docs mode, inside `dir`. |
+| `ask_prompt` | string | no | `ask.md` | Template file name for ask mode, inside `dir`. |
 | `per_provider.enabled` | bool | no | `true` | Select a system prompt tuned to the active model for the current mode. Custom files resolve most-specific first: configured model-reference slug (e.g. `openai/gpt-4o` -> `ask.openai-gpt-4o.md`), provider-neutral API-model slug (e.g. `local/gpt-oss-20b` -> `ask.gpt-oss-20b.md`), per-family `<mode>.<family>.md`, then shared `<mode>.md`. Families: `anthropic`, `openai`, `gemini`, `gpt-oss`, `qwen`, `gemma`, `neuraldeep`. Built-in prompts use the same key order at fragment level; gpt-oss-20b and gpt-oss-120b have distinct profiles in Agent, Plan, Ask, and Docs modes. |
 
 ## `instructions`
@@ -260,7 +265,6 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `permission_timeout_seconds` | int | no | `0` | How long a permission prompt may wait for the operator before the tool call is cancelled instead. `0` waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
 | `plan_no_self_run` | bool | no | `false` | Forbid the model from starting to execute a plan itself. In plan mode `plan_exit` is not offered and any tool outside the plan allowlist is refused instead of run, so only **Run plan** starts the implementation. The `-plan-no-self-run` flag on `foxxycode acp` / `foxxycode http` overrides this value; the IntelliJ and VS Code plugins pass it, so their panels are guarded by default. |
-| `ask_disable_extended_tools` | bool | no | `false` | Hide Ask mode's read-only shell, web, annotated MCP, and scheduler inspection tools. Basic repository read/search/tree, question, and skill tools remain available. |
 | `output_limits` | object | no | — | Per-tool line and byte ceilings for results and errors. |
 | `background` | object | no | — | Bounds for commands the agent runs detached in the session background task pool. See below. |
 
@@ -291,6 +295,22 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 | `default_timeout_seconds` | int | no | `900` | Hard limit for a task started without an explicit `timeout_seconds` and without `expected_seconds`. |
 | `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
 | `output_buffer_bytes` | int | no | `262144` | In-memory output window per task, used by the status ticker and `background_output`. The full log still goes to the session bundle. |
+
+## `subagents`
+
+Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /foxxycode/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/subagents.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Register `spawn_agent` and list the subagent catalog in the system prompt. |
+| `dirs` | string list | no | `["${FOXXYCODE_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.foxxycode/agents"]` | Definition directories, lowest priority first; later entries override earlier ones by name. `${FOXXYCODE_HOME}` expands at load time, `${CWD}` per session. A directory inside the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. |
+| `project_trust` | string | no | `ask` | Policy for project-scope definitions, which travel with the checkout. `ask` — load them, but refuse to spawn one until the operator approved that exact file for that workspace on the machine running foxxycode (`foxxycode agents trust <name>` there, or `POST /foxxycode/subagents/{name}/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own files; `deny` — never read them. |
+| `max_concurrent` | int | no | `4` | Subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued; the per-session `tools.background.max_concurrent` still applies to the task count. |
+| `max_depth` | int | no | `1` | Nesting: `1` (the value an omitted key gets) lets a session spawn subagents that cannot spawn further; an explicit `0` forbids spawning everywhere, so unlike the other integer keys `0` here is a setting, not the default. |
+| `default_timeout_seconds` | int | no | `1800` | Hard limit for one run whose definition and call give no timeout. Precedence: the call's `timeout_seconds`, the definition's `timeout_seconds`, `expected_seconds × 3` (floored at 60 s), then this default; every value is capped by `tools.background.max_timeout_seconds`. |
+| `max_turns` | int | no | `agent.max_turns` | ReAct rounds a child may take. |
+
+Approvals for project-scope definitions are recorded in `~/.foxxycode/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
 
 ## `logger`
 
@@ -372,6 +392,31 @@ Unmarked large `read` and `grep` results collapse to short placeholders in later
 | `keep_recent` | int | no | `2` | Recent evictable results kept intact; `0` keeps none. |
 | `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted; `0` makes all results candidates. |
 
+## `autocomplete`
+
+LLM-backed inline code completion (`config.AutocompleteConfig`, `internal/config/autocomplete.go`; always compiled). This is the greyed suggestion the editor plugins draw ahead of the caret and accept with Tab. Editors fetch it over `POST /foxxycode/completion` — one single-shot LLM call with no tools, no session and no agent loop — and read `GET /foxxycode/completion/config` to learn when to ask. See [http-api.md](http-api.md).
+
+Unlike [`compaction`](#compaction) and [`title`](#title), this section is **off unless enabled explicitly**: a suggestion is requested as you type, so leaving it on by default would spend tokens on every keystroke. Point `model` at a small, fast `models[]` entry — speed beats cleverness here, because a suggestion is worthless once you have typed past it.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `false` | Turn on inline suggestions in the editor plugins. |
+| `model` | string | no | `""` (agent model) | Exact `models[].model` id used for the suggestion pass. |
+| `mode` | string | no | `auto` | How the hole reaches the model. `auto`: native fill-in-the-middle tokens through a raw completion (`POST /v1/completions`) when the model family is known (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and the provider is OpenAI-compatible, a chat prompt otherwise; a raw call that fails switches that model to chat for the rest of the process. `chat`: always a chat prompt. `fim`: always FIM tokens, and an error when that is not possible. |
+| `temperature` | number | no | `0` | Sampling temperature. Unlike `models[].temperature`, `0` here is the value rather than "unset": suggestions are greedy by default, so the same context yields the same suggestion and it survives the next keystroke. |
+| `max_tokens` | int | no | `128` | Completion token cap for one suggestion. Caps the model entry's own `max_tokens`, so sharing an entry with the agent cannot buy an 8k-token suggestion. |
+| `timeout_ms` | int | no | `4000` | How long one suggestion request may take before it is abandoned. |
+| `debounce_ms` | int | no | `350` | Typing pause before an automatic request goes out. Ignored when `trigger` is `manual`. |
+| `trigger` | string | no | `auto` | `auto` suggests while you type; `manual` suggests only on the editor shortcut. |
+| `multi_line` | bool | no | `true` | Allow a suggestion to span several lines. When `false`, only its first line is kept. Even when allowed, a block is only produced where the caret invites one: at the end of a line that opened a block, or on an empty line; with code to the right of the caret the suggestion never grows past the line. |
+| `related_files` | int | no | `3` | How many other open editor tabs (reported over `POST /foxxycode/ide/editor-state`, workspace files only) are excerpted — first 40 lines, up to 1500 bytes each — into the prompt so the model sees imports and signatures from neighbouring files. `0` disables it. |
+| `max_prefix_bytes` | int | no | `8000` | How much of the text before the caret is sent as context. |
+| `max_suffix_bytes` | int | no | `2000` | How much of the text after the caret is sent as context. |
+
+Retries are deliberately disabled for this pass regardless of `agent.llm_retry_max`: a retried suggestion lands after the user has typed past it. Qwen3-family thinking is pinned off (`chat_template_kwargs.enable_thinking: false`) regardless of the serving default, because a thinking model can spend the whole small budget inside its reasoning block and return nothing. Generation stops at sequences matched to the request — the line break for a single-line suggestion, the exact next suffix line and a blank-line run for a block — and, in chat mode, the streamed reply is cut the moment it dedents past the caret's scope. `GET /foxxycode/completion/stats` reports latency, token cost and the editor-reported acceptance rate.
+
+**Judging quality on a live hub.** `make e2e-autocomplete` with `NEURALDEEP_API_KEY` set runs `external/httpserver/e2e_neuraldeep_autocomplete_test.go`: a dozen caret positions across Go, Python, TypeScript, JavaScript and Kotlin, each with a loose acceptance rule (the idea the answer must contain, no fence, no re-typed suffix, single-line where the caret demands it), run against every model in `FOXXYCODE_E2E_MODELS` in every prompt mode in `FOXXYCODE_E2E_MODES` (default `auto,chat`, so native FIM and chat prompting can be compared per model). It prints a markdown report with the actual completions and latencies, writes it to `FOXXYCODE_E2E_REPORT` when set, and only fails below `FOXXYCODE_E2E_MIN_SCORE`. It is skipped without the key, so CI never talks to the hub.
+
 ## `title`
 
 Automatic session title generation (`config.TitleConfig`, `internal/config/title.go`; always compiled). After the first exchange in a fresh, non-pinned session, a hidden internal "title" agent generates a short thread title. It runs backend-side so every client (SPA, IntelliJ, VS Code, ACP, CLI) gets the title, pushed live over the session-update stream. A user-pinned title always wins and is never overwritten; the auto-title is generated at most once per session.
@@ -392,6 +437,7 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 | `port` | int | no | `0` → `12345` | Default listen port when `foxxycode http` does not pass `-P/--port`. Range 0–65535. |
 | `auth_token` | string | no | `""` | Optional bearer credential for the HTTP API. Empty = no auth. `${ENV}` expanded at load; prefer `--auth-token` / `FOXXYCODE_HTTP_TOKEN`. Redacted from `GET /foxxycode/config`. See [remote-control.md](remote-control.md). |
 | `public_docs` | bool | no | `false` | Keep `/docs` and `/openapi.*` reachable without a token when auth is enabled. |
+| `stream_tickets_only` | bool | no | `false` | Refuse the durable auth token in `?access_token=` on the SSE routes, so an EventSource must first mint a single-use ticket via `POST /foxxycode/stream-tickets`. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL. |
 | `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
 | `cors.enabled` | bool | no | `false` | Turn on CORS handling (preflight + `Access-Control-*` headers). |
 | `cors.allowed_origins` | []string | no | `[]` | Exact origins permitted to call the API. A single `"*"` allows any origin (bearer auth still applies). |

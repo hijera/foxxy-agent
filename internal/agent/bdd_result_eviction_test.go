@@ -138,6 +138,7 @@ func (s *evFeatureState) buildAgent() {
 		Compaction: config.CompactionConfig{ResultEviction: config.ResultEviction{Enabled: &enabled, KeepRecent: &keepRecent, MinResultBytes: &minBytes}},
 		Tools:      config.Tools{PermissionMode: config.PermModeBypass, OutputLimits: s.outputLimits},
 	}
+	disableTitlePass(cfg)
 	s.st = &session.State{ID: "sess_bdd_evict", CWD: s.cwd, Mode: session.ModeAgent, SessionDir: s.sessionDir}
 	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return s.provider, nil }
@@ -202,17 +203,26 @@ func (s *evFeatureState) requestKeepsPage2() error {
 	return nil
 }
 
-func (s *evFeatureState) requestEvictsPage1And3() error {
+func (s *evFeatureState) requestEvictsPage1() error {
 	req := s.lastRequest()
-	for _, id := range []string{"r1", "r3"} {
-		c := requestToolContent(req, id)
-		if !strings.HasPrefix(c, "[evicted:") {
-			return fmt.Errorf("page %s not replaced by a placeholder: %q", id, c)
-		}
+	c := requestToolContent(req, "r1")
+	if !strings.HasPrefix(c, "[evicted:") {
+		return fmt.Errorf("page r1 not replaced by a placeholder: %q", c)
 	}
-	joined := joinMessages(req)
-	if strings.Contains(joined, "LINE-0001") || strings.Contains(joined, "LINE-0021") {
+	if strings.Contains(joinMessages(req), "LINE-0001") {
 		return fmt.Errorf("evicted page content leaked into the request")
+	}
+	return nil
+}
+
+// requestKeepsUnseenPage3 pins the guarantee that survives even keep_recent 0:
+// page 3 was read in the round this very request delivers, so the model has not
+// had a chance to use it. Collapsing it here would answer a read with an order to
+// re-read, which is the shape a rotating re-read loop grows from.
+func (s *evFeatureState) requestKeepsUnseenPage3() error {
+	c := requestToolContent(s.lastRequest(), "r3")
+	if !strings.Contains(c, "LINE-0021") {
+		return fmt.Errorf("page 3 was evicted before the model could read it: %q", c)
 	}
 	return nil
 }
@@ -369,7 +379,8 @@ func initializeResultEvictionScenario(sc *godog.ScenarioContext) {
 	})
 	sc.Step(`^the model reads page 1, reads page 2, marks page 2 as useful, reads page 3, then answers$`, s.pageThroughMarkingPage2)
 	sc.Step(`^the next LLM request keeps page 2 verbatim$`, s.requestKeepsPage2)
-	sc.Step(`^the next LLM request replaces page 1 and page 3 with placeholders$`, s.requestEvictsPage1And3)
+	sc.Step(`^the next LLM request replaces page 1 with a placeholder$`, s.requestEvictsPage1)
+	sc.Step(`^the next LLM request still carries page 3, which the model has not read yet$`, s.requestKeepsUnseenPage3)
 	sc.Step(`^the next LLM request has one tool result per tool call$`, s.requestHasOneResultPerCall)
 	sc.Step(`^the persisted transcript still contains all three pages in full$`, s.transcriptHasAllThreePages)
 

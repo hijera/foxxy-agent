@@ -63,19 +63,55 @@ function Harness(props: { provider?: Record<string, unknown> }) {
   );
 }
 
-test("NeuralDeep provider shows a read-only API base URL pinned to the fixed endpoint", async () => {
+test("NeuralDeep provider picks the API endpoint from the two official ones", async () => {
   render(<Harness />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
 
-  const base = screen.getByLabelText("API base URL") as HTMLInputElement;
+  const base = screen.getByLabelText("API base URL") as HTMLSelectElement;
   await waitFor(() => {
     expect(base.value).toBe("https://api.neuraldeep.ru/v1");
   });
-  expect(base.readOnly).toBe(true);
+  expect([...base.options].map((o) => o.value)).toEqual([
+    "https://api.neuraldeep.ru/v1",
+    "https://api.neuraldeep.tech/v1",
+  ]);
+});
 
-  // Editing is rejected: the field stays pinned to the fixed endpoint.
-  fireEvent.change(base, { target: { value: "https://custom.example/v1" } });
-  expect(base.value).toBe("https://api.neuraldeep.ru/v1");
+test("NeuralDeep provider stores the mirror endpoint when it is picked", async () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.change(screen.getByLabelText("API base URL"), {
+    target: { value: "https://api.neuraldeep.tech/v1" },
+  });
+  await waitFor(() => {
+    expect(
+      (screen.getByLabelText("API base URL") as HTMLSelectElement).value,
+    ).toBe("https://api.neuraldeep.tech/v1");
+  });
+});
+
+test("NeuralDeep provider flags a stored api_base that is not a NeuralDeep endpoint", async () => {
+  render(
+    <Harness
+      provider={{
+        name: "neuraldeep",
+        type: "neuraldeep",
+        api_base: "https://custom.example/v1",
+        api_key: "",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  // The select shows the endpoint requests actually use, and the note explains
+  // why the stored value is not it.
+  const base = screen.getByLabelText("API base URL") as HTMLSelectElement;
+  await waitFor(() => {
+    expect(base.value).toBe("https://api.neuraldeep.ru/v1");
+  });
+  expect(document.body.textContent).toContain(
+    "The saved api_base https://custom.example/v1 is not a NeuralDeep endpoint",
+  );
 });
 
 test("switching type away from NeuralDeep restores the previously entered API base", async () => {
@@ -96,15 +132,16 @@ test("switching type away from NeuralDeep restores the previously entered API ba
   expect(base.readOnly).toBe(false);
   expect(base.value).toBe("https://custom.example/v1");
 
-  // Switch to neuraldeep: the field becomes read-only + pinned to the fixed
-  // endpoint, and the stored value is not overwritten.
+  // Switch to neuraldeep: the field becomes the endpoint picker showing the
+  // endpoint requests use, and the stored value is not overwritten.
   const type = screen.getByLabelText("Provider type") as HTMLInputElement;
   fireEvent.change(type, { target: { value: "neuraldeep" } });
-  base = screen.getByLabelText("API base URL") as HTMLInputElement;
   await waitFor(() => {
-    expect(base.readOnly).toBe(true);
+    expect(screen.getByLabelText("API base URL").tagName).toBe("SELECT");
   });
-  expect(base.value).toBe("https://api.neuraldeep.ru/v1");
+  expect(
+    (screen.getByLabelText("API base URL") as HTMLSelectElement).value,
+  ).toBe("https://api.neuraldeep.ru/v1");
 
   // Switch back to openai: the original value is restored.
   fireEvent.change(type, { target: { value: "openai" } });

@@ -173,6 +173,9 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 			}
 			return warnings, err
 		})
+		// The manager owns child sessions; without this hook spawn_agent
+		// answers that subagents are not available in this session.
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
@@ -342,7 +345,7 @@ func Run(args []string, deps CommandDeps) error {
 	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage of http:\n")
+		_, _ = fmt.Fprintf(fs.Output(), "Usage of http:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

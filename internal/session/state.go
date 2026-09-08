@@ -72,6 +72,15 @@ type State struct {
 	// mcp.json. They are replaced when the session workspace changes.
 	configuredMCPClients []*mcp.Client
 
+	// subagent is set for a child session spawned by another session (see
+	// subagent.go); nil for ordinary chats and scheduler runs.
+	subagent *SubagentMeta
+
+	// sessionMCPDecls are the ACP client-supplied MCP declarations this session
+	// dialed, kept so a child session can redial them: they exist nowhere in
+	// the configuration, only on the wire that opened this session.
+	sessionMCPDecls []config.MCPServerConfig
+
 	// mcpReady is the gate for a configured-MCP connect running in the background;
 	// nil when nothing is in flight. mcpClosed marks the session as gone so a late
 	// connect neither publishes into it nor holds a waiter (state_mcp_ready.go).
@@ -203,6 +212,14 @@ func (s *State) SetCWD(dir string) {
 	s.touchPersist()
 }
 
+// setSessionDir records the bundle directory once it exists (child sessions
+// register before their bundle is laid out).
+func (s *State) setSessionDir(dir string) {
+	s.mu.Lock()
+	s.SessionDir = dir
+	s.mu.Unlock()
+}
+
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
 func (s *State) GetPersistedSessionDir() string {
 	s.mu.RLock()
@@ -276,10 +293,84 @@ func (s *State) GetMCPClients() []*mcp.Client {
 	return out
 }
 
+// RememberSessionMCPDeclaration records a client-supplied MCP declaration so a
+// child session spawned from this one can redial the same server.
+func (s *State) RememberSessionMCPDeclaration(srv config.MCPServerConfig) {
+	s.mu.Lock()
+	s.sessionMCPDecls = append(s.sessionMCPDecls, srv)
+	s.mu.Unlock()
+}
+
+// SessionMCPDeclarations returns a copy of the client-supplied MCP
+// declarations this session dialed.
+func (s *State) SessionMCPDeclarations() []config.MCPServerConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]config.MCPServerConfig, len(s.sessionMCPDecls))
+	copy(out, s.sessionMCPDecls)
+	return out
+}
+
+// SubagentMeta describes a child session spawned by another session: who
+// spawned it, which pool task represents it, how deep it sits, and what role
+// and tool set the runtime gave it.
+type SubagentMeta struct {
+	// Name is the subagent definition name.
+	Name string
+	// ParentSessionID is the session whose turn spawned this child; the pool
+	// task representing the child lives under that session.
+	ParentSessionID string
+	// TaskID is the background task id of the run.
+	TaskID string
+	// Depth is the nesting level: 1 for a child of an ordinary session.
+	Depth int
+	// MaxTurns caps the child's ReAct rounds; 0 uses the configured default.
+	MaxTurns int
+	// Role is the definition body the child's system prompt carries. Not
+	// persisted: a restored child is a read-only transcript.
+	Role string
+	// Tools is the effective tool set the child may call. Not persisted.
+	Tools []string
+}
+
+// SetSubagentMeta marks the session as a child run. It does not persist by
+// itself: the manager saves the state right after building it.
+func (s *State) SetSubagentMeta(meta SubagentMeta) {
+	meta.Tools = append([]string(nil), meta.Tools...)
+	s.mu.Lock()
+	s.subagent = &meta
+	s.mu.Unlock()
+}
+
+// Subagent returns a copy of the child-run metadata, or nil for an ordinary
+// session.
+func (s *State) Subagent() *SubagentMeta {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.subagent == nil {
+		return nil
+	}
+	out := *s.subagent
+	out.Tools = append([]string(nil), s.subagent.Tools...)
+	return &out
+}
+
+// IsSubagentRun reports whether this session is a child spawned by another
+// session, and therefore a read-only transcript for everyone but its own run.
+func (s *State) IsSubagentRun() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.subagent != nil
+}
+
 // addMCPClient attaches a server the ACP client supplied. A connect that lands
 // after the session was closed hands its client straight to Close instead of
 // attaching it to dead state, the same rule replaceConfiguredMCPClients follows.
-func (s *State) addMCPClient(client *mcp.Client) {
+func (s *State) addMCPClient(client *mcp.Client) { s.AddSessionMCPClient(client) }
+
+// AddSessionMCPClient attaches a client-supplied MCP connection to the session
+// (the exported twin of addMCPClient, used by the subagent runtime and tests).
+func (s *State) AddSessionMCPClient(client *mcp.Client) {
 	if client == nil {
 		return
 	}

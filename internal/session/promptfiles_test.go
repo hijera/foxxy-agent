@@ -52,6 +52,91 @@ func TestHydratePromptContentBlocksExpandsAtInText(t *testing.T) {
 	}
 }
 
+func TestBuildHydratedComposerPromptLiteralWithLines(t *testing.T) {
+	root := t.TempDir()
+	blocks, err := session.BuildHydratedComposerPrompt(root, "see @Dockerfile:21-31", []session.PromptFileAttachment{
+		{Path: "Dockerfile", Source: &session.PromptFileAttachmentSourceField{Literal: "FROM x\r\nRUN y", StartLine: 21, EndLine: 31}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 2 || blocks[1].Resource == nil {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if blocks[1].Resource.URI != "Dockerfile#L21-31" {
+		t.Fatalf("uri %q", blocks[1].Resource.URI)
+	}
+	if blocks[1].Resource.Text != "FROM x\r\nRUN y" {
+		t.Fatalf("text %q", blocks[1].Resource.Text)
+	}
+}
+
+func TestBuildHydratedComposerPromptLineRangeReadsFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("l1\r\nl2\r\nl3\r\nl4\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := session.BuildHydratedComposerPrompt(root, "x", []session.PromptFileAttachment{
+		{Path: "f.txt", Source: &session.PromptFileAttachmentSourceField{StartLine: 2, EndLine: 3}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocks[1].Resource.URI != "f.txt#L2-3" {
+		t.Fatalf("uri %q", blocks[1].Resource.URI)
+	}
+	if blocks[1].Resource.Text != "l2\r\nl3" {
+		t.Fatalf("text %q", blocks[1].Resource.Text)
+	}
+}
+
+func TestBuildHydratedComposerPromptLineRangeClamps(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("l1\nl2\nl3"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := session.BuildHydratedComposerPrompt(root, "x", []session.PromptFileAttachment{
+		{Path: "f.txt", Source: &session.PromptFileAttachmentSourceField{StartLine: 2, EndLine: 99}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocks[1].Resource.Text != "l2\nl3" {
+		t.Fatalf("clamped text %q", blocks[1].Resource.Text)
+	}
+	// Start beyond the file falls back to the whole file.
+	blocks, err = session.BuildHydratedComposerPrompt(root, "x", []session.PromptFileAttachment{
+		{Path: "f.txt", Source: &session.PromptFileAttachmentSourceField{StartLine: 50, EndLine: 60}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocks[1].Resource.Text != "l1\nl2\nl3" {
+		t.Fatalf("fallback text %q", blocks[1].Resource.Text)
+	}
+}
+
+func TestHydratePromptContentBlocksExpandsRangedAtInText(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("l1\nl2\nl3\nl4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := []acp.ContentBlock{{Type: "text", Text: "read @f.txt:2-3 and @f.txt:4-4 please"}}
+	out, err := session.HydratePromptContentBlocks(root, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 3 {
+		t.Fatalf("got %d blocks: %+v", len(out), out)
+	}
+	if out[1].Resource.URI != "f.txt#L2-3" || out[1].Resource.Text != "l2\nl3" {
+		t.Fatalf("first resource %+v", out[1].Resource)
+	}
+	if out[2].Resource.URI != "f.txt#L4-4" || out[2].Resource.Text != "l4" {
+		t.Fatalf("second resource %+v", out[2].Resource)
+	}
+}
+
 func TestHydratePromptContentBlocksSkipsMissingAtMention(t *testing.T) {
 	root := t.TempDir()
 	// "@mention_demo" is a rules @mention trigger (no such file). A heuristic @token that

@@ -28,10 +28,8 @@ export const schemaTextRu: Record<string, string> = {
   "Wire protocol for this provider entry.":
     "Протокол обмена для этой записи провайдера.",
   "API base URL": "Базовый URL API",
-  "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1.":
-    "Необязательная замена базового URL API по умолчанию для этого провайдера. Игнорируется для neuraldeep — он всегда использует https://api.neuraldeep.ru/v1.",
-  "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.":
-    "Необязательная замена базового URL API. Игнорируется для neuraldeep и codex: они используют фиксированные официальные адреса.",
+  "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.":
+    "Необязательная замена базового URL API. Для neuraldeep выбирает площадку — https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первой. Игнорируется для codex: он использует фиксированный официальный адрес.",
   "API key": "API-ключ",
   "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).":
     "Можно задать ключ напрямую, сослаться на ${ENV} в YAML (подставляется при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание имени провайдера).",
@@ -75,6 +73,28 @@ export const schemaTextRu: Record<string, string> = {
   "Stream responses": "Потоковая выдача ответа",
   "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.":
     "Оставьте включённым, чтобы получать ответ по токенам через SSE. Выключите, чтобы отправлять один блокирующий запрос и ждать ответ целиком — для серверов и прокси, которые плохо работают с потоками событий; тогда транскрипт заполняется разом, а не печатается. Недоступно для моделей codex: их бэкенд работает только потоком.",
+
+  // Subagents
+  "Subagents": "Субагенты",
+  "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.":
+    "Дочерние агенты, которым модель делегирует задачи через spawn_agent. Определения — markdown-файлы с YAML-frontmatter; каждый запуск — фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
+  "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).":
+    "Регистрировать инструмент spawn_agent и перечислять каталог субагентов в системном промпте (по умолчанию включено).",
+  "Definition directories": "Каталоги определений",
+  "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.":
+    "Сначала наименее приоритетные; более поздние записи переопределяют ранние по имени. ${FOXXYCODE_HOME} и ${CWD} раскрываются. Каталоги внутри рабочей области относятся к проектной области и подчиняются политике доверия.",
+  "Project definitions": "Проектные определения",
+  "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.":
+    "Определения из рабочей области приезжают вместе с чекаутом. «ask»: загружать, но отказывать в запуске, пока файл не одобрен для этой рабочей области на машине, где запущен foxxycode (там: foxxycode agents trust или POST /foxxycode/subagents/{name}/trust). «allow»: считать своими файлами. «deny»: никогда не читать.",
+  "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.":
+    "Сколько запусков субагентов процесс может вести одновременно (по умолчанию 4). Лишние запуски отклоняются, а не ставятся в очередь.",
+  "Max depth": "Глубина вложенности",
+  "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere.":
+    "Насколько глубоко можно вкладывать запуски: 1 — сессия запускает субагентов, которые сами запускать не могут (по умолчанию), 0 — запуск запрещён везде.",
+  "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout.":
+    "Жёсткий лимит одного запуска, если ни определение, ни вызов не задают таймаут (по умолчанию 1800); ограничен максимальным таймаутом фоновых задач.",
+  "ReAct rounds a child may take; 0 follows agent.max_turns.":
+    "Сколько раундов ReAct может сделать дочерний агент; 0 — как agent.max_turns.",
 
   // MCP servers (+ env / headers)
   "MCP servers": "Серверы MCP",
@@ -147,17 +167,61 @@ export const schemaTextRu: Record<string, string> = {
   "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).":
     "Сколько потоковый вызов LLM может молчать, прежде чем ход его отменит (явный 0 отключает защиту).",
   "Loop guard": "Защита от зацикливания",
-  "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.":
-    "Останавливать ответ, выродившийся в повтор самого себя, и блокировать инструмент, который вызывают снова и снова с теми же аргументами.",
+  "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.":
+    "Останавливать ответ, выродившийся в повтор самого себя, блокировать инструмент, который вызывают снова и снова с теми же аргументами, и блокировать последовательность вызовов, которую модель крутит по кругу.",
   "Loop tool repeat limit": "Лимит повторов инструмента",
   "Consecutive identical tool calls before the loop guard steps in (0 disables the check).":
     "Сколько одинаковых вызовов инструмента подряд допускается до вмешательства защиты (0 отключает проверку).",
   "Loop stream repeat cycles": "Циклов повтора в потоке",
   "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).":
     "Сколько одинаковых циклов вывода подряд внутри одного потокового ответа допускается до его обрыва (0 отключает проверку).",
+  "Loop tool cycle repeats": "Повторов цикла вызовов",
+  "Repetitions of the same sequence of tool calls before the loop guard steps in, which is what catches a model rotating through several calls instead of repeating one (0 disables the check).":
+    "Сколько раз подряд может повториться одна и та же последовательность вызовов до вмешательства защиты; именно это ловит модель, которая крутит несколько вызовов по кругу, а не повторяет один (0 отключает проверку).",
+  "Loop stuck action": "Действие при зацикливании",
+  'What the guard does once a tool loop has survived every nudge. "quarantine" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; "stop" ends the turn with a notice.':
+    'Что делает защита, когда цикл вызовов пережил все подсказки. "quarantine" (по умолчанию) блокирует зациклившиеся вызовы до конца хода и даёт ходу дойти до настоящего ответа; "stop" завершает ход уведомлением.',
   "Loop nudge max": "Макс. подсказок при зацикливании",
   "How many times one turn may be nudged back on track before the loop guard stops it.":
     "Сколько раз за один шаг модель можно подтолкнуть вернуться к задаче, прежде чем защита остановит шаг.",
+
+  // Autocomplete
+  Autocomplete: "Автодополнение",
+  "LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.":
+    "Автодополнение кода на базе LLM в плагинах редакторов: серая подсказка перед курсором, принимаемая клавишей Tab.",
+  "Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.":
+    "Включает встроенные подсказки в плагинах редакторов. По умолчанию выключено, в отличие от остальных необязательных проходов: подсказка запрашивается по мере набора, то есть расходует токены на каждое нажатие клавиши.",
+  "Completion model": "Модель автодополнения",
+  "Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it.":
+    "Модель для прохода подсказок; при пустом значении берётся модель агента ReAct. Здесь важнее скорость, чем сообразительность: подсказка бесполезна, если вы уже набрали текст дальше.",
+  "Prompt mode": "Режим промпта",
+  'How the hole in the code reaches the model. "auto" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. "chat" always sends a chat prompt. "fim" always sends FIM tokens and reports an error when that is not possible.':
+    "Как пропуск в коде попадает в модель. «auto» отправляет родные токены fill-in-the-middle через raw completion, если семейство модели (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) и провайдер это позволяют, иначе — chat-промпт. «chat» всегда отправляет chat-промпт. «fim» всегда отправляет FIM-токены и сообщает об ошибке, если это невозможно.",
+  "Sampling temperature for suggestions. 0 (the default) is greedy: the same context yields the same suggestion, which is what lets a suggestion survive the next keystroke.":
+    "Температура сэмплирования подсказок. 0 (по умолчанию) — жадный выбор: один и тот же контекст даёт одну и ту же подсказку, благодаря чему она переживает следующее нажатие клавиши.",
+  "Related files": "Связанные файлы",
+  "How many other open editor tabs are excerpted (first lines: imports and signatures) into the prompt, so the model sees symbols from neighbouring files. 0 disables it (default 3).":
+    "Сколько других открытых вкладок редактора попадает в промпт выдержками (первые строки: импорты и сигнатуры), чтобы модель видела символы из соседних файлов. 0 отключает (по умолчанию 3).",
+  Trigger: "Триггер",
+  'When to ask the model. "auto" suggests while you type, after the debounce pause. "manual" suggests only when you press the editor shortcut.':
+    "Когда обращаться к модели. «auto» подсказывает по ходу набора, после паузы дебаунса. «manual» подсказывает только по горячей клавише редактора.",
+  "Debounce ms": "Дебаунс, мс",
+  "How long typing must pause before an automatic request goes out. Ignored when the trigger is manual (default 350).":
+    "Насколько долго должен длиться перерыв в наборе, прежде чем уйдёт автоматический запрос. Игнорируется при ручном триггере (по умолчанию 350).",
+  "Suggestion max tokens": "Макс. токенов подсказки",
+  "Completion token cap for one suggestion. Small values keep suggestions short and quick (default 128).":
+    "Лимит токенов ответа на одну подсказку. Малые значения делают подсказки короткими и быстрыми (по умолчанию 128).",
+  "How long one suggestion request may take before the editor abandons it (default 4000).":
+    "Сколько может длиться один запрос подсказки, прежде чем редактор от него откажется (по умолчанию 4000).",
+  "Multi-line suggestions": "Многострочные подсказки",
+  "Allow one suggestion to span several lines. When off, only the first line of a suggestion is kept, so completion never grows past the caret line (default on).":
+    "Разрешить подсказке занимать несколько строк. Если выключено, остаётся только первая строка подсказки, и дополнение не выходит за строку курсора (по умолчанию включено).",
+  "Max prefix bytes": "Макс. байт до курсора",
+  "How much of the text before the caret is sent as context (default 8000).":
+    "Сколько текста перед курсором отправляется как контекст (по умолчанию 8000).",
+  "Max suffix bytes": "Макс. байт после курсора",
+  "How much of the text after the caret is sent as context (default 2000).":
+    "Сколько текста после курсора отправляется как контекст (по умолчанию 2000).",
 
   // Tools
   "Tools and permissions": "Инструменты и разрешения",
@@ -223,9 +287,6 @@ export const schemaTextRu: Record<string, string> = {
     "Запретить модели самой начать выполнять план",
   "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.":
     "В режиме плана скрывает plan_exit и отклоняет любой инструмент вне списка плана, поэтому реализацию запускаете только вы — кнопкой на карточке плана. По умолчанию выключено; плагины редакторов включают его сами.",
-  "Disable extended Ask tools": "Отключить расширенные инструменты Ask",
-  "In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.":
-    "В режиме Ask скрыть команды shell только для чтения, веб-поиск, MCP-инструменты только для чтения и инструменты просмотра планировщика. Чтение и поиск по репозиторию, дерево файлов, вопросы и навыки остаются доступны. По умолчанию отключено.",
 
   // Skills
   Skills: "Навыки",
@@ -344,6 +405,9 @@ export const schemaTextRu: Record<string, string> = {
   "Plan prompt file": "Файл промпта плана",
   "Filename for plan-mode system prompt.":
     "Имя файла системного промпта режима планирования.",
+  "Ask prompt file": "Файл промпта вопросов",
+  "Filename for ask-mode system prompt.":
+    "Имя файла системного промпта режима вопросов.",
   "Per-provider prompts": "Промпты по провайдеру",
   "Select a system prompt tuned to the active model family (falls back to the shared prompt).":
     "Выбирать системный промпт под семейство активной модели (с откатом на общий промпт).",
@@ -518,8 +582,10 @@ export const schemaEnumLabelRu: Record<string, string> = {
   anthropic: "Anthropic",
   neuraldeep: "NeuralDeep",
   codex: "Codex",
-  // tools.permission_mode
+  // tools.permission_mode / mcp.project_trust / subagents.project_trust
   ask: "Спрашивать",
+  allow: "Разрешать",
+  deny: "Запрещать",
   accept_edits: "Авто-подтверждение правок",
   bypass: "Без запросов",
   // isolation
@@ -547,6 +613,15 @@ export const schemaEnumLabelRu: Record<string, string> = {
   enter: "Enter",
   ctrl_enter: "Ctrl+Enter",
   off: "Отключено",
+  // autocomplete.trigger
+  auto: "Авто",
+  manual: "Вручную",
+  // autocomplete.mode
+  chat: "Чат",
+  fim: "FIM",
+  // agent.loop_stuck_action
+  quarantine: "Карантин вызовов",
+  stop: "Остановить ход",
   // compaction.engine
   coddy: "coddy",
   opencode: "opencode",

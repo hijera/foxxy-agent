@@ -1,9 +1,14 @@
 import { t, tp } from "../i18n/i18n";
 import {
+  browserActionLabel,
+  isBrowserToolName,
+} from "../messages/browserActionDisplay";
+import {
   flattenDiffLines,
   parseDiffPatch,
   type ParsedDiffLine,
 } from "../messages/parseDiff";
+import { buildTodoToolPreview, type TodoPlanEntry } from "./todoToolPreview";
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { FoxxyCodePermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
@@ -12,6 +17,8 @@ export type PermissionToolCallContext = {
   title?: string | undefined;
   kind?: string | undefined;
   argsText?: string | undefined;
+  /** Final todo state captured when this tool call completed. */
+  todoPlan?: TodoPlanEntry[] | undefined;
 };
 
 type PermissionPreviewBase = {
@@ -23,6 +30,7 @@ type PermissionPreviewBase = {
 };
 
 export type PermissionToolPreview =
+  | (PermissionPreviewBase & { kind: "browser"; argsText: string })
   | (PermissionPreviewBase & { kind: "code"; text: string })
   | (PermissionPreviewBase & { kind: "path" })
   | (PermissionPreviewBase & {
@@ -34,7 +42,13 @@ export type PermissionToolPreview =
       kind: "diff";
       lines: ParsedDiffLine[];
       hunkHeaders: Array<{ at: number; text: string }>;
-    });
+    })
+  | (PermissionPreviewBase & {
+      kind: "todo";
+      variant: "item" | "plan";
+      entries: TodoPlanEntry[];
+    })
+  | (PermissionPreviewBase & { kind: "plan_exit" });
 
 function normalizedToolName(value: string | undefined): string {
   return (value || "").replace(/^run:\s*/i, "").trim();
@@ -128,6 +142,8 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return stringArg(args, "query");
     case "mv":
       return stringArg(args, "src");
+    case "spawn_agent":
+      return stringArg(args, "agent");
     case "question":
       return "";
     default:
@@ -248,6 +264,76 @@ export function buildToolCallPreview(
   const normalized = toolName.toLowerCase();
   const args = parseArgsText(context.argsText || "") || {};
   const title = questionForTool(normalized, args);
+  if (isBrowserToolName(normalized)) {
+    const argsText = Object.keys(args).length
+      ? JSON.stringify(args)
+      : context.argsText || fallback;
+    return {
+      toolName,
+      title,
+      header: browserActionLabel(toolName, argsText, "pending", t),
+      meta: [],
+      copyText: argsText,
+      kind: "browser",
+      argsText,
+    };
+  }
+  const todoPreview = buildTodoToolPreview({
+    toolName,
+    argsText: context.argsText,
+    planSnapshot: context.todoPlan,
+  });
+  if (todoPreview) {
+    return {
+      toolName,
+      title,
+      header:
+        todoPreview.variant === "item"
+          ? t("todoPreview.header.item")
+          : t("todoPreview.header.plan"),
+      meta:
+        todoPreview.variant === "item"
+          ? [
+              todoPreview.total > 0
+                ? t("todoPreview.meta.position", {
+                    position: todoPreview.position,
+                    total: todoPreview.total,
+                  })
+                : t("todoPreview.meta.positionOnly", {
+                    position: todoPreview.position,
+                  }),
+            ]
+          : [
+              tp("todoPreview.meta.completed", todoPreview.completed),
+              tp("todoPreview.meta.items", todoPreview.total),
+            ],
+      copyText: "",
+      kind: "todo",
+      variant: todoPreview.variant,
+      // A row rebuilt from the arguments alone has no text of its own.
+      entries: todoPreview.entries.map((entry) =>
+        entry.content
+          ? entry
+          : {
+              ...entry,
+              content: t("todoPreview.item.fallback", {
+                position: todoPreview.variant === "item" ? todoPreview.position : 0,
+              }),
+            },
+      ),
+    };
+  }
+
+  if (normalized === "plan_exit") {
+    return {
+      toolName,
+      title,
+      header: t("planExit.preview.header"),
+      meta: [],
+      copyText: "",
+      kind: "plan_exit",
+    };
+  }
 
   if (normalized === "run_command" || normalized === "ssh_run_command") {
     const command = stringArg(args, "command") || fallback;
@@ -394,7 +480,8 @@ export function buildToolCallPreview(
     const meta: string[] = [];
     const offset = numberArg(args, "offset", 0);
     const limit = numberArg(args, "limit", 0);
-    if (offset > 0) meta.push(t("prompts.permissionMeta.fromLine", { line: offset }));
+    if (offset > 0)
+      meta.push(t("prompts.permissionMeta.fromLine", { line: offset }));
     if (limit > 0) meta.push(tp("prompts.permissionMeta.lines", limit));
     if (boolArg(args, "recursive", false)) {
       meta.push(t("prompts.permissionMeta.recursive"));
@@ -405,7 +492,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta,
       copyText: stringArg(args, "path"),
       kind: "path",
@@ -427,7 +515,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta,
       copyText: pattern,
       kind: "code",
@@ -440,7 +529,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
+      header:
+        stringArg(args, "path") || t("prompts.permissionHeader.workspace"),
       meta: depth > 0 ? [t("prompts.permissionMeta.depth", { depth })] : [],
       copyText: stringArg(args, "path"),
       kind: "path",

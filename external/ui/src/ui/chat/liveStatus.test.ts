@@ -320,6 +320,7 @@ describe("waitingStatusKey", () => {
 describe("statusKeyForTool", () => {
   it("maps prefixes and exact ids", () => {
     expect(statusKeyForTool("foxxycode_browser_click")).toBe("status.browse");
+    expect(statusKeyForTool("spawn_agent")).toBe("status.spawnAgent");
     expect(statusKeyForTool("foxxycode_todo_write")).toBe("status.plan");
     expect(statusKeyForTool("foxxycode_todo_plan_read")).toBe("status.planRead");
     expect(statusKeyForTool("foxxycode_scheduler_jobs_list")).toBe(

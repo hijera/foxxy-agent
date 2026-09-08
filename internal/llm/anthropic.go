@@ -19,6 +19,18 @@ type anthropicProvider struct {
 	maxTokens       int
 	temp            float64
 	reasoningEffort string
+	// Generation tuning taken from ProviderInput; see withTuning.
+	stop          []string
+	deterministic bool
+}
+
+// withTuning copies the generation knobs a caller may set beyond model, budget
+// and temperature. NoThinking has no Anthropic counterpart: extended thinking is
+// only ever on when a reasoning effort is selected.
+func (p *anthropicProvider) withTuning(in ProviderInput) *anthropicProvider {
+	p.stop = in.Stop
+	p.deterministic = in.Deterministic
+	return p
 }
 
 func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
@@ -319,6 +331,11 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
 	} else if p.temp > 0 {
 		params.Temperature = anthropic.Float(p.temp)
+	} else if p.deterministic {
+		params.Temperature = anthropic.Float(0)
+	}
+	if len(p.stop) > 0 {
+		params.StopSequences = p.stop
 	}
 
 	if len(tools) > 0 {
