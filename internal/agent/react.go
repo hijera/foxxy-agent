@@ -1274,6 +1274,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 // tool_call_update: the normal completed/failed path and the mode refusal
 // (status cancelled, result carrying the refusal text) share it so the
 // transcript, the tool_calls store, and the preview stay consistent.
+//
+// The plan snapshot is written before the call is marked finished: a transcript
+// reload that reads meta.json in between then sees an in_progress call that
+// already carries its plan rows, never a completed call without them.
 func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, result string, execErr error, status string) {
 	var todoPlanSnapshot []acp.PlanEntry
 	if status == "completed" {
@@ -1286,10 +1290,10 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 			finalText = fmt.Sprintf("error: %v", execErr)
 		}
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
-		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
 		if len(todoPlanSnapshot) > 0 {
 			_ = session.WriteToolCallPlanSnapshot(sessionDir, tc.ID, todoPlanSnapshot)
 		}
+		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
 	}
 
 	payload := result
@@ -1305,17 +1309,7 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: display}},
 		}
 	}
-	if len(todoPlanSnapshot) > 0 {
-		if previewMeta == nil {
-			previewMeta = map[string]interface{}{}
-		}
-		foxxycodeMeta, _ := previewMeta["foxxycode"].(map[string]interface{})
-		if foxxycodeMeta == nil {
-			foxxycodeMeta = map[string]interface{}{}
-			previewMeta["foxxycode"] = foxxycodeMeta
-		}
-		foxxycodeMeta["todoPlan"] = todoPlanSnapshot
-	}
+	previewMeta = session.AttachTodoPlanMeta(previewMeta, todoPlanSnapshot)
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,

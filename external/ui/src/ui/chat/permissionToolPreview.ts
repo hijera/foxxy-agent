@@ -294,10 +294,14 @@ export function buildToolCallPreview(
       meta:
         todoPreview.variant === "item"
           ? [
-              t("todoPreview.meta.position", {
-                position: todoPreview.position,
-                total: todoPreview.total,
-              }),
+              todoPreview.total > 0
+                ? t("todoPreview.meta.position", {
+                    position: todoPreview.position,
+                    total: todoPreview.total,
+                  })
+                : t("todoPreview.meta.positionOnly", {
+                    position: todoPreview.position,
+                  }),
             ]
           : [
               tp("todoPreview.meta.completed", todoPreview.completed),
@@ -306,7 +310,17 @@ export function buildToolCallPreview(
       copyText: "",
       kind: "todo",
       variant: todoPreview.variant,
-      entries: todoPreview.entries,
+      // A row rebuilt from the arguments alone has no text of its own.
+      entries: todoPreview.entries.map((entry) =>
+        entry.content
+          ? entry
+          : {
+              ...entry,
+              content: t("todoPreview.item.fallback", {
+                position: todoPreview.variant === "item" ? todoPreview.position : 0,
+              }),
+            },
+      ),
     };
   }
 

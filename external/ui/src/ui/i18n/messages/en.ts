@@ -830,6 +830,8 @@ export const messagesEn: Record<string, string> = {
   "todoPreview.header.item": "Updated item",
   "todoPreview.header.plan": "Todo plan",
   "todoPreview.meta.position": "{position} of {total}",
+  "todoPreview.meta.positionOnly": "item {position}",
+  "todoPreview.item.fallback": "Item {position}",
   "todoPreview.meta.completed.one": "{count} completed",
   "todoPreview.meta.completed.other": "{count} completed",
   "todoPreview.meta.items.one": "{count} item",
