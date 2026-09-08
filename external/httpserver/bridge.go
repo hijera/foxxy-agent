@@ -361,16 +361,28 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
 		return nil, err
 	}
-	select {
-	case res := <-ch:
-		if res == nil {
-			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
-		}
+	// The record on disk exists so a prompt can still be answered after the
+	// stream drops or the process restarts. Every way out of this select ends
+	// the gate, so none of them may leave it behind: a stranded record is
+	// matched by tryResumePendingPermission, which reports the late answer as
+	// handled and then fails with "already has a result", and nothing ever
+	// clears it.
+	clearPending := func() {
 		if sd != "" && !relayed {
 			_ = session.ClearPendingPermission(sd)
 		}
+	}
+	select {
+	case res := <-ch:
+		clearPending()
+		if res == nil {
+			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+		}
 		return res, nil
 	case <-ctx.Done():
+		// The turn was cancelled, or tools.permission_timeout_seconds expired.
+		// Either way the tool call is already finished with a denial.
+		clearPending()
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 }

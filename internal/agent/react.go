@@ -367,6 +367,16 @@ const (
 
 	toolCycleSkippedResult = "not executed: the loop guard stopped this turn after a repeating sequence of tool calls"
 
+	// permissionTimedOutResult is the tool result when tools.permission_timeout_seconds
+	// expires with nobody answering. It is deliberately distinct from
+	// permissionDeniedResult: nobody refused the call, so telling the model the
+	// operator denied it would have it report a refusal that never happened.
+	permissionTimedOutResult = "permission request timed out with no answer from the operator; the tool was not run"
+
+	// permissionDeniedResult is the tool result when the operator actually
+	// refuses a call, or the client answers "cancelled".
+	permissionDeniedResult = "permission denied by user"
+
 	// toolCycleStopNotice is the notice surfaced when a turn keeps cycling through
 	// the same sequence after every nudge. Unlike the identical-call notice it
 	// interpolates nothing, so the SPA can match it by equality
@@ -1200,7 +1210,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				ToolCallID:    tc.ID,
 				Status:        "cancelled",
 			})
-			return "permission denied by user", nil
+			if timedOut {
+				return permissionTimedOutResult, nil
+			}
+			return permissionDeniedResult, nil
 		}
 		if st := sessionStatePtr(a.state); st != nil {
 			permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, env.CWD, permResult)

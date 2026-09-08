@@ -117,7 +117,8 @@ func (p *permTimeoutProvider) Stream(_ context.Context, _ []llm.Message, _ []llm
 // TestPermissionPromptTimeoutCancelsToolCall pins tools.permission_timeout_seconds:
 // a client that never answers the permission dialog must not hold the turn
 // forever; after the configured deadline the tool call is cancelled and the
-// turn finishes with the permission-denied marker.
+// turn finishes with the timed-out marker - and specifically NOT with the
+// permission-denied one, because nobody denied anything.
 func TestPermissionPromptTimeoutCancelsToolCall(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
@@ -159,13 +160,34 @@ func TestPermissionPromptTimeoutCancelsToolCall(t *testing.T) {
 	if !sender.deadlineSeen.Load() {
 		t.Fatal("permission context was not bounded by the configured deadline")
 	}
-	denied := false
+	timedOut := false
 	for _, m := range st.GetMessages() {
-		if m.Role == llm.RoleTool && m.Content == "permission denied by user" {
-			denied = true
+		if m.Role != llm.RoleTool {
+			continue
+		}
+		switch m.Content {
+		case permissionTimedOutResult:
+			timedOut = true
+		case permissionDeniedResult:
+			t.Fatal("a timed-out prompt was reported to the model as an operator denial")
 		}
 	}
-	if !denied {
-		t.Fatal("timed-out tool call did not leave the permission-denied marker")
+	if !timedOut {
+		t.Fatal("timed-out tool call did not leave the timed-out marker")
+	}
+}
+
+// TestTimedOutWriteIsNotCountedAsASuccessfulWrite guards the coupling between
+// the new marker and result eviction: writeResultSucceeded decides whether a
+// write actually landed, and a call that never ran because its prompt timed out
+// must not read as a successful write.
+func TestTimedOutWriteIsNotCountedAsASuccessfulWrite(t *testing.T) {
+	for _, content := range []string{permissionTimedOutResult, permissionDeniedResult} {
+		if writeResultSucceeded(content) {
+			t.Errorf("writeResultSucceeded(%q) = true, want false", content)
+		}
+	}
+	if !writeResultSucceeded("wrote 3 lines") {
+		t.Error("a real write result must still count as succeeded")
 	}
 }

@@ -227,7 +227,7 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 
 func writeResultSucceeded(content string) bool {
 	switch strings.TrimSpace(content) {
-	case "", "permission denied by user", toolLoopNudge, toolLoopSkippedResult, toolCycleNudge, toolCycleSkippedResult:
+	case "", permissionDeniedResult, permissionTimedOutResult, toolLoopNudge, toolLoopSkippedResult, toolCycleNudge, toolCycleSkippedResult:
 		return false
 	}
 	return !strings.HasPrefix(strings.TrimSpace(content), "error:")
