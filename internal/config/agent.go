@@ -36,6 +36,9 @@ const (
 	// AgentDefaultLoopStreamRepeatCycles is how many identical back-to-back output
 	// cycles inside one streamed response trip the loop guard.
 	AgentDefaultLoopStreamRepeatCycles = 5
+	// AgentDefaultLoopToolCycleRepeats is how many back-to-back repetitions of the
+	// same sequence of tool calls trip the loop guard.
+	AgentDefaultLoopToolCycleRepeats = 3
 	// AgentDefaultLoopNudgeMax is how many times a turn may be nudged back on track
 	// before the loop guard stops it.
 	AgentDefaultLoopNudgeMax = 2
@@ -46,6 +49,21 @@ const (
 // because the last entry repeats. Long enough to outlast a saturated gateway
 // without hammering it.
 var agentDefaultLLMStallRetryDelaysMS = []int{60000, 180000, 300000}
+
+// Loop-guard terminal actions (agent.loop_stuck_action): what the guard does once
+// a tool loop has survived every nudge.
+const (
+	// AgentLoopStuckActionQuarantine takes the looping calls away for the rest of
+	// the turn - they stop being executed and the model is told why - and lets the
+	// turn run on to a real answer. Throwing the turn away is expensive: the model
+	// has usually gathered most of what it needs by then.
+	AgentLoopStuckActionQuarantine = "quarantine"
+	// AgentLoopStuckActionStop ends the turn with a notice, the behaviour ported
+	// from upstream.
+	AgentLoopStuckActionStop = "stop"
+	// AgentDefaultLoopStuckAction is the action applied when the key is unset.
+	AgentDefaultLoopStuckAction = AgentLoopStuckActionQuarantine
+)
 
 // Agent is the YAML agent section (key agent) for ReAct loop settings.
 type Agent struct {
@@ -89,6 +107,17 @@ type Agent struct {
 	// streamed response trip the guard. A nil pointer means the default (5); an explicit
 	// 0 disables the stream check.
 	LoopStreamRepeatCycles *int `yaml:"loop_stream_repeat_cycles"`
+	// LoopToolCycleRepeats is how many back-to-back repetitions of the same sequence
+	// of tool calls trip the guard, which is what catches a model rotating through
+	// several calls instead of repeating one. A nil pointer means the default (3);
+	// an explicit 0 or 1 disables the cycle check.
+	LoopToolCycleRepeats *int `yaml:"loop_tool_cycle_repeats"`
+	// LoopStuckAction selects what happens once a tool loop has survived every
+	// nudge: "quarantine" (default) blocks the looping calls for the rest of the
+	// turn and lets it continue to an answer, "stop" ends the turn with a notice.
+	// Empty defaults to quarantine. Streamed-output loops always stop the turn -
+	// there is nothing to quarantine when the output itself is degenerate.
+	LoopStuckAction string `yaml:"loop_stuck_action"`
 	// LoopNudgeMax is how many times one turn may be nudged back on track before the
 	// guard stops it with a notice. A nil pointer means the default (2); an explicit 0
 	// stops the turn on the first detected loop.
@@ -173,6 +202,22 @@ func (c *Agent) EffectiveLoopStreamRepeatCycles() int {
 	return *c.LoopStreamRepeatCycles
 }
 
+// EffectiveLoopToolCycleRepeats returns loop_tool_cycle_repeats with the default applied.
+func (c *Agent) EffectiveLoopToolCycleRepeats() int {
+	if c.LoopToolCycleRepeats == nil {
+		return AgentDefaultLoopToolCycleRepeats
+	}
+	return *c.LoopToolCycleRepeats
+}
+
+// EffectiveLoopStuckAction returns loop_stuck_action with the default applied.
+func (c *Agent) EffectiveLoopStuckAction() string {
+	if c.LoopStuckAction == "" {
+		return AgentDefaultLoopStuckAction
+	}
+	return c.LoopStuckAction
+}
+
 // EffectiveLoopNudgeMax returns loop_nudge_max with the default applied.
 func (c *Agent) EffectiveLoopNudgeMax() int {
 	if c.LoopNudgeMax == nil {
@@ -239,8 +284,17 @@ func (c *Agent) Validate() error {
 	if c.LoopStreamRepeatCycles != nil && *c.LoopStreamRepeatCycles < 0 {
 		return fmt.Errorf("agent.loop_stream_repeat_cycles: must be >= 0")
 	}
+	if c.LoopToolCycleRepeats != nil && *c.LoopToolCycleRepeats < 0 {
+		return fmt.Errorf("agent.loop_tool_cycle_repeats: must be >= 0")
+	}
 	if c.LoopNudgeMax != nil && *c.LoopNudgeMax < 0 {
 		return fmt.Errorf("agent.loop_nudge_max: must be >= 0")
+	}
+	switch c.LoopStuckAction {
+	case "", AgentLoopStuckActionQuarantine, AgentLoopStuckActionStop:
+	default:
+		return fmt.Errorf("agent.loop_stuck_action: %q must be %q or %q",
+			c.LoopStuckAction, AgentLoopStuckActionQuarantine, AgentLoopStuckActionStop)
 	}
 	return nil
 }

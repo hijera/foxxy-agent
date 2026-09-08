@@ -151,6 +151,8 @@ type AgentJSON struct {
 	LoopGuard              *bool  `json:"loop_guard,omitempty"`
 	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
 	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopToolCycleRepeats   *int   `json:"loop_tool_cycle_repeats,omitempty"`
+	LoopStuckAction        string `json:"loop_stuck_action,omitempty"`
 	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 }
 
@@ -402,6 +404,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopGuard:              c.Agent.LoopGuard,
 		LoopToolRepeatLimit:    c.Agent.LoopToolRepeatLimit,
 		LoopStreamRepeatCycles: c.Agent.LoopStreamRepeatCycles,
+		LoopToolCycleRepeats:   c.Agent.LoopToolCycleRepeats,
+		LoopStuckAction:        c.Agent.LoopStuckAction,
 		LoopNudgeMax:           c.Agent.LoopNudgeMax,
 	}
 	out.Prompts = PromptsJSON{
@@ -613,6 +617,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopGuard:              j.Agent.LoopGuard,
 		LoopToolRepeatLimit:    j.Agent.LoopToolRepeatLimit,
 		LoopStreamRepeatCycles: j.Agent.LoopStreamRepeatCycles,
+		LoopToolCycleRepeats:   j.Agent.LoopToolCycleRepeats,
+		LoopStuckAction:        j.Agent.LoopStuckAction,
 		LoopNudgeMax:           j.Agent.LoopNudgeMax,
 	}
 	cfg.Prompts = Prompts{

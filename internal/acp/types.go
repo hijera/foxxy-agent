@@ -493,7 +493,7 @@ type SessionTitleUpdate struct {
 // go to the process log, while this carries lightweight structured metadata.
 type DebugUpdate struct {
 	SessionUpdate string                 `json:"sessionUpdate"` // "debug"
-	Phase         string                 `json:"phase"`         // "turn_start"|"llm_request"|"llm_response"|"tool_start"|"tool_finish"
+	Phase         string                 `json:"phase"`         // "turn_start"|"llm_request"|"llm_response"|"tool_start"|"tool_finish"|"loop_guard"
 	Title         string                 `json:"title,omitempty"`
 	Detail        string                 `json:"detail,omitempty"`
 	Meta          map[string]interface{} `json:"_meta,omitempty"`

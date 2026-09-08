@@ -21,6 +21,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	loopGuard := true
 	loopToolRepeatLimit := AgentDefaultLoopToolRepeatLimit
 	loopStreamRepeatCycles := AgentDefaultLoopStreamRepeatCycles
+	loopToolCycleRepeats := AgentDefaultLoopToolCycleRepeats
 	loopNudgeMax := AgentDefaultLoopNudgeMax
 	llmRetryMax := AgentDefaultLLMRetryMax
 	llmFirstTokenTimeoutMS := AgentDefaultLLMFirstTokenTimeoutMS
@@ -53,6 +54,8 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LoopGuard:              &loopGuard,
 			LoopToolRepeatLimit:    &loopToolRepeatLimit,
 			LoopStreamRepeatCycles: &loopStreamRepeatCycles,
+			LoopToolCycleRepeats:   &loopToolCycleRepeats,
+			LoopStuckAction:        AgentDefaultLoopStuckAction,
 			LoopNudgeMax:           &loopNudgeMax,
 		},
 		Autocomplete: AutocompleteJSON{

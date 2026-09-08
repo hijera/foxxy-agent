@@ -534,3 +534,168 @@ func TestPruneAlternatingReadGrepWindowSize(t *testing.T) {
 		}
 	})
 }
+
+// asstReadsRound builds one assistant message that requests several reads at
+// once, which is how a model gathers context before reasoning about it.
+func asstReadsRound(paths ...string) llm.Message {
+	m := llm.Message{Role: llm.RoleAssistant}
+	for i, p := range paths {
+		b, _ := json.Marshal(map[string]interface{}{"path": p})
+		m.ToolCalls = append(m.ToolCalls, llm.ToolCall{ID: fmt.Sprintf("r%d", i), Name: "read", InputJSON: string(b)})
+	}
+	return m
+}
+
+func TestPruneKeepsUnseenRoundReads(t *testing.T) {
+	in := []llm.Message{
+		asstReadsRound("one.go", "two.go", "three.go"),
+		toolResult("r0", bigBody("PAGE-ONE")),
+		toolResult("r1", bigBody("PAGE-TWO")),
+		toolResult("r2", bigBody("PAGE-THREE")),
+	}
+	out := pruneToolResults(in, defaultOpts())
+	for _, id := range []string{"r0", "r1", "r2"} {
+		if evicted(contentByID(out, id)) {
+			t.Fatalf("%s belongs to the round the model has not read yet: %q", id, contentByID(out, id))
+		}
+	}
+}
+
+func TestPruneEvictsUnseenReadMadeStaleByWrite(t *testing.T) {
+	readArgs, _ := json.Marshal(map[string]interface{}{"path": "big.go"})
+	writeArgs, _ := json.Marshal(map[string]interface{}{"path": "big.go"})
+	in := []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "a", Name: "read", InputJSON: string(readArgs)},
+			{ID: "w", Name: "edit", InputJSON: string(writeArgs)},
+		}},
+		toolResult("a", bigBody("PAGE-A")),
+		toolResult("w", "written"),
+	}
+	out := pruneToolResults(in, defaultOpts())
+	if !evicted(contentByID(out, "a")) {
+		t.Fatalf("a write in the same round makes the read stale, unseen or not: %q", contentByID(out, "a"))
+	}
+}
+
+func TestPruneStillTruncatesEarlierRounds(t *testing.T) {
+	in := []llm.Message{
+		asstReadsRound("one.go", "two.go"),
+		toolResult("r0", bigBody("PAGE-ONE")),
+		toolResult("r1", bigBody("PAGE-TWO")),
+		asstRead("b", "later.go", 0, 0, false),
+		toolResult("b", bigBody("PAGE-LATER")),
+	}
+	out := pruneToolResults(in, defaultOpts())
+	if !evicted(contentByID(out, "r0")) || !evicted(contentByID(out, "r1")) {
+		t.Fatalf("a round the model has already reasoned over is still subject to KeepRecent: r0=%q r1=%q",
+			contentByID(out, "r0"), contentByID(out, "r1"))
+	}
+	if evicted(contentByID(out, "b")) {
+		t.Fatalf("the newest round must stay live: %q", contentByID(out, "b"))
+	}
+}
+
+func asstCall(id, name, argsJSON string) llm.Message {
+	return llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: id, Name: name, InputJSON: argsJSON}}}
+}
+
+func TestPruneKeepsLoopPinnedRead(t *testing.T) {
+	opts := defaultOpts()
+	opts.KeepRecent = 0
+	opts.Pinned = map[string]struct{}{loopPinReadPrefix + absPath("big.go", testCWD): {}}
+	in := []llm.Message{
+		asstRead("a", "big.go", 0, 0, false),
+		toolResult("a", bigBody("PAGE-A")),
+		asstRead("b", "other.go", 0, 0, false),
+		toolResult("b", bigBody("PAGE-B")),
+		{Role: llm.RoleAssistant, Content: "done"},
+	}
+	out := pruneToolResults(in, opts)
+	if evicted(contentByID(out, "a")) {
+		t.Fatalf("a read the loop guard rescued must never be collapsed again: %q", contentByID(out, "a"))
+	}
+	if !evicted(contentByID(out, "b")) {
+		t.Fatalf("an unpinned read is still subject to the window: %q", contentByID(out, "b"))
+	}
+}
+
+func TestPruneKeepsLoopPinnedGrep(t *testing.T) {
+	opts := defaultOpts()
+	opts.KeepRecent = 0
+	opts.Pinned = map[string]struct{}{loopPinGrepPrefix + "handler": {}}
+	in := []llm.Message{
+		asstGrep("g", "handler", "", false),
+		toolResult("g", grepBody("handler", "a.go")),
+		{Role: llm.RoleAssistant, Content: "done"},
+	}
+	out := pruneToolResults(in, opts)
+	if evicted(contentByID(out, "g")) {
+		t.Fatalf("a rescued search must survive: %q", contentByID(out, "g"))
+	}
+}
+
+func TestCollapseLoopDuplicatesKeepsTheNewestCopy(t *testing.T) {
+	args := `{"pattern":"**/*.go"}`
+	key := canonicalToolCallKey("glob", args)
+	in := []llm.Message{
+		asstCall("g1", "glob", args),
+		toolResult("g1", bigBody("RUN-1")),
+		asstCall("g2", "glob", args),
+		toolResult("g2", bigBody("RUN-2")),
+		asstCall("g3", "glob", args),
+		toolResult("g3", bigBody("RUN-3")),
+	}
+	out := collapseLoopDuplicates(in, map[string]struct{}{key: {}}, 10)
+	if contentByID(out, "g1") != loopDuplicatePlaceholder || contentByID(out, "g2") != loopDuplicatePlaceholder {
+		t.Fatalf("earlier repeats must collapse: g1=%q g2=%q", contentByID(out, "g1"), contentByID(out, "g2"))
+	}
+	if !strings.Contains(contentByID(out, "g3"), "RUN-3") {
+		t.Fatalf("the newest copy is the one the model works from: %q", contentByID(out, "g3"))
+	}
+	// The input must not be touched, and every call still needs its result.
+	if !strings.Contains(in[1].Content, "RUN-1") {
+		t.Fatal("collapseLoopDuplicates mutated its input")
+	}
+	for _, id := range []string{"g1", "g2", "g3"} {
+		if contentByID(out, id) == "" {
+			t.Fatalf("tool call %s lost its result", id)
+		}
+	}
+}
+
+func TestCollapseLoopDuplicatesLeavesUnquarantinedCallsAlone(t *testing.T) {
+	// The same command before and after an edit returns different output, so the
+	// second result is not a duplicate of the first.
+	args := `{"command":"go test ./..."}`
+	in := []llm.Message{
+		asstCall("t1", "run_command", args),
+		toolResult("t1", bigBody("FAIL")),
+		asstWrite("w", "edit", "big.go"),
+		toolResult("w", "written"),
+		asstCall("t2", "run_command", args),
+		toolResult("t2", bigBody("PASS")),
+	}
+	out := collapseLoopDuplicates(in, map[string]struct{}{canonicalToolCallKey("glob", `{}`): {}}, 10)
+	if !strings.Contains(contentByID(out, "t1"), "FAIL") {
+		t.Fatalf("a call outside the quarantine must be untouched: %q", contentByID(out, "t1"))
+	}
+}
+
+func TestCollapseLoopDuplicatesSkipsShortSyntheticResults(t *testing.T) {
+	args := `{"pattern":"**/*.go"}`
+	key := canonicalToolCallKey("glob", args)
+	in := []llm.Message{
+		asstCall("g1", "glob", args),
+		toolResult("g1", bigBody("RUN-1")),
+		asstCall("g2", "glob", args),
+		toolResult("g2", toolQuarantinedResult),
+	}
+	out := collapseLoopDuplicates(in, map[string]struct{}{key: {}}, 10)
+	if !strings.Contains(contentByID(out, "g1"), "RUN-1") {
+		t.Fatalf("the only substantial copy must survive: %q", contentByID(out, "g1"))
+	}
+	if contentByID(out, "g2") != toolQuarantinedResult {
+		t.Fatalf("the guard's own short answer must be left alone: %q", contentByID(out, "g2"))
+	}
+}

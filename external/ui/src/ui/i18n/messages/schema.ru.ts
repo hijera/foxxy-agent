@@ -179,14 +179,20 @@ export const schemaTextRu: Record<string, string> = {
   "Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop.":
     "Сколько всего времени можно потратить на паузы между повторами одного вызова, прежде чем ход сдастся и покажет ошибку. Явный 0 — повторять, пока модель не ответит или пока вы не нажмёте «Стоп».",
   "Loop guard": "Защита от зацикливания",
-  "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.":
-    "Останавливать ответ, выродившийся в повтор самого себя, и блокировать инструмент, который вызывают снова и снова с теми же аргументами.",
+  "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.":
+    "Останавливать ответ, выродившийся в повтор самого себя, блокировать инструмент, который вызывают снова и снова с теми же аргументами, и блокировать последовательность вызовов, которую модель крутит по кругу.",
   "Loop tool repeat limit": "Лимит повторов инструмента",
   "Consecutive identical tool calls before the loop guard steps in (0 disables the check).":
     "Сколько одинаковых вызовов инструмента подряд допускается до вмешательства защиты (0 отключает проверку).",
   "Loop stream repeat cycles": "Циклов повтора в потоке",
   "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).":
     "Сколько одинаковых циклов вывода подряд внутри одного потокового ответа допускается до его обрыва (0 отключает проверку).",
+  "Loop tool cycle repeats": "Повторов цикла вызовов",
+  "Repetitions of the same sequence of tool calls before the loop guard steps in, which is what catches a model rotating through several calls instead of repeating one (0 disables the check).":
+    "Сколько раз подряд может повториться одна и та же последовательность вызовов до вмешательства защиты; именно это ловит модель, которая крутит несколько вызовов по кругу, а не повторяет один (0 отключает проверку).",
+  "Loop stuck action": "Действие при зацикливании",
+  'What the guard does once a tool loop has survived every nudge. "quarantine" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; "stop" ends the turn with a notice.':
+    'Что делает защита, когда цикл вызовов пережил все подсказки. "quarantine" (по умолчанию) блокирует зациклившиеся вызовы до конца хода и даёт ходу дойти до настоящего ответа; "stop" завершает ход уведомлением.',
   "Loop nudge max": "Макс. подсказок при зацикливании",
   "How many times one turn may be nudged back on track before the loop guard stops it.":
     "Сколько раз за один шаг модель можно подтолкнуть вернуться к задаче, прежде чем защита остановит шаг.",
@@ -622,6 +628,9 @@ export const schemaEnumLabelRu: Record<string, string> = {
   // autocomplete.mode
   chat: "Чат",
   fim: "FIM",
+  // agent.loop_stuck_action
+  quarantine: "Карантин вызовов",
+  stop: "Остановить ход",
   // compaction.engine
   coddy: "coddy",
   opencode: "opencode",

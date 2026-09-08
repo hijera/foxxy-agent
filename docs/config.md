@@ -121,7 +121,9 @@ agent:
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
   loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
-  loop_nudge_max: 2            # nudges before the guard stops the turn with a notice
+  loop_tool_cycle_repeats: 3   # repeats of the same sequence of calls before intervening (0 disables)
+  loop_nudge_max: 2            # nudges before the guard acts on a loop
+  loop_stuck_action: quarantine # then: block the looping calls and finish the turn, or "stop" it
 
 # System prompt templates
 prompts:
