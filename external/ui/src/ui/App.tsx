@@ -3322,6 +3322,19 @@ export function App() {
         shadowSnap &&
         shadowSnap.length > 0
       ) {
+        // pickSession scheduled a fade that clears the rows in 110ms, and this
+        // branch is synchronous - so without cancelling it the transcript just
+        // restored from the stream's shadow is wiped a moment later, and the
+        // chat sits empty until the stream next paints. While a foreground
+        // spawn_agent waits on its child that is minutes, which is exactly what
+        // it looked like: an empty window with a Stop button in it. The
+        // loadMessages path below already cancels the same timer before it
+        // paints.
+        if (fadeOutTimerRef.current !== null) {
+          clearTimeout(fadeOutTimerRef.current);
+          fadeOutTimerRef.current = null;
+        }
+        setSessionFadingOut(false);
         setItems([...shadowSnap]);
       } else {
         // freshLoad when no shadow: prevents stale itemsRef from a previous session
