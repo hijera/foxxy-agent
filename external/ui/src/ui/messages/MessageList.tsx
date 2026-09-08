@@ -7,6 +7,12 @@ import {
   subscribeLiveConnection,
 } from "../chat/liveConnectionState";
 import {
+  isLlmRetrying,
+  serverSnapshotLlmRetry,
+  snapshotLlmRetry,
+  subscribeLlmRetry,
+} from "../chat/llmRetryState";
+import {
   isMcpConnecting,
   serverSnapshotMcpConnecting,
   snapshotMcpConnecting,
@@ -80,6 +86,10 @@ export function MessageList(props: {
   backgroundNowMs?: number;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
+  /** Workspace of this session; a refused spawn offers its approval for it. */
+  workspacePath?: string | undefined;
+  /** Opens the child transcript behind a spawn_agent row. */
+  onOpenSubagentTranscript?: (sessionId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -118,13 +128,33 @@ export function MessageList(props: {
   );
   const mcpConnecting =
     mcpEpoch >= 0 && !!props.sessionId && isMcpConnecting(props.sessionId);
+  // A turn can also be parked between two attempts at the same call, waiting out a
+  // provider that produced no output at all.
+  const llmRetryEpoch = useSyncExternalStore(
+    subscribeLlmRetry,
+    snapshotLlmRetry,
+    serverSnapshotLlmRetry,
+  );
+  const llmRetrying =
+    llmRetryEpoch >= 0 && !!props.sessionId && isLlmRetrying(props.sessionId);
 
   const liveStatus = useMemo(
     () =>
       props.generating === true && statusLineOn
-        ? deriveLiveStatus(props.items, { reconnecting, mcpConnecting })
+        ? deriveLiveStatus(props.items, {
+            reconnecting,
+            mcpConnecting,
+            llmRetrying,
+          })
         : null,
-    [props.generating, statusLineOn, props.items, reconnecting, mcpConnecting],
+    [
+      props.generating,
+      statusLineOn,
+      props.items,
+      reconnecting,
+      mcpConnecting,
+      llmRetrying,
+    ],
   );
 
   const userMsgIndices = useMemo(() => {
@@ -334,6 +364,10 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(props.workspacePath ? { workspacePath: props.workspacePath } : {})}
+            {...(props.onOpenSubagentTranscript
+              ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
+              : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
               : {})}

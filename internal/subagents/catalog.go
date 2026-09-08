@@ -25,6 +25,21 @@ type CatalogEntry struct {
 	// switch on them (the SPA, scripts).
 	Trusted       bool `json:"trusted"`
 	NeedsApproval bool `json:"needs_approval"`
+
+	// The bounds below are what actually decide a child's reach, so an
+	// approval surface can show what it is approving before a receipt is
+	// written. They are the definition's own declarations: the runtime can
+	// only narrow them further against the spawning session.
+	Tools           []string `json:"tools,omitempty"`
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
+	PermissionMode  string   `json:"permission_mode,omitempty"`
+	TimeoutSeconds  int      `json:"timeout_seconds,omitempty"`
+	MaxTurns        int      `json:"max_turns,omitempty"`
+	Background      bool     `json:"background,omitempty"`
+	// RoleBytes is the size of the role body, never the body itself: an
+	// unapproved file's instructions must not travel to a client that is
+	// about to render them.
+	RoleBytes int `json:"role_bytes,omitempty"`
 }
 
 // BuildCatalog decides trust for every definition and returns the entries
@@ -50,6 +65,15 @@ func BuildCatalog(defs []*Definition, policy, workspace string, store *TrustStor
 			Trust:         trust,
 			Trusted:       trust == TrustTrusted,
 			NeedsApproval: trust == TrustNeedsApproval,
+			// Copied, not aliased: the definition stays immutable however a
+			// caller treats the entry it was handed.
+			Tools:           append([]string(nil), d.Tools...),
+			DisallowedTools: append([]string(nil), d.DisallowedTools...),
+			PermissionMode:  d.PermissionMode,
+			TimeoutSeconds:  d.TimeoutSeconds,
+			MaxTurns:        d.MaxTurns,
+			Background:      d.Background,
+			RoleBytes:       len(d.Role),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

@@ -25,6 +25,9 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	loopNudgeMax := AgentDefaultLoopNudgeMax
 	llmRetryMax := AgentDefaultLLMRetryMax
 	llmFirstTokenTimeoutMS := AgentDefaultLLMFirstTokenTimeoutMS
+	llmStallTimeoutMS := AgentDefaultLLMStallTimeoutMS
+	llmStallRetry := true
+	llmStallRetryMaxWaitMS := AgentDefaultLLMStallRetryMaxWaitMS
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
 			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
@@ -44,6 +47,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LLMRetryMax:            &llmRetryMax,
 			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
 			LLMFirstTokenTimeoutMS: &llmFirstTokenTimeoutMS,
+			LLMStallTimeoutMS:      &llmStallTimeoutMS,
+			LLMStallRetry:          &llmStallRetry,
+			LLMStallRetryDelaysMS:  append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
+			LLMStallRetryMaxWaitMS: &llmStallRetryMaxWaitMS,
 			LoopGuard:              &loopGuard,
 			LoopToolRepeatLimit:    &loopToolRepeatLimit,
 			LoopStreamRepeatCycles: &loopStreamRepeatCycles,

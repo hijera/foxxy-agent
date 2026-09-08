@@ -17,6 +17,7 @@ import type { TranscriptItem } from "./types";
 
 export type LiveStatusKind =
   | "reconnecting"
+  | "llmretry"
   | "mcp"
   | "permission"
   | "question"
@@ -248,11 +249,23 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
  */
 export function deriveLiveStatus(
   items: readonly TranscriptItem[],
-  opts?: { reconnecting?: boolean; mcpConnecting?: boolean },
+  opts?: {
+    reconnecting?: boolean;
+    mcpConnecting?: boolean;
+    llmRetrying?: boolean;
+  },
 ): LiveStatus {
   if (opts?.reconnecting) {
     // Events are not arriving at all, so any tool row is stale by construction.
     return { kind: "reconnecting", key: "status.reconnecting", target: "" };
+  }
+
+  // The provider answered nothing and the turn is deliberately sitting out a pause before
+  // trying the same call again. Ranked above the transcript-derived states for the same
+  // reason as reconnecting: no model call is in flight, so every tool row is stale, and a
+  // wait measured in minutes must not read as "waiting for the model".
+  if (opts?.llmRetrying) {
+    return { kind: "llmretry", key: "status.retryingModel", target: "" };
   }
 
   // The backend told us the turn is parked before the model call, waiting for the session's

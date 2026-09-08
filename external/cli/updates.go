@@ -156,6 +156,12 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
+	case acp.LLMRetryUpdate:
+		if u.Phase == acp.LLMRetryPhaseWaiting {
+			a.setStatus(newWorkingStatus(statusRetryingModel, ""))
+		} else if a.turnActive {
+			a.setStatus(newWaitingStatus())
+		}
 	case acp.MemoryPhaseUpdate:
 		if u.Status == "started" {
 			a.appendStatus(roleDim, "memory: "+u.Phase+"...")

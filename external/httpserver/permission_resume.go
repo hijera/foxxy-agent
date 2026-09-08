@@ -123,8 +123,10 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	})
 	ag.SetProviderFactory(s.agentProviderFactory)
 	// A resumed turn keeps running the ReAct loop, so it may spawn subagents
-	// like the turn it continues.
+	// like the turn it continues - including detached ones, whose later
+	// prompts outlive this turn too.
 	ag.SetSubagentRuntime(s.mgr)
+	ag.SetDetachedPermissionBroker(s)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)
 		return
