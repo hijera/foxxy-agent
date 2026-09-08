@@ -440,10 +440,24 @@ func (a *Agent) runReActLoop(
 	// quarantined calls and executed nothing: it has nothing left but the loop.
 	blockedRounds := 0
 
-	for turn := 0; turn < maxTurns; turn++ {
+	// Recovering from a provider that went quiet (agent.llm_stall_retry).
+	// recoveryTurns counts loop iterations spent on that rather than on advancing
+	// the model's plan - a replayed call that produced nothing, and a continuation
+	// after the connection died mid-answer. Neither is a step the model chose, so
+	// neither shrinks max_turns; both stay bounded by something else
+	// (llm_stall_retry_max_wait_ms and maxStallContinuations).
+	stalls := newStallRetry(&a.cfg.Agent)
+	recoveryTurns := 0
+	stallContinues := 0
+
+	// maxTurns bounds the model's reasoning steps, so the bound grows with the
+	// iterations spent recovering from a provider failure and reactTurn - the index
+	// the loop body reasons with - stays the count of real steps.
+	for turn := 0; turn < maxTurns+recoveryTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
 		}
+		reactTurn := turn - recoveryTurns
 
 		// Tool definitions for this one request. They are normally the turn's set,
 		// but a model with nothing left but quarantined calls gets one tools-free
@@ -473,7 +487,7 @@ func (a *Agent) runReActLoop(
 		// engine re-checks between turns (the first check ran before the loop); the opencode engine
 		// checks every turn against the provider's real input-token count.
 		if a.cfg.Compaction.EngineIsCoddy() {
-			if turn > 0 && a.maybeAutoCompact(ctx) {
+			if reactTurn > 0 && a.maybeAutoCompact(ctx) {
 				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 			}
 		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
@@ -514,6 +528,9 @@ func (a *Agent) runReActLoop(
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
 		streamCtx, streamCancel := context.WithCancel(ctx)
 		var firstTokenTimedOut atomic.Bool
+		// Whether any delta reached the client during this attempt. Atomic because a
+		// transport is free to deliver chunks from its own goroutine.
+		var sawDelta atomic.Bool
 		var firstTokenTimer *time.Timer
 		if transport.streaming && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
@@ -527,6 +544,53 @@ func (a *Agent) runReActLoop(
 			}
 		}
 
+		// The mid-stream stall guard (agent.llm_stall_timeout_ms). A saturated hub
+		// can deliver thousands of frames and then stop mid-answer with no
+		// finish_reason, no [DONE] and the connection held open. The first-token
+		// timer was stopped by the first delta and never re-arms, so nothing else
+		// bounds that. Armed on the first sign of progress, so it takes over from
+		// the first-token guard rather than racing it.
+		//
+		// It re-arms by rescheduling itself against an atomic stamp rather than
+		// calling Reset per frame: one atomic store per frame instead of the
+		// runtime timer lock, and no Reset-after-fire race.
+		stallTimeout := a.cfg.Agent.EffectiveLLMStallTimeout()
+		var stalled atomic.Bool
+		var stallArmed atomic.Bool
+		var lastProgress atomic.Int64
+		var stallTimer atomic.Pointer[time.Timer]
+		var armStall func(time.Duration)
+		armStall = func(d time.Duration) {
+			t := time.AfterFunc(d, func() {
+				if idle := time.Since(time.Unix(0, lastProgress.Load())); idle < stallTimeout {
+					armStall(stallTimeout - idle)
+					return
+				}
+				stalled.Store(true)
+				streamCancel()
+			})
+			if old := stallTimer.Swap(t); old != nil {
+				old.Stop()
+			}
+		}
+		stopStallTimer := func() {
+			if t := stallTimer.Load(); t != nil {
+				t.Stop()
+			}
+		}
+		// noteProgress is the single re-arm point for every sign of life, delivered
+		// or not. It also retires the first-token guard: a model streaming one large
+		// tool call delivers nothing the caller can see - tool-call arguments are
+		// accumulated inside the reader - and the silent-start timer would otherwise
+		// cut a perfectly healthy stream.
+		noteProgress := func(now time.Time) {
+			stopFirstTokenTimer()
+			lastProgress.Store(now.UnixNano())
+			if transport.streaming && stallTimeout > 0 && stallArmed.CompareAndSwap(false, true) {
+				armStall(stallTimeout)
+			}
+		}
+
 		// One detector per streamed channel: a degenerating thinking channel burns
 		// exactly as many tokens as visible text while showing nothing in the
 		// transcript. Tripping cancels the stream the same way the first-token timer
@@ -536,7 +600,8 @@ func (a *Agent) runReActLoop(
 		loopAbort := loopAbortNone
 
 		emitReason := func(d string, now time.Time) {
-			stopFirstTokenTimer()
+			noteProgress(now)
+			sawDelta.Store(true)
 			reasoningBuf.WriteString(d)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
@@ -552,7 +617,8 @@ func (a *Agent) runReActLoop(
 			})
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
-			stopFirstTokenTimer()
+			noteProgress(now)
+			sawDelta.Store(true)
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -584,6 +650,12 @@ func (a *Agent) runReActLoop(
 				return
 			}
 			now := time.Now()
+			if chunk.Progress {
+				// Carries no content by construction: it exists only to say the
+				// model is still working, so it re-arms the guards and stops here.
+				noteProgress(now)
+				return
+			}
 			if chunk.ReasoningDelta != "" {
 				emitReason(chunk.ReasoningDelta, now)
 				if _, tripped := reasonLoop.Add(chunk.ReasoningDelta); tripped && loopAbort == loopAbortNone {
@@ -626,11 +698,23 @@ func (a *Agent) runReActLoop(
 					Kind:          toolKind(chunk.ToolCall.Name),
 					Status:        "pending",
 				})
-				stopFirstTokenTimer()
+				noteProgress(now)
 			}
 		})
 		stopFirstTokenTimer()
+		stopStallTimer()
 		streamCancel()
+
+		// One auditable copy of the emitted contract every branch below depends on:
+		// a call that delivered nothing may be replayed, a call that delivered
+		// anything never may.
+		//
+		// sawDelta is load-bearing and not redundant with response: a transport
+		// failure mid-stream returns no response at all, yet the deltas it managed
+		// to send are already on the user's screen. Judging by response alone would
+		// replay those and show the same text twice.
+		hasAnyOutput := sawDelta.Load() || (response != nil && (strings.TrimSpace(response.Content) != "" ||
+			len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != ""))
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -656,14 +740,55 @@ func (a *Agent) runReActLoop(
 			continue
 		}
 
+		// The stall guard cut this stream: the provider stopped sending data
+		// mid-answer. Keep everything the user already watched arrive, then ask the
+		// model to carry on from it. Checked after the loop-guard branch above,
+		// because a stream that degenerates and then stalls must take that path -
+		// only it strips the repeated tail before persisting, and a loop left in
+		// the transcript re-seeds itself on the very next request.
+		//
+		// A stall that produced nothing visible falls through instead: there is
+		// nothing to continue from, so it is handled as a silent call below and the
+		// identical request is replayed.
+		if stalled.Load() && loopAbort == loopAbortNone && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+			if a.persistStalledMessage(response, &reasoningBuf, reasonClockStart, reasonClockEnd) {
+				a.emitDebug(turn, "stream_stall", "", "", map[string]interface{}{
+					"idle":         stallTimeout.String(),
+					"continuation": stallContinues + 1,
+				})
+				if stallContinues >= maxStallContinuations {
+					return string(acp.StopReasonRefused), stallAbortError(stallTimeout, stallContinues)
+				}
+				stallContinues++
+				recoveryTurns++
+				a.log.Warn("provider stopped sending data mid-answer; continuing",
+					"idle", stallTimeout, "continuation", stallContinues)
+				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
+				// LLM-facing only; never persisted to the transcript.
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: streamStallNudge})
+				continue
+			}
+		}
+
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
 		// surface a timeout error instead of a silent failure. The timer itself reports
 		// that it fired, so a cancellation from anywhere else is never mislabelled.
-		if firstTokenTimedOut.Load() && streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
-			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
-				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
+		if (firstTokenTimedOut.Load() || stalled.Load()) && streamErr != nil &&
+			errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
 			if !hasAnyOutput {
-				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)", firstTokenTimeout)
+				// Nothing reached the caller, so re-issuing the identical request
+				// cannot duplicate anything. A saturated gateway is out for minutes,
+				// which is why this waits on its own schedule rather than leaning on
+				// the seconds-scale retries inside internal/llm.
+				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "no output"); {
+				case retry:
+					recoveryTurns++
+					continue
+				case stopped:
+					return string(acp.StopReasonCancelled), nil
+				}
+				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)%s",
+					firstTokenTimeout, stallGaveUpSuffix(&stalls))
 			}
 		}
 
@@ -674,8 +799,15 @@ func (a *Agent) runReActLoop(
 			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
-				hasTools := len(response.ToolCalls) > 0
-				if hasText || hasTools || reasonTrim != "" {
+				// Tool calls are deliberately absent from what follows. A cancelled
+				// stream is finalized mid-arguments, so the readers hand back calls
+				// whose JSON was cut; and every tool_call_id an assistant message
+				// announces must get a result, or the next request in this
+				// conversation is rejected. Replaying an invalid call is worse than
+				// losing it - the same choice openai_stream.go makes for a truncated
+				// stream and persistStalledMessage makes for a stall. A response that
+				// produced only a cut call therefore persists nothing at all.
+				if hasText || reasonTrim != "" {
 					var reasoningMs int64
 					if reasonTrim != "" && !reasonClockStart.IsZero() {
 						end := reasonClockEnd
@@ -694,7 +826,6 @@ func (a *Agent) runReActLoop(
 						Content:             response.Content,
 						Reasoning:           reasonStore,
 						ReasoningSignature:  reasonSig,
-						ToolCalls:           response.ToolCalls,
 						ReasoningDurationMs: reasoningMs,
 						Model:               a.state.EffectiveModelID(a.cfg),
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -712,8 +843,6 @@ func (a *Agent) runReActLoop(
 					a.startTitleGeneration(transport.provider)
 				}
 				// If output was already streamed, treat as a clean user-stop regardless.
-				hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
-					len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
 				if hasAnyOutput || a.state.IsUserCancelledTurn() {
 					return string(acp.StopReasonCancelled), nil
 				}
@@ -725,7 +854,19 @@ func (a *Agent) runReActLoop(
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
 				return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 			}
-			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
+			// A failing endpoint that delivered nothing gets the same long schedule
+			// as a silent one. internal/llm has already spent its own retries by
+			// now, but those are seconds against an outage measured in minutes.
+			if !hasAnyOutput && !a.state.IsUserCancelledTurn() && stallRetryableError(streamErr) {
+				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "provider error"); {
+				case retry:
+					recoveryTurns++
+					continue
+				case stopped:
+					return string(acp.StopReasonCancelled), nil
+				}
+			}
+			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w%s", streamErr, stallGaveUpSuffix(&stalls))
 		}
 
 		// Accumulate and broadcast token usage after each LLM call.
@@ -807,7 +948,12 @@ func (a *Agent) runReActLoop(
 
 		// After the first assistant response, generate a short session title off the hot path.
 		// Only the fresh-prompt path titles; resume/continue turns never do.
-		if allowTitleGen && turn == 0 {
+		// Not gated on the loop index: a stall continuation, a loop-guard nudge or an
+		// empty-answer re-prompt all push the first real answer past index 0, and
+		// gating on it left those sessions untitled. titleOnce dedupes within the
+		// turn and maybeGenerateTitleForConfig refuses to overwrite an existing
+		// title, so calling it on every answer is both cheap and correct.
+		if allowTitleGen {
 			a.startTitleGeneration(transport.provider)
 		}
 
@@ -995,10 +1141,8 @@ func (a *Agent) persistLoopAbortedMessage(
 	minCycles int,
 ) {
 	content := ""
-	var toolCalls []llm.ToolCall
 	if response != nil {
 		content = response.Content
-		toolCalls = response.ToolCalls
 	}
 	content, _ = trimRepeatedTail(content, minCycles)
 
@@ -1017,7 +1161,13 @@ func (a *Agent) persistLoopAbortedMessage(
 		reasonStore, reasonSig = reasoningForStorage(reasonTrim, reasonRaw, response)
 	}
 
-	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 {
+	// Tool calls are dropped rather than persisted. The guard cancelled this stream,
+	// so the readers finalized it mid-arguments and the calls may carry cut JSON;
+	// worse, the caller rebuilds the payload from session state and re-prompts
+	// immediately, so an unanswered tool_call_id here breaks the very next request
+	// of this same turn. Same rule as persistStalledMessage and the truncation path
+	// in openai_stream.go.
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" {
 		return
 	}
 
@@ -1037,7 +1187,6 @@ func (a *Agent) persistLoopAbortedMessage(
 		Content:             content,
 		Reasoning:           reasonStore,
 		ReasoningSignature:  reasonSig,
-		ToolCalls:           toolCalls,
 		ReasoningDurationMs: reasoningMs,
 		Model:               a.state.EffectiveModelID(a.cfg),
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),

@@ -26,6 +26,13 @@ Feature: A session gets its title even when the turn does not finish
     And the user stops the turn before the model writes anything
     Then the session title is generated from the user's message
 
+  Scenario: A turn whose first answer had to be nudged still titles the session
+    Given a fresh session
+    When the user asks "how do I connect postgres to my API"
+    And the model's first response degenerates and it answers when nudged
+    Then the session title is generated from the user's message
+    And the title is broadcast to clients once
+
   Scenario: A stopped turn never overwrites a title the user pinned
     Given a fresh session with the title pinned to "My own title"
     When the user asks "how do I connect postgres to my API"

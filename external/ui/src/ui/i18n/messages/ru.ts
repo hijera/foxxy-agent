@@ -798,6 +798,7 @@ export const messagesRu: Record<string, string> = {
   "status.backgroundStop": "Останавливаю фоновую задачу",
   "status.backgroundReap": "Убираю фоновые задачи",
   "status.tool": "Работаю с инструментом",
+  "status.retryingModel": "Провайдер не отвечает — повторяю запрос",
   "status.thinking": "Думаю…",
   "status.memory": "Работаю с памятью",
   "status.config": "Обновляю конфигурацию",

@@ -323,6 +323,7 @@ const (
 	UpdateTypeCompaction              = "compaction"
 	UpdateTypeSessionTitle            = "session_title"
 	UpdateTypeMCPPhase                = "mcp_phase"
+	UpdateTypeLLMRetry                = "llm_retry"
 	UpdateTypeDebug                   = "debug"
 )
 
@@ -458,6 +459,25 @@ type CompactionUpdate struct {
 type MCPPhaseUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "mcp_phase"
 	Phase         string `json:"phase"`         // "connecting" | "ready"
+}
+
+// LLM retry phase values for LLMRetryUpdate.Phase.
+const (
+	LLMRetryPhaseWaiting  = "waiting"
+	LLMRetryPhaseRetrying = "retrying"
+)
+
+// LLMRetryUpdate tells the client that a turn is parked between two attempts at the same
+// model call because the provider produced no output at all. Emitted only while the turn
+// actually waits; a call that answers sends nothing.
+//
+// Transient by design, like MCPPhaseUpdate: it drives the live status line next to the
+// typing dots, and is not part of the transcript.
+type LLMRetryUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "llm_retry"
+	Phase         string `json:"phase"`         // "waiting" | "retrying"
+	Attempt       int    `json:"attempt,omitempty"`
+	DelayMS       int64  `json:"delayMs,omitempty"`
 }
 
 // SessionTitleUpdate carries a newly generated session title (from the hidden "title" agent) so

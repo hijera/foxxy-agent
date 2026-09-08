@@ -30,6 +30,37 @@
           "title": "LLM retry max",
           "type": "integer"
         },
+        "llm_stall_retry": {
+          "default": true,
+          "description": "When a model call fails without producing any output - silence, a dropped connection, a provider timeout, a 5xx - wait and send the same request again instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so nothing can be duplicated. Off restores the immediate error.",
+          "title": "Retry a failed provider call",
+          "type": "boolean"
+        },
+        "llm_stall_retry_delays_ms": {
+          "default": [
+            60000,
+            180000,
+            300000
+          ],
+          "description": "Pause before each retry, in milliseconds. The last entry repeats for every later attempt, so 60000, 180000, 300000 means one minute, then three, then five minutes forever.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Retry delays ms",
+          "type": "array"
+        },
+        "llm_stall_retry_max_wait_ms": {
+          "default": 3600000,
+          "description": "Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop.",
+          "title": "Retry budget ms",
+          "type": "integer"
+        },
+        "llm_stall_timeout_ms": {
+          "default": 300000,
+          "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard).",
+          "title": "LLM stall timeout ms",
+          "type": "integer"
+        },
         "loop_guard": {
           "default": true,
           "description": "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.",
@@ -99,6 +130,10 @@
         "llm_retry_base_ms",
         "llm_min_interval_ms",
         "llm_first_token_timeout_ms",
+        "llm_stall_timeout_ms",
+        "llm_stall_retry",
+        "llm_stall_retry_delays_ms",
+        "llm_stall_retry_max_wait_ms",
         "loop_guard",
         "loop_tool_repeat_limit",
         "loop_stream_repeat_cycles",
