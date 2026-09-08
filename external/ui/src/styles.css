@@ -3424,6 +3424,184 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.browser-tool-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--muted);
+}
+.browser-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-field-label,
+.browser-content-head {
+  font-size: 12px;
+  color: var(--muted);
+}
+.browser-selector code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.browser-selector .hljs-selector-class,
+.browser-selector .hljs-selector-id,
+.browser-selector .hljs-selector-attr {
+  color: var(--accent);
+}
+.browser-content {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.browser-content-head .md-copy {
+  position: static;
+  flex-shrink: 0;
+}
+.browser-content-viewport {
+  max-height: 180px;
+  overflow-x: auto;
+}
+.browser-content-viewport--clip {
+  overflow-y: hidden;
+}
+.browser-content-viewport--scroll {
+  max-height: 360px;
+  overflow-y: auto;
+}
+.browser-content-viewport pre {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.browser-code .browser-content-viewport pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.browser-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+}
+.browser-result .tool-call-result-head {
+  padding: 0;
+  border: 0;
+}
+.browser-result--failed {
+  border-color: var(--foxxycode-status-error);
+}
+.browser-result--failed .tool-call-result-head,
+.browser-log-line--error {
+  color: var(--foxxycode-status-error);
+}
+.browser-log-line--warning {
+  color: var(--foxxycode-status-warn);
+}
+.browser-permission-preview > .browser-action {
+  padding: 12px;
+  box-sizing: border-box;
+}
+.browser-result-note {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.browser-scroll-screen {
+  width: 260px;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--muted);
+  border-radius: 5px;
+  background: var(--foxxycode-surface-raised);
+  color: var(--accent);
+}
+.browser-scroll-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--muted);
+  background: var(--foxxycode-glass-panel-border);
+}
+.browser-scroll-window-dots {
+  display: flex;
+  gap: 4px;
+}
+.browser-scroll-window-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.browser-scroll-address {
+  flex: 1;
+  height: 10px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 3px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-scroll-screen svg {
+  display: block;
+  width: 100%;
+}
+.browser-scroll-screen text {
+  fill: var(--text);
+  font-size: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+}
+.browser-scroll-guides {
+  stroke: var(--foxxycode-glass-panel-border);
+  stroke-dasharray: 3 5;
+  fill: none;
+}
+.browser-inspect-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: 12px;
+}
+.browser-inspect-table th,
+.browser-inspect-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.browser-inspect-table th {
+  font-weight: 500;
+  color: var(--muted);
+}
+.browser-inspect-table td {
+  white-space: pre-wrap;
 }
 
 .browser-action-line {
@@ -3440,10 +3618,10 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   display: block;
   padding: 0;
   margin: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--panel2, var(--panel));
+  background: var(--foxxycode-surface-raised);
   cursor: zoom-in;
   max-width: 100%;
   width: fit-content;
@@ -4049,13 +4227,17 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
 }
 
 /*
- * IDE embedding (JCEF) — flatter, more native host look.
- * Triggered by ?embed=intellij which sets <html data-embed="intellij">.
+ * IDE embedding — flatter, more native host look.
+ * Triggered by ?embed=intellij (JCEF tool window) or ?embed=vscode (webview
+ * iframe), which set <html data-embed="intellij|vscode">. Both hosts share
+ * this chrome; only the Chromium-104 workarounds above (row containment
+ * opt-out) stay keyed on the intellij id.
  * Drops the frosted-glass halo, tightens corners, and uses a solid panel
  * background + 1px border so the composer reads as an IDE input field rather
  * than a floating glass card. Also flattens the docked vignette above it.
  */
-[data-embed="intellij"] .composer-card {
+[data-embed="intellij"] .composer-card,
+[data-embed="vscode"] .composer-card {
   border-radius: 6px;
   background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-canvas-gradient-top));
   border: 1px solid color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
@@ -4065,11 +4247,14 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
 }
 
 [data-embed="intellij"] .composer-wrap-docked .composer-card,
-[data-embed="intellij"] .hero-composer .composer-card {
+[data-embed="intellij"] .hero-composer .composer-card,
+[data-embed="vscode"] .composer-wrap-docked .composer-card,
+[data-embed="vscode"] .hero-composer .composer-card {
   box-shadow: none;
 }
 
-[data-embed="intellij"] .chat-bottom--docked::before {
+[data-embed="intellij"] .chat-bottom--docked::before,
+[data-embed="vscode"] .chat-bottom--docked::before {
   background: linear-gradient(
     to bottom,
     rgba(0, 0, 0, 0) 0%,
@@ -4077,11 +4262,13 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   );
 }
 
-[data-embed="intellij"] .hero {
+[data-embed="intellij"] .hero,
+[data-embed="vscode"] .hero {
   padding-bottom: 12px;
 }
 
-[data-embed="intellij"] .hero-title {
+[data-embed="intellij"] .hero-title,
+[data-embed="vscode"] .hero-title {
   margin-bottom: 12px;
 }
 

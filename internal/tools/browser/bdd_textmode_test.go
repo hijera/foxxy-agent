@@ -277,6 +277,35 @@ func (s *textModeState) answerSaysScreenshotsDisabled() error {
 func initializeTextModeScenario(t *testing.T) func(*godog.ScenarioContext) {
 	return func(sc *godog.ScenarioContext) {
 		s := &textModeState{t: t}
+		sc.Step(`^I scroll twice by signed offsets from a nonzero position$`, func() error {
+			setup, err := s.m.executeEvaluate(context.Background(), `{"expression":"document.documentElement.style.cssText='scroll-behavior:auto';document.body.style.cssText='width:5000px;height:5000px';window.scrollTo(300,400);true"}`, s.env)
+			if err != nil {
+				return err
+			}
+			if strings.HasPrefix(setup, "error:") {
+				return fmt.Errorf("prepare scroll: %s", setup)
+			}
+			for range 2 {
+				out, scrollErr := s.m.executeScroll(context.Background(), `{"x":120,"y":-100}`, s.env)
+				if scrollErr != nil {
+					return scrollErr
+				}
+				if strings.HasPrefix(out, "error:") {
+					return fmt.Errorf("scroll: %s", out)
+				}
+			}
+			return nil
+		})
+		sc.Step(`^both scroll offsets are applied cumulatively$`, func() error {
+			out, err := s.m.executeEvaluate(context.Background(), `{"expression":"[window.scrollX,window.scrollY]"}`, s.env)
+			if err != nil {
+				return err
+			}
+			if out != "result: [540,200]" {
+				return fmt.Errorf("scroll position = %s, want [540,200]", out)
+			}
+			return nil
+		})
 		sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 			s.closeAll()
 			return ctx, nil

@@ -93,6 +93,15 @@ type Agent struct {
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
+
+	// loopPins names read/grep results the loop guard rescued from eviction after a
+	// re-read loop, so the content the model kept circling back for stays in the
+	// projection. loopQuarantine names the calls it took away for the rest of the
+	// turn; the projection reads it too, to collapse the repeats those calls left
+	// behind. Both are guarded: the projection also runs from the compaction pass.
+	pinMu          sync.Mutex
+	loopPins       map[string]struct{}
+	loopQuarantine map[string]struct{}
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -368,7 +377,27 @@ const (
 	// not read those as a user saying no, and the eviction pass must still
 	// treat the write as not done, so both share this prefix.
 	permissionNotGrantedPrefix = "permission not granted: "
+
+	toolCycleNudge = "This call repeats a sequence of tool calls you have already run in this turn with the same arguments, so it was not executed again. Running it again will not return anything new. Note that an \"[evicted: ...]\" placeholder only means the text was dropped from your context to save room - the file has not changed, and re-reading it will produce the same content you already reasoned about. Work from what you have and take a genuinely different step, or tell the user what you cannot determine; do not repeat the sequence."
+
+	toolCycleSkippedResult = "not executed: the loop guard stopped this turn after a repeating sequence of tool calls"
+
+	// toolCycleStopNotice is the notice surfaced when a turn keeps cycling through
+	// the same sequence after every nudge. Unlike the identical-call notice it
+	// interpolates nothing, so the SPA can match it by equality
+	// (external/ui/src/ui/chat/loopGuardNotice.ts). Keep the two byte-identical.
+	toolCycleStopNotice = "stopped: the model kept repeating the same sequence of tool calls"
+
+	toolQuarantinedResult = "not executed: the loop guard has taken this call away for the rest of this turn because it was being repeated without progress. Its earlier result stands, above in this conversation. Do something different, or answer with what you already know."
+
+	loopAnswerDirective = "The tool calls you keep asking for have been taken away for the rest of this turn, and no tools are available on this request. Write your reply to the user now, using everything you have already gathered. If something could not be determined, say so plainly instead of describing the tool call you would have made."
 )
+
+// maxBlockedRoundsBeforeAnswer bounds how many rounds may consist purely of
+// quarantined calls before the loop takes the tools away for one request and asks
+// for the answer. Without it a model that knows nothing but the loop would keep
+// asking for blocked calls until max_turns, ending the turn with nothing to show.
+const maxBlockedRoundsBeforeAnswer = 2
 
 // permissionDeniedResult renders a refused gate for the model, naming the
 // reason when the refusal came from something other than a user's answer.
@@ -418,30 +447,65 @@ func (a *Agent) runReActLoop(
 	guardOn := a.cfg.Agent.LoopGuardEnabled()
 	streamRepeatCycles := 0
 	var toolRepeats *toolRepeatDetector
+	var toolCycles *toolCycleDetector
 	loopNudgeBudget := 0
 	if guardOn {
 		streamRepeatCycles = a.cfg.Agent.EffectiveLoopStreamRepeatCycles()
 		toolRepeats = newToolRepeatDetector(a.cfg.Agent.EffectiveLoopToolRepeatLimit())
+		toolCycles = newToolCycleDetector(a.cfg.Agent.EffectiveLoopToolCycleRepeats())
 		loopNudgeBudget = a.cfg.Agent.EffectiveLoopNudgeMax()
 	}
 	loopNudges := 0
+	// stuckAction decides what happens once a tool loop has survived every nudge:
+	// quarantine the calls and carry on (the default), or end the turn.
+	stuckAction := a.cfg.Agent.EffectiveLoopStuckAction()
+	// The quarantine is per turn: what the guard took away last time must not
+	// silence a call the user has just asked for again.
+	a.resetLoopQuarantine()
+	// blockedRounds counts consecutive rounds in which the model asked only for
+	// quarantined calls and executed nothing: it has nothing left but the loop.
+	blockedRounds := 0
 
-	for turn := 0; turn < maxTurns; turn++ {
+	// Recovering from a provider that went quiet (agent.llm_stall_retry).
+	// recoveryTurns counts loop iterations spent on that rather than on advancing
+	// the model's plan - a replayed call that produced nothing, and a continuation
+	// after the connection died mid-answer. Neither is a step the model chose, so
+	// neither shrinks max_turns; both stay bounded by something else
+	// (llm_stall_retry_max_wait_ms and maxStallContinuations).
+	stalls := newStallRetry(&a.cfg.Agent)
+	recoveryTurns := 0
+	stallContinues := 0
+
+	// maxTurns bounds the model's reasoning steps, so the bound grows with the
+	// iterations spent recovering from a provider failure and reactTurn - the index
+	// the loop body reasons with - stays the count of real steps.
+	for turn := 0; turn < maxTurns+recoveryTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
+		}
+		reactTurn := turn - recoveryTurns
+
+		// Tool definitions for this one request. They are normally the turn's set,
+		// but a model with nothing left but quarantined calls gets one tools-free
+		// request so it has to answer from what it gathered. The system prompt is
+		// rendered from the same slice below, so its tool section disappears too.
+		callDefs := toolDefs
+		forceAnswer := blockedRounds >= maxBlockedRoundsBeforeAnswer
+		if forceAnswer {
+			callDefs = nil
 		}
 
 		a.emitDebug(turn, "turn_start", mode, "", map[string]interface{}{
 			"mode":     mode,
 			"model":    a.state.EffectiveModelID(a.cfg),
 			"messages": len(messages),
-			"tools":    len(toolDefs),
+			"tools":    len(callDefs),
 		})
 
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after foxxycode_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
+			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles)
 		}
 
 		// Auto-compaction: when the conversation approaches the context window, summarize older
@@ -449,15 +513,15 @@ func (a *Agent) runReActLoop(
 		// engine re-checks between turns (the first check ran before the loop); the opencode engine
 		// checks every turn against the provider's real input-token count.
 		if a.cfg.Compaction.EngineIsCoddy() {
-			if turn > 0 && a.maybeAutoCompact(ctx) {
-				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			if reactTurn > 0 && a.maybeAutoCompact(ctx) {
+				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 			}
 		} else if did, err := a.maybeCompact(ctx, transport.provider, lastInputTokens); err != nil {
 			if a.log != nil {
 				a.log.Warn("context compaction failed", "err", err)
 			}
 		} else if did {
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 		}
 
 		// Call LLM and stream response.
@@ -490,6 +554,9 @@ func (a *Agent) runReActLoop(
 		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
 		streamCtx, streamCancel := context.WithCancel(ctx)
 		var firstTokenTimedOut atomic.Bool
+		// Whether any delta reached the client during this attempt. Atomic because a
+		// transport is free to deliver chunks from its own goroutine.
+		var sawDelta atomic.Bool
 		var firstTokenTimer *time.Timer
 		if transport.streaming && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
@@ -503,6 +570,53 @@ func (a *Agent) runReActLoop(
 			}
 		}
 
+		// The mid-stream stall guard (agent.llm_stall_timeout_ms). A saturated hub
+		// can deliver thousands of frames and then stop mid-answer with no
+		// finish_reason, no [DONE] and the connection held open. The first-token
+		// timer was stopped by the first delta and never re-arms, so nothing else
+		// bounds that. Armed on the first sign of progress, so it takes over from
+		// the first-token guard rather than racing it.
+		//
+		// It re-arms by rescheduling itself against an atomic stamp rather than
+		// calling Reset per frame: one atomic store per frame instead of the
+		// runtime timer lock, and no Reset-after-fire race.
+		stallTimeout := a.cfg.Agent.EffectiveLLMStallTimeout()
+		var stalled atomic.Bool
+		var stallArmed atomic.Bool
+		var lastProgress atomic.Int64
+		var stallTimer atomic.Pointer[time.Timer]
+		var armStall func(time.Duration)
+		armStall = func(d time.Duration) {
+			t := time.AfterFunc(d, func() {
+				if idle := time.Since(time.Unix(0, lastProgress.Load())); idle < stallTimeout {
+					armStall(stallTimeout - idle)
+					return
+				}
+				stalled.Store(true)
+				streamCancel()
+			})
+			if old := stallTimer.Swap(t); old != nil {
+				old.Stop()
+			}
+		}
+		stopStallTimer := func() {
+			if t := stallTimer.Load(); t != nil {
+				t.Stop()
+			}
+		}
+		// noteProgress is the single re-arm point for every sign of life, delivered
+		// or not. It also retires the first-token guard: a model streaming one large
+		// tool call delivers nothing the caller can see - tool-call arguments are
+		// accumulated inside the reader - and the silent-start timer would otherwise
+		// cut a perfectly healthy stream.
+		noteProgress := func(now time.Time) {
+			stopFirstTokenTimer()
+			lastProgress.Store(now.UnixNano())
+			if transport.streaming && stallTimeout > 0 && stallArmed.CompareAndSwap(false, true) {
+				armStall(stallTimeout)
+			}
+		}
+
 		// One detector per streamed channel: a degenerating thinking channel burns
 		// exactly as many tokens as visible text while showing nothing in the
 		// transcript. Tripping cancels the stream the same way the first-token timer
@@ -512,7 +626,8 @@ func (a *Agent) runReActLoop(
 		loopAbort := loopAbortNone
 
 		emitReason := func(d string, now time.Time) {
-			stopFirstTokenTimer()
+			noteProgress(now)
+			sawDelta.Store(true)
 			reasoningBuf.WriteString(d)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
@@ -528,7 +643,8 @@ func (a *Agent) runReActLoop(
 			})
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
-			stopFirstTokenTimer()
+			noteProgress(now)
+			sawDelta.Store(true)
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -538,18 +654,34 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
+		if forceAnswer {
+			// LLM-facing only; never persisted to the transcript, the same way the
+			// loop-guard and empty-turn nudges are. Appended after the compaction
+			// rebuild above so it cannot be swallowed by one.
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: loopAnswerDirective})
+			blockedRounds = 0
+			a.log.Warn("loop guard asked for an answer with tools withheld", "turn", turn)
+		}
+
 		// Prune only the provider projection. The working slice and persisted
 		// transcript retain full tool results.
 		sendMessages := a.prunedForLLM(messages)
 		a.emitDebug(turn, "llm_request", "", "", map[string]interface{}{
 			"model":    a.state.EffectiveModelID(a.cfg),
 			"messages": len(sendMessages),
+			"tools":    len(callDefs),
 		})
-		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
+		response, streamErr = transport.provider.Stream(streamCtx, sendMessages, callDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
 			now := time.Now()
+			if chunk.Progress {
+				// Carries no content by construction: it exists only to say the
+				// model is still working, so it re-arms the guards and stops here.
+				noteProgress(now)
+				return
+			}
 			if chunk.ReasoningDelta != "" {
 				emitReason(chunk.ReasoningDelta, now)
 				if _, tripped := reasonLoop.Add(chunk.ReasoningDelta); tripped && loopAbort == loopAbortNone {
@@ -592,11 +724,23 @@ func (a *Agent) runReActLoop(
 					Kind:          toolKind(chunk.ToolCall.Name),
 					Status:        "pending",
 				})
-				stopFirstTokenTimer()
+				noteProgress(now)
 			}
 		})
 		stopFirstTokenTimer()
+		stopStallTimer()
 		streamCancel()
+
+		// One auditable copy of the emitted contract every branch below depends on:
+		// a call that delivered nothing may be replayed, a call that delivered
+		// anything never may.
+		//
+		// sawDelta is load-bearing and not redundant with response: a transport
+		// failure mid-stream returns no response at all, yet the deltas it managed
+		// to send are already on the user's screen. Judging by response alone would
+		// replay those and show the same text twice.
+		hasAnyOutput := sawDelta.Load() || (response != nil && (strings.TrimSpace(response.Content) != "" ||
+			len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != ""))
 
 		// The loop guard cancelled this stream: keep the useful part of the answer,
 		// drop the repeated run so it is never replayed to the model, and either nudge
@@ -610,7 +754,7 @@ func (a *Agent) runReActLoop(
 				return string(acp.StopReasonRefused), loopAbortError(loopAbort)
 			}
 			loopNudges++
-			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 			nudge := streamLoopNudge
 			if loopAbort == loopAbortReasoning {
 				nudge = reasoningLoopNudge
@@ -622,14 +766,55 @@ func (a *Agent) runReActLoop(
 			continue
 		}
 
+		// The stall guard cut this stream: the provider stopped sending data
+		// mid-answer. Keep everything the user already watched arrive, then ask the
+		// model to carry on from it. Checked after the loop-guard branch above,
+		// because a stream that degenerates and then stalls must take that path -
+		// only it strips the repeated tail before persisting, and a loop left in
+		// the transcript re-seeds itself on the very next request.
+		//
+		// A stall that produced nothing visible falls through instead: there is
+		// nothing to continue from, so it is handled as a silent call below and the
+		// identical request is replayed.
+		if stalled.Load() && loopAbort == loopAbortNone && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
+			if a.persistStalledMessage(response, &reasoningBuf, reasonClockStart, reasonClockEnd) {
+				a.emitDebug(turn, "stream_stall", "", "", map[string]interface{}{
+					"idle":         stallTimeout.String(),
+					"continuation": stallContinues + 1,
+				})
+				if stallContinues >= maxStallContinuations {
+					return string(acp.StopReasonRefused), stallAbortError(stallTimeout, stallContinues)
+				}
+				stallContinues++
+				recoveryTurns++
+				a.log.Warn("provider stopped sending data mid-answer; continuing",
+					"idle", stallTimeout, "continuation", stallContinues)
+				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
+				// LLM-facing only; never persisted to the transcript.
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: streamStallNudge})
+				continue
+			}
+		}
+
 		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
 		// surface a timeout error instead of a silent failure. The timer itself reports
 		// that it fired, so a cancellation from anywhere else is never mislabelled.
-		if firstTokenTimedOut.Load() && streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
-			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
-				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
+		if (firstTokenTimedOut.Load() || stalled.Load()) && streamErr != nil &&
+			errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
 			if !hasAnyOutput {
-				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)", firstTokenTimeout)
+				// Nothing reached the caller, so re-issuing the identical request
+				// cannot duplicate anything. A saturated gateway is out for minutes,
+				// which is why this waits on its own schedule rather than leaning on
+				// the seconds-scale retries inside internal/llm.
+				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "no output"); {
+				case retry:
+					recoveryTurns++
+					continue
+				case stopped:
+					return string(acp.StopReasonCancelled), nil
+				}
+				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)%s",
+					firstTokenTimeout, stallGaveUpSuffix(&stalls))
 			}
 		}
 
@@ -640,8 +825,15 @@ func (a *Agent) runReActLoop(
 			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
-				hasTools := len(response.ToolCalls) > 0
-				if hasText || hasTools || reasonTrim != "" {
+				// Tool calls are deliberately absent from what follows. A cancelled
+				// stream is finalized mid-arguments, so the readers hand back calls
+				// whose JSON was cut; and every tool_call_id an assistant message
+				// announces must get a result, or the next request in this
+				// conversation is rejected. Replaying an invalid call is worse than
+				// losing it - the same choice openai_stream.go makes for a truncated
+				// stream and persistStalledMessage makes for a stall. A response that
+				// produced only a cut call therefore persists nothing at all.
+				if hasText || reasonTrim != "" {
 					var reasoningMs int64
 					if reasonTrim != "" && !reasonClockStart.IsZero() {
 						end := reasonClockEnd
@@ -660,7 +852,6 @@ func (a *Agent) runReActLoop(
 						Content:             response.Content,
 						Reasoning:           reasonStore,
 						ReasoningSignature:  reasonSig,
-						ToolCalls:           response.ToolCalls,
 						ReasoningDurationMs: reasoningMs,
 						Model:               a.state.EffectiveModelID(a.cfg),
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -678,8 +869,6 @@ func (a *Agent) runReActLoop(
 					a.startTitleGeneration(transport.provider)
 				}
 				// If output was already streamed, treat as a clean user-stop regardless.
-				hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
-					len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
 				if hasAnyOutput || a.state.IsUserCancelledTurn() {
 					return string(acp.StopReasonCancelled), nil
 				}
@@ -691,7 +880,19 @@ func (a *Agent) runReActLoop(
 				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
 				return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 			}
-			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
+			// A failing endpoint that delivered nothing gets the same long schedule
+			// as a silent one. internal/llm has already spent its own retries by
+			// now, but those are seconds against an outage measured in minutes.
+			if !hasAnyOutput && !a.state.IsUserCancelledTurn() && stallRetryableError(streamErr) {
+				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "provider error"); {
+				case retry:
+					recoveryTurns++
+					continue
+				case stopped:
+					return string(acp.StopReasonCancelled), nil
+				}
+			}
+			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w%s", streamErr, stallGaveUpSuffix(&stalls))
 		}
 
 		// Accumulate and broadcast token usage after each LLM call.
@@ -773,7 +974,12 @@ func (a *Agent) runReActLoop(
 
 		// After the first assistant response, generate a short session title off the hot path.
 		// Only the fresh-prompt path titles; resume/continue turns never do.
-		if allowTitleGen && turn == 0 {
+		// Not gated on the loop index: a stall continuation, a loop-guard nudge or an
+		// empty-answer re-prompt all push the first real answer past index 0, and
+		// gating on it left those sessions untitled. titleOnce dedupes within the
+		// turn and maybeGenerateTitleForConfig refuses to overwrite an existing
+		// title, so calling it on every answer is both cheap and correct.
+		if allowTitleGen {
 			a.startTitleGeneration(transport.provider)
 		}
 
@@ -800,21 +1006,49 @@ func (a *Agent) runReActLoop(
 		}
 
 		// Execute all tool calls.
+		executedThisRound, quarantinedThisRound := 0, 0
 		for i, tc := range response.ToolCalls {
 			if ctx.Err() != nil {
 				return string(acp.StopReasonCancelled), nil
 			}
 
-			// A model stuck on the identical call (same name, same canonical arguments)
-			// would otherwise burn the whole max_turns budget without an answer. Skip
-			// the execution and tell it so; every tool_call_id still gets a result,
-			// because OpenAI-compatible endpoints reject the next request otherwise.
-			if _, tripped := toolRepeats.Observe(tc.Name, tc.InputJSON); tripped {
-				if loopNudges >= loopNudgeBudget {
+			// Already taken away earlier in this turn: answer the call without
+			// running it. This gate has to sit on the execution path rather than in
+			// the tool definitions, because executeToolCall never consults them - the
+			// same reason toolCallRefusedByMode exists (see toolsets.go).
+			if a.isQuarantined(canonicalToolCallKey(tc.Name, tc.InputJSON)) {
+				quarantinedThisRound++
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+				continue
+			}
+
+			// A model stuck on the identical call (same name, same canonical arguments),
+			// or rotating through a fixed sequence of them, would otherwise burn the
+			// whole max_turns budget without an answer. Skip the execution and tell it
+			// so; every tool_call_id still gets a result, because OpenAI-compatible
+			// endpoints reject the next request otherwise.
+			//
+			// Both detectors observe every requested call before either branch runs, so
+			// a call the repeat detector skips still lands in the cycle history. The
+			// repeat detector goes first: period one is its shape, and it trips sooner.
+			_, repeatTripped := toolRepeats.Observe(tc.Name, tc.InputJSON)
+			cyclePeriod, cycleUnit, cycleTripped := toolCycles.Observe(tc.Name, tc.InputJSON)
+			switch {
+			case repeatTripped && loopNudges >= loopNudgeBudget:
+				if stuckAction == config.AgentLoopStuckActionStop {
 					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolLoopSkippedResult)
 					return string(acp.StopReasonRefused), fmt.Errorf(
 						"stopped: the model kept requesting the same %s call with identical arguments", tc.Name)
 				}
+				a.log.Warn("loop guard quarantined a repeated tool call", "tool", tc.Name)
+				if !a.quarantineLoop(tc, nil) {
+					quarantinedThisRound++
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+					continue
+				}
+				// read/grep fall through: one last execution, pinned, so the model
+				// finally holds stable content instead of being told no.
+			case repeatTripped:
 				loopNudges++
 				// The counter deliberately keeps running: clearing it here (as Roo does,
 				// where the trip is a blocking question to the user) would let the model
@@ -823,7 +1057,32 @@ func (a *Agent) runReActLoop(
 				a.log.Warn("loop guard blocked a repeated tool call", "tool", tc.Name, "nudge", loopNudges)
 				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolLoopNudge)
 				continue
+			case cycleTripped && loopNudges >= loopNudgeBudget:
+				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
+					"tool": tc.Name, "period": cyclePeriod, "action": stuckAction,
+				})
+				if stuckAction == config.AgentLoopStuckActionStop {
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:], toolCycleSkippedResult)
+					return string(acp.StopReasonRefused), errors.New(toolCycleStopNotice)
+				}
+				a.log.Warn("loop guard quarantined a tool-call cycle",
+					"tool", tc.Name, "period", cyclePeriod, "calls", len(cycleUnit))
+				if !a.quarantineLoop(tc, cycleUnit) {
+					quarantinedThisRound++
+					a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolQuarantinedResult)
+					continue
+				}
+			case cycleTripped:
+				a.emitDebug(turn, "loop_guard", "tool_cycle", tc.Name, map[string]interface{}{
+					"tool": tc.Name, "period": cyclePeriod, "nudge": loopNudges,
+				})
+				loopNudges++
+				a.log.Warn("loop guard blocked a repeating tool-call cycle",
+					"tool", tc.Name, "period", cyclePeriod, "nudge", loopNudges)
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i:i+1], toolCycleNudge)
+				continue
 			}
+			executedThisRound++
 
 			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false, turn)
 
@@ -860,6 +1119,15 @@ func (a *Agent) runReActLoop(
 			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
 			toolEnv.ConfigReloaded = false
 		}
+		// A round in which the model asked only for quarantined calls and executed
+		// nothing means it has nothing left but the loop. Counted consecutively, the
+		// same way emptyContinuations is: one executed call is progress and clears it.
+		if quarantinedThisRound > 0 && executedThisRound == 0 {
+			blockedRounds++
+		} else {
+			blockedRounds = 0
+		}
+
 		// The model made progress (executed tool calls), so reset the empty-turn counter. The
 		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow
 		// multi-step task that keeps acting between reasoning-only thoughts — otherwise a model
@@ -899,10 +1167,8 @@ func (a *Agent) persistLoopAbortedMessage(
 	minCycles int,
 ) {
 	content := ""
-	var toolCalls []llm.ToolCall
 	if response != nil {
 		content = response.Content
-		toolCalls = response.ToolCalls
 	}
 	content, _ = trimRepeatedTail(content, minCycles)
 
@@ -921,7 +1187,13 @@ func (a *Agent) persistLoopAbortedMessage(
 		reasonStore, reasonSig = reasoningForStorage(reasonTrim, reasonRaw, response)
 	}
 
-	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" && len(toolCalls) == 0 {
+	// Tool calls are dropped rather than persisted. The guard cancelled this stream,
+	// so the readers finalized it mid-arguments and the calls may carry cut JSON;
+	// worse, the caller rebuilds the payload from session state and re-prompts
+	// immediately, so an unanswered tool_call_id here breaks the very next request
+	// of this same turn. Same rule as persistStalledMessage and the truncation path
+	// in openai_stream.go.
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasonStore) == "" {
 		return
 	}
 
@@ -941,7 +1213,6 @@ func (a *Agent) persistLoopAbortedMessage(
 		Content:             content,
 		Reasoning:           reasonStore,
 		ReasoningSignature:  reasonSig,
-		ToolCalls:           toolCalls,
 		ReasoningDurationMs: reasoningMs,
 		Model:               a.state.EffectiveModelID(a.cfg),
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -1178,6 +1449,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 // tool_call_update: the normal completed/failed path and the mode refusal
 // (status cancelled, result carrying the refusal text) share it so the
 // transcript, the tool_calls store, and the preview stay consistent.
+//
+// The plan snapshot is written before the call is marked finished: a transcript
+// reload that reads meta.json in between then sees an in_progress call that
+// already carries its plan rows, never a completed call without them.
 func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, result string, execErr error, status string) {
 	var todoPlanSnapshot []acp.PlanEntry
 	if status == "completed" {
@@ -1190,10 +1465,10 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 			finalText = fmt.Sprintf("error: %v", execErr)
 		}
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
-		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
 		if len(todoPlanSnapshot) > 0 {
 			_ = session.WriteToolCallPlanSnapshot(sessionDir, tc.ID, todoPlanSnapshot)
 		}
+		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
 	}
 
 	payload := result
@@ -1209,17 +1484,7 @@ func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, re
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: display}},
 		}
 	}
-	if len(todoPlanSnapshot) > 0 {
-		if previewMeta == nil {
-			previewMeta = map[string]interface{}{}
-		}
-		foxxycodeMeta, _ := previewMeta["foxxycode"].(map[string]interface{})
-		if foxxycodeMeta == nil {
-			foxxycodeMeta = map[string]interface{}{}
-			previewMeta["foxxycode"] = foxxycodeMeta
-		}
-		foxxycodeMeta["todoPlan"] = todoPlanSnapshot
-	}
+	previewMeta = session.AttachTodoPlanMeta(previewMeta, todoPlanSnapshot)
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,

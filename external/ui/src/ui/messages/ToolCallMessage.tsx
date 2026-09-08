@@ -25,12 +25,9 @@ import {
   taskTone,
 } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
-import { BrowserAction } from "./BrowserAction";
+import { BrowserAction, BrowserIcon } from "./BrowserAction";
 import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
-import {
-  isBrowserToolName,
-  parseBrowserActionResult,
-} from "./browserActionDisplay";
+import { isBrowserToolName, browserActionLabel } from "./browserActionDisplay";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -56,7 +53,10 @@ function QuestionToolTimelineReadout(props: {
 
   if (qs.length === 0) {
     return (
-      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+      <p
+        className="muted"
+        style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
+      >
         {props.t("messages.toolQuestionMirrorHint")}
       </p>
     );
@@ -126,7 +126,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [props.resultText],
   );
   const full = props.fullResultText || "";
-  const rawName = (props.title || props.kind || t("messages.toolDefaultName")).trim();
+  const rawName = (
+    props.title ||
+    props.kind ||
+    t("messages.toolDefaultName")
+  ).trim();
   const toolPreview = useMemo(
     () =>
       buildToolCallPreview(
@@ -182,10 +186,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [props.argsText]);
 
   const isBrowserTool = isBrowserToolName(rawName);
-  const browserInfo = useMemo(
-    () => (isBrowserTool ? parseBrowserActionResult(props.resultText) : null),
-    [isBrowserTool, props.resultText],
-  );
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -202,6 +202,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [isPatchTool, props.argsText]);
 
   const displayLabel = useMemo(() => {
+    if (isBrowserTool)
+      return browserActionLabel(
+        rawName,
+        props.argsText,
+        /^error:/i.test(preview.trim()) ? "failed" : status,
+        t,
+      );
     if (isQuestionTool) {
       return t("messages.toolQuestionLabel");
     }
@@ -209,7 +216,16 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     return pendingLike
       ? `${rawName || fallback}${t("messages.toolPendingSuffix")}`
       : rawName || fallback;
-  }, [isQuestionTool, pendingLike, rawName, t]);
+  }, [
+    isQuestionTool,
+    isBrowserTool,
+    props.argsText,
+    preview,
+    status,
+    pendingLike,
+    rawName,
+    t,
+  ]);
 
   const permissionWaiting = props.permissionWaiting === true;
 
@@ -301,7 +317,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   useEffect(() => {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
-      ((isWriteTool || isEditTool) &&
+      ((isWriteTool || isEditTool || isBrowserTool) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
@@ -313,6 +329,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     isEditTool,
     isPatchTool,
     isWriteTool,
+    isBrowserTool,
     patchContent,
     props.argsText,
     props.toolCallId,
@@ -382,7 +399,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showBrowserAction = isBrowserTool && !!browserInfo;
+  const showBrowserAction = isBrowserTool;
   const toolPreviewHasContent =
     toolPreview.header.trim() !== "" ||
     toolPreview.meta.length > 0 ||
@@ -437,9 +454,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         className="thinking-details foxxycode-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
       >
-        <summary className="thinking-summary" aria-label={t("messages.toolSummaryAriaLabel")}>
+        <summary
+          className="thinking-summary"
+          aria-label={t("messages.toolSummaryAriaLabel")}
+        >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
+            {isBrowserTool && <BrowserIcon />}
             <span className="thinking-label">{displayLabel}</span>
             {durationLabel.trim() !== "" ? (
               <span className="thinking-dur" aria-hidden="true">
@@ -483,7 +504,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             className={[
               "thinking-body foxxycode-tool-call-body",
               isQuestionTool && "foxxycode-tool-call-body--question",
-              hasConnectedResult && "foxxycode-tool-call-body--connected-result",
+              hasConnectedResult &&
+                "foxxycode-tool-call-body--connected-result",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -497,9 +519,12 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 t={t}
               />
             ) : null}
-            {showBrowserAction && browserInfo ? (
+            {showBrowserAction ? (
               <BrowserAction
-                info={browserInfo}
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
                 sessionId={(props.sessionId || "").trim()}
               />
             ) : null}

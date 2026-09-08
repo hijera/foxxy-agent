@@ -150,8 +150,24 @@ messages: [
      stripped from the stored message, so it is never replayed to the model.
    - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
      arguments is not executed; the model gets a result explaining why.
-   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
-     times, then -> DONE (stopReason: agent_refused) with a notice.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
 
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
@@ -224,8 +240,24 @@ messages: [
      stripped from the stored message, so it is never replayed to the model.
    - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
      arguments is not executed; the model gets a result explaining why.
-   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
-     times, then -> DONE (stopReason: agent_refused) with a notice.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
 
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason

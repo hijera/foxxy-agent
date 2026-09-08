@@ -323,6 +323,7 @@ const (
 	UpdateTypeCompaction              = "compaction"
 	UpdateTypeSessionTitle            = "session_title"
 	UpdateTypeMCPPhase                = "mcp_phase"
+	UpdateTypeLLMRetry                = "llm_retry"
 	UpdateTypeDebug                   = "debug"
 )
 
@@ -460,6 +461,25 @@ type MCPPhaseUpdate struct {
 	Phase         string `json:"phase"`         // "connecting" | "ready"
 }
 
+// LLM retry phase values for LLMRetryUpdate.Phase.
+const (
+	LLMRetryPhaseWaiting  = "waiting"
+	LLMRetryPhaseRetrying = "retrying"
+)
+
+// LLMRetryUpdate tells the client that a turn is parked between two attempts at the same
+// model call because the provider produced no output at all. Emitted only while the turn
+// actually waits; a call that answers sends nothing.
+//
+// Transient by design, like MCPPhaseUpdate: it drives the live status line next to the
+// typing dots, and is not part of the transcript.
+type LLMRetryUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "llm_retry"
+	Phase         string `json:"phase"`         // "waiting" | "retrying"
+	Attempt       int    `json:"attempt,omitempty"`
+	DelayMS       int64  `json:"delayMs,omitempty"`
+}
+
 // SessionTitleUpdate carries a newly generated session title (from the hidden "title" agent) so
 // connected clients can update their session list and header live, without re-fetching.
 type SessionTitleUpdate struct {
@@ -473,7 +493,7 @@ type SessionTitleUpdate struct {
 // go to the process log, while this carries lightweight structured metadata.
 type DebugUpdate struct {
 	SessionUpdate string                 `json:"sessionUpdate"` // "debug"
-	Phase         string                 `json:"phase"`         // "turn_start"|"llm_request"|"llm_response"|"tool_start"|"tool_finish"
+	Phase         string                 `json:"phase"`         // "turn_start"|"llm_request"|"llm_response"|"tool_start"|"tool_finish"|"loop_guard"
 	Title         string                 `json:"title,omitempty"`
 	Detail        string                 `json:"detail,omitempty"`
 	Meta          map[string]interface{} `json:"_meta,omitempty"`

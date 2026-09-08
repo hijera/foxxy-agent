@@ -7,6 +7,12 @@ import {
   subscribeLiveConnection,
 } from "../chat/liveConnectionState";
 import {
+  isLlmRetrying,
+  serverSnapshotLlmRetry,
+  snapshotLlmRetry,
+  subscribeLlmRetry,
+} from "../chat/llmRetryState";
+import {
   isMcpConnecting,
   serverSnapshotMcpConnecting,
   snapshotMcpConnecting,
@@ -122,13 +128,33 @@ export function MessageList(props: {
   );
   const mcpConnecting =
     mcpEpoch >= 0 && !!props.sessionId && isMcpConnecting(props.sessionId);
+  // A turn can also be parked between two attempts at the same call, waiting out a
+  // provider that produced no output at all.
+  const llmRetryEpoch = useSyncExternalStore(
+    subscribeLlmRetry,
+    snapshotLlmRetry,
+    serverSnapshotLlmRetry,
+  );
+  const llmRetrying =
+    llmRetryEpoch >= 0 && !!props.sessionId && isLlmRetrying(props.sessionId);
 
   const liveStatus = useMemo(
     () =>
       props.generating === true && statusLineOn
-        ? deriveLiveStatus(props.items, { reconnecting, mcpConnecting })
+        ? deriveLiveStatus(props.items, {
+            reconnecting,
+            mcpConnecting,
+            llmRetrying,
+          })
         : null,
-    [props.generating, statusLineOn, props.items, reconnecting, mcpConnecting],
+    [
+      props.generating,
+      statusLineOn,
+      props.items,
+      reconnecting,
+      mcpConnecting,
+      llmRetrying,
+    ],
   );
 
   const userMsgIndices = useMemo(() => {

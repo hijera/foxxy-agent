@@ -26,6 +26,28 @@ type resultEvictionOptions struct {
 	KeepRecent     int // most recent evictable results left intact (working window)
 	MinResultBytes int // results at or below this size are never candidates
 	CWD            string
+	// Pinned names results the loop guard rescued after a re-read loop (keys from
+	// loopPinKey). They survive like keep:true, because the loop existed only
+	// because they kept disappearing.
+	Pinned map[string]struct{}
+}
+
+// pinnedRead reports whether the loop guard rescued this file from eviction.
+func (o resultEvictionOptions) pinnedRead(path string) bool {
+	if len(o.Pinned) == 0 {
+		return false
+	}
+	_, ok := o.Pinned[loopPinReadPrefix+path]
+	return ok
+}
+
+// pinnedGrep reports whether the loop guard rescued this search from eviction.
+func (o resultEvictionOptions) pinnedGrep(pattern string) bool {
+	if len(o.Pinned) == 0 {
+		return false
+	}
+	_, ok := o.Pinned[loopPinGrepPrefix+pattern]
+	return ok
 }
 
 // evictionOptions reads the effective result-eviction settings for this agent.
@@ -36,12 +58,79 @@ func (a *Agent) evictionOptions() resultEvictionOptions {
 		KeepRecent:     re.EffectiveKeepRecent(),
 		MinResultBytes: re.EffectiveMinResultBytes(),
 		CWD:            a.state.GetCWD(),
+		Pinned:         a.loopPinSnapshot(),
 	}
 }
 
-// prunedForLLM applies read/grep result eviction to an LLM-visible message window.
+// prunedForLLM applies read/grep result eviction to an LLM-visible message window,
+// then collapses the repeats left behind by any loop the guard quarantined.
 func (a *Agent) prunedForLLM(msgs []llm.Message) []llm.Message {
-	return pruneToolResults(msgs, a.evictionOptions())
+	opt := a.evictionOptions()
+	out := pruneToolResults(dropUnansweredToolCalls(msgs), opt)
+	return collapseLoopDuplicates(out, a.loopQuarantineSnapshot(), opt.MinResultBytes)
+}
+
+// dropUnansweredToolCalls removes announced tool calls that never got a result.
+//
+// Every tool_call_id an assistant message announces must be answered, or
+// OpenAI-compatible endpoints reject the whole request and Anthropic rejects the
+// unmatched tool_use block. A stream cancelled mid-arguments used to persist such
+// a call, which poisoned the session on disk: every later prompt in it failed,
+// across restarts. The persist sites no longer do that, but histories written
+// before the fix are still out there, so the projection is repaired on the way out.
+//
+// Safe to run unconditionally: this is the last step before a request, and by then
+// every call the loop actually executed has its result appended. A call still
+// awaiting the operator's permission is unaffected too - that turn is suspended and
+// issues no request, and the resume path reads session state rather than this
+// projection.
+func dropUnansweredToolCalls(msgs []llm.Message) []llm.Message {
+	answered := make(map[string]struct{})
+	for _, m := range msgs {
+		if m.Role == llm.RoleTool && strings.TrimSpace(m.ToolCallID) != "" {
+			answered[m.ToolCallID] = struct{}{}
+		}
+	}
+	orphans := false
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			if _, ok := answered[tc.ID]; !ok {
+				orphans = true
+			}
+		}
+	}
+	if !orphans {
+		return msgs
+	}
+
+	// Copy-on-write, like pruneToolResults: the caller's history is shared state.
+	out := make([]llm.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if len(m.ToolCalls) == 0 {
+			out = append(out, m)
+			continue
+		}
+		kept := make([]llm.ToolCall, 0, len(m.ToolCalls))
+		for _, tc := range m.ToolCalls {
+			if _, ok := answered[tc.ID]; ok {
+				kept = append(kept, tc)
+			}
+		}
+		if len(kept) == len(m.ToolCalls) {
+			out = append(out, m)
+			continue
+		}
+		// An assistant turn whose only content was a call cut mid-write carries
+		// nothing once that call is gone, and an empty assistant message is itself
+		// rejected by some endpoints.
+		if len(kept) == 0 && strings.TrimSpace(m.Content) == "" && strings.TrimSpace(m.Reasoning) == "" {
+			continue
+		}
+		trimmed := m
+		trimmed.ToolCalls = kept
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 // evReadResult is a read tool result eligible for eviction.
@@ -149,6 +238,9 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 	// message position stay intact so the model is never forced to mark a result it
 	// is still reasoning about.
 	windowIdx := recentCandidateWindow(reads, greps, opt.KeepRecent)
+	// Results of the round the model has not read yet are off limits entirely: see
+	// unseenRoundStart.
+	unseenFrom := unseenRoundStart(history)
 
 	out := history
 	cloned := false
@@ -165,10 +257,13 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 			evict(r.msgIdx, readStalePlaceholder(r, w, opt.CWD))
 			continue
 		}
+		if r.msgIdx >= unseenFrom {
+			continue
+		}
 		if _, ok := windowIdx[r.msgIdx]; ok {
 			continue
 		}
-		if r.keep || readPinned(r, readPins) {
+		if r.keep || readPinned(r, readPins) || opt.pinnedRead(r.path) {
 			continue
 		}
 		evict(r.msgIdx, readEvictedPlaceholder(r, opt.CWD))
@@ -178,10 +273,13 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 			evict(g.msgIdx, grepStalePlaceholder(g, w, opt.CWD))
 			continue
 		}
+		if g.msgIdx >= unseenFrom {
+			continue
+		}
 		if _, ok := windowIdx[g.msgIdx]; ok {
 			continue
 		}
-		if g.keep || grepPinned(g, grepPins) {
+		if g.keep || grepPinned(g, grepPins) || opt.pinnedGrep(g.pattern) {
 			continue
 		}
 		evict(g.msgIdx, grepEvictedPlaceholder(g, opt.CWD))
@@ -193,7 +291,7 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 func writeResultSucceeded(content string) bool {
 	trimmed := strings.TrimSpace(content)
 	switch trimmed {
-	case "", permissionDeniedByUser, toolLoopNudge, toolLoopSkippedResult:
+	case "", permissionDeniedByUser, toolLoopNudge, toolLoopSkippedResult, toolCycleNudge, toolCycleSkippedResult:
 		return false
 	}
 	// A gate refused for any other reason - a detached subagent's prompt that
@@ -375,6 +473,26 @@ func svnWriteTargets(toolName, argsJSON, cwd string) []string {
 	default:
 		return []string{absPath(cwd, cwd)}
 	}
+}
+
+// unseenRoundStart returns the index just past the last assistant message. Tool
+// results after it are the ones the model is about to read for the first time,
+// because an assistant message is only produced after consuming everything before
+// it - answer text included, which is why the search is not limited to messages
+// carrying tool calls.
+//
+// Evicting an unseen result forces a re-read of content the model never got to
+// use: with more than KeepRecent large reads in a single round, the earliest is
+// replaced by a placeholder telling the model to re-read it, the re-read lands in
+// a round with the same shape, and the turn rotates through those files until
+// max_turns runs out.
+func unseenRoundStart(history []llm.Message) int {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == llm.RoleAssistant {
+			return i + 1
+		}
+	}
+	return len(history)
 }
 
 // recentCandidateWindow returns the message indices of the last keepRecent

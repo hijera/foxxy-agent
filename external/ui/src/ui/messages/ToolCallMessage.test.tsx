@@ -1093,3 +1093,25 @@ test("a command task offers no transcript link", () => {
   openToolDetails();
   expect(screen.queryByTestId("tool-bgtask-transcript-bg_1")).toBeNull();
 });
+
+test("todo update without a saved plan still renders the todo card from its arguments", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-todo-update-nosnap"
+      title="foxxycode_todo_item_update"
+      kind="todo"
+      status="completed"
+      argsText={JSON.stringify({ index: 5, status: "in_progress" })}
+      resultText="updated item 5"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Updated item")).toBeInTheDocument();
+  expect(screen.getByText("item 6")).toBeInTheDocument();
+  expect(screen.getByText("Item 6")).toBeInTheDocument();
+  expect(container.querySelector(".todo-tool-preview-row--in_progress")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+  expect(container.querySelector("pre")).toBeNull();
+});

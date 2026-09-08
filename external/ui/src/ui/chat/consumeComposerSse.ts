@@ -159,6 +159,13 @@ export type ConsumeComposerSseParams = {
    * backend sends nothing at all once the servers are connected.
    */
   onMcpConnecting?: (connecting: boolean) => void;
+  /**
+   * FoxxyCode extension. Fired when a turn is parked between two attempts at the same
+   * model call because the provider produced no output at all (**`true`**), and when the
+   * next attempt starts (**`false`**). Transient status only — a call that answers sends
+   * nothing at all.
+   */
+  onLlmRetrying?: (retrying: boolean) => void;
 };
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
@@ -232,6 +239,7 @@ export async function consumeComposerSseReader(
     onPermission,
     onCompaction,
     onMcpConnecting,
+    onLlmRetrying,
     onDesignPlan,
   } = p;
 
@@ -603,6 +611,16 @@ export async function consumeComposerSseReader(
             try {
               const payload = JSON.parse(ev.data) as { phase?: string };
               onMcpConnecting?.(payload.phase === "connecting");
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "llm_retry") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              onLlmRetrying?.(payload.phase === "waiting");
             } catch {
               // ignore
             }

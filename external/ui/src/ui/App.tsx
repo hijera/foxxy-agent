@@ -12,6 +12,7 @@ import { useStableHandler } from "./components/useStableHandler";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
+import { setLlmRetrying } from "./chat/llmRetryState";
 import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
@@ -939,6 +940,7 @@ export function App() {
     // Backstop for the live-status label: every turn ends through here, however it ended.
     markConnected(k);
     setMcpConnecting(k, false);
+    setLlmRetrying(k, false);
     if (!activeComposerSidRef.current.delete(k)) return;
     bumpComposerActivity();
   }
@@ -3926,6 +3928,7 @@ export function App() {
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
           setMcpConnecting(key, connecting),
+        onLlmRetrying: (retrying: boolean) => setLlmRetrying(key, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
       });
@@ -4378,6 +4381,8 @@ export function App() {
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
           setMcpConnecting(streamKey, connecting),
+        onLlmRetrying: (retrying: boolean) =>
+          setLlmRetrying(streamKey, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
       });

@@ -20,7 +20,7 @@ const debugTraceFileName = "debug_trace.jsonl"
 // metadata suitable for a UI timeline and the debug endpoint.
 type DebugEvent struct {
 	Turn   int                    `json:"turn"`
-	Phase  string                 `json:"phase"` // turn_start|llm_request|llm_response|tool_start|tool_finish
+	Phase  string                 `json:"phase"` // turn_start|llm_request|llm_response|tool_start|tool_finish|loop_guard
 	Title  string                 `json:"title,omitempty"`
 	Detail string                 `json:"detail,omitempty"`
 	At     string                 `json:"at"` // RFC3339 UTC
