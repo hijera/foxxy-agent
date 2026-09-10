@@ -719,7 +719,7 @@
         "additionalProperties": false,
         "properties": {
           "args": {
-            "description": "Argv passed after command for stdio MCP servers.",
+            "description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
             "items": {
               "type": "string"
             },
@@ -727,7 +727,7 @@
             "type": "array"
           },
           "command": {
-            "description": "Executable for stdio transport (leave empty when using http url).",
+            "description": "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd.",
             "title": "Command",
             "type": "string"
           },
@@ -745,7 +745,7 @@
             "type": "array"
           },
           "env": {
-            "description": "Extra environment variables for the stdio child process.",
+            "description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -770,7 +770,7 @@
             "type": "array"
           },
           "headers": {
-            "description": "Optional headers sent with MCP HTTP requests.",
+            "description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -810,7 +810,7 @@
             "type": "string"
           },
           "url": {
-            "description": "HTTP(S) endpoint when type selects an HTTP-based MCP server.",
+            "description": "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd.",
             "title": "MCP URL",
             "type": "string"
           }
@@ -1175,7 +1175,7 @@
             "${FOXXYCODE_HOME}/skills",
             "${CWD}/.foxxycode/skills"
           ],
-          "description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
+          "description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
           "items": {
             "type": "string"
           },

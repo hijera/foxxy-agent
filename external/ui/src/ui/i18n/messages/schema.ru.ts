@@ -107,25 +107,25 @@ export const schemaTextRu: Record<string, string> = {
   "Stable id referenced by the agent; must be unique in this list.":
     "Стабильный id, на который ссылается агент; должен быть уникальным в этом списке.",
   Command: "Команда",
-  "Executable for stdio transport (leave empty when using http url).":
-    "Исполняемый файл для транспорта stdio (оставьте пустым при использовании http url).",
+  "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd.":
+    "Исполняемый файл для транспорта stdio (оставьте пустым при использовании http url). ${CWD} раскрывается в cwd сессии.",
   Arguments: "Аргументы",
-  "Argv passed after command for stdio MCP servers.":
-    "Аргументы (argv), передаваемые после команды для stdio-серверов MCP.",
+  "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.":
+    "Аргументы (argv), передаваемые после команды для stdio-серверов MCP. ${CWD} раскрывается в cwd сессии.",
   Environment: "Окружение",
-  "Extra environment variables for the stdio child process.":
-    "Дополнительные переменные окружения для дочернего stdio-процесса.",
+  "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.":
+    "Дополнительные переменные окружения для дочернего stdio-процесса. ${CWD} в значении раскрывается в cwd сессии.",
   "Variable name": "Имя переменной",
   "Environment variable name passed to the MCP process.":
     "Имя переменной окружения, передаваемой процессу MCP.",
   Value: "Значение",
   "Variable value.": "Значение переменной.",
   "MCP URL": "URL MCP",
-  "HTTP(S) endpoint when type selects an HTTP-based MCP server.":
-    "HTTP(S)-эндпоинт, когда выбран тип HTTP-сервера MCP.",
+  "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd.":
+    "HTTP(S)-эндпоинт, когда выбран тип HTTP-сервера MCP. ${CWD} раскрывается в cwd сессии.",
   "HTTP headers": "HTTP-заголовки",
-  "Optional headers sent with MCP HTTP requests.":
-    "Необязательные заголовки, отправляемые с HTTP-запросами MCP.",
+  "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.":
+    "Необязательные заголовки, отправляемые с HTTP-запросами MCP. ${CWD} в значении раскрывается в cwd сессии.",
   "Header name": "Имя заголовка",
   "HTTP header name for MCP HTTP transports.":
     "Имя HTTP-заголовка для HTTP-транспортов MCP.",
@@ -302,8 +302,8 @@ export const schemaTextRu: Record<string, string> = {
   "Slash commands and skill packs discovered from these directories.":
     "Слэш-команды и наборы навыков, обнаруживаемые в этих каталогах.",
   "Skill directories": "Каталоги навыков",
-  "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.":
-    "Пути поиска навыков. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} и ${CWD} подставляются во время выполнения.",
+  "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.":
+    "Пути поиска навыков. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} подставляется при загрузке файла; ${CWD} остаётся в записи и раскрывается для каждой сессии против её рабочей папки.",
   "Remote skill sources": "Удалённые источники навыков",
   "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.":
     "Удалённые источники для установки навыков: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог навыков.",

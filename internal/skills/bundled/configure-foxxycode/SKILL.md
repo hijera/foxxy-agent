@@ -83,7 +83,7 @@ The selector forces the stored `name` to match. After the user confirms and `con
 
 ## Skills
 
-FoxxyCode discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${FOXXYCODE_HOME}/skills`, and `${CWD}/.foxxycode/skills`. `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them.
+FoxxyCode discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${FOXXYCODE_HOME}/skills`, and `${CWD}/.foxxycode/skills`. `${CWD}` stands for the workspace of each session and is resolved when that session loads its skills, so keep it literal when you stage `skills.dirs` (never replace it with the current absolute path: a `foxxycode http` server serves sessions rooted in different folders). `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them.
 
 Prefer FoxxyCode's installer for remote sources:
 

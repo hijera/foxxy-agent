@@ -37,7 +37,10 @@ type skillRowResponse struct {
 	Readonly    bool   `json:"readonly"`          // bundled skills cannot be deleted
 }
 
-// foxxycodeSkillsGet lists all skills with their enabled/disabled state.
+// foxxycodeSkillsGet lists all skills with their enabled/disabled state. ${CWD} in
+// skills.dirs resolves against the session named by the optional
+// X-FoxxyCode-Session-ID header, or the server default workspace without it, the
+// same way /foxxycode/slash-commands does.
 func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -47,7 +50,11 @@ func (s *Server) foxxycodeSkillsGet(w http.ResponseWriter, r *http.Request) {
 	installDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
 	loader := skills.NewLoader(cfg.Skills.Dirs)
 
-	allLoaded, err := loader.LoadAll(s.sessionDefaultCWD(), cfg.Paths.Home)
+	cwd, ok := s.resolveSessionCWD(w, r)
+	if !ok {
+		return
+	}
+	allLoaded, err := loader.LoadAll(cwd, cfg.Paths.Home)
 	if err != nil {
 		http.Error(w, `{"error":{"message":"failed to load skills"}}`, http.StatusInternalServerError)
 		return

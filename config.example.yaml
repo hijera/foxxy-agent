@@ -195,9 +195,11 @@ prompts:
     enabled: true
 
 skills:
-  # dirs is the list of directories scanned for skills and rules.
-  # Searched in order. When empty, defaults are
-  # ${FOXXYCODE_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
+  # dirs is the list of directories scanned for skills. Searched in order,
+  # later entries win on name conflicts. When empty, defaults are
+  # ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills.
+  # ${CWD} is the session workspace, resolved when a session loads its
+  # skills, so it is safe to write here even for a shared foxxycode http server.
   dirs: []
   # sources are remote skill sources installed on demand (foxxycode skills sync / /plugin /
   # Settings → Skills, never automatically): owner/repo[@ref], a git URL, or an http(s)

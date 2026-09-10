@@ -23,9 +23,12 @@ sessions:
   dir: ""
 
 skills:
-  install_dir: "${FOXXYCODE_HOME}/skills_fixture"
   dirs:
     - "${FOXXYCODE_HOME}/skills_fixture"
+    # Session workspace, not the server process cwd: the skills e2e harnesses
+    # anchor a session on a folder that carries .foxxycode/skills/ and expect its
+    # skill in that session's catalog (hijera/foxxy-agent#146).
+    - "${CWD}/.foxxycode/skills"
 
 mcp_servers: []
 
