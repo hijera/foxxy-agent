@@ -29,13 +29,16 @@ func (s *Server) registerSubagentRoutes() {
 }
 
 // subagentWorkspaceCWD resolves the workspace a catalog request refers to: the
-// caller's cwd when given, else the server's default cwd. A relative path is
-// refused because trust receipts are keyed by canonical absolute workspaces and
-// a path relative to the server process would approve the wrong checkout.
+// caller's cwd when given, else the cwd a session would be created with. That
+// is the current project when one is set, which is the cwd spawn_agent decides
+// trust against - falling back to the process cwd would file the receipt under
+// a workspace the runtime never consults. A relative path is refused because
+// trust receipts are keyed by canonical absolute workspaces and a path relative
+// to the server process would approve the wrong checkout.
 func (s *Server) subagentWorkspaceCWD(raw string) (string, error) {
 	cwd := strings.TrimSpace(raw)
 	if cwd == "" {
-		cwd = s.defaultCWD
+		cwd = s.sessionDefaultCWD()
 	}
 	if !filepath.IsAbs(cwd) {
 		return "", fmt.Errorf("cwd must be an absolute path")
@@ -79,8 +82,19 @@ func (c subagentCatalog) entry(def *subagents.Definition) subagents.CatalogEntry
 	return rows[0]
 }
 
+// writeSubagentsError answers with a JSON error body. The message is marshalled
+// rather than formatted, so a path or a name carrying a character Go quotes
+// differently from JSON still leaves the body parseable, and the content type
+// says JSON because the SPA reads these bodies with res.json().
 func writeSubagentsError(w http.ResponseWriter, code int, msg string) {
-	http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, msg), code)
+	body, err := json.Marshal(map[string]interface{}{"error": map[string]string{"message": msg}})
+	if err != nil {
+		body = []byte(`{"error":{"message":"request failed"}}`)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 // foxxycodeSubagentsList answers GET /foxxycode/subagents: every definition visible

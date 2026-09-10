@@ -595,6 +595,20 @@ func (s *State) GetMessages() []llm.Message {
 	return msgs
 }
 
+// MessageCount is how many messages the transcript holds right now.
+//
+// A client watching a long turn needs to know whether anything has been added
+// since it last looked, and activitySeq cannot answer that: it advances once
+// per completed turn. This counter moves with every ReAct round and every tool
+// result, which is exactly the granularity a transcript reload observes. It
+// deliberately does not copy the slice the way GetMessages does - the caller
+// wants a number, and this is polled.
+func (s *State) MessageCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.Messages)
+}
+
 // GetAgentMemory returns session memory text for prompt templates.
 func (s *State) GetAgentMemory() string {
 	s.mu.RLock()

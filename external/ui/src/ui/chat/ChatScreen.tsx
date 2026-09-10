@@ -390,6 +390,12 @@ export function ChatScreen(props: {
                 items={props.items}
                 sessionId={props.sessionId}
                 generating={props.generating === true}
+                {...(props.workspaceCtx?.path
+                  ? { workspacePath: props.workspaceCtx.path }
+                  : {})}
+                {...(props.onOpenSession
+                  ? { onOpenSubagentTranscript: props.onOpenSession }
+                  : {})}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
                   : {})}

@@ -85,6 +85,9 @@ type Agent struct {
 
 	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
 	subagentRuntime SubagentRuntime
+	// detachedPermissions answers a child's prompt after the parent turn that
+	// spawned it has ended; nil on surfaces with nowhere to put one.
+	detachedPermissions DetachedPermissionBroker
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
 	// currentToolCallID is the tool call being executed, so a spawn can link
@@ -375,6 +378,18 @@ const (
 
 	toolLoopSkippedResult = "not executed: the loop guard stopped this turn after repeated identical tool calls"
 
+	// permissionDeniedByUser is what a tool call gets when the gate was
+	// answered with a refusal. It is matched verbatim elsewhere (the
+	// context-eviction pass reads it as "this write never happened"), so it
+	// stays a constant rather than a literal repeated per call site.
+	permissionDeniedByUser = "permission denied by user"
+
+	// permissionNotGrantedPrefix opens the refusals nobody actually answered -
+	// a detached subagent's prompt that reached no client, say. The model must
+	// not read those as a user saying no, and the eviction pass must still
+	// treat the write as not done, so both share this prefix.
+	permissionNotGrantedPrefix = "permission not granted: "
+
 	toolCycleNudge = "This call repeats a sequence of tool calls you have already run in this turn with the same arguments, so it was not executed again. Running it again will not return anything new. Note that an \"[evicted: ...]\" placeholder only means the text was dropped from your context to save room - the file has not changed, and re-reading it will produce the same content you already reasoned about. Work from what you have and take a genuinely different step, or tell the user what you cannot determine; do not repeat the sequence."
 
 	toolCycleSkippedResult = "not executed: the loop guard stopped this turn after a repeating sequence of tool calls"
@@ -401,6 +416,17 @@ const (
 // for the answer. Without it a model that knows nothing but the loop would keep
 // asking for blocked calls until max_turns, ending the turn with nothing to show.
 const maxBlockedRoundsBeforeAnswer = 2
+
+// permissionDeniedResult renders a refused gate for the model, naming the
+// reason when the refusal came from something other than a user's answer.
+func permissionDeniedResult(res *acp.PermissionResult) string {
+	if res != nil {
+		if reason := strings.TrimSpace(res.Reason); reason != "" {
+			return permissionNotGrantedPrefix + reason
+		}
+	}
+	return permissionDeniedByUser
+}
 
 // loopAbortChannel names the streamed channel that degenerated into a loop.
 type loopAbortChannel int
@@ -1438,7 +1464,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				ToolCallID:    tc.ID,
 				Status:        "cancelled",
 			})
-			return "permission denied by user", nil
+			return permissionDeniedResult(permResult), nil
 		}
 		if st := sessionStatePtr(a.state); st != nil {
 			permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, env.CWD, permResult)

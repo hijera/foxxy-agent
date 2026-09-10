@@ -86,6 +86,10 @@ export function MessageList(props: {
   backgroundNowMs?: number;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
+  /** Workspace of this session; a refused spawn offers its approval for it. */
+  workspacePath?: string | undefined;
+  /** Opens the child transcript behind a spawn_agent row. */
+  onOpenSubagentTranscript?: (sessionId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -360,6 +364,10 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(props.workspacePath ? { workspacePath: props.workspacePath } : {})}
+            {...(props.onOpenSubagentTranscript
+              ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
+              : {})}
             {...(rowBackgroundTask
               ? { backgroundTask: rowBackgroundTask }
               : {})}
