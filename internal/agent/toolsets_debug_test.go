@@ -2,8 +2,6 @@ package agent
 
 import (
 	"testing"
-
-	"github.com/hijera/foxxycode-agent/internal/mcp"
 )
 
 // Debug mode mirrors Agent mode for tool access: it is unrestricted, MCP tools
@@ -25,11 +23,6 @@ func TestDebugModeAllowsMCPTools(t *testing.T) {
 	if !ModeAllowsMCPTools("debug") {
 		t.Error("debug mode should expose MCP tools")
 	}
-	// Any MCP tool is allowed (no read-only annotation requirement, unlike ask).
-	tool := mcp.ToolInfo{Name: "server__do_stuff", ReadOnly: false}
-	if !MCPToolAllowedForMode("debug", false, tool) {
-		t.Error("debug mode should allow a non-read-only MCP tool")
-	}
 }
 
 // Debug mode is not an enforced mode, so hallucinated tool names are passed to
@@ -37,7 +30,7 @@ func TestDebugModeAllowsMCPTools(t *testing.T) {
 // boundary — identical to agent mode.
 func TestDebugModeNeverRefusesToolCalls(t *testing.T) {
 	for _, name := range []string{"write", "edit", "apply_patch", "run_command", "server__tool"} {
-		if toolCallRefusedByMode("debug", name, false) {
+		if _, refused := toolCallRefusedByMode("debug", name, false); refused {
 			t.Errorf("debug mode should not refuse %s", name)
 		}
 	}

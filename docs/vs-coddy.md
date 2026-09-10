@@ -34,15 +34,58 @@ exact upstream commit this fork is synced to.
 
 ## Agent capabilities
 
+- **Debug mode + opt-in diagnostics layer** - a fifth session profile (`debug`) that runs a
+  systematic root-cause investigation before proposing a fix, plus a `debug:` config section
+  that captures raw LLM request/response bodies to the process log and a per-turn trace served
+  from `GET /foxxycode/sessions/{id}/debug`. Both toggle at runtime, no restart - see
+  [`docs/debugging.md`](debugging.md), [`internal/config/debug.go`](../internal/config/debug.go)
+  and [`internal/agent/debug_emit.go`](../internal/agent/debug_emit.go).
+- **Transcript export (PDF / DOCX / HTML / JSON)** - a session downloads as a real document
+  with rendered GitHub-flavoured markdown: tables as a drawn cell grid, chroma-highlighted code,
+  nested and task lists, clickable link annotations, and images embedded from the session's own
+  `assets/`. A second route writes the file to disk and reveals it in the OS file manager, for
+  editor panels that cannot accept a download at all - see
+  [`docs/http-api.md`](http-api.md) and the `session_export*.go` files in
+  [`external/httpserver/`](../external/httpserver).
+- **Subversion support at the git level** - an SVN working copy gets its own chip (branch plus
+  revision) next to the git chip, switchable in place or checked out into a branch folder, and a
+  dedicated `svn_*` toolset the agent drives directly. Detection is independent of git, so a
+  folder holding both works with both - see [`internal/svnws/`](../internal/svnws),
+  [`internal/tools/svn/`](../internal/tools/svn) and
+  [`docs/config-reference.md`](config-reference.md#vcssvn).
 - **Interactive browser tool** - a `browser_action`-style toolset that drives a real
   Chrome/Chromium instance via chromedp (open, click, fill, hover, scroll, run JS) and returns
   **screenshots** to the model. Built behind the `browser` build tag - see
   [`docs/browser-tool.md`](browser-tool.md) and [`internal/tools/browser/`](../internal/tools/browser).
+  It stays usable **without vision**: `browser.screenshots` can be turned off so the tools answer
+  with page text and structure, and a provider that rejects images mid-turn is retried once with
+  the screenshots replaced by a note rather than losing the turn.
+- **MCP over a self-signed certificate** - a per-server `insecure_skip_verify`
+  (`insecureSkipVerify` in `mcp.json`), surfaced as an *Ignore SSL certificate errors* checkbox
+  and folded into the approval fingerprint, so a remote server behind a self-signed or expired
+  certificate can be reached at all - see [`docs/mcp-integration.md`](mcp-integration.md).
+- **Vision flag seeded from the provider catalog** - `models[].multimodal` defaults from the
+  catalog's advertised image-input capability (`capabilities.vision`, or `modalities.input`
+  containing `image`) instead of silently staying `false`. It is advisory, never a gate.
 - **Automatic context compaction** - long conversations are auto-summarized to stay within the
   context window; config-gated and enabled by default - see
   [`internal/agent/compaction.go`](../internal/agent/compaction.go) and
   [`internal/config/compaction.go`](../internal/config/compaction.go) (configuration in
   [`docs/config.md`](config.md)).
+
+## Windows hardening
+
+The fork's primary desktop platform is Windows, so several defects that upstream does not hit
+are fixed here:
+
+- **Windowless child processes** - the desktop shell starts every child process without a
+  console window, so running a command no longer flashes a black box over the UI.
+- **Honest process termination** - the platform layer no longer reports a kill that never
+  happened, and a background dev server is no longer torn down with the turn that started it.
+- **SVN output decoding** - the svn client's output is decoded from the system ANSI code page,
+  so Cyrillic paths and log messages arrive intact instead of as mojibake.
+- **Live-turn stream recovery** - a turn that is still running is re-joined by the SPA after a
+  reload or a dropped connection, instead of appearing to hang.
 
 ## Localization & distribution
 

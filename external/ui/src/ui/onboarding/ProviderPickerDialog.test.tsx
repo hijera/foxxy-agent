@@ -32,6 +32,7 @@ describe("shouldShowOnboarding", () => {
         has_providers: false,
         has_models: false,
         has_agent_model: false,
+        has_agent_credentials: false,
         missing_api_keys: [],
       }),
     ).toBe(true);
@@ -45,9 +46,44 @@ describe("shouldShowOnboarding", () => {
         has_providers: true,
         has_models: true,
         has_agent_model: true,
+        has_agent_credentials: true,
         missing_api_keys: [],
       }),
     ).toBe(false);
+  });
+
+  it("ignores a keyless provider the agent does not use", () => {
+    // A second provider row saved without a key (openai next to a keyed
+    // neuraldeep) is reported in missing_api_keys but must not reopen the picker.
+    expect(
+      shouldShowOnboarding({
+        first_run: false,
+        has_config: true,
+        has_providers: true,
+        has_models: true,
+        has_agent_model: true,
+        has_agent_credentials: true,
+        missing_api_keys: ["openai"],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns true when the agent's own provider has no credentials", () => {
+    expect(
+      shouldShowOnboarding({
+        first_run: false,
+        has_config: true,
+        has_providers: true,
+        has_models: true,
+        has_agent_model: true,
+        has_agent_credentials: false,
+        missing_api_keys: ["neuraldeep"],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false when the status could not be fetched", () => {
+    expect(shouldShowOnboarding(null)).toBe(false);
   });
 });
 

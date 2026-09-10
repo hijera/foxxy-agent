@@ -52,11 +52,6 @@ type Tools struct {
 	// false; editor plugins turn it on via PlanNoSelfRunFlagName.
 	PlanNoSelfRun *bool `yaml:"plan_no_self_run"`
 
-	// AskDisableExtendedTools keeps Ask mode on the basic repository-reading
-	// surface. When false (the default), Ask also receives read-only shell, web,
-	// annotated MCP, and scheduler inspection tools.
-	AskDisableExtendedTools bool `yaml:"ask_disable_extended_tools"`
-
 	// OutputLimits caps how many lines each tool result or error contributes to
 	// the LLM context. Positive limits also activate a hard byte safety ceiling.
 	OutputLimits ToolOutputLimits `yaml:"output_limits"`

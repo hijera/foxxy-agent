@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -121,7 +122,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	if res.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
-		if res.StatusCode == http.StatusConflict {
+		if res.StatusCode == http.StatusConflict && sessionBusyPayload(payload) {
 			return nil, fmt.Errorf("remote foxxycode: the session is busy (another turn is running)")
 		}
 		return nil, h.remoteError(res, payload)
@@ -286,6 +287,15 @@ func (t *turnStream) onPermission(data string) error {
 	answer := map[string]string{"toolCallId": params.ToolCall.ToolCallID, "optionId": optionID}
 	path := "/foxxycode/sessions/" + url.PathEscape(t.sessionID) + "/permission"
 	if perr := t.h.postJSON(t.ctx, path, answer, nil); perr != nil {
+		// The server may have withdrawn the prompt while the modal was open:
+		// a subagent's relayed prompt is abandoned when the child is stopped,
+		// times out, or the parent turn moves on, and the route then answers
+		// 404 (nothing pending) or 409 (a read-only child). That is a stale
+		// answer, not a broken turn: the stream is still worth reading.
+		if isStaleAnswer(perr) {
+			t.h.log.Debug("remote permission answer ignored, prompt already withdrawn", "session", t.sessionID, "toolCallId", params.ToolCall.ToolCallID, "error", perr)
+			return nil
+		}
 		// The server stays blocked on an unanswered permission; failing the
 		// turn beats a silent mutual deadlock.
 		return fmt.Errorf("permission answer: %w", perr)
@@ -344,4 +354,26 @@ func planSlug(meta map[string]interface{}) string {
 		return strings.TrimSpace(v)
 	}
 	return ""
+}
+
+// sessionBusyPayload reports whether a 409 body is the turn-lock refusal. The
+// same status also carries actionable refusals, such as a plan run requested
+// in ask mode, whose message must reach the operator unchanged. An opaque 409
+// keeps the historical "busy" reading.
+func sessionBusyPayload(body []byte) bool {
+	var env errorEnvelope
+	if json.Unmarshal(body, &env) != nil || strings.TrimSpace(env.Error.Message) == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(env.Error.Message), "busy")
+}
+
+// isStaleAnswer reports whether a permission or question answer was refused
+// because the server no longer waits for it.
+func isStaleAnswer(err error) bool {
+	var ae *apiError
+	if !errors.As(err, &ae) {
+		return false
+	}
+	return ae.status == http.StatusNotFound || ae.status == http.StatusConflict
 }

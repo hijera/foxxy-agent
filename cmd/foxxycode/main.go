@@ -21,6 +21,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
+	"github.com/hijera/foxxycode-agent/internal/update"
 	"github.com/hijera/foxxycode-agent/internal/version"
 )
 
@@ -49,8 +50,18 @@ func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) erro
 }
 
 func (r *serverRef) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+	// A subagent's request carries the child's own effective mode; that mode
+	// decides the bypass short-circuit, not the operator's global setting,
+	// so a child narrowed to ask is prompted (or denied) even under a
+	// globally bypassed parent.
+	stamped := strings.TrimSpace(params.EffectivePermissionMode)
+	if stamped == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	}
+	if stamped == "" {
+		if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+			return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		}
 	}
 	s := *r.p
 	if s == nil {
@@ -68,6 +79,13 @@ func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequ
 }
 
 func main() {
+	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 {
 		a := os.Args[1]
 		if a == "-v" || a == "--version" {
@@ -134,6 +152,8 @@ func main() {
 		err = runProviders(args[1:])
 	case "rules":
 		err = runRules(args[1:])
+	case "agents":
+		err = runAgents(args[1:])
 	case "mcp":
 		err = runMCP(args[1:])
 	case "update":
@@ -175,6 +195,9 @@ func printUsage(w *os.File) {
   %[1]s codex login | status | logout [--provider NAME] [--home DIR]
   %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
+  %[1]s agents list [--cwd DIR]
+  %[1]s agents trust <name> [--cwd DIR]
+  %[1]s agents untrust <name> [--cwd DIR]
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]
@@ -312,6 +335,7 @@ func runACP(args []string) error {
 		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)

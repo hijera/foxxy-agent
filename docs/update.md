@@ -2,6 +2,10 @@
 
 Use **`foxxycode update`** to download official release binaries from [GitHub Releases](https://github.com/hijera/foxxycode-agent/releases) and replace the **`foxxycode`** executable you are running.
 
+On Windows, FoxxyCode starts a short-lived helper from the system temporary directory. The helper waits for `foxxycode update` to exit, keeps a backup of the installed executable, replaces it, and starts the updated FoxxyCode again. The helper's status lines continue in the same `cmd.exe` or PowerShell console after the `update` command returns, so `foxxycode update` reports success once the download is staged, not once the swap has happened.
+
+Every download is checked against the `SHA256SUMS` asset the release publishes before anything is unpacked or installed. A release without that asset is reported and installed anyway.
+
 ## What gets installed
 
 CI publishes one archive per platform on each SemVer tag **`X.Y.Z`**:
@@ -54,6 +58,12 @@ Override the GitHub repository (default **`hijera/foxxycode-agent`**):
 foxxycode update --repo hijera/foxxycode-agent
 ```
 
+Install on Windows without starting FoxxyCode again afterwards - useful from a script or a CI step, where the restarted process has no console to run in:
+
+```bash
+foxxycode update -y --no-restart
+```
+
 All flags:
 
 ```bash
@@ -77,6 +87,8 @@ foxxycode update --help
 ## Limitations
 
 - Only platforms listed in the release table are supported; others get a clear error.
-- On Windows the running process may lock the executable; close other **`foxxycode`** instances if replace fails.
+- On Windows, FoxxyCode waits up to 30 seconds for another process to release the executable. A permission failure reports much sooner and names the directory: installing into `Program Files` needs an elevated console. If the update cannot be installed, the current executable is left in place; if the updated binary cannot be started, FoxxyCode restores the backup.
+- The Windows helper deletes itself through the FoxxyCode it just installed. Installing a release older than that handoff - `foxxycode update --version` walking backwards - starts the older build directly instead, and its helper stays in `%TEMP%` until the next `foxxycode update` sweeps it.
+- Asset downloads resume after a temporary connection failure (up to three attempts). GitHub supports the HTTP range requests FoxxyCode uses to resume; a server that does not support ranges is downloaded again from the beginning, and one that resumes at the wrong offset fails the download rather than installing a spliced archive.
 - **`foxxycode update`** needs outbound HTTPS to **`api.github.com`** and the asset CDN (GitHub release downloads).
 - Config under **`$FOXXYCODE_HOME`** is not modified; only the binary is replaced.

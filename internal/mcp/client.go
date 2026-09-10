@@ -27,8 +27,8 @@ type ToolInfo struct {
 	Description string
 	InputSchema interface{}
 	// ReadOnly is true only when the MCP server explicitly advertises the
-	// standard annotations.readOnlyHint capability. Ask mode excludes tools
-	// without this positive declaration.
+	// standard annotations.readOnlyHint capability. Informational: no mode
+	// relies on it today (ask and docs exclude MCP tools altogether).
 	ReadOnly bool
 }
 

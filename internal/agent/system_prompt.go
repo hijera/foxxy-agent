@@ -79,7 +79,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	if a.cfg.Prompts.PerProviderEnabled() {
 		promptVariants = a.promptVariants()
 	}
-	full := prompts.RenderWithFallbackForVariants(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), prompts.TemplateData{
+	full := prompts.RenderWithFallbackForVariants(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,
@@ -89,6 +89,8 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		PlanContext:    planCtx,
 		DiscardedPlans: discardedPlans,
 		Instructions:   instructionsMD,
+		Subagents:      a.subagentCatalogBlock(),
+		SubagentRole:   a.subagentRoleBlock(),
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
 	// The identity sentence has to fall inside the window a gateway inspects (see

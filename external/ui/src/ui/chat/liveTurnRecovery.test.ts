@@ -1,7 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, test, expect } from "vitest";
 import {
   isNoLiveTurnRelayError,
   parseSessionBusyResponse,
+  ACTIVITY_FAIL_MAX,
+  DISK_FALLBACK_MAX_MS,
+  DISK_FALLBACK_MIN_MS,
+  DISK_FALLBACK_QUIET_TICKS,
+  LIVE_RECONNECT_MAX_DELAY_MS,
+  diskFallbackDelayMs,
+  liveReconnectDelayMs,
+  shouldKeepWatching,
+  shouldReloadTranscript,
 } from "./liveTurnRecovery";
 
 describe("parseSessionBusyResponse", () => {
@@ -64,5 +73,70 @@ describe("isNoLiveTurnRelayError", () => {
     expect(isNoLiveTurnRelayError("server_error", "boom")).toBe(false);
     expect(isNoLiveTurnRelayError(null, null)).toBe(false);
     expect(isNoLiveTurnRelayError("", "")).toBe(false);
+  });
+});
+
+describe("watching a turn that outlives its stream", () => {
+  test("reconnect delays back off but stop growing", () => {
+    expect(liveReconnectDelayMs(0)).toBe(400);
+    expect(liveReconnectDelayMs(1)).toBe(800);
+    expect(liveReconnectDelayMs(3)).toBe(3200);
+    // A half-hour turn must not schedule a retry an hour out.
+    expect(liveReconnectDelayMs(20)).toBe(LIVE_RECONNECT_MAX_DELAY_MS);
+  });
+
+  test("watching ends on repeated probe failures, not on a retry count", () => {
+    expect(shouldKeepWatching(0)).toBe(true);
+    // Four failures in a row is still worth another try; the old rule gave up
+    // after five attempts however healthy the server was.
+    expect(shouldKeepWatching(ACTIVITY_FAIL_MAX - 1)).toBe(true);
+    expect(shouldKeepWatching(ACTIVITY_FAIL_MAX)).toBe(false);
+  });
+
+  test("the poll slows down only while nothing is being written", () => {
+    expect(diskFallbackDelayMs(0)).toBe(DISK_FALLBACK_MIN_MS);
+    expect(diskFallbackDelayMs(DISK_FALLBACK_QUIET_TICKS - 1)).toBe(
+      DISK_FALLBACK_MIN_MS,
+    );
+    expect(diskFallbackDelayMs(DISK_FALLBACK_QUIET_TICKS)).toBe(
+      DISK_FALLBACK_MAX_MS,
+    );
+  });
+
+  test("the transcript is re-read only when it grew", () => {
+    const base = { firstTick: false, turnActive: true } as const;
+    expect(
+      shouldReloadTranscript({ ...base, messageSeq: 12, lastMessageSeq: 11 }),
+    ).toBe(true);
+    expect(
+      shouldReloadTranscript({ ...base, messageSeq: 12, lastMessageSeq: 12 }),
+    ).toBe(false);
+    // Nothing is known yet on the first tick.
+    expect(
+      shouldReloadTranscript({
+        firstTick: true,
+        turnActive: true,
+        messageSeq: 12,
+        lastMessageSeq: 12,
+      }),
+    ).toBe(true);
+    // The tick that sees the turn end is where the final answer lands.
+    expect(
+      shouldReloadTranscript({
+        firstTick: false,
+        turnActive: false,
+        messageSeq: 12,
+        lastMessageSeq: 12,
+      }),
+    ).toBe(true);
+    // A server that reports no messageSeq (older build, or a session not live
+    // in that process) keeps the old behaviour: reload every tick.
+    expect(
+      shouldReloadTranscript({
+        ...base,
+        messageSeq: undefined,
+        lastMessageSeq: 12,
+      }),
+    ).toBe(true);
   });
 });

@@ -36,6 +36,15 @@ describe("localizeLoopGuardNotice", () => {
     ).toBe('messages.loopGuardTool:{"tool":"read"}');
   });
 
+  it("maps the tool-cycle notice", () => {
+    expect(
+      localizeLoopGuardNotice(
+        "stopped: the model kept repeating the same sequence of tool calls",
+        fakeT,
+      ),
+    ).toBe("messages.loopGuardToolCycle");
+  });
+
   it("tolerates surrounding whitespace", () => {
     expect(
       localizeLoopGuardNotice(

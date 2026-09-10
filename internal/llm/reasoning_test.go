@@ -201,3 +201,36 @@ func TestAnthropicThinkingBudgetBumpsMaxTokens(t *testing.T) {
 		t.Errorf("budget %d must be < max_tokens %d", params.Thinking.OfEnabled.BudgetTokens, params.MaxTokens)
 	}
 }
+
+// TestOpenAIReplaysReasoningOnAPlainAssistantMessage covers the partial answer a
+// stalled stream leaves behind: it often carries reasoning and no text at all,
+// and dropping the reasoning here left the model looking at an empty assistant
+// turn followed by "continue from exactly where it stops" - which it answers by
+// starting the whole reply over. The tool-call branch has always replayed it.
+func TestOpenAIReplaysReasoningOnAPlainAssistantMessage(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleUser, Content: "fix the constants"},
+		{Role: RoleAssistant, Content: "", Reasoning: "The constant names are wrong."},
+	}
+	p := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium")
+	b, err := json.Marshal(p.buildParams(msgs, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "reasoning_content") {
+		t.Errorf("params = %s, want the stalled reasoning replayed", b)
+	}
+	if !strings.Contains(string(b), "The constant names are wrong.") {
+		t.Errorf("params = %s, want the reasoning text itself", b)
+	}
+
+	// A message with neither reasoning nor tool calls keeps the plain shape.
+	plain := []Message{{Role: RoleAssistant, Content: "done"}}
+	pb, err := json.Marshal(p.buildParams(plain, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pb), "reasoning_content") {
+		t.Errorf("params = %s, want no reasoning field when there is no reasoning", pb)
+	}
+}

@@ -88,7 +88,7 @@ func TestConcurrentPerSessionRoutesLoadTheSessionOnce(t *testing.T) {
 				codes[i] = -1
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			codes[i] = resp.StatusCode
 		}(i, p)
 	}

@@ -182,26 +182,38 @@ Any of the 7 theme ids can be substituted for `light`/`dark` — e.g. map the
 IDE's Darcula to `midnight` if that fits the plugin's visual language
 better.
 
-## Embed mode (`?embed=intellij`)
+## Embed mode (`?embed=<id>`)
 
-Pass `&embed=intellij` on the initial URL to opt the SPA into a flatter, more
-native host-IDE look. The SPA mirrors the value into
-`<html data-embed="intellij">` (validated as `[a-z0-9_-]+`, lowercased) before
-first paint, and CSS overrides keyed on `[data-embed="intellij"]` then:
+Pass `&embed=<id>` on the initial URL to opt the SPA into a flatter, more
+native host-IDE look. Two ids are shipped: `intellij` (the JCEF tool window)
+and `vscode` (the extension's webview iframe). The SPA mirrors the value into
+`<html data-embed="<id>">` (validated as `[a-z0-9_-]+`) before first paint,
+and CSS overrides keyed on `[data-embed="intellij"], [data-embed="vscode"]`
+then:
 
 - flatten the composer card (6px radius, solid 1px border, no frosted-glass
   halo or backdrop blur) so it reads as an IDE input field;
 - drop the docked vignette above the composer;
 - tighten hero/composer spacing.
 
-Beyond the visual chrome, embed mode changes one behaviour: **loading with an
-empty hash reopens the project's last session** instead of showing the hero
-screen (see below). The `window.foxxycodeUi` theme contract is unchanged. Other
-embeddings may pass their own id, but `intellij` is the only id the shipped CSS
-currently specialises.
+What the two ids share and where they differ:
+
+| Behaviour | `intellij` | `vscode` |
+| --- | --- | --- |
+| Flat composer chrome (above) | yes | yes |
+| Hide the folder chip, reopen the last project session, History scoped to the project, Enter sends on narrow panels (`isEditorEmbed()`) | yes | yes |
+| Transcript-row `content-visibility` opt-out (Chromium 104 raises "ResizeObserver loop limit exceeded") | yes | no — Electron is current |
+| File drops resolved by the host (`hostResolvesFileDrops()`) | yes — CEF hands the plugin absolute paths | no — the page gets a `text/uri-list` and calls `/foxxycode/workspace/relativize` itself |
+| Host → SPA `@`-mention channel | `window.foxxycodeUi.insertFileMention` via `executeJavaScript` | `postMessage` `{ type: "foxxycode:insertFileMention", paths }` from the parent frame (`embedHostBridge.ts`) |
+
+`embedChromeCss.test.ts` keeps the two CSS families in step: every
+`[data-embed]` rule must name both ids unless it is the `content-visibility`
+workaround, which must name only `intellij`. Any other id is accepted but gets
+none of the CSS overrides.
 
 ```text
 http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=intellij
+http://127.0.0.1:<port>/?theme=dark&lang=ru&embed=vscode
 ```
 
 ### Reopening the last session
@@ -249,8 +261,14 @@ Differences from the IntelliJ embedding:
   via the `foxxycode.locale` context key, without reloading the iframe.
 - **CSP:** the webview HTML sets `frame-src http://127.0.0.1:* http://localhost:*;` so the iframe
   can load the loopback foxxycode server on its auto-picked port.
-- **Embed id:** the extension passes `?embed=intellij` because the SPA currently specialises only
-  that id in CSS. A dedicated `embed=vscode` id and matching CSS overrides are a TODO.
+- **Embed id:** the extension passes `?embed=vscode`. It shares the flat composer chrome and the
+  `isEditorEmbed()` behaviours with `intellij`, but not the Chromium-104 row-containment opt-out
+  and not the host-resolved drop gate (see the table above).
+- **Host → SPA file mentions:** the extension's **Add to FoxxyCode** command (Explorer, editor and
+  tab context menus) sends `{ type: "foxxycode:insertFileMention", paths: string[] }` to the
+  webview; the wrapper relays it into the iframe with `contentWindow.postMessage` (queued until
+  the frame has loaded), and `embedHostBridge.ts` in the SPA accepts it only from `window.parent`
+  and feeds the same file-mention bus IntelliJ reaches through `window.foxxycodeUi`.
 - **Native inline diffs:** the extension host subscribes to `GET /foxxycode/ide/events` (Node `http`
   SSE reader) and renders decorations via `vscode.window.createTextEditorDecorationType`, with
   Accept/Reject/Revert/Show-diff notifications posting to

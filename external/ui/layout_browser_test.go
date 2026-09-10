@@ -129,9 +129,23 @@ const layoutEdgesExpression = `(() => {
 		const bounds = element.getBoundingClientRect();
 		return { left: bounds.left, right: bounds.right };
 	};
+	// Transcript rows under paint containment carry a 4px padding pulled back
+	// with a matching negative margin (room for focus rings; see DESIGN.md
+	// off-screen transcript rows), so their border box sits outside the
+	// column while the content does not move. Measure the content edges.
+	const contentRect = (selector) => {
+		const element = document.querySelector(selector);
+		if (!element) throw new Error("missing layout element: " + selector);
+		const bounds = element.getBoundingClientRect();
+		const style = getComputedStyle(element);
+		return {
+			left: bounds.left + parseFloat(style.paddingLeft || "0"),
+			right: bounds.right - parseFloat(style.paddingRight || "0"),
+		};
+	};
 	return {
 		header: rect(".chat-header"),
-		message: rect(".messages-inner > :first-child"),
+		message: contentRect(".messages-inner > :first-child"),
 		composer: rect(".composer-card"),
 	};
 })()`

@@ -55,7 +55,9 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 		ToolCallID:      env.ToolCallID,
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
-		NotifyOnFinish:  args.NotifyOnFinish,
+		// A subagent's transcript is sealed once its turn returns, so a wake
+		// aimed at it would only be refused: child-started tasks never notify.
+		NotifyOnFinish: args.NotifyOnFinish && env.SubagentDepth == 0,
 		// A dev server or watcher is started so later steps can talk to it, so a
 		// clock must not end it; background_stop does. An explicit
 		// timeout_seconds still wins.

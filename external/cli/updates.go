@@ -39,6 +39,21 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.appendStatus(roleDim, "Operation aborted")
 		}
 		return
+	case configReloaded:
+		// The process configuration changed for every session, so the header
+		// and footer always re-read it; the option set is per session and is
+		// adopted only when the committing turn belongs to the visible one.
+		if u.opts != nil && (msg.sessionID == "" || a.sessionID == "" || msg.sessionID == a.sessionID) {
+			a.configOpts = u.opts
+			for _, opt := range u.opts {
+				if opt.ID == "model" {
+					a.modelID = opt.CurrentValue
+				}
+			}
+		}
+		a.refreshFooterModel()
+		a.populateHeader()
+		return
 	case sessionSwitched:
 		a.switching = false
 		a.adoptSession(u.res.SessionID, u.res.Modes, u.res.ConfigOptions)
@@ -94,6 +109,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.lastToolID = u.ToolCallID
 		a.chat.AddChild(tb)
 		a.curAssistant = nil
+		// Title is the plain tool name (internal/agent/react.go); the arguments that name
+		// the target arrive on the following in_progress update.
+		a.setStatus(newWorkingStatus(statusVerbForTool(u.Title), ""))
 	case acp.ToolCallStatusUpdate:
 		tb, ok := a.toolBoxes[u.ToolCallID]
 		if !ok {
@@ -138,10 +156,21 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
+	case acp.LLMRetryUpdate:
+		// A turn parked behind a partial answer reads the same to the operator as one
+		// waiting out a silent provider: nothing is arriving either way.
+		if u.Phase == acp.LLMRetryPhaseWaiting || u.Phase == acp.LLMRetryPhaseContinuing {
+			a.setStatus(newWorkingStatus(statusRetryingModel, ""))
+		} else if a.turnActive {
+			a.setStatus(newWaitingStatus())
+		}
 	case acp.MemoryPhaseUpdate:
 		if u.Status == "started" {
 			a.appendStatus(roleDim, "memory: "+u.Phase+"...")
 			a.curMemory = nil
+			a.setStatus(newWorkingStatus("Working with memory", ""))
+		} else if a.turnActive {
+			a.setStatus(newWaitingStatus())
 		}
 	case acp.MemoryMessageChunkUpdate:
 		// Memory copilot deltas render as a dim italic stream under the
@@ -171,8 +200,14 @@ func (a *App) applyMessageChunk(u acp.MessageChunkUpdate) {
 		switch u.Content.Type {
 		case "reasoning":
 			a.curAssistant.AppendThinking(u.Content.Text)
+			// setStatus keeps the existing start time when the verb repeats, so the
+			// counter measures the whole reasoning block rather than one chunk.
+			a.setStatus(newWorkingStatus("Thinking…", ""))
 		default:
 			a.curAssistant.AppendText(u.Content.Text)
+			// The SPA hides the dots entirely once assistant text streams; a console
+			// spinner has nowhere to hide, so it names what is happening instead.
+			a.setStatus(newWorkingStatus("Responding", ""))
 		}
 	}
 }
@@ -202,6 +237,10 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 		for _, item := range u.Content {
 			if item.Content.Text != "" {
 				tb.SetArgs(item.Content.Text)
+				a.setStatus(newWorkingStatus(
+					statusVerbForTool(tb.name),
+					statusTargetFromArgs(tb.name, item.Content.Text),
+				))
 			}
 		}
 		tb.SetStatus("in_progress", "", 0, 0)
@@ -213,6 +252,10 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 			}
 		}
 		tb.SetStatus(u.Status, preview, omitted, total)
+		if a.turnActive {
+			// The step is done; the turn is back to waiting on the model.
+			a.setStatus(newWaitingStatus())
+		}
 	}
 }
 

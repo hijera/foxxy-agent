@@ -428,7 +428,7 @@ func (s *sessionExportFeatureState) requestExport(format, id string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err
@@ -813,7 +813,7 @@ func (s *sessionExportFeatureState) exportToFile(format string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return err

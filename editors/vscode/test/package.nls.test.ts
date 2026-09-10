@@ -66,6 +66,8 @@ describe("package.nls.json parity", () => {
       "cmd.settings.title",
       "cmd.showLogs.title",
       "cmd.showWelcome.title",
+      "cmd.addToChat.title",
+      "cmd.verifyBinary.title",
     ]) {
       expect(en[`${base}.ru`], `missing ${base}.ru in en`).toBeTruthy();
       expect(ru[`${base}.ru`], `missing ${base}.ru in ru`).toBeTruthy();

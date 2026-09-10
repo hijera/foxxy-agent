@@ -17,6 +17,9 @@ export interface FoxxyCodeSettings {
   autoApproveEdits: boolean;
   trackOpenFiles: boolean;
   trackTerminals: boolean;
+  /** Snapshot the active terminal's visible buffer through the clipboard
+   *  (select all → copy → restore) when shell integration has nothing for it. */
+  terminalClipboardCapture: boolean;
   planNoSelfRun: boolean;
 }
 
@@ -38,6 +41,7 @@ export function readSettings(): FoxxyCodeSettings {
     autoApproveEdits: c.get<boolean>("autoApproveEdits", false),
     trackOpenFiles: c.get<boolean>("trackOpenFiles", true),
     trackTerminals: c.get<boolean>("trackTerminals", true),
+    terminalClipboardCapture: c.get<boolean>("terminalClipboardCapture", false),
     planNoSelfRun: c.get<boolean>("planNoSelfRun", true),
   };
 }

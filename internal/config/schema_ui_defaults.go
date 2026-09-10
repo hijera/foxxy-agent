@@ -9,16 +9,25 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	compactionKeepRecent := CompactionDefaultKeepRecentTurns
 	skillsAutoDiscovery := true
 	planNoSelfRun := false
+	subagentsEnabled := true
+	subagentsMaxDepth := SubagentsDefaultMaxDepth
 	titleEnabled := true
+	autocompleteEnabled := false
+	autocompleteMultiLine := true
+	autocompleteRelatedFiles := AutocompleteDefaultRelatedFiles
 	browserHeadless := true
 	svnEnabled := true
 	svnBranchLookup := true
 	loopGuard := true
 	loopToolRepeatLimit := AgentDefaultLoopToolRepeatLimit
 	loopStreamRepeatCycles := AgentDefaultLoopStreamRepeatCycles
+	loopToolCycleRepeats := AgentDefaultLoopToolCycleRepeats
 	loopNudgeMax := AgentDefaultLoopNudgeMax
 	llmRetryMax := AgentDefaultLLMRetryMax
 	llmFirstTokenTimeoutMS := AgentDefaultLLMFirstTokenTimeoutMS
+	llmStallTimeoutMS := AgentDefaultLLMStallTimeoutMS
+	llmStallRetry := true
+	llmStallRetryMaxWaitMS := AgentDefaultLLMStallRetryMaxWaitMS
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
 			{Name: "openai", Type: "openai", APIBase: "", APIKey: ""},
@@ -38,15 +47,36 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LLMRetryMax:            &llmRetryMax,
 			LLMRetryBaseMS:         AgentDefaultLLMRetryBaseMS,
 			LLMFirstTokenTimeoutMS: &llmFirstTokenTimeoutMS,
+			LLMStallTimeoutMS:      &llmStallTimeoutMS,
+			LLMStallRetry:          &llmStallRetry,
+			LLMStallRetryDelaysMS:  append([]int(nil), agentDefaultLLMStallRetryDelaysMS...),
+			LLMStallRetryMaxWaitMS: &llmStallRetryMaxWaitMS,
 			LoopGuard:              &loopGuard,
 			LoopToolRepeatLimit:    &loopToolRepeatLimit,
 			LoopStreamRepeatCycles: &loopStreamRepeatCycles,
+			LoopToolCycleRepeats:   &loopToolCycleRepeats,
+			LoopStuckAction:        AgentDefaultLoopStuckAction,
 			LoopNudgeMax:           &loopNudgeMax,
+		},
+		Autocomplete: AutocompleteJSON{
+			Enabled:        &autocompleteEnabled,
+			Model:          "",
+			Mode:           AutocompleteModeAuto,
+			Temperature:    0,
+			MaxTokens:      AutocompleteDefaultMaxTokens,
+			TimeoutMS:      AutocompleteDefaultTimeoutMS,
+			DebounceMS:     AutocompleteDefaultDebounceMS,
+			Trigger:        AutocompleteTriggerAuto,
+			MultiLine:      &autocompleteMultiLine,
+			MaxPrefixBytes: AutocompleteDefaultMaxPrefixBytes,
+			MaxSuffixBytes: AutocompleteDefaultMaxSuffixBytes,
+			RelatedFiles:   &autocompleteRelatedFiles,
 		},
 		Prompts: PromptsJSON{
 			Dir:         "",
 			AgentPrompt: "agent.md",
 			PlanPrompt:  "plan.md",
+			AskPrompt:   "ask.md",
 			PerProvider: &PerProviderPromptsJSON{Enabled: &perProviderEnabled},
 		},
 		Instructions: InstructionsJSON{
@@ -64,10 +94,18 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		MCPServers: []MCPServerJSON{},
 		MCP:        MCPJSON{ProjectTrust: ProjectTrustAsk},
 		Tools: ToolsJSON{
-			PermissionMode:          PermModeAsk,
-			CommandAllowlist:        nil,
-			PlanNoSelfRun:           &planNoSelfRun,
-			AskDisableExtendedTools: false,
+			PermissionMode:   PermModeAsk,
+			CommandAllowlist: nil,
+			PlanNoSelfRun:    &planNoSelfRun,
+		},
+		Subagents: SubagentsJSON{
+			Enabled:               &subagentsEnabled,
+			Dirs:                  DefaultSubagentDirs(),
+			ProjectTrust:          SubagentsProjectTrustAsk,
+			MaxConcurrent:         SubagentsDefaultMaxConcurrent,
+			MaxDepth:              &subagentsMaxDepth,
+			DefaultTimeoutSeconds: SubagentsDefaultTimeoutSeconds,
+			MaxTurns:              0,
 		},
 		Logger: LoggerJSON{
 			Level:    LogLevelInfo,

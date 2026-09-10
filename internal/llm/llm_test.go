@@ -96,9 +96,75 @@ func TestNewProviderAnthropicHonorsBaseURL(t *testing.T) {
 	}
 }
 
-func TestProviderBaseURLNeuralDeepIsFixed(t *testing.T) {
-	if got := providerBaseURL("neuraldeep", "https://example.invalid/v1"); got != neuralDeepBaseURL {
-		t.Fatalf("providerBaseURL(neuraldeep) = %q, want %q", got, neuralDeepBaseURL)
+func TestProviderBaseURLNeuralDeepPicksAnOfficialEndpoint(t *testing.T) {
+	mirror := "https://api.neuraldeep.tech/v1"
+	cases := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{"empty falls back to the default deployment", "", neuralDeepBaseURL},
+		{"the default is honored explicitly", neuralDeepBaseURL, neuralDeepBaseURL},
+		{"the mirror is honored", mirror, mirror},
+		{"a trailing slash is normalized", mirror + "/", mirror},
+		{"case is normalized", "HTTPS://API.NEURALDEEP.TECH/v1", mirror},
+		{"surrounding space is trimmed", "  " + mirror + "  ", mirror},
+		{"an arbitrary host is refused", "https://example.invalid/v1", neuralDeepBaseURL},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := providerBaseURL("neuraldeep", tc.configured); got != tc.want {
+				t.Fatalf("providerBaseURL(neuraldeep, %q) = %q, want %q", tc.configured, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProviderBaseURLNeuralDeepEnvOverrideWins(t *testing.T) {
+	t.Setenv(EnvNeuralDeepBaseURL, "https://stand.example/v1/")
+	if got := providerBaseURL("neuraldeep", "https://api.neuraldeep.tech/v1"); got != "https://stand.example/v1" {
+		t.Fatalf("env override ignored: got %q", got)
+	}
+}
+
+func TestNeuralDeepHubFollowsTheSelectedEndpoint(t *testing.T) {
+	cases := []struct {
+		apiBase string
+		want    string
+	}{
+		{"", NeuralDeepHubURL},
+		{neuralDeepBaseURL, NeuralDeepHubURL},
+		{"https://api.neuraldeep.tech/v1", "https://hub.neuraldeep.tech"},
+		{"https://api.neuraldeep.tech/v1/", "https://hub.neuraldeep.tech"},
+		// A key minted by a hub is useless on an unknown host, so an
+		// unrecognized api_base signs in against the default deployment,
+		// which is also where its requests end up.
+		{"https://example.invalid/v1", NeuralDeepHubURL},
+	}
+	for _, tc := range cases {
+		if got := NeuralDeepHubFor(tc.apiBase); got != tc.want {
+			t.Errorf("NeuralDeepHubFor(%q) = %q, want %q", tc.apiBase, got, tc.want)
+		}
+	}
+}
+
+func TestNeuralDeepHubEnvOverrideWins(t *testing.T) {
+	t.Setenv(EnvNeuralDeepHubURL, "https://stand.example/")
+	if got := NeuralDeepHubFor("https://api.neuraldeep.tech/v1"); got != "https://stand.example" {
+		t.Fatalf("env override ignored: got %q", got)
+	}
+}
+
+func TestNeuralDeepAPIBasesListsTheAllowlist(t *testing.T) {
+	got := NeuralDeepAPIBases()
+	want := []string{neuralDeepBaseURL, "https://api.neuraldeep.tech/v1"}
+	if len(got) != len(want) {
+		t.Fatalf("NeuralDeepAPIBases() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("NeuralDeepAPIBases()[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 
@@ -375,7 +441,6 @@ func TestOpenAITextOnlyMessageIsString(t *testing.T) {
 	}
 }
 
-
 // TestOpenAIStreamTruncatedBeforeFirstDelta verifies that a stream cut
 // before any delta fails with a truncation error and no response: there is
 // nothing worth preserving and the call is safe to retry.
@@ -393,6 +458,33 @@ func TestOpenAIStreamTruncatedBeforeFirstDelta(t *testing.T) {
 	}
 	if !isRetryableLLMError(err) {
 		t.Fatal("truncation before any delta must classify as retryable")
+	}
+}
+
+// TestOpenAIStreamTruncatedKeepsReasoningOnlyPartial ensures a cut stream
+// preserves reasoning that was already sent to the caller, even if no answer
+// text followed it. The ReAct loop needs a non-nil response to persist that
+// visible reasoning next to the truncation error.
+func TestOpenAIStreamTruncatedKeepsReasoningOnlyPartial(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"reasoning_content\":\"Thinking through it\"}}],\"id\":\"chatcmpl-tr\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n")
+	defer done()
+
+	var streamed strings.Builder
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		streamed.WriteString(c.ReasoningDelta)
+	})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if isRetryableLLMError(err) {
+		t.Fatal("truncation after emitted reasoning must not be retryable")
+	}
+	if got := streamed.String(); got != "Thinking through it" {
+		t.Fatalf("streamed reasoning = %q, want %q", got, "Thinking through it")
+	}
+	if resp == nil || resp.Content != "" || resp.Reasoning != "Thinking through it" {
+		t.Fatalf("resp = %+v, want reasoning-only partial response", resp)
 	}
 }
 

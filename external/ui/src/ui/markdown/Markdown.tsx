@@ -26,7 +26,9 @@ type PreProps = {
 };
 
 type AProps = {
-  href?: string;
+  // react-markdown hands anchor props straight from hast, where href may be
+  // absent, so both fields have to admit an explicit undefined.
+  href?: string | undefined;
   children?: unknown;
 };
 
@@ -196,11 +198,13 @@ function MarkdownBase(props: { text: string }) {
     [],
   );
 
-  const urlTransform = useCallback((url: string, key: string, node: any) => {
+  const urlTransform = useCallback((url: string) => {
     if (url.startsWith("foxxycode-skill:")) {
       return url;
     }
-    return defaultUrlTransform(url, key, node);
+    // react-markdown's defaultUrlTransform takes the url alone; the key and node
+    // it passes to a UrlTransform are not part of that helper's signature.
+    return defaultUrlTransform(url);
   }, []);
 
   return (

@@ -3,8 +3,10 @@ import { httpPost } from "../util/http";
 import { readSettings } from "../settings";
 import {
   buildEditorStateSnapshot,
+  buildSelectionPayload,
   editorStateRequestBody,
   sameSnapshot,
+  type EditorSelectionPayload,
   type EditorStateSnapshot,
 } from "./editorStatePayload";
 
@@ -37,6 +39,9 @@ export class EditorStateService {
         vscode.window.onDidChangeActiveTextEditor(onChange),
         vscode.window.onDidChangeVisibleTextEditors(onChange),
         vscode.window.tabGroups.onDidChangeTabs(onChange),
+        // Text-selection tracking: the debounce plus sameSnapshot (which
+        // compares the selection) keep the POST rate bounded.
+        vscode.window.onDidChangeTextEditorSelection(onChange),
       );
     }
     if (rebased) this.last = null; // force a resend to the new server
@@ -82,11 +87,30 @@ export class EditorStateService {
     return undefined;
   }
 
+  /** The current text selection in the active file-backed editor, if any. */
+  private currentSelection(): EditorSelectionPayload | undefined {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== "file") return undefined;
+    const sel = editor.selection;
+    if (!sel || sel.isEmpty) return undefined;
+    return buildSelectionPayload(
+      editor.document.uri.fsPath,
+      sel.start.line,
+      sel.end.line,
+      sel.end.character,
+      editor.document.getText(sel),
+    );
+  }
+
   private async report(): Promise<void> {
     if (!this.baseUrl) return;
     if (!readSettings().trackOpenFiles) return;
 
-    const snap = buildEditorStateSnapshot(this.collectOpenFiles(), this.activeFile());
+    const snap = buildEditorStateSnapshot(
+      this.collectOpenFiles(),
+      this.activeFile(),
+      this.currentSelection(),
+    );
     if (this.last && sameSnapshot(this.last, snap)) return;
     this.last = snap;
 

@@ -286,6 +286,33 @@ func TestDerivedTitleStripsInjectedContextBlocks(t *testing.T) {
 	}
 }
 
+func TestDerivedTitleStripsAttachmentBlocks(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	id := "sess_derived_title_att"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A hydrated @-mention turn carries a <foxxycode_attachment> block with the file body;
+	// the derived title must show only the user's text.
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "@Dockerfile:21-31 why slow?\n\n<foxxycode_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n<![CDATA[FROM x]]>\n</foxxycode_attachment>"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Title != "@Dockerfile:21-31 why slow?" {
+		t.Errorf("derived title should strip attachment blocks, got %q", snap.Meta.Title)
+	}
+}
+
 func TestStripInjectedContextBlocks(t *testing.T) {
 	cases := []struct {
 		name string

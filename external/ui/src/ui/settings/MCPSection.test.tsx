@@ -512,7 +512,7 @@ test("a config.yaml remote server shows the checkbox but locked", async () => {
 });
 
 test("ticking the checkbox PUTs the whole entry with insecureSkipVerify", async () => {
-  const calls: Array<{ url: string; method: string; body?: string }> = [];
+  const calls: Array<{ url: string; method: string; body?: string | undefined }> = [];
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -544,7 +544,7 @@ test("ticking the checkbox PUTs the whole entry with insecureSkipVerify", async 
 });
 
 test("unticking it removes the key instead of writing an explicit false", async () => {
-  const calls: Array<{ url: string; method: string; body?: string }> = [];
+  const calls: Array<{ url: string; method: string; body?: string | undefined }> = [];
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string, init?: RequestInit) => {

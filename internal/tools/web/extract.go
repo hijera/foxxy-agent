@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-shiori/go-readability"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
-	"github.com/go-shiori/go-readability"
 )
 
 const maxFetchHTMLBytes = 4 << 20

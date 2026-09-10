@@ -71,3 +71,84 @@ export function parseSessionBusyResponse(
   }
   return { busy: true, sessionId: readString(rec, "sessionId"), message };
 }
+
+/**
+ * Backoff and give-up rules for re-attaching to a running turn.
+ *
+ * The old rules were fixed counts: five reconnect attempts, then 150 poll ticks
+ * (~5 minutes). Both were reset by a window focus event — which never fires for
+ * someone sitting and watching an editor panel, the one place a turn most often
+ * runs for half an hour (a foreground `spawn_agent` may run up to
+ * `subagents.default_timeout_seconds`, 1800 by default). So the panel went
+ * quiet while the backend was still working.
+ *
+ * What replaces them is server truth: keep trying while `/activity` says the
+ * turn is alive, and give up only when the server itself stops answering.
+ */
+
+/** First reconnect delay; each further attempt doubles it. */
+export const LIVE_RECONNECT_BASE_DELAY_MS = 400;
+
+/** Ceiling for the reconnect backoff, so a long turn keeps a slow heartbeat. */
+export const LIVE_RECONNECT_MAX_DELAY_MS = 15000;
+
+/** Consecutive failed /activity probes before a session is given up on. */
+export const ACTIVITY_FAIL_MAX = 5;
+
+/** Fast poll while the transcript is growing. */
+export const DISK_FALLBACK_MIN_MS = 2000;
+
+/** Slow poll once nothing has changed for a while. */
+export const DISK_FALLBACK_MAX_MS = 10000;
+
+/** Unchanged polls tolerated before backing off to the slow cadence. */
+export const DISK_FALLBACK_QUIET_TICKS = 5;
+
+/** Exponential backoff for reconnect attempt `attempt` (0-based). */
+export function liveReconnectDelayMs(attempt: number): number {
+  const n = attempt > 0 ? attempt : 0;
+  const delay = LIVE_RECONNECT_BASE_DELAY_MS * Math.pow(2, n);
+  return Math.min(delay, LIVE_RECONNECT_MAX_DELAY_MS);
+}
+
+/**
+ * The poll interval, given how many consecutive ticks saw no new messages. A
+ * turn that is producing output is followed closely; one that is thinking is
+ * checked on rather than watched.
+ */
+export function diskFallbackDelayMs(quietTicks: number): number {
+  return quietTicks >= DISK_FALLBACK_QUIET_TICKS
+    ? DISK_FALLBACK_MAX_MS
+    : DISK_FALLBACK_MIN_MS;
+}
+
+/**
+ * Whether a poll tick should reload the transcript.
+ *
+ * `messageSeq` counts the messages of a live session, so it moves inside a
+ * turn. A tick that sees the same value has nothing to fetch. The first tick
+ * always reloads (the client has nothing yet), and so does the tick that
+ * observes the turn ending, which is where the final answer lands. A server
+ * that does not report `messageSeq` at all — an older build, or a session not
+ * live in that process — falls back to reloading every tick, which is what
+ * this did before.
+ */
+export function shouldReloadTranscript(opts: {
+  firstTick: boolean;
+  turnActive: boolean;
+  messageSeq: number | undefined;
+  lastMessageSeq: number | undefined;
+}): boolean {
+  if (opts.firstTick || !opts.turnActive) {
+    return true;
+  }
+  if (opts.messageSeq === undefined) {
+    return true;
+  }
+  return opts.messageSeq !== opts.lastMessageSeq;
+}
+
+/** Whether to keep polling / retrying at all, given consecutive probe failures. */
+export function shouldKeepWatching(activityFailures: number): boolean {
+  return activityFailures < ACTIVITY_FAIL_MAX;
+}

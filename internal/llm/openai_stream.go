@@ -211,6 +211,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	defer func() { _ = raw.Body.Close() }()
 
 	var fullContent string
+	var reasoningBuf strings.Builder
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens int
@@ -243,6 +244,12 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		emitted = true
 		onChunk(c)
 	}
+	// progress reports a frame that advanced generation without delivering
+	// anything. It calls onChunk directly and deliberately bypasses emit: emit
+	// sets the flag that streamServerError / streamTruncatedError /
+	// streamTransportError carry into resilient.go's retry classification, and a
+	// frame no caller ever saw must not cost the request its replay.
+	progress := func() { onChunk(StreamChunk{Progress: true}) }
 
 	scanner := newSSEScanner(raw.Body)
 	var streamErr error
@@ -288,9 +295,15 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
 			}
+			progress()
 			continue
 		}
 		choice := chunk.Choices[0]
+
+		// frameDelivered records whether this frame already reached the caller, so
+		// the progress ping below fires only for the silent frames - the ones a
+		// stall watchdog would otherwise misread as a dead connection.
+		frameDelivered := false
 
 		if choice.FinishReason != "" {
 			stopReason = mapOpenAIStopReason(string(choice.FinishReason))
@@ -300,6 +313,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 		if delta.Content != "" {
 			fullContent += delta.Content
+			frameDelivered = true
 			emit(StreamChunk{TextDelta: delta.Content})
 		}
 
@@ -309,6 +323,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				r = gjson.Get(raw, "thinking").String()
 			}
 			if r != "" {
+				reasoningBuf.WriteString(r)
+				frameDelivered = true
 				emit(StreamChunk{ReasoningDelta: r})
 			}
 		}
@@ -331,6 +347,13 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		if chunk.Usage.TotalTokens > 0 {
 			inputTokens = int(chunk.Usage.PromptTokens)
 			outputTokens = int(chunk.Usage.CompletionTokens)
+		}
+
+		// Everything above that did not deliver still means the model is working -
+		// most importantly the tool-call argument deltas accumulated into builders,
+		// which reach onChunk only once the whole call is assembled.
+		if !frameDelivered {
+			progress()
 		}
 	}
 
@@ -355,13 +378,14 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 	if streamErr != nil {
 		if IsStreamTruncated(streamErr) {
-			// Keep the text the caller already saw, like the cancellation
-			// branch below. Unfinished tool-call builders are dropped
+			// Keep the user-visible output the caller already saw, like the
+			// cancellation branch below. Unfinished tool-call builders are dropped
 			// deliberately: their arguments may be cut mid-JSON, and
 			// replaying an invalid call is worse than losing it.
-			if strings.TrimSpace(fullContent) != "" {
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
 					Content:      fullContent,
+					Reasoning:    reasoningBuf.String(),
 					InputTokens:  inputTokens,
 					OutputTokens: outputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)

@@ -150,8 +150,24 @@ messages: [
      stripped from the stored message, so it is never replayed to the model.
    - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
      arguments is not executed; the model gets a result explaining why.
-   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
-     times, then -> DONE (stopReason: agent_refused) with a notice.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
 
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
@@ -224,8 +240,24 @@ messages: [
      stripped from the stored message, so it is never replayed to the model.
    - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
      arguments is not executed; the model gets a result explaining why.
-   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
-     times, then -> DONE (stopReason: agent_refused) with a notice.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
 
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
@@ -270,6 +302,10 @@ Representative builtins exposed to the LLM (registry allowlist):
 - `docs_write`, `docs_edit`
 
 Docs mode does not expose **`run_command`** or MCP tools because those surfaces cannot currently guarantee read-only execution. Prompts instruct the user to switch to **`agent`** mode for code or configuration changes.
+
+### Ask Mode
+
+The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/subagents.md`**).
 
 ## Built-in Tools Specification
 

@@ -57,7 +57,9 @@ export function ContextBreakdownPopover(props: {
   contextIdle?: boolean;
   contextPct?: number | null;
   maxContextTokens: number;
-  breakdown?: ContextBreakdown | null;
+  // `| undefined` as well as null: the composer forwards a value that may be
+  // absent entirely, not just empty.
+  breakdown?: ContextBreakdown | null | undefined;
 }) {
   const { t } = useT();
   const panelRef = useRef<HTMLDivElement | null>(null);

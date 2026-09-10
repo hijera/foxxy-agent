@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { describeCronScheduleOrError, describeCronScheduleUTC } from "./cronDescribe";
+import { setLocale } from "../i18n/i18n";
+
+afterEach(() => setLocale("en"));
 
 describe("describeCronScheduleUTC", () => {
   it("returns human text for valid 5-field cron", () => {
@@ -42,5 +45,35 @@ describe("describeCronScheduleOrError", () => {
   it("returns error for garbage", () => {
     const r = describeCronScheduleOrError("hello world");
     expect(r.ok).toBe(false);
+  });
+
+  it("keeps cronstrue's field-naming message instead of a generic sentence", () => {
+    const r = describeCronScheduleOrError("* * *");
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      // "Expression has only 3 parts..." names the problem; the translated
+      // copy is only a fallback for an empty message.
+      expect(r.error.toLowerCase()).toContain("3");
+    }
+  });
+
+  it("localizes the empty-spec error", () => {
+    setLocale("ru");
+    const r = describeCronScheduleOrError("  ");
+    expect(r).toEqual({
+      ok: false,
+      error: "Введите cron-выражение (5 полей, UTC).",
+    });
+  });
+
+  it("describes schedules in russian once the ru bundle is registered", () => {
+    setLocale("ru");
+    const r = describeCronScheduleOrError("*/2 * * * *");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      // Without the cronstrue/locales/ru side-effect import this silently
+      // came back in English.
+      expect(r.text).toMatch(/[а-яА-ЯёЁ]/);
+    }
   });
 });

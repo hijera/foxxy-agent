@@ -122,7 +122,7 @@ func (s *skFeatureState) do(method, path string, body interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	raw, _ := io.ReadAll(res.Body)
 	s.body = map[string]interface{}{}

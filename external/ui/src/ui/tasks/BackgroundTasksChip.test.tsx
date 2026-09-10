@@ -2,9 +2,13 @@ import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BackgroundTasksChip } from "./BackgroundTasksChip";
+import { setLocale } from "../i18n/i18n";
 import type { BackgroundTask } from "./types";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 function task(over: Partial<BackgroundTask> = {}): BackgroundTask {
   return {
@@ -65,9 +69,65 @@ test("a live chat marks the chip so it reads as active", () => {
   expect(chip.className).toContain("is-running");
 });
 
+test("russian task counts decline with the number", () => {
+  setLocale("ru");
+  const { rerender } = render(
+    <BackgroundTasksChip
+      tasks={[task({ id: "bg_1" }), task({ id: "bg_2" })]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "Выполняются 2 задачи",
+  );
+
+  rerender(
+    <BackgroundTasksChip
+      tasks={[
+        task({ id: "bg_1" }),
+        task({ id: "bg_2" }),
+        task({ id: "bg_3" }),
+        task({ id: "bg_4" }),
+        task({ id: "bg_5" }),
+      ]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "Выполняется 5 задач",
+  );
+});
+
 test("clicking opens the panel", () => {
   const onOpen = vi.fn();
   render(<BackgroundTasksChip tasks={[task()]} onOpen={onOpen} />);
   fireEvent.click(screen.getByTestId("bgtask-chip"));
   expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+// The panel is closed by default and a detached prompt is in no transcript, so
+// the chip is the only thing that can raise the alarm.
+test("a subagent waiting for an answer takes over the chip", () => {
+  render(
+    <BackgroundTasksChip
+      tasks={[
+        task({ id: "bg_1" }),
+        task({
+          id: "bg_2",
+          kind: "agent",
+          agent: { name: "explore", session_id: "sub_1" },
+          pending_permission: {
+            sessionId: "sub_1",
+            toolCall: { toolCallId: "call_1", title: "[subagent explore] Run: ls" },
+            options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+          },
+        }),
+      ]}
+      onOpen={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("bgtask-chip");
+  // Not "2 running tasks": what needs the user is the one that is stuck.
+  expect(chip).toHaveTextContent("1 subagent needs your answer");
+  expect(chip.className).toContain("is-awaiting");
 });

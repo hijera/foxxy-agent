@@ -2,10 +2,13 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
 
@@ -446,4 +449,65 @@ func findByIdx(views []BranchPointView, idx int) *BranchPointView {
 		}
 	}
 	return nil
+}
+
+// TestCreateBranchSessionCopiesPrefixToolCallStore verifies a branch takes the
+// per-call store (meta/args/result) of every tool call in its copied prefix, so
+// historical cards keep their plan snapshot; calls after the fork stay behind.
+func TestCreateBranchSessionCopiesPrefixToolCallStore(t *testing.T) {
+	mgr, fs := newTestManager(t)
+	rootID := "root"
+	rootDir, _ := fs.EnsureLayout(rootID)
+	writeMsgs(t, rootDir, []llm.Message{
+		{Role: llm.RoleUser, Content: "make a plan"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "todo-before", Name: "foxxycode_todo_item_update", InputJSON: `{"index":0,"status":"completed"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "todo-before", Content: "updated item 0"},
+		{Role: llm.RoleUser, Content: "now the second step"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "todo-after", Name: "foxxycode_todo_item_update", InputJSON: `{"index":1,"status":"completed"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "todo-after", Content: "updated item 1"},
+	})
+	snapshot := []acp.PlanEntry{
+		{Content: "first", Status: "completed"},
+		{Content: "second", Status: "pending"},
+	}
+	for _, id := range []string{"todo-before", "todo-after"} {
+		if err := MarkToolCallStarted(rootDir, id, "foxxycode_todo_item_update", "todo", "in_progress"); err != nil {
+			t.Fatalf("MarkToolCallStarted %s: %v", id, err)
+		}
+		if err := WriteToolCallArgs(rootDir, id, `{"index":0,"status":"completed"}`); err != nil {
+			t.Fatalf("WriteToolCallArgs %s: %v", id, err)
+		}
+		if err := WriteToolCallResult(rootDir, id, "updated item"); err != nil {
+			t.Fatalf("WriteToolCallResult %s: %v", id, err)
+		}
+		if err := WriteToolCallPlanSnapshot(rootDir, id, snapshot); err != nil {
+			t.Fatalf("WriteToolCallPlanSnapshot %s: %v", id, err)
+		}
+		if err := MarkToolCallFinished(rootDir, id, "foxxycode_todo_item_update", "todo", "completed"); err != nil {
+			t.Fatalf("MarkToolCallFinished %s: %v", id, err)
+		}
+	}
+
+	res, err := mgr.CreateBranchSession(CreateBranchParams{SourceSessionID: rootID, UserMessageIndex: 1})
+	if err != nil {
+		t.Fatalf("CreateBranchSession: %v", err)
+	}
+	branchDir := fs.SessionPath(res.NewSessionID)
+
+	meta, err := ReadToolCallMeta(branchDir, "todo-before")
+	if err != nil {
+		t.Fatalf("branch lost tool call meta of the copied prefix: %v", err)
+	}
+	if meta.Status != "completed" || len(meta.PlanSnapshot) != 2 || meta.PlanSnapshot[1].Content != "second" {
+		t.Fatalf("branch meta = %+v", meta)
+	}
+	if args, err := ReadToolCallArgs(branchDir, "todo-before"); err != nil || !strings.Contains(args, `"index"`) {
+		t.Fatalf("branch args = %q err=%v", args, err)
+	}
+	if res, err := ReadToolCallResult(branchDir, "todo-before"); err != nil || !strings.Contains(res, "updated item") {
+		t.Fatalf("branch result = %q err=%v", res, err)
+	}
+	if _, err := ReadToolCallMeta(branchDir, "todo-after"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("call after the fork must not be copied, err=%v", err)
+	}
 }

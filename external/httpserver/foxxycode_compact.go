@@ -56,6 +56,11 @@ func (s *Server) foxxycodeSessionCompactPost(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// Compaction builds an agent on the session; a child transcript is read-only.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
+
 	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionTurnBusy) {

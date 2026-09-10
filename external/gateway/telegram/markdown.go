@@ -4,6 +4,7 @@ package telegram
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -13,50 +14,67 @@ import (
 // It does NOT support ## headers, **double-star bold**, tables, or horizontal rules.
 //
 // Conversion rules applied (code blocks are always preserved verbatim):
-//   - Fenced code blocks (```...```) → kept, only language hint stripped from fence line
+//   - Fenced code blocks (```...```) → kept byte for byte, fence line included
 //   - ATX headers (# … ######) → *Header text*
 //   - Double-star bold **text** / __text__ → *text* / _text_
 //   - Bullet asterisk "* item" at line start → "• item"
 //   - Markdown tables → best-effort plain text (pipes stripped, alignment rows removed)
 //   - Horizontal rules (--- / === / ***) → a plain separator line
 var (
-	reHeader      = regexp.MustCompile(`(?m)^#{1,6} +(.+)$`)
-	reDoubleStar  = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	reHeader     = regexp.MustCompile(`(?m)^#{1,6} +(.+)$`)
+	reDoubleStar = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	// The replacement below MUST brace the group: in Go's regexp syntax `_` is a
+	// name character, so `_$1_` names the group "1_" — which does not exist, and
+	// __text__ collapses to a bare "_". A stray underscore then also unbalances
+	// the legacy-Markdown parse for the rest of the message.
 	reDoubleUnder = regexp.MustCompile(`__(.+?)__`)
 	reBulletStar  = regexp.MustCompile(`(?m)^\* `)
 	reHRule       = regexp.MustCompile(`(?m)^(\*{3,}|-{3,}|={3,})$`)
 	reTableAlign  = regexp.MustCompile(`(?m)^\|?[\s\-:|]+\|[\s\-:|]*\|?$`) // alignment row
-	reTablePipes  = regexp.MustCompile(`\|`)
 )
 
 // mdToTelegram converts text from standard Markdown to Telegram legacy-Markdown format.
 // Returns the converted string; always safe to send with ParseMode="Markdown".
 func mdToTelegram(text string) string {
-	// Step 1: extract fenced code blocks so we never touch their content.
-	blocks, placeholder := extractCodeBlocks(text)
+	// Step 1: swap fenced code blocks for placeholders so the rules below cannot
+	// reach their content. Every rule would otherwise fire inside a block: a
+	// leading "#" becomes bold, "* " becomes a bullet, "---" becomes a separator,
+	// and a line starting with "|" is reflowed as a table row — rewriting the very
+	// source the user asked to see.
+	blocks, stripped := extractCodeBlocks(text)
 
-	// Step 2: apply conversions on the non-code parts.
-	text = reHeader.ReplaceAllString(text, "*$1*")
-	text = reDoubleStar.ReplaceAllString(text, "*$1*")
-	text = reDoubleUnder.ReplaceAllString(text, "_$1_")
-	text = reBulletStar.ReplaceAllString(text, "• ")
-	text = reHRule.ReplaceAllString(text, "────────────────")
-	text = convertTables(text)
+	// Step 2: apply conversions to the prose that is left.
+	stripped = reHeader.ReplaceAllString(stripped, "*$1*")
+	stripped = reDoubleStar.ReplaceAllString(stripped, "*$1*")
+	stripped = reDoubleUnder.ReplaceAllString(stripped, "_${1}_")
+	stripped = reBulletStar.ReplaceAllString(stripped, "• ")
+	stripped = reHRule.ReplaceAllString(stripped, "────────────────")
+	stripped = convertTables(stripped)
 
-	// Step 3: restore code blocks.
-	_ = blocks
-	_ = placeholder
-	return text
+	// Step 3: put the untouched blocks back.
+	return restoreCodeBlocks(stripped, blocks)
 }
 
-// extractCodeBlocks replaces fenced code blocks with placeholder tokens
-// and returns a map of placeholder → original block plus the modified text.
-// (Currently unused in the final conversion but kept for future MarkdownV2 support.)
+// blockPlaceholder is the token that stands in for one code block while the prose
+// rules run. It is wrapped in NUL bytes, which prose from a model does not carry, and none
+// of the conversion patterns match it: no leading "#", "* ", "|", "---", "**" or
+// "__", so it reaches restoreCodeBlocks intact.
+func blockPlaceholder(idx int) string {
+	return "\x00BLOCK" + strconv.Itoa(idx) + "\x00"
+}
+
+// extractCodeBlocks replaces fenced code blocks with placeholder tokens and
+// returns a map of placeholder → original block plus the text with the blocks
+// removed. An unterminated block is captured too: a truncated reply is exactly
+// when the raw text matters most.
 func extractCodeBlocks(text string) (map[string]string, string) {
 	blocks := map[string]string{}
 	idx := 0
-	var out strings.Builder
 	lines := strings.Split(text, "\n")
+	// Collected and joined rather than written with a trailing newline per line:
+	// appending one would lengthen every message by a byte and drift the 4096-char
+	// boundaries splitMessage cuts on.
+	out := make([]string, 0, len(lines))
 	inBlock := false
 	var blockLines []string
 	for _, line := range lines {
@@ -67,27 +85,33 @@ func extractCodeBlocks(text string) (map[string]string, string) {
 		}
 		if inBlock {
 			blockLines = append(blockLines, line)
-			if line == "```" || strings.TrimSpace(line) == "```" {
-				key := "\x00BLOCK" + string(rune(idx)) + "\x00"
+			if strings.TrimSpace(line) == "```" {
+				key := blockPlaceholder(idx)
 				blocks[key] = strings.Join(blockLines, "\n")
-				out.WriteString(key)
-				out.WriteByte('\n')
+				out = append(out, key)
 				blockLines = nil
 				inBlock = false
 				idx++
 			}
 			continue
 		}
-		out.WriteString(line)
-		out.WriteByte('\n')
+		out = append(out, line)
 	}
-	// unclosed block
 	if len(blockLines) > 0 {
-		key := "\x00BLOCK" + string(rune(idx)) + "\x00"
+		key := blockPlaceholder(idx)
 		blocks[key] = strings.Join(blockLines, "\n")
-		out.WriteString(key)
+		out = append(out, key)
 	}
-	return blocks, out.String()
+	return blocks, strings.Join(out, "\n")
+}
+
+// restoreCodeBlocks puts the extracted blocks back where their placeholders sit.
+// Placeholders are distinct, so the order of the map does not matter.
+func restoreCodeBlocks(text string, blocks map[string]string) string {
+	for key, block := range blocks {
+		text = strings.ReplaceAll(text, key, block)
+	}
+	return text
 }
 
 // convertTables removes Markdown table alignment rows and strips pipe characters,

@@ -118,3 +118,109 @@ test("attachments held by the parent render as disabled chips for a plain model"
   expect(chip.className).toContain("composer-attachment-chip--disabled");
   expect(chip.getAttribute("aria-disabled")).toBe("true");
 });
+
+// --- paste-to-chip (text pastes classified against recent IDE copies) ---
+
+function pasteWithText(el: Element, text: string) {
+  fireEvent.paste(el, {
+    clipboardData: {
+      items: [],
+      files: [],
+      getData: (ty: string) => (ty === "text/plain" ? text : ""),
+    },
+  });
+}
+
+function renderEmbedComposer(props: {
+  onChange?: (v: string) => void;
+  onPasteChipCaptured?: (key: string, literal: string) => void;
+}) {
+  window.sessionStorage.setItem("foxxycode.embed", "intellij");
+  return render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={props.onChange ?? (() => {})}
+      onSend={() => {}}
+      {...(props.onPasteChipCaptured
+        ? { onPasteChipCaptured: props.onPasteChipCaptured }
+        : {})}
+    />,
+  );
+}
+
+afterEach(() => {
+  window.sessionStorage.removeItem("foxxycode.embed");
+});
+
+test("a paste matching an IDE copy becomes a chip token and captures the literal", async () => {
+  const changes: string[] = [];
+  const captured: [string, string][] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response(
+        JSON.stringify({ kind: "file", pathRel: "Dockerfile", startLine: 21, endLine: 31 }),
+        { status: 200 },
+      ),
+    ),
+  );
+  renderEmbedComposer({
+    onChange: (v) => changes.push(v),
+    onPasteChipCaptured: (k, lit) => captured.push([k, lit]),
+  });
+  pasteWithText(screen.getByLabelText("Message"), "FROM x\nRUN y");
+  await vi.waitFor(() => {
+    expect(changes).toContain("@Dockerfile:21-31 ");
+  });
+  expect(captured).toEqual([["Dockerfile:21-31", "FROM x\nRUN y"]]);
+});
+
+test("a paste the backend does not recognize stays plain text", async () => {
+  const changes: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({ kind: "none" }), { status: 200 })),
+  );
+  renderEmbedComposer({ onChange: (v) => changes.push(v) });
+  pasteWithText(screen.getByLabelText("Message"), "random\ntext");
+  await vi.waitFor(() => {
+    expect(changes).toContain("random\ntext");
+  });
+});
+
+test("a failed classification degrades to a plain paste", async () => {
+  const changes: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      throw new Error("offline");
+    }),
+  );
+  renderEmbedComposer({ onChange: (v) => changes.push(v) });
+  pasteWithText(screen.getByLabelText("Message"), "some\nlines");
+  await vi.waitFor(() => {
+    expect(changes).toContain("some\nlines");
+  });
+});
+
+test("outside an editor embed text pastes are not classified", () => {
+  const fetchSpy = vi.fn();
+  vi.stubGlobal("fetch", fetchSpy);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  pasteWithText(screen.getByLabelText("Message"), "line one\nline two");
+  expect(fetchSpy).not.toHaveBeenCalled();
+});

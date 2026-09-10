@@ -1,10 +1,23 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { MessageList } from "./MessageList";
 import type { TranscriptItem } from "../chat/types";
+import { stripFoxxyCodeAttachmentsForUserDisplay } from "../skills/stripFoxxyCodeAttachments";
+import { resetLlmRetryState, setLlmRetrying } from "../chat/llmRetryState";
 
-afterEach(() => cleanup());
+vi.mock("../skills/stripFoxxyCodeAttachments", { spy: true });
+
+afterEach(() => {
+  cleanup();
+  resetLlmRetryState();
+});
 
 test("renders system error notice collapsed with an expandable body", () => {
   const items: TranscriptItem[] = [
@@ -112,6 +125,59 @@ test("permission preview uses the matching tool call arguments", () => {
   expect(screen.queryByText("Update the requested component")).toBeNull();
 });
 
+test("plan document forwards Run plan and Discard to the transcript handlers", () => {
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+  const onRun = vi.fn();
+  const onDiscard = vi.fn();
+
+  render(
+    <MessageList
+      items={items}
+      sessionId="sess_1"
+      onPlanDocumentRun={onRun}
+      onPlanDocumentDiscard={onDiscard}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /run plan/i }));
+  fireEvent.click(screen.getByRole("button", { name: /discard/i }));
+  expect(onRun).toHaveBeenCalledWith("demo-plan");
+  expect(onDiscard).toHaveBeenCalledWith("p1", "demo-plan");
+});
+
+test("plan document on a read-only transcript renders without Run plan and Discard", () => {
+  // A subagent child transcript passes neither handler (like onEdit), so the
+  // card must not show controls that would do nothing.
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+
+  render(<MessageList items={items} sessionId="sub_0a1b2c" />);
+
+  expect(screen.getByText("Demo plan")).toBeInTheDocument();
+  expect(document.querySelector(".plan-document-card--readonly")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /run plan/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
+});
+
 test("renders memory copilot foldout", () => {
   const items: TranscriptItem[] = [
     { id: "u1", type: "user_message", content: "Hi" },
@@ -169,4 +235,71 @@ test("tool call message uses thinking-row wrapper next to thinking row", () => {
 
   // Tool and thinking are sibling foldout rows (same stack rhythm as messages-inner gap).
   expect(wrapper?.nextElementSibling).toHaveClass("thinking-row");
+});
+
+test("untouched memoized rows skip re-render when another item streams", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "a1", type: "assistant_message", content: "strea", streaming: true },
+  ];
+  const { rerender } = render(<MessageList items={items} onEdit={onEdit} />);
+  const userRenders = vi.mocked(stripFoxxyCodeAttachmentsForUserDisplay).mock.calls
+    .length;
+  expect(userRenders).toBeGreaterThan(0);
+
+  // Streaming delta: only the assistant item gets a new object reference.
+  const next: TranscriptItem[] = [
+    items[0]!,
+    { id: "a1", type: "assistant_message", content: "streaming", streaming: true },
+  ];
+  rerender(<MessageList items={next} onEdit={onEdit} />);
+  expect(
+    vi.mocked(stripFoxxyCodeAttachmentsForUserDisplay).mock.calls.length,
+  ).toBe(userRenders);
+  expect(screen.getByText("streaming")).toBeInTheDocument();
+});
+
+// A stream cut mid-answer leaves the bubble marked streaming, and nothing clears
+// that flag until the turn ends - so the dots row, the only place the live status
+// is rendered, stayed hidden for the whole wait. The operator watched a frozen
+// half-answer with no sign the turn was still alive, which is exactly the moment
+// the "provider is not responding" status exists for.
+test("a parked turn shows its status under the frozen bubble", () => {
+  setLlmRetrying("sess-1", true);
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the compile errors" },
+    { id: "a1", type: "assistant_message", content: "I will fix", streaming: true },
+  ];
+
+  render(<MessageList items={items} generating sessionId="sess-1" />);
+
+  expect(document.querySelector(".typing-dots")).toBeTruthy();
+  expect(
+    screen.getByText(/Provider is not responding/),
+  ).toBeInTheDocument();
+});
+
+// While text is actually arriving there is nothing to announce, and a status row
+// under every streamed answer would be noise.
+test("a live stream shows no status row", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the compile errors" },
+    { id: "a1", type: "assistant_message", content: "I will fix", streaming: true },
+  ];
+
+  render(<MessageList items={items} generating sessionId="sess-1" />);
+
+  expect(document.querySelector(".typing-dots")).toBeNull();
+});
+
+// With no bubble on screen the dots keep their original job as the placeholder.
+test("the dots still stand in when nothing has streamed yet", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "fix the compile errors" },
+  ];
+
+  render(<MessageList items={items} generating sessionId="sess-1" />);
+
+  expect(document.querySelector(".typing-dots")).toBeTruthy();
 });

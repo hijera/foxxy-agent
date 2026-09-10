@@ -8,6 +8,7 @@ export type SectionKind =
   | "group"
   | "skills"
   | "mcp"
+  | "subagents"
   | "appearance"
   | "general";
 
@@ -63,7 +64,9 @@ const SECTION_DESC_IDS = new Set([
   "providers",
   "models",
   "agent",
+  "autocomplete",
   "tools",
+  "subagents",
   "mcp_servers",
   "skills",
   "memory",
@@ -152,6 +155,19 @@ export function deriveSettingsSections(
         label: sub.title || key,
         description: descFor(key, sub),
         kind: "mcp",
+        schemaKey: key,
+      });
+      return;
+    }
+    // Subagents is a hybrid tab: the generated form for the config section,
+    // plus the definition catalog with the per-workspace approvals, which are
+    // receipts rather than configuration.
+    if (key === "subagents") {
+      out.push({
+        id: key,
+        label: tSchemaText(sub.title) || key,
+        description: descFor(key, sub),
+        kind: "subagents",
         schemaKey: key,
       });
       return;

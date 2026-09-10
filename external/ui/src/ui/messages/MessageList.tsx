@@ -7,12 +7,22 @@ import {
   subscribeLiveConnection,
 } from "../chat/liveConnectionState";
 import {
+  isLlmRetrying,
+  serverSnapshotLlmRetry,
+  snapshotLlmRetry,
+  subscribeLlmRetry,
+} from "../chat/llmRetryState";
+import {
   isMcpConnecting,
   serverSnapshotMcpConnecting,
   snapshotMcpConnecting,
   subscribeMcpConnecting,
 } from "../chat/mcpConnectingState";
-import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
+import {
+  deriveLiveStatus,
+  truncateStatusTarget,
+  type LiveStatusKind,
+} from "../chat/liveStatus";
 import {
   getStatusLineEnabled,
   onStatusLineChange,
@@ -48,6 +58,21 @@ function mainThinkingOverlapsMemory(
   return false;
 }
 
+/**
+ * States where nothing is arriving: no model call is in flight, so a bubble the
+ * provider cut mid-answer will sit there unchanged until one of them clears.
+ *
+ * They matter because `streaming` is only cleared when the turn ends. Through the
+ * whole wait the bubble still counts as streaming, so the dots row - the one place
+ * the live status is rendered - stayed hidden, and the operator watched a frozen
+ * half-answer with no sign the turn was alive.
+ */
+const PARKED_STATUS_KINDS: ReadonlySet<LiveStatusKind> = new Set<LiveStatusKind>([
+  "reconnecting",
+  "llmretry",
+  "mcp",
+]);
+
 function hasStreamingAssistant(items: TranscriptItem[]): boolean {
   return items.some(
     (it) => it.type === "assistant_message" && it.streaming === true,
@@ -80,6 +105,10 @@ export function MessageList(props: {
   backgroundNowMs?: number;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
+  /** Workspace of this session; a refused spawn offers its approval for it. */
+  workspacePath?: string | undefined;
+  /** Opens the child transcript behind a spawn_agent row. */
+  onOpenSubagentTranscript?: (sessionId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -118,14 +147,39 @@ export function MessageList(props: {
   );
   const mcpConnecting =
     mcpEpoch >= 0 && !!props.sessionId && isMcpConnecting(props.sessionId);
+  // A turn can also be parked between two attempts at the same call, waiting out a
+  // provider that produced no output at all.
+  const llmRetryEpoch = useSyncExternalStore(
+    subscribeLlmRetry,
+    snapshotLlmRetry,
+    serverSnapshotLlmRetry,
+  );
+  const llmRetrying =
+    llmRetryEpoch >= 0 && !!props.sessionId && isLlmRetrying(props.sessionId);
 
   const liveStatus = useMemo(
     () =>
       props.generating === true && statusLineOn
-        ? deriveLiveStatus(props.items, { reconnecting, mcpConnecting })
+        ? deriveLiveStatus(props.items, {
+            reconnecting,
+            mcpConnecting,
+            llmRetrying,
+          })
         : null,
-    [props.generating, statusLineOn, props.items, reconnecting, mcpConnecting],
+    [
+      props.generating,
+      statusLineOn,
+      props.items,
+      reconnecting,
+      mcpConnecting,
+      llmRetrying,
+    ],
   );
+
+  // Only the parked kinds earn a row under a bubble that is already on screen:
+  // while text is actually arriving there is nothing to announce.
+  const parked =
+    liveStatus !== null && PARKED_STATUS_KINDS.has(liveStatus.kind);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -150,7 +204,7 @@ export function MessageList(props: {
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
               {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
               {...(props.onEdit
-                ? { onEdit: (c) => props.onEdit!(c, myIdx) }
+                ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
             />
@@ -252,7 +306,7 @@ export function MessageList(props: {
               key={it.id}
               level={it.level}
               message={it.message}
-              createdAtUtc={it.createdAtUtc}
+              {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
             />
           );
         }
@@ -261,6 +315,11 @@ export function MessageList(props: {
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();
+          // A read-only transcript (a subagent child session) passes neither
+          // handler; the card then renders without Run plan / Discard and its
+          // editor is read-only, instead of showing controls that do nothing.
+          const onPlanRun = props.onPlanDocumentRun;
+          const onPlanDiscard = props.onPlanDocumentDiscard;
           return (
             <div key={it.id} className="message-row-plan">
               <PlanDocumentSection
@@ -276,10 +335,10 @@ export function MessageList(props: {
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)
                 }
-                onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-                onDiscard={() =>
-                  props.onPlanDocumentDiscard?.(it.id, it.slug)
-                }
+                {...(onPlanRun ? { onRunPlan: () => onPlanRun(it.slug) } : {})}
+                {...(onPlanDiscard
+                  ? { onDiscard: () => onPlanDiscard(it.id, it.slug) }
+                  : {})}
               />
             </div>
           );
@@ -321,19 +380,22 @@ export function MessageList(props: {
             </div>
           );
         }
+        const rowBackgroundTask = props.backgroundTasksByToolCallId?.get(
+          it.toolCallId,
+        );
         return (
           <ToolCallMessage
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
-            {...(props.backgroundTasksByToolCallId?.get(it.toolCallId)
-              ? {
-                  backgroundTask: props.backgroundTasksByToolCallId.get(
-                    it.toolCallId,
-                  ) as BackgroundTask,
-                }
+            {...(props.workspacePath ? { workspacePath: props.workspacePath } : {})}
+            {...(props.onOpenSubagentTranscript
+              ? { onOpenSubagentTranscript: props.onOpenSubagentTranscript }
               : {})}
-            {...(props.backgroundNowMs !== undefined
+            {...(rowBackgroundTask
+              ? { backgroundTask: rowBackgroundTask }
+              : {})}
+            {...(rowBackgroundTask && props.backgroundNowMs !== undefined
               ? { backgroundNowMs: props.backgroundNowMs }
               : {})}
             {...(props.onOpenBackgroundTask
@@ -354,6 +416,7 @@ export function MessageList(props: {
             {...(it.resultWasTruncated === true
               ? { resultWasTruncated: true }
               : {})}
+            {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}
@@ -370,7 +433,8 @@ export function MessageList(props: {
           />
         );
       })}
-      {props.generating === true && !hasStreamingAssistant(props.items) ? (
+      {props.generating === true &&
+      (!hasStreamingAssistant(props.items) || parked) ? (
         <TypingDotsMessage
           {...(liveStatus
             ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }

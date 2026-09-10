@@ -16,10 +16,11 @@ const (
 	defaultAgentTplFile = "agent.md"
 	defaultPlanTplFile  = "plan.md"
 	defaultDocsTplFile  = "docs.md"
+	defaultAskTplFile   = "ask.md"
 )
 
 func TestRenderAgentPrompt(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -44,7 +45,7 @@ func TestRenderAgentPrompt(t *testing.T) {
 }
 
 func TestRenderPlanPrompt(t *testing.T) {
-	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -78,7 +79,7 @@ func TestRenderPlanPrompt(t *testing.T) {
 }
 
 func TestRenderDocsPrompt(t *testing.T) {
-	result, err := prompts.Render("docs", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("docs", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/docs-workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -115,7 +116,7 @@ func TestRenderDocsPrompt(t *testing.T) {
 }
 
 func TestRenderAskPrompt(t *testing.T) {
-	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/ask-workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -141,7 +142,7 @@ func TestRenderAskPrompt(t *testing.T) {
 }
 
 func TestRenderDebugPrompt(t *testing.T) {
-	result, err := prompts.Render("debug", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("debug", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/tmp/debug-workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -165,7 +166,7 @@ func TestRenderDebugPrompt(t *testing.T) {
 }
 
 func TestEmbeddedAskModelVariants(t *testing.T) {
-	base, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	base, err := prompts.Render("ask", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/p",
 		UTCNow: fixtureUTC,
 	})
@@ -187,6 +188,7 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 				defaultAgentTplFile,
 				defaultPlanTplFile,
 				defaultDocsTplFile,
+				defaultAskTplFile,
 				prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC},
 			)
 			if err != nil {
@@ -216,6 +218,7 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 			defaultAgentTplFile,
 			defaultPlanTplFile,
 			defaultDocsTplFile,
+			defaultAskTplFile,
 			prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC},
 		)
 		if err != nil {
@@ -233,7 +236,7 @@ func TestEmbeddedAskModelVariants(t *testing.T) {
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/project",
 		Skills: "## Active Skills\n\nstub",
 		Tools:  "- `read`: read",
@@ -251,7 +254,7 @@ func TestRenderWithSkillsToolsMemory(t *testing.T) {
 }
 
 func TestRenderEmptyOptionalSections(t *testing.T) {
-	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/project",
 		UTCNow: fixtureUTC,
 	})
@@ -274,7 +277,7 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 
 func TestRenderTodoListWhenNonempty(t *testing.T) {
 	todoMd := "- [ ] alpha\n- [x] beta"
-	a, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+	a, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render agent: %v", err)
 	}
@@ -282,7 +285,7 @@ func TestRenderTodoListWhenNonempty(t *testing.T) {
 		t.Errorf("expected injected todo markdown in agent prompt, got excerpt: %.200s", a)
 	}
 
-	p, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+	p, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render plan: %v", err)
 	}
@@ -298,11 +301,27 @@ func TestRenderUsesCustomTemplateFilenames(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, customAgent), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := prompts.Render("agent", tmp, customAgent, "ignored-plan.tpl", "ignored-docs.tpl", prompts.TemplateData{CWD: "/x"})
+	got, err := prompts.Render("agent", tmp, customAgent, "ignored-plan.tpl", "ignored-docs.tpl", "ignored-ask.tpl", prompts.TemplateData{CWD: "/x"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "Hello /x" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// prompts.ask_prompt names the on-disk ask template the same way agent_prompt,
+// plan_prompt and docs_prompt do for their modes.
+func TestRenderUsesCustomAskTemplateFilename(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "my-ask.tpl"), []byte("Ask {{.CWD}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := prompts.Render("ask", tmp, "ignored-agent.tpl", "ignored-plan.tpl", "ignored-docs.tpl", "my-ask.tpl", prompts.TemplateData{CWD: "/x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Ask /x" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -315,7 +334,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	result, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/my/project",
 		Skills: "S1",
 	})
@@ -329,7 +348,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 
 func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 	tmp := t.TempDir()
-	_, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	_, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD: "/project",
 	})
 	if err == nil {
@@ -338,8 +357,8 @@ func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 }
 
 func TestRenderUnknownModeFallsBackToAgent(t *testing.T) {
-	agent, _ := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
-	unknown, err := prompts.Render("unknown_mode", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	agent, _ := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	unknown, err := prompts.Render("unknown_mode", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render unknown mode: %v", err)
 	}
@@ -407,7 +426,7 @@ func TestRenderForFamilyDirVariantSelected(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "agent.anthropic.md"), []byte("ANTHROPIC {{.CWD}}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := prompts.RenderForFamily("agent", "anthropic", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForFamily("agent", "anthropic", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +441,7 @@ func TestRenderForFamilyDirFallsBackToBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No agent.gemini.md present: must fall back to agent.md.
-	got, err := prompts.RenderForFamily("agent", "gemini", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForFamily("agent", "gemini", tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,11 +452,11 @@ func TestRenderForFamilyDirFallsBackToBase(t *testing.T) {
 
 func TestRenderForFamilyEmbeddedFallsBackToBase(t *testing.T) {
 	// A family with no embedded variant must render the same as the base agent prompt.
-	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fam, err := prompts.RenderForFamily("agent", "no-such-family", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	fam, err := prompts.RenderForFamily("agent", "no-such-family", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +472,7 @@ func TestRenderForVariantsPrefersMostSpecific(t *testing.T) {
 	mustWrite(t, filepath.Join(tmp, "agent.anthropic-claude-x.md"), "MODEL {{.CWD}}")
 
 	// Model slug is first in the list, so it wins over the family variant.
-	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +487,7 @@ func TestRenderForVariantsFallsThroughToFamilyThenBase(t *testing.T) {
 	mustWrite(t, filepath.Join(tmp, "agent.anthropic.md"), "FAMILY {{.CWD}}")
 
 	// No per-model file: falls through to the family variant.
-	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got, err := prompts.RenderForVariants("agent", []string{"anthropic-claude-x", "anthropic"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +496,7 @@ func TestRenderForVariantsFallsThroughToFamilyThenBase(t *testing.T) {
 	}
 
 	// Neither model nor family file: falls through to base.
-	got2, err := prompts.RenderForVariants("agent", []string{"gemini-2", "gemini"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	got2, err := prompts.RenderForVariants("agent", []string{"gemini-2", "gemini"}, tmp, defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,13 +514,13 @@ func mustWrite(t *testing.T, path, content string) {
 
 func TestEmbeddedFamilyVariantsRender(t *testing.T) {
 	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
-	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	base, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, fam := range families {
 		t.Run(fam, func(t *testing.T) {
-			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
 				UTCNow: fixtureUTC,
 			})
@@ -617,7 +636,7 @@ func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
 	families := []string{"anthropic", "openai", "gemini", "gpt-oss", "qwen", "gemma", "neuraldeep"}
 	for _, fam := range families {
 		t.Run(fam, func(t *testing.T) {
-			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+			got, err := prompts.RenderForFamily("agent", fam, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 				CWD:    "/home/user/project",
 				UTCNow: fixtureUTC,
 			})
@@ -637,7 +656,7 @@ func TestEmbeddedAgentFamilyVariantsContainSharedSections(t *testing.T) {
 }
 
 func TestEmbeddedOpenAIAgentPromptOptimizedForOpenAIAPI(t *testing.T) {
-	got, err := prompts.RenderForFamily("agent", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	got, err := prompts.RenderForFamily("agent", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -658,14 +677,14 @@ func TestEmbeddedOpenAIAgentPromptOptimizedForOpenAIAPI(t *testing.T) {
 }
 
 func TestEmbeddedOpenAIPlanVariantRender(t *testing.T) {
-	base, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	base, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("render base plan prompt: %v", err)
 	}
-	got, err := prompts.RenderForFamily("plan", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+	got, err := prompts.RenderForFamily("plan", "openai", "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -708,6 +727,7 @@ func TestEmbeddedGPTOSSModelVariantsAcrossModes(t *testing.T) {
 					defaultAgentTplFile,
 					defaultPlanTplFile,
 					defaultDocsTplFile,
+					defaultAskTplFile,
 					prompts.TemplateData{CWD: "/home/user/project", UTCNow: fixtureUTC},
 				)
 				if err != nil {
@@ -729,8 +749,49 @@ func TestEmbeddedGPTOSSModelVariantsAcrossModes(t *testing.T) {
 }
 
 func TestRenderWithFallbackNoPanic(t *testing.T) {
-	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/p"})
+	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/p"})
 	if result == "" {
 		t.Error("RenderWithFallback should return non-empty string even on error")
+	}
+}
+
+// Every spawning mode template renders the subagent role block when a role is
+// set, so a child never loses its preamble because of the mode it runs in.
+// The fork spawns from agent, plan and debug (ask and docs delegate nothing
+// and are never a child's mode).
+func TestEverySpawningModeTemplateRendersTheSubagentRole(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "debug"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/w", SubagentRole: "You are the unit subagent."})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if !strings.Contains(out, "## Your role as a subagent") || !strings.Contains(out, "You are the unit subagent.") {
+			t.Fatalf("%s template drops the subagent role block:\n%s", mode, out[:min(len(out), 400)])
+		}
+		plain, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/w"})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if strings.Contains(plain, "Your role as a subagent") {
+			t.Fatalf("%s template renders the role heading without a role", mode)
+		}
+	}
+}
+
+// The subagent catalog block lands in the same spawning modes and nowhere
+// else: a read-only mode never advertises delegation.
+func TestSubagentCatalogRendersOnlyInSpawningModes(t *testing.T) {
+	data := prompts.TemplateData{CWD: "/w", Subagents: "## Subagents\n\ncatalog-marker"}
+	for _, mode := range []string{"agent", "plan", "debug"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, data)
+		if err != nil || !strings.Contains(out, "catalog-marker") {
+			t.Fatalf("%s template drops the subagent catalog (err=%v)", mode, err)
+		}
+	}
+	for _, mode := range []string{"ask", "docs"} {
+		out, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, data)
+		if err != nil || strings.Contains(out, "catalog-marker") {
+			t.Fatalf("%s template must not render the subagent catalog (err=%v)", mode, err)
+		}
 	}
 }

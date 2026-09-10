@@ -18,6 +18,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/skills"
 	"github.com/hijera/foxxycode-agent/internal/tools"
+	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
 // --- Shared test doubles ---------------------------------------------------
@@ -115,6 +116,22 @@ func TestContentBlocksToText_textAndResource(t *testing.T) {
 	}
 }
 
+func TestContentBlocksToText_lineRangeFragment(t *testing.T) {
+	blocks := []acp.ContentBlock{
+		{Type: "resource", Resource: &acp.Resource{URI: "Dockerfile#L21-31", Text: "FROM x"}},
+	}
+	got := contentBlocksToText(blocks)
+	if !strings.Contains(got, `path="Dockerfile"`) ||
+		!strings.Contains(got, `name="Dockerfile"`) ||
+		!strings.Contains(got, `lines="21-31"`) ||
+		!strings.Contains(got, "FROM x") {
+		t.Fatalf("unexpected XML bundle: %s", got)
+	}
+	if strings.Contains(got, "#L21-31") {
+		t.Fatalf("fragment leaked into attributes: %s", got)
+	}
+}
+
 func TestExtractContextFiles_fileURI(t *testing.T) {
 	blocks := []acp.ContentBlock{
 		{Type: "resource", Resource: &acp.Resource{URI: "file:///tmp/x.txt", Text: "x"}},
@@ -180,17 +197,18 @@ func TestMCPToolDefinitionsAppliesBothFilters(t *testing.T) {
 		return out
 	}
 
-	got := names(newAgent().mcpToolDefinitions(string(session.ModeAgent), false))
+	got := names(newAgent().mcpToolDefinitions())
 	want := []string{"srv__echo", "srv__write", "other__echo"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("agent mode defs = %v, want %v", got, want)
 	}
 
-	// Ask drops the non-read-only tool on top of the disabled one.
-	got = names(newAgent().mcpToolDefinitions("ask", false))
-	want = []string{"srv__echo", "other__echo"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("ask mode defs = %v, want %v", got, want)
+	// Ask never receives MCP definitions at all: the mode gate sits in front
+	// of mcpToolDefinitions, so the whole family disappears from the prompt.
+	if defs := newAgent().currentToolDefinitions("ask"); slices.ContainsFunc(defs, func(d llm.ToolDefinition) bool {
+		return strings.Contains(d.Name, "__")
+	}) {
+		t.Fatalf("ask mode must not offer MCP tools, got %v", names(defs))
 	}
 }
 
@@ -684,25 +702,24 @@ func TestDocsToolSetFiltersToReadAndDocsWrite(t *testing.T) {
 
 func TestModeAllowsMCPTools(t *testing.T) {
 	for _, tc := range []struct {
-		mode         string
-		askBasicOnly bool
-		want         bool
+		mode string
+		want bool
 	}{
 		{mode: "agent", want: true},
 		{mode: "plan", want: true},
+		{mode: "debug", want: true},
 		{mode: "docs", want: false},
-		{mode: "ask", want: true},
-		{mode: "ask", askBasicOnly: true, want: false},
+		{mode: "ask", want: false},
 	} {
-		t.Run(fmt.Sprintf("%s/basic=%v", tc.mode, tc.askBasicOnly), func(t *testing.T) {
-			if got := ModeAllowsMCPTools(tc.mode, tc.askBasicOnly); got != tc.want {
-				t.Fatalf("ModeAllowsMCPTools(%q, %v) = %v, want %v", tc.mode, tc.askBasicOnly, got, tc.want)
+		t.Run(tc.mode, func(t *testing.T) {
+			if got := ModeAllowsMCPTools(tc.mode); got != tc.want {
+				t.Fatalf("ModeAllowsMCPTools(%q) = %v, want %v", tc.mode, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestAskToolSetIsReadOnlyAndExtendedByDefault(t *testing.T) {
+func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
 	r := tools.NewRegistry()
 	set := ToolSetForMode("ask", false)
 	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
@@ -710,120 +727,46 @@ func TestAskToolSetIsReadOnlyAndExtendedByDefault(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{
-		"read", "glob", "grep", "print_tree", "question", "load_skill",
-		"run_command", "websearch", "webfetch",
-	} {
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
 		if !got[want] {
-			t.Errorf("Ask toolset should include %q", want)
+			t.Errorf("ask toolset should include %q", want)
 		}
 	}
 	for _, forbid := range []string{
-		"write", "edit", "apply_patch", "mkdir", "rm", "docs_write", "docs_edit",
-		"plan_write", "plan_exit", "ssh_run_command",
+		"write", "edit", "apply_patch", "mkdir", "rm", "run_command", "background_list",
+		"docs_write", "docs_edit", "plan_write", "plan_list", "plan_read", "plan_exit",
+		"config_get", "config_set", "ssh_run_command", "foxxycode_todo_plan_read",
+		"foxxycode_scheduler_jobs_list", "foxxycode_scheduler_job_create", "svn_status",
 	} {
 		if got[forbid] {
-			t.Errorf("Ask toolset must not include %q", forbid)
+			t.Errorf("ask toolset should not include %q", forbid)
 		}
 	}
 }
 
-func TestAskBasicToolsSettingDropsExtendedResearchTools(t *testing.T) {
-	set := ToolSetForMode("ask", false, true)
-	for _, want := range []string{"read", "glob", "grep", "print_tree", "question", "load_skill"} {
-		if !set.Allows(want) {
-			t.Errorf("basic Ask toolset should include %q", want)
-		}
+func TestToolCallRefusedByModeEnforcesAskOnly(t *testing.T) {
+	if msg, refused := toolCallRefusedByMode("ask", "write", false); !refused || !strings.Contains(msg, "Ask mode") {
+		t.Errorf("ask mode must refuse write at execution time, got refused=%v msg=%q", refused, msg)
 	}
-	for _, forbid := range []string{
-		"run_command", "websearch", "webfetch",
-		"foxxycode_scheduler_jobs_list", "foxxycode_scheduler_job_get", "foxxycode_scheduler_job_runs",
-	} {
-		if set.Allows(forbid) {
-			t.Errorf("basic Ask toolset should exclude %q", forbid)
-		}
+	if _, refused := toolCallRefusedByMode("ask", "mcp_server__lookup", false); !refused {
+		t.Error("ask mode must refuse MCP tool calls at execution time")
 	}
-}
-
-func TestAskToolSetOffersOnlyReadOnlySchedulerTools(t *testing.T) {
-	set := ToolSetForMode("ask", false)
-	for _, want := range []string{
-		"foxxycode_scheduler_jobs_list",
-		"foxxycode_scheduler_job_get",
-		"foxxycode_scheduler_job_runs",
-	} {
-		if !set.Allows(want) {
-			t.Errorf("Ask toolset should include read-only scheduler tool %q", want)
-		}
+	if _, refused := toolCallRefusedByMode("ask", "run_command", false); !refused {
+		t.Error("ask mode must refuse run_command at execution time")
 	}
-	for _, forbid := range []string{
-		"foxxycode_scheduler_job_create",
-		"foxxycode_scheduler_job_patch",
-		"foxxycode_scheduler_job_replace",
-		"foxxycode_scheduler_job_delete",
-		"foxxycode_scheduler_job_pause",
-		"foxxycode_scheduler_job_resume",
-		"foxxycode_scheduler_job_run",
-		"foxxycode_scheduler_job_cancel",
-	} {
-		if set.Allows(forbid) {
-			t.Errorf("Ask toolset must exclude mutating scheduler tool %q", forbid)
+	if _, refused := toolCallRefusedByMode("ask", "read", false); refused {
+		t.Error("ask mode must allow read")
+	}
+	for _, mode := range []string{"agent", "plan", "debug", "docs"} {
+		if _, refused := toolCallRefusedByMode(mode, "write", false); refused {
+			t.Errorf("%s mode must not enforce the ask refusal", mode)
 		}
 	}
 }
 
-func TestAskMCPToolsRequireReadOnlyAnnotation(t *testing.T) {
-	for _, tc := range []struct {
-		name          string
-		basicOnly     bool
-		tool          mcp.ToolInfo
-		wantAvailable bool
-	}{
-		{
-			name:          "annotated read-only tool",
-			tool:          mcp.ToolInfo{Name: "lookup", ReadOnly: true},
-			wantAvailable: true,
-		},
-		{
-			name: "explicitly mutating tool",
-			tool: mcp.ToolInfo{Name: "update"},
-		},
-		{
-			name:      "basic setting hides MCP",
-			basicOnly: true,
-			tool:      mcp.ToolInfo{Name: "lookup", ReadOnly: true},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := MCPToolAllowedForMode("ask", tc.basicOnly, tc.tool); got != tc.wantAvailable {
-				t.Fatalf("MCPToolAllowedForMode() = %v, want %v", got, tc.wantAvailable)
-			}
-		})
-	}
-}
-
-func TestAskModeEnforcesToolAllowlistAtExecutionBoundary(t *testing.T) {
-	for _, tc := range []struct {
-		tool      string
-		basicOnly bool
-		refused   bool
-	}{
-		{tool: "read"},
-		{tool: "run_command"},
-		{tool: "run_command", basicOnly: true, refused: true},
-		{tool: "websearch", basicOnly: true, refused: true},
-		{tool: "write", refused: true},
-		{tool: "docs_write", refused: true},
-		{tool: "foxxycode_scheduler_job_create", refused: true},
-	} {
-		if got := toolCallRefusedByMode("ask", tc.tool, false, tc.basicOnly); got != tc.refused {
-			t.Errorf("toolCallRefusedByMode(ask, %q, basic=%v) = %v, want %v",
-				tc.tool, tc.basicOnly, got, tc.refused)
-		}
-	}
-}
-
-func TestAskModeRefusesMutatingShellBeforeExecution(t *testing.T) {
+// A shell call replayed into an ask session is refused before it runs, whatever
+// the command: ask mode offers no shell at all.
+func TestAskModeRefusesShellBeforeExecution(t *testing.T) {
 	cwd := t.TempDir()
 	st := &session.State{
 		ID:   "sess_ask_shell_guard",
@@ -839,7 +782,7 @@ func TestAskModeRefusesMutatingShellBeforeExecution(t *testing.T) {
 		InputJSON: `{"command":"echo changed > created-by-ask.txt"}`,
 	}, env, string(session.ModeAsk), st.ID, false, 0)
 	if err != nil {
-		t.Fatalf("mutating shell call should be returned as a policy result, got error: %v", err)
+		t.Fatalf("shell call should be returned as a policy result, got error: %v", err)
 	}
 	if !strings.Contains(result, "not available in Ask mode") {
 		t.Fatalf("unexpected refusal result: %q", result)
@@ -1232,6 +1175,320 @@ func TestConfigCommitPermissionPerMode(t *testing.T) {
 			if !strings.Contains(body, "set skills.auto_discovery=false") {
 				t.Fatalf("mode %s: permission prompt does not show the staged commands: %q", tc.mode, body)
 			}
+		}
+	}
+}
+
+// A pending agent-mode call approved after the session switched to ask must be
+// refused, and an "allow always" answer must not leave a grant behind for the
+// call that never ran.
+func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_resume_ask",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAsk,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run it"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_ask_hidden",
+					Name:      "run_command",
+					InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+				}},
+			},
+		},
+	}
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_ask_hidden", &acp.PermissionResult{
+		Outcome:  "allow",
+		OptionID: "allow_always",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason %q", stop)
+	}
+	var toolMsg *llm.Message
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_ask_hidden" {
+			mm := m
+			toolMsg = &mm
+			break
+		}
+	}
+	if toolMsg == nil {
+		t.Fatal("missing tool result for the refused call")
+	}
+	if strings.Contains(toolMsg.Content, "SHOULD_NOT_RUN") {
+		t.Fatalf("the approved call executed in ask mode: %q", toolMsg.Content)
+	}
+	if !strings.Contains(toolMsg.Content, "not available in Ask mode") {
+		t.Fatalf("tool result is not the ask-mode refusal: %q", toolMsg.Content)
+	}
+	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
+		t.Fatalf("refused call still recorded an allow-always grant: %v", grants)
+	}
+}
+
+type todoSnapshotSender struct {
+	updates []interface{}
+}
+
+func (s *todoSnapshotSender) SendSessionUpdate(_ string, update interface{}) error {
+	s.updates = append(s.updates, update)
+	return nil
+}
+
+func (*todoSnapshotSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+}
+
+func (*todoSnapshotSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_todo_snapshot",
+		CWD:        dir,
+		Mode:       session.ModeAgent,
+		SessionDir: dir,
+	}
+	st.SetPlan([]acp.PlanEntry{
+		{Content: "Inspect existing cards", Status: "completed"},
+		{Content: "Render structured preview", Status: "pending"},
+	})
+	sender := &todoSnapshotSender{}
+	ag := NewAgent(&config.Config{}, st, sender, nil)
+
+	_, err := ag.executeToolCall(
+		context.Background(),
+		llm.ToolCall{
+			ID:        "todo-update-1",
+			Name:      todo.ToolNameItemUpdate,
+			InputJSON: `{"index":1,"status":"completed"}`,
+		},
+		ag.buildToolEnv(string(session.ModeAgent), dir),
+		string(session.ModeAgent),
+		st.ID,
+		false,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("executeToolCall: %v", err)
+	}
+
+	meta, err := session.ReadToolCallMeta(dir, "todo-update-1")
+	if err != nil {
+		t.Fatalf("ReadToolCallMeta: %v", err)
+	}
+	// One meta.json carries both the outcome and the snapshot: a transcript
+	// reload must never see a completed todo call without its plan rows.
+	if meta.Status != "completed" {
+		t.Fatalf("persisted Status = %q, want completed", meta.Status)
+	}
+	if len(meta.PlanSnapshot) != 2 || meta.PlanSnapshot[1].Status != "completed" {
+		t.Fatalf("persisted PlanSnapshot = %+v", meta.PlanSnapshot)
+	}
+
+	st.SetPlan([]acp.PlanEntry{{Content: "Later plan", Status: "pending"}})
+	persisted, err := session.ReadToolCallMeta(dir, "todo-update-1")
+	if err != nil || persisted.PlanSnapshot[1].Content != "Render structured preview" {
+		t.Fatalf("historical plan snapshot changed: meta=%+v err=%v", persisted, err)
+	}
+
+	var completed acp.ToolCallStatusUpdate
+	for _, update := range sender.updates {
+		candidate, ok := update.(acp.ToolCallStatusUpdate)
+		if ok && candidate.Status == "completed" {
+			completed = candidate
+		}
+	}
+	foxxycode, _ := completed.Meta["foxxycode"].(map[string]interface{})
+	sent, _ := foxxycode["todoPlan"].([]acp.PlanEntry)
+	if len(sent) != 2 || sent[1].Status != "completed" {
+		t.Fatalf("SSE todoPlan = %+v", sent)
+	}
+}
+
+// rotatingToolProvider cycles through a fixed set of globs, the shape a model
+// falls into when it keeps re-fetching context it believes it lost. No two
+// consecutive calls are identical, so toolRepeatDetector never sees it. Once
+// answerWhenBlocked turns true it stops calling tools and answers instead, which
+// is what a model does after the guard has taken the loop away.
+type rotatingToolProvider struct {
+	calls    int
+	patterns []string
+	// answerWhenBlocked makes the model give up on tools after this many calls.
+	answerAfter int
+	// toollessCalls counts requests that arrived with no tool definitions.
+	toollessCalls int
+	answer        string
+}
+
+func (p *rotatingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *rotatingToolProvider) Stream(_ context.Context, _ []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	if len(defs) == 0 {
+		p.toollessCalls++
+		answer := p.answer
+		if answer == "" {
+			answer = "here is what I found"
+		}
+		onChunk(llm.StreamChunk{TextDelta: answer})
+		return &llm.Response{Content: answer, StopReason: "end_turn"}, nil
+	}
+	if p.answerAfter > 0 && p.calls >= p.answerAfter {
+		answer := p.answer
+		if answer == "" {
+			answer = "here is what I found"
+		}
+		onChunk(llm.StreamChunk{TextDelta: answer})
+		return &llm.Response{Content: answer, StopReason: "end_turn"}, nil
+	}
+	tc := llm.ToolCall{
+		ID:        fmt.Sprintf("call_%d", p.calls),
+		Name:      "glob",
+		InputJSON: fmt.Sprintf(`{"pattern":%q}`, p.patterns[p.calls%len(p.patterns)]),
+	}
+	p.calls++
+	onChunk(llm.StreamChunk{ToolCall: &tc})
+	return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+}
+
+func loopGuardAgent(t *testing.T, id string, provider llm.Provider, stuckAction string, maxTurns int) (*Agent, *session.State) {
+	t.Helper()
+	st := &session.State{ID: id, CWD: t.TempDir(), Mode: session.ModeAgent, SessionDir: t.TempDir()}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: maxTurns, LoopStuckAction: stuckAction},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	return ag, st
+}
+
+// everyCallAnswered asserts the invariant OpenAI-compatible endpoints depend on:
+// a tool_call_id that was announced must carry a result.
+func everyCallAnswered(t *testing.T, st *session.State) {
+	t.Helper()
+	announced, results := 0, map[string]bool{}
+	for _, m := range st.GetMessages() {
+		announced += len(m.ToolCalls)
+		if m.Role == llm.RoleTool {
+			results[m.ToolCallID] = true
+		}
+	}
+	if len(results) != announced {
+		t.Fatalf("%d tool calls announced but %d results recorded", announced, len(results))
+	}
+}
+
+func TestLoopGuardQuarantineLetsTheTurnFinish(t *testing.T) {
+	// The model rotates until the guard takes the loop away, then answers - the
+	// point of quarantining rather than ending the turn is that this answer still
+	// reaches the user.
+	provider := &rotatingToolProvider{
+		patterns:    []string{"**/*a.go", "**/*b.go", "**/*c.go"},
+		answerAfter: 12,
+		answer:      "three packages match",
+	}
+	ag, st := loopGuardAgent(t, "sess_quarantine", provider, "", 20)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if err != nil {
+		t.Fatalf("a quarantined loop must not fail the turn: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	last := st.GetMessages()[len(st.GetMessages())-1]
+	if !strings.Contains(last.Content, "three packages match") {
+		t.Fatalf("the turn lost the model's answer: %q", last.Content)
+	}
+	var blocked int
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.Content == toolQuarantinedResult {
+			blocked++
+		}
+	}
+	if blocked == 0 {
+		t.Fatal("the guard never took the loop away")
+	}
+	everyCallAnswered(t, st)
+}
+
+func TestLoopGuardForcesAnAnswerWhenOnlyBlockedCallsRemain(t *testing.T) {
+	// This model knows nothing but the loop. Quarantine alone would let it ask for
+	// blocked calls until max_turns and end with nothing, so the guard withholds
+	// the tools for one request and takes the answer.
+	provider := &rotatingToolProvider{patterns: []string{"**/*a.go", "**/*b.go", "**/*c.go"}}
+	maxTurns := 20
+	ag, st := loopGuardAgent(t, "sess_forced_answer", provider, "", maxTurns)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if err != nil {
+		t.Fatalf("the turn must end with an answer, not an error: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	if provider.toollessCalls == 0 {
+		t.Fatal("the guard never withheld the tools, so the model was never made to answer")
+	}
+	if provider.calls >= maxTurns {
+		t.Fatalf("ran %d tool-calling turns of %d; the guard should cut in well before max_turns", provider.calls, maxTurns)
+	}
+	everyCallAnswered(t, st)
+}
+
+func TestLoopGuardStopActionStillEndsTheTurn(t *testing.T) {
+	// The ported behaviour stays available behind agent.loop_stuck_action: stop.
+	provider := &rotatingToolProvider{patterns: []string{"**/*a.go", "**/*b.go", "**/*c.go"}}
+	maxTurns := 20
+	ag, st := loopGuardAgent(t, "sess_stop_cycle", provider, config.AgentLoopStuckActionStop, maxTurns)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q (err %v), want agent_refused", stop, err)
+	}
+	if err == nil || err.Error() != toolCycleStopNotice {
+		t.Fatalf("err = %v, want the cycle notice the SPA localizes", err)
+	}
+	if provider.calls >= maxTurns {
+		t.Fatalf("the cycle ran for %d turns, want it cut well before max_turns %d", provider.calls, maxTurns)
+	}
+	everyCallAnswered(t, st)
+}
+
+func TestLoopGuardStopActionKeepsIdenticalRunsOnTheRepeatCheck(t *testing.T) {
+	// One pattern: every call is identical, which is the repeat detector's shape,
+	// and its notice must not be replaced by the cycle one.
+	provider := &rotatingToolProvider{patterns: []string{"**/*a.go"}}
+	ag, st := loopGuardAgent(t, "sess_stop_identical", provider, config.AgentLoopStuckActionStop, 20)
+
+	_, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "look around"}})
+	if err == nil || !strings.Contains(err.Error(), "with identical arguments") {
+		t.Fatalf("err = %v, want the identical-arguments notice, not the cycle one", err)
+	}
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (m.Content == toolCycleNudge || m.Content == toolCycleSkippedResult) {
+			t.Fatal("the cycle detector claimed a run the repeat detector owns")
 		}
 	}
 }

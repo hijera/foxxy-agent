@@ -60,7 +60,7 @@ func getProjectDTO(t *testing.T, ts *httptest.Server) projectDTO {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET /foxxycode/project status %d", res.StatusCode)
 	}
@@ -107,7 +107,7 @@ func TestProjectPutSetsCurrentAndNewSessionsInheritIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("PUT status %d", res.StatusCode)
 	}
@@ -125,7 +125,7 @@ func TestProjectPutSetsCurrentAndNewSessionsInheritIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rres.Body.Close()
+	defer func() { _ = rres.Body.Close() }()
 	if rres.StatusCode != http.StatusOK {
 		t.Fatalf("POST /v1/responses status %d", rres.StatusCode)
 	}
@@ -210,7 +210,7 @@ func TestProjectRecentList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET recent status %d", res.StatusCode)
 	}
@@ -265,7 +265,7 @@ func TestProjectPickFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res2.Body.Close()
+	defer func() { _ = res2.Body.Close() }()
 	if res2.StatusCode != http.StatusOK {
 		t.Fatalf("pick status %d", res2.StatusCode)
 	}
@@ -294,7 +294,7 @@ func TestProjectPickFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res3.Body.Close()
+	defer func() { _ = res3.Body.Close() }()
 	if err := json.NewDecoder(res3.Body).Decode(&pick); err != nil {
 		t.Fatal(err)
 	}

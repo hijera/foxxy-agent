@@ -10,4 +10,5 @@ vitest.config.ts
 .gitignore
 package.json.vsce.bak
 package-lock.json.vsce.bak
+CHANGELOG.md.vsce.bak
 # Keep: out/** (compiled extension), foxxycode-bin/** (bundled binary), media/** (icons) ship in the VSIX.

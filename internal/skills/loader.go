@@ -56,7 +56,10 @@ func (l *Loader) LoadAll(cwd, agentHome string, installDir ...string) ([]*Skill,
 
 	// ordered tracks insertion order of first encounter; byName points to the slot
 	// in ordered so a later directory can overwrite the skill for a given name.
-	type slot struct{ name string; skill *Skill }
+	type slot struct {
+		name  string
+		skill *Skill
+	}
 	var ordered []slot
 	byName := make(map[string]int) // canonical name → index in ordered
 	seenPath := make(map[string]bool)

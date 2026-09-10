@@ -107,8 +107,10 @@ function asUiObject(doc: Record<string, unknown>): Record<string, unknown> {
  * loading) it falls back to fetching the config itself.
  */
 export function AppearanceLanguagePicker(props: {
-  doc?: Record<string, unknown>;
-  setDoc?: (next: Record<string, unknown>) => void;
+  // Explicitly `| undefined`: AppearanceModal passes its own optional props
+  // straight through, which exactOptionalPropertyTypes treats as a real undefined.
+  doc?: Record<string, unknown> | undefined;
+  setDoc?: ((next: Record<string, unknown>) => void) | undefined;
 }) {
   const { t } = useT();
   const activeLocale = useSyncExternalStore(onLocaleChange, getLocale, () => "en");

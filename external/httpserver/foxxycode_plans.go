@@ -237,6 +237,17 @@ func (s *Server) foxxycodeDesignPlanPatch(w http.ResponseWriter, r *http.Request
 	if st == nil {
 		return
 	}
+	// RunPlan switches the session to agent mode and runs with the full tool set,
+	// which a read-only ask session must never do implicitly: the client switches
+	// the mode first, then runs. Same rule as the runPlanSlug prompt metadata.
+	if st.GetMode() == string(session.ModeAsk) {
+		http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
+		return
+	}
+	// Running a plan is a turn; a child session's transcript is read-only.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 	result, err := s.mgr.RunPlan(r.Context(), id, slug, planRunNoopSender{})
 	if err != nil {
 		s.foxxycodePlanHTTPError(w, err)
@@ -306,6 +317,8 @@ func (s *Server) foxxycodePlanHTTPError(w http.ResponseWriter, err error) {
 		http.Error(w, `{"error":{"message":"invalid plan slug"}}`, http.StatusBadRequest)
 	case errors.Is(err, session.ErrSessionTurnBusy):
 		writeSessionBusy(w, "", "session busy")
+	case isSubagentReadOnly(err):
+		writeSubagentsError(w, http.StatusConflict, err.Error())
 	default:
 		s.log.Error("design plan", "error", err)
 		http.Error(w, `{"error":{"message":"request failed"}}`, http.StatusInternalServerError)

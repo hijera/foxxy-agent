@@ -5,6 +5,7 @@ import {
   openAIStreamErrorMessage,
 } from "./streamError";
 import { parseSSEBlocks } from "./sse";
+import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { t } from "../i18n/i18n";
 import type { TokenUsage, TranscriptItem } from "./types";
 
@@ -27,6 +28,7 @@ type ToolCallStatusUpdate = {
   _meta?: {
     foxxycode?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
+      todoPlan?: unknown;
     };
   };
 };
@@ -34,6 +36,10 @@ type ToolCallStatusUpdate = {
 function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   const p = u._meta?.foxxycode?.toolResultPreview;
   return !!(p && p.truncated === true);
+}
+
+function todoPlanFromToolStatus(u: ToolCallStatusUpdate) {
+  return normalizeTodoPlanSnapshot(u._meta?.foxxycode?.todoPlan);
 }
 
 export type MemoryPhaseEvt = {
@@ -153,6 +159,13 @@ export type ConsumeComposerSseParams = {
    * backend sends nothing at all once the servers are connected.
    */
   onMcpConnecting?: (connecting: boolean) => void;
+  /**
+   * FoxxyCode extension. Fired when a turn is parked between two attempts at the same
+   * model call because the provider produced no output at all (**`true`**), and when the
+   * next attempt starts (**`false`**). Transient status only — a call that answers sends
+   * nothing at all.
+   */
+  onLlmRetrying?: (retrying: boolean) => void;
 };
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
@@ -226,6 +239,7 @@ export async function consumeComposerSseReader(
     onPermission,
     onCompaction,
     onMcpConnecting,
+    onLlmRetrying,
     onDesignPlan,
   } = p;
 
@@ -272,6 +286,7 @@ export async function consumeComposerSseReader(
                 it.resultWasTruncated = upd.resultWasTruncated;
               if (upd.fullResultText !== undefined)
                 it.fullResultText = upd.fullResultText;
+              if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
               if (upd.startedAtMs !== undefined)
                 it.startedAtMs = upd.startedAtMs;
               if (upd.finishedAtMs !== undefined)
@@ -315,6 +330,7 @@ export async function consumeComposerSseReader(
               merged.resultWasTruncated = upd.resultWasTruncated;
             if (upd.fullResultText !== undefined)
               merged.fullResultText = upd.fullResultText;
+            if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
             arr[idx] = merged;
             next = arr;
           }
@@ -601,6 +617,33 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "llm_retry") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              // "waiting" is a pause before replaying a call that delivered
+              // nothing; "continuing" is a turn parked behind a half-written
+              // answer. Both mean nothing is arriving, which is what the status
+              // line reports - and the second is the one the operator sees most,
+              // because the bubble stays on screen through it.
+              //
+              // Only "resumed" takes the label away. "retrying" says the next
+              // attempt went out, not that anything came back, and an attempt can
+              // hang for its whole request timeout - clearing on it made the label
+              // blink out while the turn was still parked.
+              if (payload.phase === "resumed") {
+                onLlmRetrying?.(false);
+              } else if (
+                payload.phase === "waiting" ||
+                payload.phase === "continuing"
+              ) {
+                onLlmRetrying?.(true);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "compaction") {
             try {
               const payload = JSON.parse(ev.data) as Record<string, unknown>;
@@ -745,12 +788,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -978,12 +1023,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {

@@ -3,9 +3,14 @@ import type { BackgroundTask } from "./types";
 import {
   TASKS_POLL_ACTIVE_MS,
   TASKS_POLL_IDLE_MS,
+  agentTaskName,
+  agentTranscriptSessionId,
+  awaitingPermissionCount,
   displayElapsedSeconds,
   estimateProgress,
   formatDuration,
+  isAgentTask,
+  isAwaitingPermission,
   isOverdue,
   groupTasks,
   sortTasksByStart,
@@ -154,6 +159,20 @@ describe("taskTimingLine", () => {
     });
     expect(taskTimingLine(t, START_MS + 9_000_000)).toBe("1m30s · exit 2");
   });
+
+  test("finished agent task omits the synthetic exit code", () => {
+    const finished = {
+      kind: "agent" as const,
+      label: "agent explore: survey the repo",
+      agent: { name: "explore", session_id: "sub_0a1b2c" },
+      running: false,
+      elapsed_seconds: 90,
+    };
+    const ok = task({ ...finished, status: "succeeded", exit_code: 0 });
+    expect(taskTimingLine(ok, START_MS + 9_000_000)).toBe("1m30s");
+    const failed = task({ ...finished, status: "failed", exit_code: 1 });
+    expect(taskTimingLine(failed, START_MS + 9_000_000)).toBe("1m30s");
+  });
 });
 
 describe("tasksPollIntervalMs", () => {
@@ -216,4 +235,91 @@ describe("groupTasks", () => {
   test("an empty session yields two empty halves", () => {
     expect(groupTasks([])).toEqual({ running: [], finished: [] });
   });
+});
+
+describe("agent tasks", () => {
+  const agent = task({
+    id: "bg_7",
+    kind: "agent",
+    label: "agent explore: survey the repo",
+    agent: { name: "explore", session_id: "sub_0a1b2c" },
+  });
+
+  test("are told apart by kind, not by label", () => {
+    expect(isAgentTask(agent)).toBe(true);
+    expect(isAgentTask(task({ label: "agent explore: fake" }))).toBe(false);
+  });
+
+  test("expose the definition name only for agent rows", () => {
+    expect(agentTaskName(agent)).toBe("explore");
+    expect(agentTaskName(task({ agent: { name: "x" } }))).toBe("");
+    expect(agentTaskName(task({ kind: "agent" }))).toBe("");
+  });
+
+  test("resolve the child session only when the snapshot carries it", () => {
+    expect(agentTranscriptSessionId(agent)).toBe("sub_0a1b2c");
+    expect(
+      agentTranscriptSessionId(
+        task({ kind: "agent", agent: { name: "explore" } }),
+      ),
+    ).toBeNull();
+    expect(
+      agentTranscriptSessionId(
+        task({ kind: "agent", agent: { name: "explore", session_id: "  " } }),
+      ),
+    ).toBeNull();
+    expect(
+      agentTranscriptSessionId(
+        task({ agent: { name: "explore", session_id: "sub_0a1b2c" } }),
+      ),
+    ).toBeNull();
+  });
+});
+
+// A detached subagent's prompt has nowhere else to be noticed: the panel is
+// closed by default and the prompt is not in any transcript.
+test("awaiting is decided by a usable prompt, not by the field's presence", () => {
+  const base = {
+    id: "bg_1",
+    session_id: "s1",
+    kind: "agent",
+    label: "agent explore: survey",
+    status: "running" as const,
+    started_at: new Date().toISOString(),
+    timeout_seconds: 1800,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 1,
+    overdue: false,
+    running: true,
+  };
+  const prompt = {
+    sessionId: "sub_1",
+    toolCall: { toolCallId: "call_1", title: "[subagent explore] Run: ls" },
+    options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+  };
+
+  expect(isAwaitingPermission({ ...base, pending_permission: prompt })).toBe(true);
+  expect(isAwaitingPermission(base)).toBe(false);
+  // A prompt missing either id cannot be answered, so it is not one.
+  expect(
+    isAwaitingPermission({
+      ...base,
+      pending_permission: { ...prompt, sessionId: "  " },
+    }),
+  ).toBe(false);
+  expect(
+    isAwaitingPermission({
+      ...base,
+      pending_permission: { ...prompt, toolCall: { toolCallId: "" } },
+    }),
+  ).toBe(false);
+
+  expect(
+    awaitingPermissionCount([
+      { ...base, pending_permission: prompt },
+      { ...base, id: "bg_2" },
+      { ...base, id: "bg_3", pending_permission: prompt },
+    ]),
+  ).toBe(2);
 });
