@@ -8,21 +8,27 @@
 // noticing -- a fourth one appeared on main while this guard's fix was in review.
 // So assert it in the suite instead of relying on someone spotting it.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SRC = join(__dirname, "..", "..");
 
+// withFileTypes reports the entry itself, never what it points at. src/assets holds
+// symlinked svgs that Git checks out as real links on Linux and as plain files on
+// Windows; a stat() there follows the link and throws ENOENT in CI when the target is
+// absent. isDirectory()/isFile() are false for a symlink, so both are skipped here --
+// which is right, since only .ts/.tsx sources matter.
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
       out.push(...sourceFiles(full));
       continue;
     }
-    if (!/\.tsx?$/.test(entry) || /\.test\.tsx?$/.test(entry)) continue;
+    if (!entry.isFile()) continue;
+    if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue;
     out.push(full);
   }
   return out;
@@ -44,6 +50,18 @@ function unguardedFloatingFetches(text: string): number[] {
 }
 
 describe("floating fetch calls", () => {
+  it("actually walks the SPA sources", () => {
+    // A walker that silently returns nothing would make the assertion below pass
+    // for the wrong reason -- which is how the symlink bug above shipped green
+    // on Windows. Pin that it reaches a real, known file.
+    const files = sourceFiles(SRC);
+    expect(files.length).toBeGreaterThan(50);
+    expect(
+      files.some((f) => f.replace(/\\/g, "/").endsWith("ui/App.tsx")),
+      "App.tsx must be in the scan",
+    ).toBe(true);
+  });
+
   it("every `void fetch(...)` in the SPA handles its own rejection", () => {
     const offenders: string[] = [];
     for (const file of sourceFiles(SRC)) {
