@@ -126,6 +126,64 @@ func (s *stallFeatureState) partialAnswerSurvives() error {
 	return fmt.Errorf("the text the user already watched arrive was lost")
 }
 
+func (s *stallFeatureState) modelStallsOnTheSameOpeningEveryTime() error {
+	// One behaviour, repeated for every call: the hub drops the answer at the same
+	// place each time, and the model starts it over each time.
+	return s.build([]stallBehaviour{{partial: "I will fix the compile errors. First the constants."}})
+}
+
+func (s *stallFeatureState) modelStallsAfterThinkingThenAnswers() error {
+	return s.build([]stallBehaviour{
+		{partialReason: "Let me work out which constants are wrong."},
+		{answer: "The constants are fixed."},
+	})
+}
+
+func (s *stallFeatureState) firstContinuationAsksToCarryOn() error {
+	if !hasNudge(s.provider.request(2), "cut off part-way through") {
+		return fmt.Errorf("the first continuation did not ask the model to carry on")
+	}
+	return nil
+}
+
+func (s *stallFeatureState) secondContinuationNamesTheRepeat() error {
+	if !hasNudge(s.provider.request(3), "begins the same way") {
+		return fmt.Errorf("the second continuation did not tell the model it was repeating itself")
+	}
+	return nil
+}
+
+func (s *stallFeatureState) nudgesStayOutOfTranscript() error {
+	for _, m := range s.harness.st.GetMessages() {
+		for _, leak := range []string{"cut off part-way through", "begins the same way", "only your internal reasoning"} {
+			if strings.Contains(m.Content, leak) {
+				return fmt.Errorf("a nudge leaked into the persisted transcript: %q", leak)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *stallFeatureState) turnStopsNamingTheRestarts() error {
+	if s.runErr == nil {
+		return fmt.Errorf("the turn did not stop when the model kept restarting")
+	}
+	if !strings.Contains(s.runErr.Error(), "restarted the same answer") {
+		return fmt.Errorf("the notice %q does not name the restarts", s.runErr)
+	}
+	return nil
+}
+
+func (s *stallFeatureState) continuationDoesNotPointAtEmptyMessage() error {
+	if hasNudge(s.provider.request(2), "Continue from exactly where it stops") {
+		return fmt.Errorf("the model was asked to continue from a message with no text in it")
+	}
+	if !hasNudge(s.provider.request(2), "only your internal reasoning") {
+		return fmt.Errorf("the continuation did not say what was actually lost")
+	}
+	return nil
+}
+
 func (s *stallFeatureState) secondRequestAskedToContinue() error {
 	for _, m := range s.provider.lastMessages() {
 		if m.Role == llm.RoleUser && strings.Contains(m.Content, "cut off part-way through") {
@@ -133,6 +191,38 @@ func (s *stallFeatureState) secondRequestAskedToContinue() error {
 		}
 	}
 	return fmt.Errorf("the continuation request carried no nudge")
+}
+
+// A restarted app finds this on disk: a turn that produced one answer twice and
+// never finished. Nothing else about that loop survived the process.
+func (s *stallFeatureState) sessionWithARepeatingPreviousTurn() error {
+	if err := s.build([]stallBehaviour{{answer: "The constants are fixed."}}); err != nil {
+		return err
+	}
+	for _, m := range []llm.Message{
+		{Role: llm.RoleUser, Content: "fix the compile errors"},
+		{Role: llm.RoleAssistant, Content: "I will fix the compile errors. The problems are the wrong constant names (CODE_FIELD).",
+			ToolCalls: []llm.ToolCall{{ID: "c1", Name: "read", InputJSON: `{"path":"Mapper.java"}`}}},
+		{Role: llm.RoleTool, ToolCallID: "c1", Content: "package app;"},
+		{Role: llm.RoleAssistant, Content: "I will fix the compile errors. The problems are the wrong constant names (ATS_CODE_FIELD, ATS_ID_FIELD)."},
+	} {
+		s.harness.st.AddMessage(m)
+	}
+	return nil
+}
+
+func (s *stallFeatureState) firstRequestNamesThePreviousRepeat() error {
+	if !hasNudge(s.provider.request(1), "previous turn was cut off") {
+		return fmt.Errorf("the first request did not tell the model its previous turn had been repeating")
+	}
+	return nil
+}
+
+func (s *stallFeatureState) firstRequestNamesTheStepsAlreadyRun() error {
+	if !hasNudge(s.provider.request(1), "read(Mapper.java)") {
+		return fmt.Errorf("the first request did not name the step that already ran")
+	}
+	return nil
 }
 
 func initializeStallRetryScenario(t *testing.T, sc *godog.ScenarioContext) {
@@ -154,6 +244,16 @@ func initializeStallRetryScenario(t *testing.T, sc *godog.ScenarioContext) {
 	sc.Step(`^the transcript holds exactly one answer$`, s.transcriptHoldsOneAnswer)
 	sc.Step(`^the partial answer survives in the transcript$`, s.partialAnswerSurvives)
 	sc.Step(`^the second request asked the model to continue$`, s.secondRequestAskedToContinue)
+	sc.Step(`^a model that stalls on the same opening every time$`, s.modelStallsOnTheSameOpeningEveryTime)
+	sc.Step(`^a model that stalls after thinking but before writing, then answers$`, s.modelStallsAfterThinkingThenAnswers)
+	sc.Step(`^the first continuation asks the model to carry on$`, s.firstContinuationAsksToCarryOn)
+	sc.Step(`^the second continuation tells the model it is repeating itself$`, s.secondContinuationNamesTheRepeat)
+	sc.Step(`^the continuation nudges stay out of the transcript$`, s.nudgesStayOutOfTranscript)
+	sc.Step(`^the turn stops with a notice naming the restarts$`, s.turnStopsNamingTheRestarts)
+	sc.Step(`^the continuation does not point at an empty message$`, s.continuationDoesNotPointAtEmptyMessage)
+	sc.Step(`^a session whose previous turn ended writing the same answer twice$`, s.sessionWithARepeatingPreviousTurn)
+	sc.Step(`^the first request tells the model its previous turn was repeating$`, s.firstRequestNamesThePreviousRepeat)
+	sc.Step(`^the first request names the steps that already ran$`, s.firstRequestNamesTheStepsAlreadyRun)
 }
 
 func TestStallRetryFeature(t *testing.T) {
