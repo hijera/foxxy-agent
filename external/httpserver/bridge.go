@@ -207,6 +207,8 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("token_usage", u)
 	case acp.UsageUpdate:
 		return s.writeNamedEventJSON("usage_update", u)
+	case acp.ProviderUsageUpdate:
+		return s.writeNamedEventJSON("provider_usage", u)
 	case acp.MemoryPhaseUpdate:
 		return s.writeNamedEventJSON("memory_phase", u)
 	case acp.MemoryMessageChunkUpdate:

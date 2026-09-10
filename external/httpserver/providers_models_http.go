@@ -16,6 +16,7 @@ func (s *Server) registerProvidersRoutes() {
 	s.mux.HandleFunc("POST /foxxycode/providers/models-probe", s.foxxycodeProviderModelsProbe)
 	s.registerCodexAuthRoutes()
 	s.registerNeuralDeepAuthRoutes()
+	s.registerProviderUsageRoutes()
 }
 
 // foxxycodeProviderModelsGet fetches the model list advertised by a configured

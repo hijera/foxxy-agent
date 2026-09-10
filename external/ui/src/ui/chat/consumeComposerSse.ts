@@ -6,6 +6,7 @@ import {
 } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
+import type { ProviderUsage } from "./providerUsage";
 import { t } from "../i18n/i18n";
 import type { TokenUsage, TranscriptItem } from "./types";
 
@@ -166,6 +167,8 @@ export type ConsumeComposerSseParams = {
    * nothing at all.
    */
   onLlmRetrying?: (retrying: boolean) => void;
+  /** FoxxyCode extension. The provider account snapshot when the turn stream carries one (`event: provider_usage`). */
+  onProviderUsage?: (usage: ProviderUsage) => void;
 };
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
@@ -241,6 +244,7 @@ export async function consumeComposerSseReader(
     onMcpConnecting,
     onLlmRetrying,
     onDesignPlan,
+    onProviderUsage,
   } = p;
 
       // Chronological transcript model: tool_call / thinking rows are appended in
@@ -637,6 +641,20 @@ export async function consumeComposerSseReader(
                 payload.phase === "continuing"
               ) {
                 onLlmRetrying?.(true);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "provider_usage") {
+            // Reserved on this stream today (the events stream carries the
+            // snapshot between turns); a frame that does arrive is applied.
+            try {
+              const raw = JSON.parse(ev.data) as ProviderUsage;
+              if (raw && typeof raw.provider === "string") {
+                onProviderUsage?.(raw);
               }
             } catch {
               // ignore

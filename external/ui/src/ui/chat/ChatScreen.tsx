@@ -10,6 +10,8 @@ import type { HeroAccentVerb } from "./heroTitleWords";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
+import { UsageBanner } from "./UsageBanner";
+import type { ProviderUsage } from "./providerUsage";
 import { ChatHeader } from "./ChatHeader";
 import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
@@ -40,6 +42,10 @@ export function ChatScreen(props: {
   exportBusy?: boolean;
   draft: string;
   tokenUsage: TokenUsage | null;
+  /** Account usage behind the selected model's provider: the pill and the banner. */
+  providerUsage?: ProviderUsage | null;
+  usageBannerDismissedKey?: string;
+  onUsageBannerDismiss?: (key: string) => void;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: import("./ContextBreakdownPopover").ContextBreakdown | null;
@@ -280,9 +286,22 @@ export function ChatScreen(props: {
             })()}
           </h1>
           <div className="hero-composer">
+            {readOnlyNotice ? null : (
+              <UsageBanner
+                usage={props.providerUsage}
+                modelId={props.llmModel ?? ""}
+                {...(props.usageBannerDismissedKey
+                  ? { dismissedKey: props.usageBannerDismissedKey }
+                  : {})}
+                {...(props.onUsageBannerDismiss
+                  ? { onDismiss: props.onUsageBannerDismiss }
+                  : {})}
+              />
+            )}
             {readOnlyNotice ?? (
               <Composer
                 value={props.draft}
+                providerUsage={props.providerUsage ?? null}
                 attachedFiles={attachedFiles}
                 onAttachedFilesChange={setAttachedFiles}
                 isEmpty={true}
@@ -452,9 +471,22 @@ export function ChatScreen(props: {
               the marker class replaces :has(), unsupported in JCEF Chromium 104 */}
           <div className="chat-bottom chat-bottom--docked">
             <div className="chat-bottom-inner" ref={composerHostRef}>
+              {readOnlyNotice ? null : (
+                <UsageBanner
+                  usage={props.providerUsage}
+                  modelId={props.llmModel ?? ""}
+                  {...(props.usageBannerDismissedKey
+                    ? { dismissedKey: props.usageBannerDismissedKey }
+                    : {})}
+                  {...(props.onUsageBannerDismiss
+                    ? { onDismiss: props.onUsageBannerDismiss }
+                    : {})}
+                />
+              )}
               {readOnlyNotice ?? (
                 <Composer
                   value={props.draft}
+                  providerUsage={props.providerUsage ?? null}
                   attachedFiles={attachedFiles}
                   onAttachedFilesChange={setAttachedFiles}
                   isEmpty={false}

@@ -604,6 +604,22 @@ export const schemaTextRu: Record<string, string> = {
     "Максимум символов вывода",
   "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).":
     "Предел для контекста, сообщений и причин, которые один хук передаёт модели или пользователю; более длинные значения обрезаются с пометкой (по умолчанию 10000).",
+
+  // agent.wait_for_limit_reset
+  "Wait for limit reset":
+    "Ждать сброса лимита",
+  "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.":
+    "Дождаться снятия упёртого лимита и повторить вызов, вместо того чтобы завершить ход ошибкой провайдера; ход и поток клиента всё это время остаются открытыми.",
+  "Wait for limit reset max ms":
+    "Максимум ожидания сброса, мс",
+  "Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits.":
+    "Самая долгая пауза, которую ход готов ждать, в миллисекундах (по умолчанию четыре часа); более длинная завершает ход сразу, 0 — не ждать никогда.",
+
+  // providers[].usage_limits_panel
+  "Usage limits panel":
+    "Панель лимитов аккаунта",
+  "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.":
+    "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; затрагивает только провайдеров, у которых есть источник лимитов (neuraldeep).",
 };
 
 /**

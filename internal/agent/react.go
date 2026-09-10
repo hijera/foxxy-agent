@@ -91,6 +91,12 @@ type Agent struct {
 	detachedPermissions DetachedPermissionBroker
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
+	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
+	// countdown (tests); zero means limitWaitHeartbeat.
+	limitWaitHeartbeat time.Duration
+	// limitLedger is the user turn's account of time spent on usage
+	// limits (limit_wait.go); Run starts a fresh one.
+	limitLedger *limitWaitLedger
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
@@ -184,6 +190,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.resetHooks()
 	a.hookStopReason = ""
 	a.turnHookContext = ""
+	a.limitLedger = &limitWaitLedger{}
 
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
@@ -511,6 +518,11 @@ func (a *Agent) runReActLoop(
 	// the hook that it already did so in this turn.
 	stopHookActive := false
 	stopBlocks := 0
+
+	// What this turn has spent waiting for hit usage limits (limit_wait.go).
+	// The same ledger the provider wrapper charges, so its retry sleeps and
+	// the loop's waits share one maximum.
+	limitWait := a.limitLedgerFor()
 	// stuckAction decides what happens once a tool loop has survived every nudge:
 	// quarantine the calls and carry on (the default), or end the turn.
 	stuckAction := a.cfg.Agent.EffectiveLoopStuckAction()
@@ -598,6 +610,10 @@ func (a *Agent) runReActLoop(
 
 		reasonClockStart := time.Time{}
 		reasonClockEnd := time.Time{}
+		// streamedAny records that a chunk of any kind reached the client
+		// from this call: a limit reported after that is never waited for
+		// and re-issued, whatever the provider's own error carries.
+		streamedAny := false
 		maybeMarkReasonEnd := func(now time.Time) {
 			if reasonClockStart.IsZero() || !reasonClockEnd.IsZero() {
 				return
@@ -706,6 +722,7 @@ func (a *Agent) runReActLoop(
 		emitReason := func(d string, now time.Time) {
 			noteProgress(now)
 			sawDelta.Store(true)
+			streamedAny = true
 			reasoningBuf.WriteString(d)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
@@ -723,6 +740,7 @@ func (a *Agent) runReActLoop(
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
 			noteProgress(now)
 			sawDelta.Store(true)
+			streamedAny = true
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -941,6 +959,26 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
+			// The provider named the moment its limit lifts and the operator
+			// asked the turn to wait for it: the countdown reaches the client,
+			// then the same call runs again (nothing was persisted for the
+			// failed one, so nothing repeats). A cancel during the wait ends
+			// the turn as a stop. The iteration is repeated, not counted.
+			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String(), streamedAny); ok {
+				waitStart := time.Now()
+				err := a.waitForLimitReset(ctx, sessionID, reset)
+				limitWait.Charge(time.Since(waitStart))
+				if err != nil {
+					if a.state.IsUserCancelledTurn() {
+						return string(acp.StopReasonCancelled), nil
+					}
+					// A shutdown or a deadline, not the user: the turn ends with
+					// the limit it was waiting on and says what cut the wait.
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
+				}
+				turn--
+				continue
+			}
 			// A mid-generation truncation keeps its partial answer like a user
 			// stop: the user already watched the text stream in, so it must
 			// survive in the transcript next to the honest error below.
@@ -1976,7 +2014,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	in := a.llmProviderInput(rm)
+	in := a.turnProviderInput(rm)
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
 	provider, err := mk(in)
 	if err != nil {
@@ -2004,6 +2042,34 @@ func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.Resolve
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
+}
+
+// turnProviderInput is llmProviderInput plus the bounds of a user turn: the
+// first-token timer as the call's own budget, and with the wait on, the
+// wait's maximum as the turn's budget and the turn's ledger. Helpers
+// (compaction, the memory copilot, title generation) use llmProviderInput
+// alone and never see the option.
+func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
+	in := a.llmProviderInput(rm)
+	// The first-token timer cuts a streamed call that stays silent, retry
+	// waits included: a server-requested pause the timer would cut anyway
+	// is reported as a quota reset instead of being slept through in vain.
+	if rm.Stream {
+		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
+			in.CallBudget = timeout
+		}
+	}
+	// With the wait on, its maximum bounds every sleep the turn spends on a
+	// limit, the wrapper's retries included: a pause beyond it comes back
+	// as a quota reset and ends the turn at once instead of being slept
+	// through by the retries first, and an explicit zero means no sleep on
+	// a limit anywhere. The wrapper's sleeps count against the turn's
+	// total, calls that succeed afterwards included.
+	if a.cfg.Agent.WaitForLimitReset {
+		in.RetryBudget, in.RetryBudgetSet = a.cfg.Agent.EffectiveWaitForLimitResetMax(), true
+		in.LimitLedger = a.limitLedgerFor()
+	}
+	return in
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

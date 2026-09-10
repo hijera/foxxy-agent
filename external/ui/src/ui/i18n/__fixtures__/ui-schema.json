@@ -118,6 +118,16 @@
           "description": "Logical model id from the models list used when the client omits a model.",
           "title": "Default model",
           "type": "string"
+        },
+        "wait_for_limit_reset": {
+          "description": "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.",
+          "title": "Wait for limit reset",
+          "type": "boolean"
+        },
+        "wait_for_limit_reset_max_ms": {
+          "description": "Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits.",
+          "title": "Wait for limit reset max ms",
+          "type": "integer"
         }
       },
       "title": "ReAct agent",
@@ -139,7 +149,9 @@
         "loop_stream_repeat_cycles",
         "loop_tool_cycle_repeats",
         "loop_stuck_action",
-        "loop_nudge_max"
+        "loop_nudge_max",
+        "wait_for_limit_reset",
+        "wait_for_limit_reset_max_ms"
       ]
     },
     "autocomplete": {
@@ -1080,6 +1092,12 @@
             ],
             "title": "Provider type",
             "type": "string"
+          },
+          "usage_limits_panel": {
+            "default": true,
+            "description": "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+            "title": "Usage limits panel",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1093,7 +1111,8 @@
           "api_base",
           "api_key",
           "proxy",
-          "timeout_ms"
+          "timeout_ms",
+          "usage_limits_panel"
         ]
       },
       "title": "LLM providers",
