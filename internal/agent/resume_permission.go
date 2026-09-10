@@ -28,6 +28,12 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	}
 	tc, err := a.findPendingToolCall(toolCallID)
 	if err != nil {
+		// The gate is over - most often the prompt timed out and the turn moved
+		// on. Drop the persisted record so a stale one from before bridge.go
+		// learned to clear it does not keep being resurrected.
+		if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" {
+			_ = session.ClearPendingPermission(sd)
+		}
 		return "", err
 	}
 	mode := a.state.GetMode()

@@ -58,6 +58,10 @@ type Client struct {
 
 	tools []ToolInfo
 	done  chan struct{}
+	// closeOnce guards close(done): Close runs from several unsynchronised
+	// teardown paths (CloseAll, reload parking, probe), and two of them
+	// racing the old select-default would panic on a double close.
+	closeOnce sync.Once
 }
 
 // newClientWithTransport wraps a started transport, performs the MCP
@@ -162,12 +166,9 @@ func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (strin
 }
 
 // Close stops the connection (and the subprocess for stdio transports).
+// It is safe to call concurrently and repeatedly.
 func (c *Client) Close() error {
-	select {
-	case <-c.done:
-	default:
-		close(c.done)
-	}
+	c.closeOnce.Do(func() { close(c.done) })
 	if c.tr != nil {
 		return c.tr.Close()
 	}
@@ -389,6 +390,8 @@ type stdioTransport struct {
 	msgs   chan []byte
 	done   chan struct{}
 	cancel context.CancelFunc
+	// closeOnce keeps the teardown single-shot across racing Close callers.
+	closeOnce sync.Once
 }
 
 // newStdioTransport starts the subprocess on a transport-owned lifetime: the
@@ -457,17 +460,15 @@ func (t *stdioTransport) Send(_ context.Context, data []byte) error {
 func (t *stdioTransport) Messages() <-chan []byte { return t.msgs }
 
 func (t *stdioTransport) Close() error {
-	select {
-	case <-t.done:
-	default:
+	t.closeOnce.Do(func() {
 		close(t.done)
-	}
-	if t.stdin != nil {
-		_ = t.stdin.Close()
-	}
-	// Cancel the process lifetime; CommandContext kills it and the reader
-	// goroutine reaps it.
-	t.cancel()
+		if t.stdin != nil {
+			_ = t.stdin.Close()
+		}
+		// Cancel the process lifetime; CommandContext kills it and the reader
+		// goroutine reaps it.
+		t.cancel()
+	})
 	return nil
 }
 
