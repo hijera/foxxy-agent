@@ -12,6 +12,7 @@ import { useStableHandler } from "./components/useStableHandler";
 import { contextUsagePercent, withContextUsedTokens } from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { markConnected, markReconnecting } from "./chat/liveConnectionState";
+import { setLlmRetrying } from "./chat/llmRetryState";
 import { setMcpConnecting } from "./chat/mcpConnectingState";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
@@ -62,6 +63,10 @@ import {
 } from "./chat/subagentTranscript";
 import { shouldApplyTranscriptSnapshot } from "./chat/transcriptSnapshotGuard";
 import {
+  shouldAdoptServerModeAfterTurn,
+  shouldApplySessionSelection,
+} from "./chat/sessionSelectionApply";
+import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
   resolvedPermissionToolCallIds,
@@ -70,8 +75,12 @@ import {
 import { permissionPromptInsertIndex } from "./chat/permissionPromptPlacement";
 import { createTurnReplayTrimGate } from "./chat/transcriptTurnTrim";
 import {
+  diskFallbackDelayMs,
   isNoLiveTurnRelayError,
+  liveReconnectDelayMs,
   parseSessionBusyResponse,
+  shouldKeepWatching,
+  shouldReloadTranscript,
 } from "./chat/liveTurnRecovery";
 import {
   parseToolsPermissionPolicy,
@@ -198,7 +207,7 @@ import {
   listBackgroundTasks,
   stopBackgroundTask,
 } from "./tasks/api";
-import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import { awaitingPermissionCount, tasksPollIntervalMs } from "./tasks/taskStatus";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
@@ -884,6 +893,13 @@ export function App() {
   const userStoppedSidRef = useRef<Set<string>>(new Set());
   /** Bounded per-session retry counter for auto-reconnecting a dropped live stream. */
   const liveReconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  // Consecutive failed /activity probes per session. Reconnects and the disk
+  // poll give up on this rather than on an attempt count: while the server
+  // still answers that the turn is alive, there is something to come back to.
+  const activityFailuresRef = useRef<Map<string, number>>(new Map());
+  // Last messageSeq seen per session, so a poll tick can skip a transcript
+  // reload that would return exactly what is already rendered.
+  const lastMessageSeqRef = useRef<Map<string, number>>(new Map());
   /** Per-session interval ids for the persisted-transcript fallback poller. */
   const diskFallbackTimerRef = useRef<Map<string, number>>(new Map());
   /**
@@ -928,6 +944,7 @@ export function App() {
     // Backstop for the live-status label: every turn ends through here, however it ended.
     markConnected(k);
     setMcpConnecting(k, false);
+    setLlmRetrying(k, false);
     if (!activeComposerSidRef.current.delete(k)) return;
     bumpComposerActivity();
   }
@@ -1121,6 +1138,12 @@ export function App() {
   const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [backgroundRunning, setBackgroundRunning] = useState(0);
+  // Detached subagents blocked on a prompt. Kept as a number so the poll
+  // effect below does not restart on every list refresh.
+  const backgroundAwaiting = useMemo(
+    () => awaitingPermissionCount(backgroundTasks),
+    [backgroundTasks],
+  );
   const [backgroundOutput, setBackgroundOutput] = useState("");
   const [backgroundListError, setBackgroundListError] = useState<string | null>(
     null,
@@ -1154,15 +1177,35 @@ export function App() {
   const [llmModel, setLlmModel] = useState("");
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
-   * Raw model/reasoning stored on the opened session. Held until the backends
-   * list (`llmModelIds`) is available so the restore survives whichever of
-   * `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on reload.
+   * Raw mode/model/reasoning stored on the opened session. Held until the
+   * backends list (`llmModelIds`) is available so the restore survives whichever
+   * of `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on
+   * reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
     sid: string;
     model: string;
     reasoning: string;
+    mode: string;
   } | null>(null);
+  /**
+   * Session whose stored selection has already been restored. `loadMessages`
+   * also runs after every turn and on every reconnect, and each response
+   * carries the stored selection, so without this the restore would keep
+   * reverting a Mode or Model the user picked a moment earlier.
+   */
+  const appliedSelectionSidRef = useRef("");
+  /** Session whose Mode/Model the user changed by hand; their pick wins. */
+  const userTouchedSelectionSidRef = useRef("");
+  /**
+   * Bumped on every hand-made Mode change. A turn snapshots it so the
+   * post-turn mode adoption can tell "the server switched under us" from
+   * "the user picked a new mode while the turn was running".
+   */
+  const modeEditSeqRef = useRef(0);
+  /** Current mode, readable from callbacks that outlive their render. */
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -1375,7 +1418,7 @@ export function App() {
         return next;
       });
       // Same safety net as permissions: re-attach if the stream died while pending.
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
@@ -1423,7 +1466,7 @@ export function App() {
       // Safety net: if the live stream died while this prompt was pending, the
       // turn continues server-side after the answer — re-attach so the
       // continuation renders live (no-op when a stream is already attached).
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       scheduleLiveStreamReconnectRef.current(key, 1100);
     },
     [],
@@ -2124,7 +2167,10 @@ export function App() {
           void refreshBackgroundTaskOutput(tasksSelectedId);
         }
       },
-      tasksPollIntervalMs(backgroundRunning),
+      // A task waiting for a permission answer keeps the fast cadence even if
+      // the server has stopped counting it as running: the answer has to reach
+      // the drawer promptly, and the prompt has to leave it once answered.
+      tasksPollIntervalMs(backgroundRunning + backgroundAwaiting),
     );
     return () => window.clearInterval(id);
   }, [
@@ -2132,6 +2178,7 @@ export function App() {
     tasksOpen,
     tasksSelectedId,
     backgroundRunning,
+    backgroundAwaiting,
     refreshBackgroundTasks,
     refreshBackgroundTaskOutput,
   ]);
@@ -2246,16 +2293,27 @@ export function App() {
     })();
   }, []);
 
-  // Apply the opened session's saved model/reasoning once the backends list is
-  // known. Runs whenever either input lands, so the restore is independent of
-  // whether /v1/models or the session messages resolve first after a reload.
+  // Apply the opened session's saved mode/model/reasoning once the backends
+  // list is known. Runs whenever either input lands, so the restore is
+  // independent of whether /v1/models or the session messages resolve first
+  // after a reload — but only ONCE per session open, because the same snapshot
+  // rides every later transcript reconcile and would otherwise revert a pick
+  // the user just made.
   useEffect(() => {
     if (!openSessionSelection || llmModelIds.length === 0) {
       return;
     }
-    if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
+    if (
+      !shouldApplySessionSelection({
+        stashSid: openSessionSelection.sid,
+        viewedSid: viewedSessionIdRef.current,
+        appliedSid: appliedSelectionSidRef.current,
+        userTouchedSid: userTouchedSelectionSidRef.current,
+      })
+    ) {
       return;
     }
+    appliedSelectionSidRef.current = openSessionSelection.sid;
     setLlmModel(
       pickLlmModelForOpenSession({
         backends: llmModelIds,
@@ -2265,6 +2323,12 @@ export function App() {
       }),
     );
     setLlmReasoning(openSessionSelection.reasoning);
+    // The session profile is stored server-side, so a reopened chat comes back
+    // in the mode it was left in instead of dropping to agent.
+    const storedMode = openSessionSelection.mode.trim();
+    if ((PROFILE_MODES as readonly string[]).includes(storedMode)) {
+      setMode(storedMode);
+    }
   }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
 
   useEffect(() => {
@@ -2539,6 +2603,10 @@ export function App() {
       freshLoad?: boolean;
       expectedEpoch?: number;
       allowApplyWhileActive?: boolean;
+      /** Post-turn reconcile: line the composer up with the session's mode. */
+      adoptServerMode?: boolean;
+      /** modeEditSeqRef as it stood when that turn started. */
+      modeEditSeqAtTurnStart?: number;
     },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
@@ -2564,6 +2632,7 @@ export function App() {
       model?: string;
       selectedModelId?: string;
       selectedReasoning?: string;
+      mode?: string;
       memoryTurns?: MemoryTurnApi[];
       subagent?: {
         parentSessionId?: string;
@@ -2597,11 +2666,33 @@ export function App() {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
+      // The effect restores it once per session open — see
+      // shouldApplySessionSelection — because this call also runs after every
+      // turn and every reconnect.
       setOpenSessionSelection({
         sid,
         model: (res.data.model || res.data.selectedModelId || "").trim(),
         reasoning: (res.data.selectedReasoning || "").trim(),
+        mode: (res.data.mode || "").trim(),
       });
+      // The backend may have switched the profile itself (a plan run, or the
+      // model calling plan_exit). The SSE `mode` frame is the primary signal;
+      // this is the recovery for a turn whose stream we did not see whole, and
+      // it defers to a Mode the user changed while the turn was running.
+      if (opts?.adoptServerMode) {
+        const serverMode = (res.data.mode || "").trim();
+        if (
+          shouldAdoptServerModeAfterTurn({
+            serverMode,
+            currentMode: modeRef.current,
+            knownModes: PROFILE_MODES,
+            editSeqAtTurnStart: opts.modeEditSeqAtTurnStart ?? modeEditSeqRef.current,
+            editSeqNow: modeEditSeqRef.current,
+          })
+        ) {
+          setMode(serverMode);
+        }
+      }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
     }
@@ -3042,6 +3133,12 @@ export function App() {
       setActiveDraftId(id);
       setSessionId("");
       viewedSessionIdRef.current = "";
+      // A local draft is a new chat: it has no stored profile of its own, so it
+      // must not inherit the mode of the session being left.
+      setMode("agent");
+      setOpenSessionSelection(null);
+      appliedSelectionSidRef.current = "";
+      userTouchedSelectionSidRef.current = "";
       const row = readClientDraftSessions().find((r) => r.localId === id);
       setDraft(row?.draftText || "");
       setDraftHashInLocation(id, { historySidebar: keepHistoryOpen });
@@ -3087,8 +3184,14 @@ export function App() {
     reasoningDurationMsByContentRef.current = new Map();
     evictStaleSessionCaches("");
     // Drop any stashed session selection so its restore effect cannot reapply
-    // the old session's model over the new chat default.
+    // the old session's model over the new chat default. Clearing the applied
+    // marker lets the same session restore again when it is reopened later.
     setOpenSessionSelection(null);
+    appliedSelectionSidRef.current = "";
+    userTouchedSelectionSidRef.current = "";
+    // A new chat starts in agent; the mode used to survive New chat while the
+    // model was reset, so a plan session leaked its profile into the next one.
+    setMode("agent");
     if (llmModelIds.length > 0) {
       setLlmModel(
         pickDefaultLlmModelForNewChat({
@@ -3299,6 +3402,19 @@ export function App() {
         shadowSnap &&
         shadowSnap.length > 0
       ) {
+        // pickSession scheduled a fade that clears the rows in 110ms, and this
+        // branch is synchronous - so without cancelling it the transcript just
+        // restored from the stream's shadow is wiped a moment later, and the
+        // chat sits empty until the stream next paints. While a foreground
+        // spawn_agent waits on its child that is minutes, which is exactly what
+        // it looked like: an empty window with a Stop button in it. The
+        // loadMessages path below already cancels the same timer before it
+        // paints.
+        if (fadeOutTimerRef.current !== null) {
+          clearTimeout(fadeOutTimerRef.current);
+          fadeOutTimerRef.current = null;
+        }
+        setSessionFadingOut(false);
         setItems([...shadowSnap]);
       } else {
         // freshLoad when no shadow: prevents stale itemsRef from a previous session
@@ -3435,9 +3551,6 @@ export function App() {
     });
   }
 
-  // Max auto-reconnect attempts before giving up (until the next clean stream or focus).
-  const LIVE_RECONNECT_MAX = 5;
-
   /**
    * When a live composer stream drops before its final [DONE] (e.g. the embedded
    * Chromium throttled/aborted the fetch while the webview was backgrounded), the
@@ -3462,18 +3575,30 @@ export function App() {
     }
     let active = false;
     try {
-      const act = await fetchJSON<{ turnActive?: boolean }>(
+      const act = await fetchJSON<{ turnActive?: boolean; messageSeq?: number }>(
         `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
         { headers: { [HDR]: key } },
       );
-      active = !!(act.ok && act.data?.turnActive);
+      if (!act.ok) {
+        // The server answered something other than a probe result; treat it as
+        // a failed probe so a server that has stopped answering is given up on.
+        noteActivityFailure(key);
+        markConnected(key);
+        return;
+      }
+      activityFailuresRef.current.delete(key);
+      active = !!act.data?.turnActive;
+      if (typeof act.data?.messageSeq === "number") {
+        lastMessageSeqRef.current.set(key, act.data.messageSeq);
+      }
       noteViewedTurnActive(key, active);
     } catch {
+      noteActivityFailure(key);
       markConnected(key);
       return;
     }
     if (!active) {
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
       markConnected(key);
       // The turn already finished. If we got here from a dropped stream, pull the
       // persisted transcript so a stuck partial assistant is replaced by the result.
@@ -3504,21 +3629,52 @@ export function App() {
     await rejoinComposerLiveStream(key, loaded);
   }
 
-  function scheduleLiveStreamReconnect(rawSid: string, delayMs = 400): void {
+  /**
+   * Retry the re-attach, backing off but never giving up on a turn the server
+   * still reports as alive. The attempt count only sets the delay now: what
+   * ends the retries is the server no longer answering the probe, which is the
+   * only evidence that there is nothing to come back to. `delayMs` overrides
+   * the backoff for the first, deliberately quick, retry after a clean drop.
+   */
+  function scheduleLiveStreamReconnect(rawSid: string, delayMs?: number): void {
     const key = rawSid.trim();
     if (!key) return;
     if (userStoppedSidRef.current.has(key)) return;
-    const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
-    if (attempts >= LIVE_RECONNECT_MAX) {
+    if (!shouldKeepWatching(activityFailuresRef.current.get(key) ?? 0)) {
       markConnected(key);
       return;
     }
+    const attempts = liveReconnectAttemptsRef.current.get(key) ?? 0;
     liveReconnectAttemptsRef.current.set(key, attempts + 1);
     markReconnecting(key);
     window.setTimeout(() => {
       // Go through the ref so the delayed call uses the current render's closure.
       reconnectLiveStreamRef.current(key, { reconcileIfDone: true });
-    }, delayMs);
+    }, delayMs ?? liveReconnectDelayMs(attempts));
+  }
+
+  /**
+   * Forget what this session's recovery loop learned: the retry budget, the
+   * failed-probe count and the last transcript size. Called wherever a turn
+   * starts, finishes cleanly or is stopped — a new turn must not inherit the
+   * previous one's give-up state.
+   */
+  function resetLiveRecoveryState(rawSid: string): void {
+    const key = rawSid.trim();
+    if (!key) return;
+    liveReconnectAttemptsRef.current.delete(key);
+    activityFailuresRef.current.delete(key);
+    lastMessageSeqRef.current.delete(key);
+  }
+
+  /** One failed /activity probe. Enough of them in a row and the session is dropped. */
+  function noteActivityFailure(rawSid: string): void {
+    const key = rawSid.trim();
+    if (!key) return;
+    activityFailuresRef.current.set(
+      key,
+      (activityFailuresRef.current.get(key) ?? 0) + 1,
+    );
   }
 
   /** Record a turnActive probe, but only for the chat the user is actually looking at. */
@@ -3532,7 +3688,7 @@ export function App() {
     const key = rawSid.trim();
     const h = diskFallbackTimerRef.current.get(key);
     if (h === undefined) return;
-    window.clearInterval(h);
+    window.clearTimeout(h);
     diskFallbackTimerRef.current.delete(key);
   }
 
@@ -3541,47 +3697,92 @@ export function App() {
    * embedded browser that keeps killing long-lived fetches. Polls the persisted
    * transcript so the turn's progress still appears without a manual page reload,
    * and stops as soon as a live stream attaches or the turn ends.
+   *
+   * It runs for as long as the server says the turn is alive. There used to be a
+   * ~5-minute tick cap here, reset only by a window focus event — which never
+   * fires for someone watching an editor panel, exactly where a delegated turn
+   * can run for half an hour. What ends the poll now is the turn ending, a live
+   * stream taking over, the user stopping, or the server no longer answering.
+   *
+   * Each tick is scheduled from the previous one rather than by setInterval, so
+   * the cadence can back off while nothing is being written, and the transcript
+   * is re-read only when `messageSeq` says it grew.
    */
   function startDiskFallbackPoll(rawSid: string): void {
     const key = rawSid.trim();
     if (!key || diskFallbackTimerRef.current.has(key)) return;
-    let ticks = 0;
-    const handle = window.setInterval(() => {
-      void (async () => {
-        ticks += 1;
-        // A live stream took over, the user stopped, or the safety cap (~5 min) hit.
-        if (
-          activeComposerSidRef.current.has(key) ||
-          userStoppedSidRef.current.has(key) ||
-          ticks > 150
-        ) {
-          stopDiskFallbackPoll(key);
+    let firstTick = true;
+    let quietTicks = 0;
+
+    const tick = async (): Promise<void> => {
+      if (
+        activeComposerSidRef.current.has(key) ||
+        userStoppedSidRef.current.has(key) ||
+        !shouldKeepWatching(activityFailuresRef.current.get(key) ?? 0)
+      ) {
+        stopDiskFallbackPoll(key);
+        return;
+      }
+      let active = false;
+      let messageSeq: number | undefined;
+      try {
+        const act = await fetchJSON<{ turnActive?: boolean; messageSeq?: number }>(
+          `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
+          { headers: { [HDR]: key } },
+        );
+        if (!act.ok) {
+          noteActivityFailure(key);
           return;
         }
-        let active = false;
-        try {
-          const act = await fetchJSON<{ turnActive?: boolean }>(
-            `/foxxycode/sessions/${encodeURIComponent(key)}/activity`,
-            { headers: { [HDR]: key } },
-          );
-          if (!act.ok) return;
-          active = !!act.data?.turnActive;
-          noteViewedTurnActive(key, active);
-        } catch {
-          return;
-        }
-        if (activeComposerSidRef.current.has(key)) return;
+        activityFailuresRef.current.delete(key);
+        active = !!act.data?.turnActive;
+        messageSeq =
+          typeof act.data?.messageSeq === "number" ? act.data.messageSeq : undefined;
+        noteViewedTurnActive(key, active);
+      } catch {
+        noteActivityFailure(key);
+        return;
+      }
+      if (activeComposerSidRef.current.has(key)) return;
+
+      const lastSeq = lastMessageSeqRef.current.get(key);
+      const reload = shouldReloadTranscript({
+        firstTick,
+        turnActive: active,
+        messageSeq,
+        lastMessageSeq: lastSeq,
+      });
+      quietTicks = reload ? 0 : quietTicks + 1;
+      firstTick = false;
+      if (messageSeq !== undefined) {
+        lastMessageSeqRef.current.set(key, messageSeq);
+      }
+      if (reload) {
         await loadMessages(key, {
           skipSetItems: viewedSessionIdRef.current.trim() !== key,
           preserveOnError: true,
         });
-        if (!active) {
-          stopDiskFallbackPoll(key);
-          void loadSessionsList(true);
-        }
-      })();
-    }, 2000);
-    diskFallbackTimerRef.current.set(key, handle);
+      }
+      if (!active) {
+        stopDiskFallbackPoll(key);
+        void loadSessionsList(true);
+      }
+    };
+
+    const schedule = () => {
+      // Re-checked every tick: a stop clears the handle, and the poll ends by
+      // simply not scheduling the next one.
+      const handle = window.setTimeout(() => {
+        void (async () => {
+          await tick();
+          if (diskFallbackTimerRef.current.has(key)) {
+            schedule();
+          }
+        })();
+      }, diskFallbackDelayMs(quietTicks));
+      diskFallbackTimerRef.current.set(key, handle);
+    };
+    schedule();
   }
 
   // Stable handles to the latest closures so once-subscribed listeners and
@@ -3820,8 +4021,10 @@ export function App() {
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
           setMcpConnecting(key, connecting),
+        onLlmRetrying: (retrying: boolean) => setLlmRetrying(key, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
+        onModeChanged: (m: string) => onServerModeChanged(key, m),
       });
 
       const syncAssistantFromServer = async () => {
@@ -3923,7 +4126,7 @@ export function App() {
         startDiskFallbackPoll(key);
         return;
       }
-      liveReconnectAttemptsRef.current.delete(key);
+      resetLiveRecoveryState(key);
 
       flushToolQueue();
       finishThinking();
@@ -3975,6 +4178,10 @@ export function App() {
     let postSessionKey = "";
     let completedNormally = false;
     let assistantStreamId = "";
+    // A Mode the user switches while this turn runs is a choice for the NEXT
+    // turn, so the post-turn reconcile must not overwrite it with the mode the
+    // session is in now.
+    const modeEditSeqAtTurnStart = modeEditSeqRef.current;
     const isNewChatFirstSend = !sessionId.trim();
     let releaseSessionId: ((id: string) => void) | undefined;
     const sessionIdWhenKnown = isNewChatFirstSend
@@ -4003,7 +4210,7 @@ export function App() {
       postSessionKey = sid.trim();
       // Fresh send supersedes any prior user-stop / reconnect budget for this session.
       userStoppedSidRef.current.delete(postSessionKey);
-      liveReconnectAttemptsRef.current.delete(postSessionKey);
+      resetLiveRecoveryState(postSessionKey);
       stopDiskFallbackPoll(postSessionKey);
       bumpTranscriptEpoch(postSessionKey);
       // Own the transcript before any asynchronous attachment preparation so
@@ -4272,8 +4479,11 @@ export function App() {
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
           setMcpConnecting(streamKey, connecting),
+        onLlmRetrying: (retrying: boolean) =>
+          setLlmRetrying(streamKey, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
+        onModeChanged: (m: string) => onServerModeChanged(streamKey, m),
       });
 
       const syncAssistantFromServer = async () => {
@@ -4354,7 +4564,7 @@ export function App() {
         finishThinking();
         return;
       }
-      liveReconnectAttemptsRef.current.delete(postSessionKey.trim());
+      resetLiveRecoveryState(postSessionKey);
 
       flushToolQueue();
 
@@ -4400,6 +4610,8 @@ export function App() {
         preserveOnError: true,
         expectedEpoch: reconcileEpoch,
         allowApplyWhileActive: true,
+        adoptServerMode: viewingEnd === postSessionKey,
+        modeEditSeqAtTurnStart,
       });
       void refreshSessionStats(sidEffective);
       markViewedSessionActivityRead(sidEffective);
@@ -4442,6 +4654,8 @@ export function App() {
         void loadMessages(sidEffective, {
           skipSetItems: viewingFin !== postSessionKey.trim(),
           preserveOnError: true,
+          adoptServerMode: viewingFin === postSessionKey.trim(),
+          modeEditSeqAtTurnStart,
         });
         void loadSessionsList(true);
         markViewedSessionActivityRead(postSessionKey.trim());
@@ -4465,7 +4679,7 @@ export function App() {
     if (!sid) return;
     // Mark as user-stopped so a resulting stream drop is not auto-rejoined.
     userStoppedSidRef.current.add(sid);
-    liveReconnectAttemptsRef.current.delete(sid);
+    resetLiveRecoveryState(sid);
     stopDiskFallbackPoll(sid);
     // Always send the server-side cancel so Stop works even after page reload.
     void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
@@ -4539,6 +4753,14 @@ export function App() {
       if (!sid || !llmModelIds.includes(mid)) {
         return;
       }
+      // The pick outranks whatever the session had stored, so a reconcile still
+      // in flight cannot revert it.
+      userTouchedSelectionSidRef.current = sid;
+      // A client draft has no server session yet; the first turn persists the
+      // pick through metadata.model, and a PATCH here would only 404.
+      if (isClientDraftSessionId(sid)) {
+        return;
+      }
       void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
@@ -4547,6 +4769,50 @@ export function App() {
     },
     [sessionId, llmModelIds, headers],
   );
+
+  // A Mode switch is a session change, not a client preference: it is stored
+  // right away so a reload comes back in the same profile, and it still rides
+  // the next turn as the top-level `model` of POST /v1/responses.
+  const onModeChange = useCallback(
+    (next: string) => {
+      const m = next.trim();
+      if (!m || !(PROFILE_MODES as readonly string[]).includes(m)) {
+        return;
+      }
+      setMode(m);
+      modeEditSeqRef.current += 1;
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      userTouchedSelectionSidRef.current = sid;
+      if (isClientDraftSessionId(sid)) {
+        return;
+      }
+      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: m }),
+      });
+    },
+    [sessionId, headers],
+  );
+
+  // The backend switched the profile on its own (a plan run, or the model
+  // calling plan_exit). Adopting it keeps the composer from posting a mode the
+  // session has already left, which the next turn would write back. A relay we
+  // watch in the background must not repaint the composer of another chat, so
+  // the frame only lands when it names the session on screen.
+  const onServerModeChanged = useCallback((sid: string, next: string) => {
+    const m = next.trim();
+    if (!m || !(PROFILE_MODES as readonly string[]).includes(m)) {
+      return;
+    }
+    if (sid.trim() !== viewedSessionIdRef.current.trim()) {
+      return;
+    }
+    setMode(m);
+  }, []);
 
   const contextPct = useMemo(
     () => contextUsagePercent(maxContextTokens, contextBreakdown),
@@ -4947,6 +5213,12 @@ export function App() {
               onConfigSaved={() => setModelsEpoch((e) => e + 1)}
               initialSection={settingsSection}
               onRestartOnboarding={restartOnboarding}
+              // Subagent approvals are keyed by workspace, and spawn_agent
+              // checks the session's own cwd: the viewed session's workspace
+              // is the one the tab must ask about. Falls back to the host
+              // project root, which is the cwd an editor plugin launched the
+              // server for.
+              workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
             />
           </div>
         ) : null}
@@ -4968,6 +5240,9 @@ export function App() {
             }}
             onClearFinished={() => {
               void clearFinishedTasks();
+            }}
+            onRefresh={() => {
+              void refreshBackgroundTasks({ silent: true });
             }}
           />
         ) : null}
@@ -5025,7 +5300,7 @@ export function App() {
                   : {}),
               }
             : {})}
-          onModeChange={setMode}
+          onModeChange={onModeChange}
           onDraftChange={setDraft}
           generating={generating}
           onContextRingOpen={() => {

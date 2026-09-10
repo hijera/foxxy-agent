@@ -1137,6 +1137,85 @@ func TestFoxxyCodeSessionActivityGet(t *testing.T) {
 	}
 }
 
+// activitySeq only moves when a turn completes, so a client watching a long
+// turn cannot tell from it whether the transcript grew. messageSeq answers
+// that - for a session live in this process; a cold one is left alone, because
+// this route must stay a cheap disk probe.
+func TestFoxxyCodeSessionActivityReportsMessageSeqForLiveSessions(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+	if _, err := mgr.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: sid,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	read := func(id string) map[string]interface{} {
+		t.Helper()
+		resHTTP, err := http.Get(ts.URL + "/foxxycode/sessions/" + url.PathEscape(id) + "/activity")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resHTTP.StatusCode != http.StatusOK {
+			t.Fatalf("activity status %d: %s", resHTTP.StatusCode, b)
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			t.Fatalf("body %s: %v", b, err)
+		}
+		return parsed
+	}
+
+	body := read(sid)
+	first, ok := body["messageSeq"].(float64)
+	if !ok || first < 1 {
+		t.Fatalf("messageSeq = %v, want the live transcript size", body["messageSeq"])
+	}
+	beforeActivity := body["activitySeq"]
+
+	// One more message, no completed turn: activitySeq stands still while
+	// messageSeq moves. That difference is the whole point of the new field.
+	st := mgr.SessionByID(sid)
+	if st == nil {
+		t.Fatal("session is not live")
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "and another"})
+	body = read(sid)
+	if second, _ := body["messageSeq"].(float64); second != first+1 {
+		t.Fatalf("messageSeq %v -> %v, want +1", first, second)
+	}
+	if body["activitySeq"] != beforeActivity {
+		t.Fatalf("activitySeq moved without a completed turn: %v -> %v", beforeActivity, body["activitySeq"])
+	}
+
+	// A bundle that is only on disk answers without the key rather than being
+	// loaded: this route is polled, and loading a bundle per poll is not.
+	mgr.ForgetLiveSession(sid)
+	if mgr.SessionByID(sid) != nil {
+		t.Fatal("the session is still live after ForgetLiveSession")
+	}
+	body = read(sid)
+	if _, present := body["messageSeq"]; present {
+		t.Fatalf("a cold session reported messageSeq: %v", body["messageSeq"])
+	}
+	if mgr.SessionByID(sid) != nil {
+		t.Fatal("the activity probe loaded the bundle")
+	}
+}
+
 func TestFoxxyCodeSessionActivityReportsPermissionPending(t *testing.T) {
 	mgr, srv, sessRoot := testHTTPServerPersist(t)
 	store := &session.FileStore{Root: sessRoot}
@@ -1854,6 +1933,71 @@ func TestFoxxyCodeSessionPatchSelectedModelId(t *testing.T) {
 	badB, _ := ioReadAllClose(resBad.Body)
 	if resBad.StatusCode != http.StatusBadRequest {
 		t.Fatalf("want 400 for unknown model got %d %s", resBad.StatusCode, badB)
+	}
+}
+
+// The happy path lives in features/session_mode_model_sync.feature; these are
+// the edge cases that keep a bad mode out of session.json.
+func TestFoxxyCodeSessionPatchModeRejectsUnknownValues(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	patch := func(payload string) (int, []byte) {
+		req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		resHTTP, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resHTTP.StatusCode, b
+	}
+
+	if status, b := patch(`{"mode":"plan"}`); status != http.StatusOK {
+		t.Fatalf("patch mode status %d %s", status, b)
+	}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Mode != "plan" {
+		t.Fatalf("disk mode %q, want plan", snap.Meta.Mode)
+	}
+
+	// A bad mode must not land on the session: the reload guard in the manager
+	// would silently rewrite it to agent, losing the user's real choice.
+	if status, b := patch(`{"mode":"wizard"}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for unknown mode got %d %s", status, b)
+	}
+	if status, b := patch(`{"mode":"  "}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for blank mode got %d %s", status, b)
+	}
+	if st := mgr.SessionByID(sid); st == nil || st.GetMode() != "plan" {
+		t.Fatalf("a refused patch changed the session mode: %v", st)
+	}
+
+	// An empty body still names every writable key, mode included.
+	status, b := patch(`{}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("want 400 for an empty patch got %d %s", status, b)
+	}
+	if !strings.Contains(string(b), "mode") {
+		t.Fatalf("the required-keys error does not mention mode: %s", b)
 	}
 }
 

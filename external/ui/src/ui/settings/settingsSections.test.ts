@@ -10,6 +10,7 @@ const rootSchema: JsonSchema = {
     "models",
     "agent",
     "tools",
+    "subagents",
     "mcp_servers",
     "skills",
     "memory",
@@ -26,6 +27,7 @@ const rootSchema: JsonSchema = {
     models: { type: "array", title: "Logical models", items: { type: "object" } },
     agent: { type: "object", title: "ReAct agent", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
+    subagents: { type: "object", title: "Subagents", properties: {} },
     mcp_servers: { type: "array", title: "MCP servers", items: { type: "object" } },
     skills: { type: "object", title: "Skills", properties: {} },
     memory: { type: "object", title: "Long-term memory", properties: {} },
@@ -49,6 +51,7 @@ test("derives tabs in schema order with General and Appearance first and System 
     "models",
     "agent",
     "tools",
+    "subagents",
     "mcp_servers",
     "skills",
     "memory",
@@ -74,6 +77,17 @@ test("mcp_servers is its own managed tab", () => {
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
   expect(byId.mcp_servers!.kind).toBe("mcp");
+});
+
+// Hybrid tab: the generated form still edits the config section, so the tab
+// keeps its schema key, while the kind routes it to the panel that also lists
+// the definitions and records approvals.
+test("subagents is a hybrid tab that keeps its schema key", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.subagents!.kind).toBe("subagents");
+  expect(byId.subagents!.schemaKey).toBe("subagents");
 });
 
 test("System group folds the rarely edited tail keys", () => {

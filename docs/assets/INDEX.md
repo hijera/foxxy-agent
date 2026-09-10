@@ -103,6 +103,18 @@ the default theme; light frames cover the surfaces that gained colours.
 - `pr-56-subagent-readonly-1280-{dark,light}.png` - a child `sub_…` transcript: read-only notice in place of the composer, «Открыть родительский чат»
 - `pr-56-settings-subagents-1280-{dark,light}.png` - Settings → Субагенты (enable switch, definition dirs, project trust policy)
 - `pr-56-settings-providers-neuraldeep-1280-dark.png` - NeuralDeep provider card with the API endpoint select
+
+## Subagent trust in the IDE (2026-09-07)
+
+Captured from the bundled SPA (`make build TAGS="http ui"`) against a stub model, with an
+unapproved project definition in `<ws>/.foxxycode/agents/reviewer.md` and a user-scope
+`writer` in the FoxxyCode home. Named by feature rather than by PR number, which is not
+knowable while the PR is open.
+
+- `subagents-trust-settings-1280-{dark,light}.png`, `subagents-trust-settings-390-dark.png` - Settings → Субагенты: the generated form plus the definition catalog, the amber shield on the project row, and the disclosure of what a receipt would cover
+- `subagents-trust-chat-refused-1280-{dark,light}.png`, `subagents-trust-chat-refused-390-dark.png` - a refused `spawn_agent` row with the approval notice, «Одобрить» and «Открыть настройки субагентов»
+- `subagents-trust-spawn-running-1280-dark.png` - a foreground spawn in flight: the row's chip names the agent and ticks, and the actions row offers «Открыть транскрипт субагента»
+- `subagents-trust-tasks-permission-1280-{dark,light}.png`, `subagents-trust-tasks-permission-390-dark.png` - a detached subagent's permission prompt on its task card, with the tasks chip in the amber «ждёт вашего ответа» state
 - `pr-56-settings-models-reasoning-{before,after}-1280-dark.png` - «Получить уровни ризонинга» before the fetch and with `low/medium/high` written back
 - `pr-56-settings-skills-switchfield-1280-dark.png`, `pr-56-settings-tools-switchfield-1280-dark.png` - boolean settings on the shared SwitchField
 - `pr-56-todo-preview-1280-{dark,light}.png` - `foxxycode_todo_item_update` calls rendered as localized todo cards
@@ -133,3 +145,24 @@ Captured from headless Chrome (dark, `?lang=ru`) against the Vite dev server on 
 - `pr-vscode-embed-before-intellij-id-{1280,390}-dark.png` - the start screen with `?embed=intellij` (what the extension sent before)
 - `pr-vscode-embed-after-vscode-id-{1280,390}-dark.png` - the same screen with `?embed=vscode` (what it sends now): flat 6px composer, no glass halo, identical to the intellij id
 - `pr-vscode-embed-plain-browser-1280-dark.png` - no embed id, for contrast: the browser keeps the rounded glass composer
+
+## Parked turn status row (September 2026)
+
+Captured from headless Chrome at 1280x800 against the Vite dev server, driven by a stub
+OpenAI endpoint that streams the opening of an answer and then goes quiet without closing
+the stream - the mid-answer stall the guard exists for.
+
+- `pr-parked-turn-before-1280-dark.png` - what the operator used to see: the answer frozen
+  mid-sentence and nothing else, because the row the live status renders in is hidden for as
+  long as a bubble counts as streaming
+- `pr-parked-turn-after-1280-{dark,light}.png` - the same moment with the status row under the
+  frozen answer: «Провайдер не отвечает — повторяю запрос» and a counter that keeps climbing
+
+## Session mode/model sync (September 2026)
+
+Captured from headless Chrome (dark, ru) against a `make build TAGS="http ui"` binary backed by a stub OpenAI model, so the turns cost nothing and the model reliably calls `plan_exit`. Both runs use identical sessions stored on disk as `mode: plan`, `selectedModelId: kimi-k2.6`.
+
+- `mode-sync-before-reload-{1280,390}.png` - a session stored in `plan`, reopened: the composer drops to **Агент** because the SPA never read the session's `mode`
+- `mode-sync-after-reload-{1280,390}.png` - the same session on this branch: the pill comes back as **План**
+- `mode-sync-before-planexit-1280.png` - after the model called `plan_exit`, the backend is in `agent` while the pill still says **План**; the next turn would post `plan` and drag the session back
+- `mode-sync-after-planexit-1280.png` - the same turn on this branch: the `event: mode` frame flips the pill to **Агент**, matching the session

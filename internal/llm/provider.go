@@ -115,6 +115,13 @@ type StreamChunk struct {
 	StopReason     string
 	InputTokens    int
 	OutputTokens   int
+	// Progress marks a frame that advanced generation without delivering anything
+	// to the caller: a tool call's argument fragment, a thinking-block signature,
+	// a usage-only frame. It exists so a mid-stream stall watchdog can tell "the
+	// model is still writing" from "the connection is open and dead", and it
+	// carries no content by construction. Consumers that switch on the content
+	// fields ignore it for free.
+	Progress bool
 }
 
 // Provider is the interface all LLM backends must implement.

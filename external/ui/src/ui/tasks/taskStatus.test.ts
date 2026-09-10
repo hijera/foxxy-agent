@@ -5,10 +5,12 @@ import {
   TASKS_POLL_IDLE_MS,
   agentTaskName,
   agentTranscriptSessionId,
+  awaitingPermissionCount,
   displayElapsedSeconds,
   estimateProgress,
   formatDuration,
   isAgentTask,
+  isAwaitingPermission,
   isOverdue,
   groupTasks,
   sortTasksByStart,
@@ -272,4 +274,52 @@ describe("agent tasks", () => {
       ),
     ).toBeNull();
   });
+});
+
+// A detached subagent's prompt has nowhere else to be noticed: the panel is
+// closed by default and the prompt is not in any transcript.
+test("awaiting is decided by a usable prompt, not by the field's presence", () => {
+  const base = {
+    id: "bg_1",
+    session_id: "s1",
+    kind: "agent",
+    label: "agent explore: survey",
+    status: "running" as const,
+    started_at: new Date().toISOString(),
+    timeout_seconds: 1800,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 1,
+    overdue: false,
+    running: true,
+  };
+  const prompt = {
+    sessionId: "sub_1",
+    toolCall: { toolCallId: "call_1", title: "[subagent explore] Run: ls" },
+    options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+  };
+
+  expect(isAwaitingPermission({ ...base, pending_permission: prompt })).toBe(true);
+  expect(isAwaitingPermission(base)).toBe(false);
+  // A prompt missing either id cannot be answered, so it is not one.
+  expect(
+    isAwaitingPermission({
+      ...base,
+      pending_permission: { ...prompt, sessionId: "  " },
+    }),
+  ).toBe(false);
+  expect(
+    isAwaitingPermission({
+      ...base,
+      pending_permission: { ...prompt, toolCall: { toolCallId: "" } },
+    }),
+  ).toBe(false);
+
+  expect(
+    awaitingPermissionCount([
+      { ...base, pending_permission: prompt },
+      { ...base, id: "bg_2" },
+      { ...base, id: "bg_3", pending_permission: prompt },
+    ]),
+  ).toBe(2);
 });

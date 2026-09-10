@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -160,20 +161,25 @@ func TestPermissionPromptTimeoutCancelsToolCall(t *testing.T) {
 	if !sender.deadlineSeen.Load() {
 		t.Fatal("permission context was not bounded by the configured deadline")
 	}
-	timedOut := false
+	sawTimeout := false
 	for _, m := range st.GetMessages() {
 		if m.Role != llm.RoleTool {
 			continue
 		}
-		switch m.Content {
-		case permissionTimedOutResult:
-			timedOut = true
-		case permissionDeniedResult:
+		switch {
+		case strings.Contains(m.Content, permissionTimeoutReason):
+			// The reason rides permissionNotGrantedPrefix, which is what keeps
+			// the eviction pass treating the write as never done.
+			if !strings.HasPrefix(m.Content, permissionNotGrantedPrefix) {
+				t.Fatalf("timeout result %q does not use the not-granted prefix", m.Content)
+			}
+			sawTimeout = true
+		case m.Content == permissionDeniedByUser:
 			t.Fatal("a timed-out prompt was reported to the model as an operator denial")
 		}
 	}
-	if !timedOut {
-		t.Fatal("timed-out tool call did not leave the timed-out marker")
+	if !sawTimeout {
+		t.Fatal("timed-out tool call did not say the prompt timed out")
 	}
 }
 
@@ -182,7 +188,10 @@ func TestPermissionPromptTimeoutCancelsToolCall(t *testing.T) {
 // write actually landed, and a call that never ran because its prompt timed out
 // must not read as a successful write.
 func TestTimedOutWriteIsNotCountedAsASuccessfulWrite(t *testing.T) {
-	for _, content := range []string{permissionTimedOutResult, permissionDeniedResult} {
+	timedOut := permissionDeniedResult(&acp.PermissionResult{
+		Outcome: "cancelled", OptionID: "reject", Reason: permissionTimeoutReason,
+	})
+	for _, content := range []string{timedOut, permissionDeniedByUser} {
 		if writeResultSucceeded(content) {
 			t.Errorf("writeResultSucceeded(%q) = true, want false", content)
 		}

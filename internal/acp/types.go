@@ -323,6 +323,7 @@ const (
 	UpdateTypeCompaction              = "compaction"
 	UpdateTypeSessionTitle            = "session_title"
 	UpdateTypeMCPPhase                = "mcp_phase"
+	UpdateTypeLLMRetry                = "llm_retry"
 	UpdateTypeDebug                   = "debug"
 )
 
@@ -460,6 +461,36 @@ type MCPPhaseUpdate struct {
 	Phase         string `json:"phase"`         // "connecting" | "ready"
 }
 
+// LLM retry phase values for LLMRetryUpdate.Phase.
+const (
+	LLMRetryPhaseWaiting  = "waiting"
+	LLMRetryPhaseRetrying = "retrying"
+	// LLMRetryPhaseContinuing is a turn parked behind a partial answer: the stream
+	// was cut mid-sentence and the continuation request is in flight. Distinct from
+	// waiting, which is a deliberate pause before replaying a call that delivered
+	// nothing at all, and reported separately because the client is still showing
+	// the half-written answer while it lasts.
+	LLMRetryPhaseContinuing = "continuing"
+	// LLMRetryPhaseResumed says the provider is delivering again. It is what ends a
+	// park, and it is deliberately not LLMRetryPhaseRetrying: that one only says the
+	// next attempt was issued, and an attempt can hang for its whole request timeout
+	// without a byte arriving - during which the turn is still parked.
+	LLMRetryPhaseResumed = "resumed"
+)
+
+// LLMRetryUpdate tells the client that a turn is parked between two attempts at the same
+// model call because the provider produced no output at all. Emitted only while the turn
+// actually waits; a call that answers sends nothing.
+//
+// Transient by design, like MCPPhaseUpdate: it drives the live status line next to the
+// typing dots, and is not part of the transcript.
+type LLMRetryUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "llm_retry"
+	Phase         string `json:"phase"`         // "waiting" | "retrying"
+	Attempt       int    `json:"attempt,omitempty"`
+	DelayMS       int64  `json:"delayMs,omitempty"`
+}
+
 // SessionTitleUpdate carries a newly generated session title (from the hidden "title" agent) so
 // connected clients can update their session list and header live, without re-fetching.
 type SessionTitleUpdate struct {
@@ -542,6 +573,10 @@ type PermissionOption struct {
 type PermissionResult struct {
 	Outcome  string `json:"outcome"`
 	OptionID string `json:"optionId"`
+	// Reason explains a refusal the user never saw - a subagent's prompt that
+	// reached nobody, say. It is local to this process (the wire shape is
+	// fixed by the protocol) and only ever widens what the model is told.
+	Reason string `json:"-"`
 }
 
 // UnmarshalJSON accepts both response shapes seen from ACP clients.

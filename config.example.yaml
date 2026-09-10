@@ -120,6 +120,18 @@ agent:
   # llm_retry_base_ms: 1000       # initial backoff between retries
   # llm_min_interval_ms: 0        # min gap between LLM calls; e.g. 12000 on strict free tiers
   # llm_first_token_timeout_ms: 90000  # cancel a silent streamed call after this long (0 disables)
+  # Waiting out a provider that goes quiet. A saturated gateway answers nothing
+  # for minutes, which the seconds-scale llm_retry_* ladder above cannot absorb.
+  # A call that produced NOTHING is paused and re-issued verbatim - whether it
+  # went silent, dropped the connection (unexpected EOF), timed out on the
+  # provider side (Client.Timeout) or answered 5xx. Nothing reached the
+  # transcript, so nothing can be duplicated; a 4xx the endpoint refused is not
+  # retried. A stream that stops mid-answer keeps what arrived instead, and the
+  # model is asked to continue.
+  # llm_stall_timeout_ms: 300000  # cut a stream that stopped sending data mid-answer (0 disables)
+  # llm_stall_retry: true         # wait and retry a call that failed without producing output
+  # llm_stall_retry_delays_ms: [60000, 180000, 300000]  # last entry repeats: 1min, 3min, then every 5min
+  # llm_stall_retry_max_wait_ms: 3600000  # total wait before giving up (0 = retry until Stop)
   # Runaway-loop protection. Cuts a streamed response that degenerates into
   # repeating the same passage, blocks a tool requested over and over with
   # identical arguments, and blocks a whole sequence of calls the model keeps

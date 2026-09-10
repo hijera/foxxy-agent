@@ -303,6 +303,26 @@ describe("deriveLiveStatus waiting for the server", () => {
     expect(s.key).toBe("status.reconnecting");
     expect(s.target).toBe("");
   });
+
+  it("reports a pending model retry above a stale tool row", () => {
+    // No model call is in flight while the turn waits out a silent provider, so a
+    // tool row left over from the cut attempt must not drive the label.
+    const s = deriveLiveStatus([user(), tool({ title: "read" })], {
+      llmRetrying: true,
+    });
+    expect(s.kind).toBe("llmretry");
+    expect(s.key).toBe("status.retryingModel");
+    expect(s.target).toBe("");
+  });
+
+  it("keeps reconnecting above a pending model retry", () => {
+    // A dropped stream means we cannot know the turn is still parked.
+    const s = deriveLiveStatus([user()], {
+      reconnecting: true,
+      llmRetrying: true,
+    });
+    expect(s.kind).toBe("reconnecting");
+  });
 });
 
 describe("waitingStatusKey", () => {

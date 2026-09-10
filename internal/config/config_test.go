@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -951,5 +952,65 @@ func TestAgentLLMKnobsValidation(t *testing.T) {
 	p := config.ProviderConfig{Name: "x", Type: "openai", TimeoutMS: -5}
 	if err := p.Validate(); err == nil {
 		t.Error("negative providers timeout_ms must fail validation")
+	}
+}
+
+// TestAgentStallRetryKnobs covers the stall-retry family: the master switch, the
+// delay ladder (whose last entry repeats for every later attempt), and the
+// wall-clock budget where an explicit 0 means unbounded.
+func TestAgentStallRetryKnobs(t *testing.T) {
+	unset := config.Agent{}
+	if !unset.LLMStallRetryEnabled() {
+		t.Error("stall retry must default to on")
+	}
+	if got := unset.EffectiveLLMStallTimeout(); got != 5*time.Minute {
+		t.Errorf("unset llm_stall_timeout_ms = %v, want 5m", got)
+	}
+	if got := unset.EffectiveLLMStallRetryMaxWait(); got != config.AgentDefaultLLMStallRetryMaxWaitMS*time.Millisecond {
+		t.Errorf("unset llm_stall_retry_max_wait_ms = %v, want 1h", got)
+	}
+	want := []time.Duration{time.Minute, 3 * time.Minute, 5 * time.Minute}
+	if got := unset.EffectiveLLMStallRetryDelays(); !reflect.DeepEqual(got, want) {
+		t.Errorf("unset ladder = %v, want %v", got, want)
+	}
+
+	off := false
+	if (&config.Agent{LLMStallRetry: &off}).LLMStallRetryEnabled() {
+		t.Error("llm_stall_retry: false must disable the retry")
+	}
+
+	zero := 0
+	if got := (&config.Agent{LLMStallRetryMaxWaitMS: &zero}).EffectiveLLMStallRetryMaxWait(); got != 0 {
+		t.Errorf("explicit 0 max wait = %v, want 0 (unbounded)", got)
+	}
+	if got := (&config.Agent{LLMStallTimeoutMS: &zero}).EffectiveLLMStallTimeout(); got != 0 {
+		t.Errorf("explicit 0 stall timeout = %v, want 0 (guard disabled)", got)
+	}
+
+	custom := config.Agent{LLMStallRetryDelaysMS: []int{40, 120}}
+	wantCustom := []time.Duration{40 * time.Millisecond, 120 * time.Millisecond}
+	if got := custom.EffectiveLLMStallRetryDelays(); !reflect.DeepEqual(got, wantCustom) {
+		t.Errorf("custom ladder = %v, want %v", got, wantCustom)
+	}
+}
+
+// TestAgentStallRetryValidation rejects the malformed combinations, including the
+// one pathological pairing: unbounded retries whose final pause is zero would spin
+// against the provider with no gap at all.
+func TestAgentStallRetryValidation(t *testing.T) {
+	neg := -1
+	if err := (&config.Agent{LLMStallTimeoutMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stall_timeout_ms must fail validation")
+	}
+	if err := (&config.Agent{LLMStallRetryMaxWaitMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stall_retry_max_wait_ms must fail validation")
+	}
+	if err := (&config.Agent{LLMStallRetryDelaysMS: []int{1000, -5}}).Validate(); err == nil {
+		t.Error("negative entry in llm_stall_retry_delays_ms must fail validation")
+	}
+	zero := 0
+	a := &config.Agent{LLMStallRetryMaxWaitMS: &zero, LLMStallRetryDelaysMS: []int{0}}
+	if err := a.Validate(); err == nil {
+		t.Error("unbounded retries with a zero final delay must fail validation")
 	}
 }

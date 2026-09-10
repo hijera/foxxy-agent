@@ -159,7 +159,33 @@ export type ConsumeComposerSseParams = {
    * backend sends nothing at all once the servers are connected.
    */
   onMcpConnecting?: (connecting: boolean) => void;
+  /**
+   * FoxxyCode extension. Fired when a turn is parked between two attempts at the same
+   * model call because the provider produced no output at all (**`true`**), and when the
+   * next attempt starts (**`false`**). Transient status only — a call that answers sends
+   * nothing at all.
+   */
+  onLlmRetrying?: (retrying: boolean) => void;
+  /**
+   * FoxxyCode extension. Fired when the backend switched the session profile on
+   * its own — a plan run, or the model calling `plan_exit`. Without it the
+   * composer keeps the pill the user last picked and the next turn posts a
+   * profile the session has already left.
+   */
+  onModeChanged?: (mode: string) => void;
 };
+
+/** Profile id of a `event: mode` payload (ACP `current_mode_update`), or "". */
+export function sessionModeFromEvent(data: string): string {
+  try {
+    const payload = JSON.parse(data) as { currentModeId?: unknown };
+    return typeof payload.currentModeId === "string"
+      ? payload.currentModeId.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
 
 const PLAN_META_SLUG = "foxxycode.dev/planSlug";
 const PLAN_META_KIND = "foxxycode.dev/planKind";
@@ -232,7 +258,9 @@ export async function consumeComposerSseReader(
     onPermission,
     onCompaction,
     onMcpConnecting,
+    onLlmRetrying,
     onDesignPlan,
+    onModeChanged,
   } = p;
 
       // Chronological transcript model: tool_call / thinking rows are appended in
@@ -599,10 +627,45 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "mode") {
+            const modeId = sessionModeFromEvent(ev.data);
+            if (modeId) {
+              onModeChanged?.(modeId);
+            }
+            continue;
+          }
+
           if (ev.event === "mcp_phase") {
             try {
               const payload = JSON.parse(ev.data) as { phase?: string };
               onMcpConnecting?.(payload.phase === "connecting");
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "llm_retry") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              // "waiting" is a pause before replaying a call that delivered
+              // nothing; "continuing" is a turn parked behind a half-written
+              // answer. Both mean nothing is arriving, which is what the status
+              // line reports - and the second is the one the operator sees most,
+              // because the bubble stays on screen through it.
+              //
+              // Only "resumed" takes the label away. "retrying" says the next
+              // attempt went out, not that anything came back, and an attempt can
+              // hang for its whole request timeout - clearing on it made the label
+              // blink out while the turn was still parked.
+              if (payload.phase === "resumed") {
+                onLlmRetrying?.(false);
+              } else if (
+                payload.phase === "waiting" ||
+                payload.phase === "continuing"
+              ) {
+                onLlmRetrying?.(true);
+              }
             } catch {
               // ignore
             }
@@ -921,6 +984,13 @@ export async function consumeComposerSseReader(
             const slug = designPlanSlugFromEvent(ev.data);
             if (slug) {
               onDesignPlan?.(slug);
+            }
+            continue;
+          }
+          if (ev.event === "mode") {
+            const modeId = sessionModeFromEvent(ev.data);
+            if (modeId) {
+              onModeChanged?.(modeId);
             }
             continue;
           }

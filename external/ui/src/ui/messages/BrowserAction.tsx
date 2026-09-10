@@ -42,6 +42,14 @@ function ScrollDiagram({ x, y }: { x: number; y: number }) {
   });
   return (
     <div className="browser-scroll-screen" role="img" aria-label={label}>
+      <div className="browser-scroll-toolbar" aria-hidden="true">
+        <span className="browser-scroll-window-dots">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="browser-scroll-address" />
+      </div>
       <svg viewBox="0 0 260 174" aria-hidden="true">
         <path className="browser-scroll-guides" d="M24 74h212M130 16v116" />
         <circle cx="130" cy="74" r="3" fill="currentColor" />
