@@ -4795,6 +4795,9 @@ export function App() {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ mode: m }),
+      }).catch(() => {
+        // The mode is already applied locally; a lost write must not surface as
+        // an unhandled rejection.
       });
     },
     [sessionId, headers],
