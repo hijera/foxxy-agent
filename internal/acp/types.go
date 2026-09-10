@@ -465,6 +465,17 @@ type MCPPhaseUpdate struct {
 const (
 	LLMRetryPhaseWaiting  = "waiting"
 	LLMRetryPhaseRetrying = "retrying"
+	// LLMRetryPhaseContinuing is a turn parked behind a partial answer: the stream
+	// was cut mid-sentence and the continuation request is in flight. Distinct from
+	// waiting, which is a deliberate pause before replaying a call that delivered
+	// nothing at all, and reported separately because the client is still showing
+	// the half-written answer while it lasts.
+	LLMRetryPhaseContinuing = "continuing"
+	// LLMRetryPhaseResumed says the provider is delivering again. It is what ends a
+	// park, and it is deliberately not LLMRetryPhaseRetrying: that one only says the
+	// next attempt was issued, and an attempt can hang for its whole request timeout
+	// without a byte arriving - during which the turn is still parked.
+	LLMRetryPhaseResumed = "resumed"
 )
 
 // LLMRetryUpdate tells the client that a turn is parked between two attempts at the same

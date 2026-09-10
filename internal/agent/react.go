@@ -493,6 +493,10 @@ func (a *Agent) runReActLoop(
 	stalls := newStallRetry(&a.cfg.Agent)
 	recoveryTurns := 0
 	stallContinues := 0
+	// Set when the client has been told the turn is parked behind a partial answer,
+	// so the same goroutine that sees the provider come back can take it away again.
+	// Atomic: it is set on the loop and cleared from the stream callback.
+	var announcedPark atomic.Bool
 	// A turn the stall guard restarts can come back with the same answer all over
 	// again, which no detector in loopguard.go can see: each attempt is a separate,
 	// well-formed response, and the repetition exists only between them. See
@@ -638,6 +642,17 @@ func (a *Agent) runReActLoop(
 		noteProgress := func(now time.Time) {
 			stopFirstTokenTimer()
 			lastProgress.Store(now.UnixNano())
+			// The provider is delivering again, so the "parked" label the client is
+			// showing over the frozen bubble has to go before the answer resumes under
+			// it. Every live channel routes through here - text, reasoning, tool calls
+			// and bare progress frames - so this is the one place that sees it.
+			if announcedPark.CompareAndSwap(true, false) {
+				_ = a.server.SendSessionUpdate(sessionID, acp.LLMRetryUpdate{
+					SessionUpdate: acp.UpdateTypeLLMRetry,
+					Phase:         acp.LLMRetryPhaseResumed,
+					Attempt:       stallContinues,
+				})
+			}
 			if transport.streaming && stallTimeout > 0 && stallArmed.CompareAndSwap(false, true) {
 				armStall(stallTimeout)
 			}
@@ -849,6 +864,16 @@ func (a *Agent) runReActLoop(
 				}
 				a.log.Warn("provider stopped sending data mid-answer; continuing",
 					"idle", stallTimeout, "continuation", stallContinues, "restarts", attemptRestarts)
+				// Tell the client the turn is parked. It is still showing the half-written
+				// answer as if it were arriving, and the row it renders the live status in
+				// is hidden for as long as a bubble streams - so without this the wait
+				// looks exactly like a turn that died.
+				announcedPark.Store(true)
+				_ = a.server.SendSessionUpdate(sessionID, acp.LLMRetryUpdate{
+					SessionUpdate: acp.UpdateTypeLLMRetry,
+					Phase:         acp.LLMRetryPhaseContinuing,
+					Attempt:       stallContinues,
+				})
 				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 				// LLM-facing only; never persisted to the transcript.
 				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})

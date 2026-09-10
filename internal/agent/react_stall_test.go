@@ -38,6 +38,17 @@ func (s *stallSender) SendSessionUpdate(_ string, update interface{}) error {
 	return nil
 }
 
+// phases lists the retry phases in the order the turn announced them.
+func (s *stallSender) phases() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.retries))
+	for _, u := range s.retries {
+		out = append(out, u.Phase)
+	}
+	return out
+}
+
 func (s *stallSender) waitingPhases() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -704,5 +715,60 @@ func TestReasoningOnlyStallIsNotAskedToContinueFromNothing(t *testing.T) {
 	}
 	if !hasNudge(p.request(2), "only your internal reasoning") {
 		t.Error("a reasoning-only stall did not get its own nudge")
+	}
+}
+
+// A stream cut mid-answer parks the turn behind a bubble the client is still
+// showing as streaming. Until the client is told, it has nothing to display: the
+// row the live status renders in is hidden for as long as a bubble streams, so
+// the operator watches a frozen half-answer with no sign the turn is alive.
+func TestStallMidAnswerAnnouncesTheParkAndClearsIt(t *testing.T) {
+	h := newStallHarness(t, &stallProvider{script: []stallBehaviour{
+		{partial: "The first half of the answer."},
+		{answer: " And the rest."},
+	}}, nil)
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	phases := h.sender.phases()
+	park := -1
+	for i, p := range phases {
+		if p == acp.LLMRetryPhaseContinuing {
+			park = i
+			break
+		}
+	}
+	if park < 0 {
+		t.Fatalf("the mid-answer park was never announced, phases = %v", phases)
+	}
+	// ...and it must be taken back once the provider started delivering again,
+	// or the label outlives the wait and lies over a live answer. Only a resumed
+	// phase does that: "retrying" says an attempt went out, not that it answered.
+	cleared := false
+	for _, p := range phases[park+1:] {
+		if p == acp.LLMRetryPhaseResumed {
+			cleared = true
+			break
+		}
+	}
+	if !cleared {
+		t.Errorf("the park was announced but never cleared, phases = %v", phases)
+	}
+}
+
+// A turn that never stalls must stay silent: no park, no clear.
+func TestHealthyTurnAnnouncesNoPark(t *testing.T) {
+	h := newStallHarness(t, &stallProvider{script: []stallBehaviour{{answer: "All done."}}}, nil)
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, p := range h.sender.phases() {
+		if p == acp.LLMRetryPhaseContinuing {
+			t.Fatalf("a healthy turn announced a park: %v", h.sender.phases())
+		}
 	}
 }
