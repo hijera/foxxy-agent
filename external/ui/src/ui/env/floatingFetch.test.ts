@@ -37,7 +37,7 @@ function unguardedFloatingFetches(text: string): number[] {
     // The call spans a few lines; the statement ends at the first line closing it
     // back at or below the opening indentation.
     const window = lines.slice(i, i + 15).join("\n");
-    const stmt = window.split(/;\s*(?:\r?\n|$)/)[0];
+    const stmt = window.split(/;\s*(?:\r?\n|$)/)[0] ?? window;
     if (!/\.catch\s*\(/.test(stmt)) bad.push(i + 1);
   });
   return bad;
