@@ -578,6 +578,32 @@ export const schemaTextRu: Record<string, string> = {
   "List repository branches": "Список веток репозитория",
   "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.":
     "Разрешает получать список trunk и branches/ для меню чипа SVN. Требует обращения к серверу; отключите на медленном канале.",
+
+  // Hooks
+  "Hooks":
+    "Хуки",
+  "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.":
+    "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
+  "Load and run hooks at all (default true).":
+    "Загружать и запускать хуки вообще (по умолчанию включено).",
+  "Definition files":
+    "Файлы определений",
+  "Lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.":
+    "Сначала файлы с низшим приоритетом; выполняется каждый подходящий хук. ${FOXXYCODE_HOME} и ${CWD} раскрываются. Файлы внутри рабочей папки считаются проектными и подчиняются политике доверия; из файла настроек Claude Code читается только ключ hooks.",
+  "Project hooks":
+    "Проектные хуки",
+  'Hook files found inside the workspace travel with the checkout. "ask": list them but run nothing until the file is approved for this workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust). "allow": treat them like your own file. "deny": never read them.':
+    "Файлы хуков внутри рабочей папки приходят вместе с checkout. «ask»: показывать их, но ничего не запускать, пока файл не одобрен для этой папки на машине, где работает foxxycode (foxxycode hooks trust там или POST /foxxycode/hooks/trust). «allow»: считать их своими. «deny»: никогда не читать.",
+  "Hard limit for one hook process whose definition gives no timeout (default 60).":
+    "Жёсткий лимит для процесса хука, у которого в определении нет своего таймаута (по умолчанию 60).",
+  "Stop loop limit":
+    "Лимит цикла Stop",
+  "How many times per turn a Stop hook may send the agent back to work (default 5).":
+    "Сколько раз за ход хук Stop может вернуть агента к работе (по умолчанию 5).",
+  "Max output chars":
+    "Максимум символов вывода",
+  "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).":
+    "Предел для контекста, сообщений и причин, которые один хук передаёт модели или пользователю; более длинные значения обрезаются с пометкой (по умолчанию 10000).",
 };
 
 /**

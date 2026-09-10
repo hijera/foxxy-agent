@@ -166,6 +166,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerMemoryRoutes()
 	s.registerBackgroundRoutes()
 	s.registerSubagentRoutes()
+	s.registerHookRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()

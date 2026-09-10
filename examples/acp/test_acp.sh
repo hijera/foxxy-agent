@@ -28,6 +28,7 @@ python3 "$ACP_DIR/acp_e2e_mentions.py"
 # Stages a config edit into a temp config copy, confirm-commits, then rolls back.
 python3 "$ACP_DIR/acp_e2e_config.py"
 python3 "$ACP_DIR/acp_e2e_memory.py"
+python3 "$ACP_DIR/acp_e2e_hooks.py"
 python3 "$ACP_DIR/acp_e2e_toolcalls_persist.py"
 python3 "$ACP_DIR/acp_e2e_compact.py"
 python3 "$ACP_DIR/acp_e2e_scheduler_agent.py"

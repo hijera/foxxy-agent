@@ -242,6 +242,7 @@ export const messagesRu: Record<string, string> = {
   "settings.sectionDesc.autocomplete": "Подсказки кода в редакторе",
   "settings.sectionDesc.tools": "Разрешения и лимиты инструментов",
   "settings.sectionDesc.subagents": "Дочерние агенты и делегирование",
+  "settings.sectionDesc.hooks": "Хуки жизненного цикла и доверие",
   "settings.sectionDesc.mcp_servers": "Внешние инструменты MCP",
   "settings.sectionDesc.skills": "Установленные слэш-навыки",
   "settings.sectionDesc.memory": "Параметры долговременной памяти",

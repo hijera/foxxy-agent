@@ -544,6 +544,71 @@
         "telegram"
       ]
     },
+    "hooks": {
+      "additionalProperties": false,
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
+      "properties": {
+        "default_timeout_seconds": {
+          "default": 60,
+          "description": "Hard limit for one hook process whose definition gives no timeout (default 60).",
+          "title": "Default timeout (s)",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Load and run hooks at all (default true).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "files": {
+          "default": [
+            "${FOXXYCODE_HOME}/hooks.json",
+            "${CWD}/.claude/settings.json",
+            "${CWD}/.claude/settings.local.json",
+            "${CWD}/.foxxycode/hooks.json"
+          ],
+          "description": "Lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Definition files",
+          "type": "array"
+        },
+        "max_output_chars": {
+          "default": 10000,
+          "description": "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).",
+          "title": "Max output chars",
+          "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Hook files found inside the workspace travel with the checkout. \"ask\": list them but run nothing until the file is approved for this workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust). \"allow\": treat them like your own file. \"deny\": never read them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project hooks",
+          "type": "string"
+        },
+        "stop_loop_limit": {
+          "default": 5,
+          "description": "How many times per turn a Stop hook may send the agent back to work (default 5).",
+          "title": "Stop loop limit",
+          "type": "integer"
+        }
+      },
+      "title": "Hooks",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "files",
+        "project_trust",
+        "default_timeout_seconds",
+        "stop_loop_limit",
+        "max_output_chars"
+      ]
+    },
     "instructions": {
       "additionalProperties": false,
       "description": "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
@@ -1483,6 +1548,7 @@
     "autocomplete",
     "tools",
     "subagents",
+    "hooks",
     "mcp_servers",
     "skills",
     "memory",

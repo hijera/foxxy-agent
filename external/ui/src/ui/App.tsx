@@ -2669,11 +2669,16 @@ export function App() {
     const next: TranscriptItem[] = [];
     const pushUiNoticesForTurn = (turn: number) => {
       for (const row of noticesByTurn.get(turn) || []) {
-        if (row.level !== "error") continue;
+        // Only the two levels the transcript knows how to render; a level a
+        // newer server may add stays invisible rather than mis-rendered.
+        if (row.level !== "error" && row.level !== "notice") continue;
         next.push({
           id: row.id,
           type: "system_notice",
-          level: "error",
+          // The server calls the neutral level "notice"; the transcript has
+          // called it "info" since the re-attach rows, and renders one style
+          // for both.
+          level: row.level === "notice" ? "info" : "error",
           message: row.message,
           createdAtUtc: row.createdAt,
         });

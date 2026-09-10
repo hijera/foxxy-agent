@@ -57,6 +57,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `mcp_servers` - MCP servers started per session (stdio command, args, env; url and headers for the http/sse transports; `insecure_skip_verify` to accept a self-signed TLS certificate; disabled flag);
 - `mcp` - trust policy for project-local `.foxxycode/mcp.json` declarations (`project_trust`);
 - `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;
+- `hooks` - operator commands run at lifecycle points of a session (before and after a tool call: deny it, approve it past the permission prompt, rewrite its arguments, add context): the definition files (`files`, Claude Code's JSON shape, `~/.foxxycode/hooks.json` plus the workspace's `.foxxycode/hooks.json` and `.claude/settings*.json`), the trust policy for files found inside the workspace (`project_trust`: `ask` lists them but runs nothing until the file is approved on the machine running foxxycode with `foxxycode hooks trust <file>` there or `POST /foxxycode/hooks/trust`; `allow` runs them like the operator's own file; `deny` never reads them), the per-hook default timeout (`default_timeout_seconds`), the Stop-hook loop cap (`stop_loop_limit`) and the output cap (`max_output_chars`). To let a trusted checkout's hooks run without approvals, stage `set hooks.project_trust=allow`; to switch hooks off, `set hooks.enabled=false`;
 - `logger` - level, outputs, rotation;
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;
