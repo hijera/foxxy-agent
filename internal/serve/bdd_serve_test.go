@@ -307,7 +307,9 @@ func (s *serveFeatureState) subsystemDisabled(name string) error {
 }
 
 func (s *serveFeatureState) listenAddressIs(want string) error {
-	got := s.cfg.HTTPServer.DefaultListenHost() + ":" + s.cfg.HTTPServer.DefaultListenPortString()
+	// ServeListenHost, not DefaultListenHost: `foxxycode http` still answers on
+	// every interface, and this feature is about `foxxycode serve`.
+	got := s.cfg.HTTPServer.ServeListenHost() + ":" + s.cfg.HTTPServer.DefaultListenPortString()
 	if got != want {
 		return fmt.Errorf("listen address = %q, want %q", got, want)
 	}
