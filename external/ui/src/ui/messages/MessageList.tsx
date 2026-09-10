@@ -18,7 +18,11 @@ import {
   snapshotMcpConnecting,
   subscribeMcpConnecting,
 } from "../chat/mcpConnectingState";
-import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
+import {
+  deriveLiveStatus,
+  truncateStatusTarget,
+  type LiveStatusKind,
+} from "../chat/liveStatus";
 import {
   getStatusLineEnabled,
   onStatusLineChange,
@@ -53,6 +57,21 @@ function mainThinkingOverlapsMemory(
   }
   return false;
 }
+
+/**
+ * States where nothing is arriving: no model call is in flight, so a bubble the
+ * provider cut mid-answer will sit there unchanged until one of them clears.
+ *
+ * They matter because `streaming` is only cleared when the turn ends. Through the
+ * whole wait the bubble still counts as streaming, so the dots row - the one place
+ * the live status is rendered - stayed hidden, and the operator watched a frozen
+ * half-answer with no sign the turn was alive.
+ */
+const PARKED_STATUS_KINDS: ReadonlySet<LiveStatusKind> = new Set<LiveStatusKind>([
+  "reconnecting",
+  "llmretry",
+  "mcp",
+]);
 
 function hasStreamingAssistant(items: TranscriptItem[]): boolean {
   return items.some(
@@ -156,6 +175,11 @@ export function MessageList(props: {
       llmRetrying,
     ],
   );
+
+  // Only the parked kinds earn a row under a bubble that is already on screen:
+  // while text is actually arriving there is nothing to announce.
+  const parked =
+    liveStatus !== null && PARKED_STATUS_KINDS.has(liveStatus.kind);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -409,7 +433,8 @@ export function MessageList(props: {
           />
         );
       })}
-      {props.generating === true && !hasStreamingAssistant(props.items) ? (
+      {props.generating === true &&
+      (!hasStreamingAssistant(props.items) || parked) ? (
         <TypingDotsMessage
           {...(liveStatus
             ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }

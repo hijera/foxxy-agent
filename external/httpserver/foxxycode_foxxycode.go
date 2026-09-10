@@ -1124,10 +1124,21 @@ func (s *Server) foxxycodeSessionPatch(w http.ResponseWriter, r *http.Request) {
 		MarkActivityRead  bool    `json:"markActivityRead"`
 		SelectedModelID   *string `json:"selectedModelId"`
 		SelectedReasoning *string `json:"selectedReasoning"`
+		Mode              *string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
+	}
+	// Validated before anything is written, so a rejected mode cannot leave the
+	// other keys of the same patch half-applied.
+	patchMode := ""
+	if body.Mode != nil {
+		patchMode = strings.TrimSpace(*body.Mode)
+		if !session.IsValidMode(patchMode) {
+			http.Error(w, `{"error":{"message":"invalid mode"}}`, http.StatusBadRequest)
+			return
+		}
 	}
 	st := s.foxxycodeEnsureLoaded(w, r, id)
 	if st == nil {
@@ -1139,6 +1150,15 @@ func (s *Server) foxxycodeSessionPatch(w http.ResponseWriter, r *http.Request) {
 		"id":     id,
 	}
 	did := false
+	// The session profile, so the composer's Mode survives a reload even when
+	// the user switched it without sending a turn. A turn writes it too
+	// (POST /v1/responses carries the profile as its top-level model), but that
+	// leaves the gap between picking a mode and using it.
+	if patchMode != "" {
+		st.SetMode(patchMode)
+		did = true
+		resp["mode"] = string(st.GetMode())
+	}
 	if body.SelectedModelID != nil {
 		if err := applySessionYAMLModel(s.activeCfg(), st, *body.SelectedModelID); err != nil {
 			if errors.Is(err, ErrUnknownMetadataModel) {
@@ -1180,7 +1200,7 @@ func (s *Server) foxxycodeSessionPatch(w http.ResponseWriter, r *http.Request) {
 		resp["title"] = t
 	}
 	if !did {
-		http.Error(w, `{"error":{"message":"title, markActivityRead, selectedModelId, or selectedReasoning required"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"title, markActivityRead, mode, selectedModelId, or selectedReasoning required"}}`, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -38,6 +38,17 @@ func (s *stallSender) SendSessionUpdate(_ string, update interface{}) error {
 	return nil
 }
 
+// phases lists the retry phases in the order the turn announced them.
+func (s *stallSender) phases() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.retries))
+	for _, u := range s.retries {
+		out = append(out, u.Phase)
+	}
+	return out
+}
+
 func (s *stallSender) waitingPhases() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -58,6 +69,9 @@ type stallBehaviour struct {
 	// partial streams this text and then blocks until cancelled: the mid-answer
 	// stall.
 	partial string
+	// partialReason streams this reasoning and then blocks until cancelled: the
+	// mid-answer stall of a model that had not started writing its answer yet.
+	partialReason string
 	// progressOnly streams this many Progress chunks, spaced apart, before
 	// answering: a model writing one large tool call, invisible to the caller.
 	progressOnly int
@@ -92,6 +106,17 @@ func (p *stallProvider) callCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.calls
+}
+
+// request returns the messages of the nth call, 1-based, for the tests that care
+// which attempt carried which nudge.
+func (p *stallProvider) request(n int) []llm.Message {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if n < 1 || n > len(p.seen) {
+		return nil
+	}
+	return p.seen[n-1]
 }
 
 func (p *stallProvider) lastMessages() []llm.Message {
@@ -140,6 +165,11 @@ func (p *stallProvider) Stream(ctx context.Context, messages []llm.Message, _ []
 		onChunk(llm.StreamChunk{TextDelta: b.partial})
 		<-ctx.Done()
 		return &llm.Response{Content: b.partial}, ctx.Err()
+
+	case b.partialReason != "":
+		onChunk(llm.StreamChunk{ReasoningDelta: b.partialReason})
+		<-ctx.Done()
+		return &llm.Response{}, ctx.Err()
 
 	case b.progressOnly > 0:
 		for i := 0; i < b.progressOnly; i++ {
@@ -593,5 +623,152 @@ func TestStallContinuationDoesNotConsumeReactTurns(t *testing.T) {
 	}
 	if got := p.callCount(); got != 3 {
 		t.Errorf("provider called %d times, want 3", got)
+	}
+}
+
+// hasNudge reports whether one request carried an LLM-facing user message with
+// this text. Every nudge in the ReAct loop travels that way and none of them are
+// persisted, so the request slice is the only place to look for them.
+func hasNudge(msgs []llm.Message, want string) bool {
+	for _, m := range msgs {
+		if m.Role == llm.RoleUser && strings.Contains(m.Content, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRepeatedRestartTellsTheModelItIsRepeating is the reported bug. A hub that
+// keeps dropping the same answer used to get the same polite "carry on" every
+// time, and the model answered it by starting over - the operator watched the
+// same opening paragraph arrive every few minutes. The second time an opening
+// comes back, the model is told so instead.
+func TestRepeatedRestartTellsTheModelItIsRepeating(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{{partial: "I will fix the compile errors. First the constants."}}}
+	h := newStallHarness(t, p, nil)
+
+	_, err := h.run(t)
+	if err == nil {
+		t.Fatal("expected the turn to stop once the continuation budget ran out")
+	}
+	if got := p.callCount(); got != maxStallContinuations+1 {
+		t.Fatalf("provider called %d times, want %d", got, maxStallContinuations+1)
+	}
+
+	// The first continuation cannot know it is a repeat yet.
+	if !hasNudge(p.request(2), "cut off part-way through") {
+		t.Error("the first continuation did not carry the plain stall nudge")
+	}
+	// The second one does: the same opening came back.
+	if !hasNudge(p.request(3), "begins the same way") {
+		t.Error("the second continuation did not tell the model it was repeating itself")
+	}
+	for _, m := range h.st.GetMessages() {
+		if strings.Contains(m.Content, "begins the same way") {
+			t.Error("the repeat nudge leaked into the persisted transcript")
+		}
+	}
+	if !strings.Contains(err.Error(), "restarted the same answer") {
+		t.Errorf("error = %q, want it to name the restarts as well as the provider", err)
+	}
+	if !strings.Contains(err.Error(), "stopped sending data mid-answer") {
+		t.Errorf("error = %q, want the provider still named as the cause", err)
+	}
+}
+
+// TestRepeatedRestartAsksForAnAnswerWithToolsWithheld is the escalation: a model
+// that keeps restarting is eventually made to answer from what it has, the same
+// way a model with nothing left but a quarantined loop is.
+func TestRepeatedRestartAsksForAnAnswerWithToolsWithheld(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{{partial: "I will fix the compile errors."}}}
+	h := newStallHarness(t, p, nil)
+
+	if _, err := h.run(t); err == nil {
+		t.Fatal("expected the turn to stop once the continuation budget ran out")
+	}
+	if !hasNudge(p.request(4), "No tools are available on this request") {
+		t.Error("the third continuation did not take the tools away and ask for the answer")
+	}
+}
+
+// TestReasoningOnlyStallIsNotAskedToContinueFromNothing covers the partial that
+// had no answer text: only reasoning got through, and an OpenAI-compatible
+// endpoint replays that as an empty assistant message. "Continue from exactly
+// where it stops" then points at nothing, which is what makes the model start
+// over.
+func TestReasoningOnlyStallIsNotAskedToContinueFromNothing(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{partialReason: "Let me work out which constants are wrong."},
+		{answer: "The constants are fixed."},
+	}}
+	h := newStallHarness(t, p, nil)
+
+	stop, err := h.run(t)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Errorf("stop reason = %q, want end_turn", stop)
+	}
+	if hasNudge(p.request(2), "Continue from exactly where it stops") {
+		t.Error("a reasoning-only stall was told to continue from an empty message")
+	}
+	if !hasNudge(p.request(2), "only your internal reasoning") {
+		t.Error("a reasoning-only stall did not get its own nudge")
+	}
+}
+
+// A stream cut mid-answer parks the turn behind a bubble the client is still
+// showing as streaming. Until the client is told, it has nothing to display: the
+// row the live status renders in is hidden for as long as a bubble streams, so
+// the operator watches a frozen half-answer with no sign the turn is alive.
+func TestStallMidAnswerAnnouncesTheParkAndClearsIt(t *testing.T) {
+	h := newStallHarness(t, &stallProvider{script: []stallBehaviour{
+		{partial: "The first half of the answer."},
+		{answer: " And the rest."},
+	}}, nil)
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	phases := h.sender.phases()
+	park := -1
+	for i, p := range phases {
+		if p == acp.LLMRetryPhaseContinuing {
+			park = i
+			break
+		}
+	}
+	if park < 0 {
+		t.Fatalf("the mid-answer park was never announced, phases = %v", phases)
+	}
+	// ...and it must be taken back once the provider started delivering again,
+	// or the label outlives the wait and lies over a live answer. Only a resumed
+	// phase does that: "retrying" says an attempt went out, not that it answered.
+	cleared := false
+	for _, p := range phases[park+1:] {
+		if p == acp.LLMRetryPhaseResumed {
+			cleared = true
+			break
+		}
+	}
+	if !cleared {
+		t.Errorf("the park was announced but never cleared, phases = %v", phases)
+	}
+}
+
+// A turn that never stalls must stay silent: no park, no clear.
+func TestHealthyTurnAnnouncesNoPark(t *testing.T) {
+	h := newStallHarness(t, &stallProvider{script: []stallBehaviour{{answer: "All done."}}}, nil)
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, p := range h.sender.phases() {
+		if p == acp.LLMRetryPhaseContinuing {
+			t.Fatalf("a healthy turn announced a park: %v", h.sender.phases())
+		}
 	}
 }

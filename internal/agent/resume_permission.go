@@ -126,13 +126,10 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			}
 			return session.WritePlanArchivedMarkdown(sessionDir, md)
 		},
-		Sender:  a.server,
-		GetPlan: a.state.GetPlan,
-		SetPlan: a.state.SetPlan,
-		SetSessionMode: func(m string) error {
-			a.state.SetMode(strings.TrimSpace(m))
-			return nil
-		},
+		Sender:         a.server,
+		GetPlan:        a.state.GetPlan,
+		SetPlan:        a.state.SetPlan,
+		SetSessionMode: a.setSessionModeAnnounced,
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
