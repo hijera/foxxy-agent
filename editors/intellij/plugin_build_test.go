@@ -318,11 +318,13 @@ func TestBundledBinaryTagsMatchShippedTagSet(t *testing.T) {
 	if fullTags == nil {
 		t.Fatal("FULL_TAGS not found in the root Makefile; this test's regex needs updating")
 	}
-	// `cli` is deliberately not bundled: the plugins speak ACP to the binary and
-	// never open the console TUI. Every other full-build tag must be present.
+	// `cli` and `swarm` are deliberately not bundled: the plugins speak ACP to
+	// the binary, so they never open the console TUI and never run a swarm
+	// relay. Every other full-build tag must be present.
+	notBundled := map[string]bool{"cli": true, "swarm": true}
 	want := map[string]bool{}
 	for _, tag := range strings.Fields(fullTags[1]) {
-		if tag != "cli" {
+		if !notBundled[tag] {
 			want[tag] = true
 		}
 	}
@@ -355,7 +357,7 @@ func TestBundledBinaryTagsMatchShippedTagSet(t *testing.T) {
 		for tag := range want {
 			if !tags[tag] {
 				t.Errorf("%s bundles a binary without the %q tag; the full build set is %q",
-					plugin, tag, fullTags[1])
+					plugin, tag, strings.TrimSpace(fullTags[1]))
 			}
 		}
 	}
