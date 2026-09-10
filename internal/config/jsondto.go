@@ -158,6 +158,8 @@ type AgentJSON struct {
 	LoopToolCycleRepeats   *int   `json:"loop_tool_cycle_repeats,omitempty"`
 	LoopStuckAction        string `json:"loop_stuck_action,omitempty"`
 	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
+	WaitForLimitReset      bool   `json:"wait_for_limit_reset,omitempty"`
+	WaitForLimitResetMaxMS *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -424,6 +426,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopToolCycleRepeats:   c.Agent.LoopToolCycleRepeats,
 		LoopStuckAction:        c.Agent.LoopStuckAction,
 		LoopNudgeMax:           c.Agent.LoopNudgeMax,
+		WaitForLimitReset:      c.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
@@ -647,6 +651,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopToolCycleRepeats:   j.Agent.LoopToolCycleRepeats,
 		LoopStuckAction:        j.Agent.LoopStuckAction,
 		LoopNudgeMax:           j.Agent.LoopNudgeMax,
+		WaitForLimitReset:      j.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,
