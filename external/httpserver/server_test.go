@@ -1936,6 +1936,71 @@ func TestFoxxyCodeSessionPatchSelectedModelId(t *testing.T) {
 	}
 }
 
+// The happy path lives in features/session_mode_model_sync.feature; these are
+// the edge cases that keep a bad mode out of session.json.
+func TestFoxxyCodeSessionPatchModeRejectsUnknownValues(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	patch := func(payload string) (int, []byte) {
+		req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		resHTTP, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resHTTP.StatusCode, b
+	}
+
+	if status, b := patch(`{"mode":"plan"}`); status != http.StatusOK {
+		t.Fatalf("patch mode status %d %s", status, b)
+	}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Mode != "plan" {
+		t.Fatalf("disk mode %q, want plan", snap.Meta.Mode)
+	}
+
+	// A bad mode must not land on the session: the reload guard in the manager
+	// would silently rewrite it to agent, losing the user's real choice.
+	if status, b := patch(`{"mode":"wizard"}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for unknown mode got %d %s", status, b)
+	}
+	if status, b := patch(`{"mode":"  "}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for blank mode got %d %s", status, b)
+	}
+	if st := mgr.SessionByID(sid); st == nil || st.GetMode() != "plan" {
+		t.Fatalf("a refused patch changed the session mode: %v", st)
+	}
+
+	// An empty body still names every writable key, mode included.
+	status, b := patch(`{}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("want 400 for an empty patch got %d %s", status, b)
+	}
+	if !strings.Contains(string(b), "mode") {
+		t.Fatalf("the required-keys error does not mention mode: %s", b)
+	}
+}
+
 func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {

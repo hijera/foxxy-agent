@@ -288,13 +288,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			}
 			return session.WritePlanArchivedMarkdown(sd, md)
 		},
-		Sender:  a.server,
-		GetPlan: a.state.GetPlan,
-		SetPlan: a.state.SetPlan,
-		SetSessionMode: func(mode string) error {
-			a.state.SetMode(strings.TrimSpace(mode))
-			return nil
-		},
+		Sender:         a.server,
+		GetPlan:        a.state.GetPlan,
+		SetPlan:        a.state.SetPlan,
+		SetSessionMode: a.setSessionModeAnnounced,
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
@@ -333,6 +330,25 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.applySubagentEnv(toolEnv, mode)
 
 	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
+}
+
+// setSessionModeAnnounced switches the session profile and tells the client it
+// happened, the way session.RunPlan does. plan_exit is the model's own way out
+// of plan mode, so a client that never hears about it keeps posting "plan" and
+// the next turn writes that back onto the session.
+func (a *Agent) setSessionModeAnnounced(mode string) error {
+	m := strings.TrimSpace(mode)
+	a.state.SetMode(m)
+	if a.server == nil {
+		return nil
+	}
+	if err := a.server.SendSessionUpdate(a.state.GetID(), acp.ModeUpdate{
+		SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
+		CurrentModeID: m,
+	}); err != nil {
+		a.log.Warn("failed to send mode update", "error", err)
+	}
+	return nil
 }
 
 // wireFileEditHook connects Env.OnFileEdit to the update sender so filesystem writes are
