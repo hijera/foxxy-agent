@@ -181,6 +181,7 @@ make build-desktop
 | **`cli`** | Интерактивная консоль-TUI — голый **`foxxycode`** в терминале (или **`foxxycode cli`**): чат с потоковым выводом, карточки инструментов, диалоги разрешений, **`!!<команда>`** выполняет команду локально, и агент её не видит; **`foxxycode -c`** продолжает последнюю сессию, **`foxxycode -p "..."`** выполняет один промпт неинтерактивно, **`--remote <имя|host:port|url>`** (плюс `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) работает против удалённого `foxxycode http` — те же флаги принимает `foxxycode acp`. Визуальное оформление вдохновлено TUI [pi coding agent](https://github.com/badlogic/pi-mono) (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
 | **`gateway.telegram`** | Адаптер Telegram-бота — подкоманда **`foxxycode gateway`**, отдельные сессии пользователей и контроль доступа | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | Все адаптеры мессенджеров (надмножество `gateway.telegram`; позволяет добавлять Discord и Slack без изменений ядра) | [`docs/gateway.md`](docs/gateway.md) |
+| **`swarm`** | Реле роя: узлы регистрируются в нём, а сами реле сцепляются друг с другом. Поднимается командой **`foxxycode serve`** при **`swarm.enabled: true`**; список **`swarm.join`** работает в любой сборке и делает обычного агента достижимым через реле | [`docs/swarm.md`](docs/swarm.md) |
 | **`desktop`** | Настольное приложение Windows на WebView2 (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; требует **`http`**, **`ui`** и Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
 
 Расширенное описание и соответствие Docker-сборке: **[docs/build.md](docs/build.md)**.
@@ -610,6 +611,7 @@ LLM  Инструменты Навыки  MCP
 - [Встраивание в IntelliJ](docs/intellij-embedding.md) — как плагин размещает у себя SPA и бинарник
 - [Удалённое управление](docs/remote-control.md) — работа против удалённого `foxxycode http`
 - [Диагностика](docs/debugging.md) — включаемый слой `debug:`: захват сырых LLM-запросов, трассировка хода, `GET /foxxycode/sessions/{id}/debug`, переключение без перезапуска
+- [Рой (swarm)](docs/swarm.md) — реле, в которое регистрируются узлы: `foxxycode serve`, сцепление реле, обратный туннель для узла за файрволом и экран топологии в интерфейсе
 - [Шлюз мессенджеров](docs/gateway.md) — адаптер Telegram-бота, изоляция сессий, ACL и создание новых адаптеров
 
 ## Примеры (ACP через stdio)

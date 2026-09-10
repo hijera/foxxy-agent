@@ -140,6 +140,8 @@ func main() {
 		err = runDesktop(args[1:])
 	case "gateway":
 		err = runGateway(args[1:])
+	case "serve":
+		err = runServe(args[1:])
 	case "sessions":
 		err = runSessions(args[1:])
 	case "skills":
@@ -204,6 +206,7 @@ func printUsage(w *os.File) {
   %[1]s hooks list [--cwd DIR]
   %[1]s hooks trust <file> [--cwd DIR]
   %[1]s hooks untrust <file> [--cwd DIR]
+  %[1]s serve [flags]                  # every enabled subsystem in one process
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]

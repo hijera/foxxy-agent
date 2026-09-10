@@ -184,6 +184,7 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 | **`cli`** | Interactive console TUI — bare **`foxxycode`** on a terminal (or **`foxxycode cli`**): chat with streaming, tool boxes, permission modals, **`!!<command>`** to run a shell command locally that the agent never sees; **`foxxycode -c`** continues the latest session, **`foxxycode -p "..."`** runs one prompt non-interactively, **`--remote <name|host:port|url>`** (+ `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) drives a remote `foxxycode http` server — the same flags work on `foxxycode acp`. Visual design inspired by the [pi coding agent](https://github.com/badlogic/pi-mono) TUI (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
 | **`gateway.telegram`** | Telegram bot adapter — **`foxxycode gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
+| **`swarm`** | Swarm relay: nodes register into it and relays chain into each other. Run it with **`foxxycode serve`** and **`swarm.enabled: true`**; the **`swarm.join`** list is honoured by any build, which is what makes an ordinary agent reachable through a relay | [`docs/swarm.md`](docs/swarm.md) |
 | **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; needs **`http`**, **`ui`**, Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
 
 Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
@@ -604,6 +605,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [ZCode hooks](docs/zcode-hooks.md) - the same for ZCode sessions
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 - [Diagnostics](docs/debugging.md) - opt-in `debug:` layer: raw LLM capture, per-session turn trace, `GET /foxxycode/sessions/{id}/debug`, runtime toggle
+- [Swarm](docs/swarm.md) - the relay nodes register into: `foxxycode serve`, chained relays, the reverse tunnel for a node behind a firewall, and the topology screen in the web UI
 - [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 
 ## Examples (ACP over stdio)
