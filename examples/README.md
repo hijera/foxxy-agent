@@ -16,6 +16,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`e2e_compact`** | **`httpserver/http_e2e_compact.py`** (`/compact` prompt + REST endpoint; a manual trigger folds even a one-turn session) | **`acp/acp_e2e_compact.py`** (also auto threshold via tiny-window config) |
 | **`e2e_skills_slash`** | **`httpserver/http_e2e_skills_slash.py`** | **`acp/acp_e2e_skills_slash.py`** |
 | **`e2e_rules`** | **`httpserver/http_e2e_rules.py`** | **`acp/acp_e2e_rules.py`** |
+| **`e2e_mentions`** | **`httpserver/http_e2e_mentions.py`** (`GET /foxxycode/workspace/file`, `attachments[].source.startLine`/`endLine`, the typed `@file:N-M` grammar, `400` for lines past the end) | **`acp/acp_e2e_mentions.py`** (typed `@file:N-M`, a `resource` with a `#L5-5` URI fragment, refused range past the end) |
 | **`e2e_scheduler_api`** | **`httpserver/http_e2e_scheduler_api.py`** | (REST is HTTP-only) |
 | **`e2e_scheduler_agent`** | **`httpserver/http_e2e_scheduler_agent.py`** | **`acp/acp_e2e_scheduler_agent.py`** |
 | **`e2e_plan_files`** | **`httpserver/http_e2e_plan_files.py`** | **`acp/acp_e2e_plan_files.py`** |

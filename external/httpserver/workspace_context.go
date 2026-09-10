@@ -105,7 +105,7 @@ func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Req
 		}
 		cwd = abs
 	} else {
-		resolved, ok := s.resolveSlashListCWD(w, r)
+		resolved, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}
@@ -169,7 +169,7 @@ func (s *Server) foxxycodeWorkspaceFoldersGet(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if dir == "" {
-		cwd, ok := s.resolveSlashListCWD(w, r)
+		cwd, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}

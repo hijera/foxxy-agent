@@ -600,3 +600,26 @@ func TestConcurrentPatchSessionMetaActivitySync(t *testing.T) {
 		t.Fatalf("activitySeq=%d", snap.Meta.ActivitySeq)
 	}
 }
+
+func TestDeriveSessionTitleStripsAttachmentBlocks(t *testing.T) {
+	st := &State{ID: "sess_title_att", CWD: "/tmp", Mode: ModeAgent}
+	st.AddMessage(llm.Message{
+		Role: llm.RoleUser,
+		Content: "@Dockerfile:21-31 почему медленно?\n\n" +
+			"<foxxycode_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n" +
+			"<![CDATA[RUN go mod download]]>\n</foxxycode_attachment>",
+	})
+	if got := deriveSessionTitle(st); got != "@Dockerfile:21-31 почему медленно?" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A file body may itself contain the closing tag; the CDATA-aware scan must not
+// cut the block short there and leak the rest of the body into the title.
+func TestStripContextBlocksIgnoresTagsInsideCDATA(t *testing.T) {
+	raw := "ask\n\n<foxxycode_attachment path=\"trap.txt\" name=\"trap.txt\">\n" +
+		"<![CDATA[first ]]]]><![CDATA[> then </foxxycode_attachment> SECRET]]>\n</foxxycode_attachment>\ntail"
+	if got := StripContextBlocks(raw, TagAttachment); got != "ask\n\n\ntail" {
+		t.Fatalf("got %q", got)
+	}
+}
