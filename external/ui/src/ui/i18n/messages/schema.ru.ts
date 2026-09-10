@@ -464,6 +464,9 @@ export const schemaTextRu: Record<string, string> = {
   "Status line": "Строка статуса",
   "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.":
     "Показывать рядом с анимированными точками строку статуса: текущий инструмент и над чем он работает, ожидание ответа модели и прошедшее время. Выключите, чтобы остались только точки.",
+  "Changed files card": "Карточка изменённых файлов",
+  "Show a card under the transcript summarising every file the session changed, with a viewer for the diffs and a button to roll them back. Turn off to hide the card; the Changes button in the IntelliJ and VS Code plugins stays available.":
+    "Показывать под перепиской карточку со всеми файлами, которые изменила сессия: просмотр диффов и кнопка отката. Выключите, чтобы скрыть карточку; кнопка «Изменения» в плагинах IntelliJ и VS Code останется.",
 
   // Browser tool
   "Browser tool": "Инструмент браузера",

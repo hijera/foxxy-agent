@@ -30,4 +30,13 @@ data class FoxxyCodeEditEvent(
      * the OS file manager rather than an editor tab.
      */
     val isRevealFile: Boolean get() = type == "reveal_file"
+
+    /**
+     * User asked to review everything the session changed (the Review button on
+     * the changed-files card). Carries the session id, plus the clicked file's
+     * path when the user picked one row rather than the summary; the plugin
+     * reads the change set from the HTTP API itself, so this is user-initiated
+     * and, like open_file, must skip the in-project / native-diff filters.
+     */
+    val isOpenChanges: Boolean get() = type == "open_changes"
 }

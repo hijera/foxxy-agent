@@ -60,6 +60,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
 - `httpserver` - OpenAI-compatible HTTP API defaults, auth token, CORS, UI (tag `http`);
+- `ui` - embedded SPA preferences (tags `http,ui`): `enabled` to serve the SPA at `GET /`, `locale`, `send_mode`, `status_line`, and `session_changes` - set `session_changes: false` to hide the changed-files card under the transcript (the Changes button in the IDE plugins is unaffected);
 - `scheduler` - cron scheduler (tag `scheduler`);
 - `gateways` - messenger bots such as Telegram (tag `gateway`);
 - `browser` - interactive browser tools (tag `browser`): `enabled`, `headless`, `executable_path`, `timeout_seconds`, and `screenshots` - set `screenshots: false` to drive the browser text-only, which suits a model without vision and drops the base64 image from every request.

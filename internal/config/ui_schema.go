@@ -660,9 +660,10 @@ func UISchemaMap() map[string]interface{} {
 					"description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
 					"enum":        []string{UISendModeEnter, UISendModeCtrlEnter, UISendModeOff},
 				},
-				"status_line": boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
+				"status_line":     boolProp("Status line", "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots."),
+				"session_changes": boolProp("Changed files card", "Show a card under the transcript summarising every file the session changed, with a viewer for the diffs and a button to roll them back. Turn off to hide the card; the Changes button in the IntelliJ and VS Code plugins stays available."),
 			},
-			[]string{"enabled", "locale", "send_mode", "status_line"},
+			[]string{"enabled", "locale", "send_mode", "status_line", "session_changes"},
 			nil),
 	}
 

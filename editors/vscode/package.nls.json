@@ -4,6 +4,11 @@
 
   "view.container.title": "FoxxyCode",
   "view.name": "FoxxyCode",
+  "view.changes.name": "Changes",
+  "cmd.showChanges.title": "Show Session Changes",
+  "cmd.showChanges.title.ru": "Показать изменения сессии",
+  "cmd.refreshChanges.title": "Refresh Session Changes",
+  "cmd.refreshChanges.title.ru": "Обновить изменения сессии",
 
   "cmd.openPanel.title": "FoxxyCode: Open Panel",
   "cmd.openPanel.title.ru": "FoxxyCode: Открыть панель",

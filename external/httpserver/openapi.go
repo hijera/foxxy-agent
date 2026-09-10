@@ -1152,6 +1152,225 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/sessions/{id}/changes": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List every file the session changed",
+					"description": "Collapses the per-turn workspace diffs stored in the session bundle into one net change per file: the content the file had before the first turn that touched it against the content after the last one. " +
+						"Because those diffs come from snapshotting the workspace around each turn, an edit made by a shell command is reported exactly like one made by the **`edit`** tool. " +
+						"Files created and removed again within the session, or edited and edited back, are left out. **`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
+						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
+						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. This is what the SPA changed-files card and the IntelliJ / VS Code Changes views read. " +
+						"**`scope`** narrows what is reported: **`turn`** folds only the newest stored turn, **`uncommitted`** ignores the session entirely and diffs the **tracked** working copy against its base revision (git **`HEAD`**, or the Subversion **`BASE`**), and **`all`** adds the files version control does not track yet. " +
+						"Which system answers is decided by the folder - git when it is a git repository, Subversion when it is a working copy, git first when it is both. " +
+						"Both add **`untracked`** (files the scope did not show because they are untracked - every one of them under **`uncommitted`**, only those past the read cap under **`all`**), **`vcs`** (**`git`**, **`svn`**, or empty) and **`vcsAvailable`** (**`false`** when the folder is under neither, which is how the SPA review window explains an empty result). " +
+						"Files version control is told to ignore are never read, so a build directory or a virtualenv stays out on its own.",
+					"operationId": "foxxycodeSessionChangesList",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "include", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Comma-separated extras: `patch`, `content`.",
+						},
+						map[string]interface{}{
+							"name": "scope", "in": "query", "required": false,
+							"schema": map[string]interface{}{
+								"type": "string",
+								"enum": []interface{}{"session", "turn", "uncommitted", "all"},
+							},
+							"description": "Which change set to report. `session` (default) is every turn, " +
+								"`turn` only the newest one, `uncommitted` the tracked working copy against its base revision, " +
+								"and `all` that plus the files version control does not track yet. " +
+								"Both working-copy scopes speak git or Subversion, whichever governs the folder. " +
+								"An unrecognised value is a 400.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Session change set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"scope": map[string]interface{}{
+												"type": "string",
+												"enum": []interface{}{"session", "turn", "uncommitted", "all"},
+											},
+											"untracked": map[string]interface{}{
+												"type":        "integer",
+												"description": "Working-copy scopes only: untracked files the scope did not show.",
+											},
+											"vcsAvailable": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Working-copy scopes only: false when the folder is under no VCS.",
+											},
+											"vcs": map[string]interface{}{
+												"type": "string",
+												"enum": []interface{}{"git", "svn", ""},
+											},
+											"files": map[string]interface{}{
+												"type":  "array",
+												"items": sessionChangeFileSchema(),
+											},
+											"totals": map[string]interface{}{
+												"type": "object",
+												"properties": map[string]interface{}{
+													"files":     map[string]string{"type": "integer"},
+													"additions": map[string]string{"type": "integer"},
+													"deletions": map[string]string{"type": "integer"},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/changes/file": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read one changed file of a session",
+					"description": "Same aggregation as **GET .../changes**, narrowed to one file and always carrying **`patch`**, **`before`** and **`after`**. " +
+						"**`path`** is matched against the session change set, never resolved on disk, so this route cannot be pointed at a file the session did not touch: an unknown or traversing path yields **404**. " +
+						"**`scope`** must match the list the path came from, or a file present in one scope would be read from another.",
+					"operationId": "foxxycodeSessionChangeFile",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "path", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Workspace-relative path exactly as listed by GET .../changes.",
+						},
+						map[string]interface{}{
+							"name": "scope", "in": "query", "required": false,
+							"schema": map[string]interface{}{
+								"type": "string",
+								"enum": []interface{}{"session", "turn", "uncommitted"},
+							},
+							"description": "Which change set to report. `session` (default) is every turn, " +
+								"`turn` only the newest one, and `uncommitted` the working copy against git HEAD. " +
+								"An unrecognised value is a 400.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "One changed file",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": sessionChangeFileSchema(),
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/changes/revert": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Roll back every file change of the session",
+					"description": "Reverses every stored turn diff of the session in its cwd: files the session edited go back to the content they had before it started, and files it created are removed. " +
+						"This is the same machinery the branch rollback uses and it does not involve git, so uncommitted work in those files is lost. " +
+						"While a turn of this session is running the request yields **409** rather than rewriting files under a working agent. **`note`** reports which turns were reversed.",
+					"operationId": "foxxycodeSessionChangesRevert",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Workspace restored",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"note":      map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/{id}/changes/open-in-ide": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Show the session changes in the connected editor",
+					"description": "Broadcasts **`event: open_changes`** on **GET /foxxycode/ide/events** so the IntelliJ / VS Code plugin opens its own diff viewer for this session. " +
+						"The optional **`path`** names the file row the user clicked, so the viewer opens on that file; the summary/Review actions send no body and the viewer starts at the first file. " +
+						"No file content crosses the event stream - the plugin reads the change set from **GET .../changes** itself and only matches the path against it. " +
+						"**`delivered`** is **`false`** when no editor is listening, which is how the SPA knows to fall back to its own viewer.",
+					"operationId": "foxxycodeSessionChangesOpenInIDE",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"path": map[string]string{
+											"type":        "string",
+											"description": "Changed-file path (as listed by GET .../changes) to select in the viewer.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Event broadcast",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"delivered": map[string]string{"type": "boolean"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}/workspace": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Switch the session workspace folder, git branch, worktree, or svn branch",
@@ -3033,6 +3252,47 @@ func sessionBusyResponseRef() map[string]interface{} {
 	out := errorResponseRef()
 	out["description"] = "Session busy - another agent turn is in progress. `error.code` is `session_busy`, `error.sessionId` names the busy session, `error.turnActive` is true. Streaming requests wait up to 3s for the lock first, so a send issued right after `POST /foxxycode/sessions/{id}/cancel` succeeds while the cancelled turn unwinds."
 	return out
+}
+
+// sessionChangeFileSchema describes one file in a session change set. Patch,
+// before and after are absent unless the caller asked for them via `include`.
+func sessionChangeFileSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"path": map[string]string{
+				"type":        "string",
+				"description": "Workspace-relative path.",
+			},
+			"status": map[string]interface{}{
+				"type":        "string",
+				"enum":        []string{"added", "modified", "deleted"},
+				"description": "What the session did to the file, net of every turn.",
+			},
+			"additions": map[string]string{"type": "integer"},
+			"deletions": map[string]string{"type": "integer"},
+			"binary": map[string]string{
+				"type":        "boolean",
+				"description": "No line diff exists; additions, deletions and patch are empty.",
+			},
+			"truncated": map[string]string{
+				"type":        "boolean",
+				"description": "The patch was cut short at 256 KB; the line counts still cover the whole file.",
+			},
+			"patch": map[string]string{
+				"type":        "string",
+				"description": "Unified diff. Present with include=patch.",
+			},
+			"before": map[string]string{
+				"type":        "string",
+				"description": "Decoded content before the session. Present with include=content.",
+			},
+			"after": map[string]string{
+				"type":        "string",
+				"description": "Decoded content after the session. Present with include=content.",
+			},
+		},
+	}
 }
 
 func errorResponseRef() map[string]interface{} {

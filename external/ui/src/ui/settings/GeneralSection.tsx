@@ -15,6 +15,13 @@ import {
   persistStatusLinePreference,
   readStatusLineFromConfigDoc,
 } from "../chat/statusLineConfig";
+import {
+  DEFAULT_SESSION_CHANGES,
+  getSessionChangesEnabled,
+  onSessionChangesChange,
+  persistSessionChangesPreference,
+  readSessionChangesFromConfigDoc,
+} from "../chat/sessionChangesConfig";
 
 function asUiObject(doc: Record<string, unknown>): Record<string, unknown> {
   const ui = doc.ui;
@@ -220,6 +227,110 @@ export function GeneralStatusLinePicker(props: {
               .join(" ")}
             aria-pressed={effective === opt.value}
             data-testid={`status-line-${opt.id}`}
+            onClick={() => pick(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * GeneralSessionChangesPicker toggles the changed-files card under the transcript
+ * (ui.session_changes). Mirrors GeneralStatusLinePicker. It hides the SPA card only:
+ * the Changes button in the IntelliJ and VS Code plugins is IDE chrome and stays.
+ */
+export function GeneralSessionChangesPicker(props: {
+  doc?: Record<string, unknown>;
+  setDoc?: (next: Record<string, unknown>) => void;
+}) {
+  const { t } = useT();
+  const activeEnabled = useSyncExternalStore(
+    onSessionChangesChange,
+    getSessionChangesEnabled,
+    () => DEFAULT_SESSION_CHANGES,
+  );
+  const docLoaded = !!props.doc && Object.keys(props.doc).length > 0;
+  const [fetchedEnabled, setFetchedEnabled] = useState(DEFAULT_SESSION_CHANGES);
+  const [fetchLoaded, setFetchLoaded] = useState(false);
+
+  useEffect(() => {
+    if (docLoaded) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/foxxycode/config");
+        if (!res.ok) {
+          return;
+        }
+        const doc = (await res.json()) as Record<string, unknown>;
+        if (!cancelled) {
+          setFetchedEnabled(readSessionChangesFromConfigDoc(doc));
+          setFetchLoaded(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setFetchLoaded(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [docLoaded]);
+
+  const enabled = docLoaded
+    ? readSessionChangesFromConfigDoc(props.doc)
+    : fetchedEnabled;
+  const loaded = docLoaded || fetchLoaded;
+
+  const { doc, setDoc } = props;
+  const pick = useCallback(
+    (next: boolean) => {
+      setFetchedEnabled(next);
+      void persistSessionChangesPreference(next);
+      if (doc && setDoc && Object.keys(doc).length > 0) {
+        setDoc({ ...doc, ui: { ...asUiObject(doc), session_changes: next } });
+      }
+    },
+    [doc, setDoc],
+  );
+
+  const options: { id: "on" | "off"; value: boolean; label: string }[] = [
+    { id: "on", value: true, label: t("settings.sessionChanges.on") },
+    { id: "off", value: false, label: t("settings.sessionChanges.off") },
+  ];
+  const effective = loaded ? enabled : activeEnabled;
+
+  return (
+    <div
+      className="appearance-sheet-body"
+      data-testid="general-session-changes-picker"
+    >
+      <p className="appearance-section-label">
+        {t("settings.general.sessionChanges")}
+      </p>
+      <div
+        className="appearance-locale-row"
+        role="group"
+        aria-label={t("settings.general.sessionChanges")}
+      >
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            className={[
+              "appearance-locale-btn",
+              effective === opt.value ? "is-active" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            aria-pressed={effective === opt.value}
+            data-testid={`session-changes-${opt.id}`}
             onClick={() => pick(opt.value)}
           >
             {opt.label}

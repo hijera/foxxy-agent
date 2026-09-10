@@ -437,6 +437,7 @@ Embedded SPA preferences (`config.UIConfig`, `internal/config/ui.go`). Used by t
 | `locale` | string | no | `""` (auto) | — | UI language: empty (auto-detect system/browser locale), `en`, or `ru`. |
 | `send_mode` | string | no | `enter` | — | How the main chat composer submits: `enter` (Enter sends, Shift/Ctrl+Enter insert a newline), `ctrl_enter` (Ctrl/Cmd+Enter sends, Enter inserts a newline), or `off` (keyboard send disabled, Send button only). |
 | `status_line` | bool | no | `true` | — | Show the live status line next to the typing dots while the agent works: current tool and its target, waiting for the model, and elapsed time. Set `false` to show only the animated dots. |
+| `session_changes` | bool | no | `true` | — | Show the changed-files card under the transcript: every file the session changed with `+`/`-` counts, a viewer for the diffs, and a button that rolls the whole session back. Set `false` to hide the card; the Changes button in the IntelliJ and VS Code plugins is not affected. |
 
 ## `browser`
 

@@ -236,6 +236,37 @@ function diffMeta(lines: ParsedDiffLine[]): string[] {
   return ["+" + additions, "−" + deletions];
 }
 
+/**
+ * Render-ready diff body for a unified patch.
+ *
+ * Shared by the apply_patch permission preview and the session changes viewer so
+ * both count and lay out a diff the same way; the viewer overrides toolName and
+ * title, which only affect the permission question and the aria-label.
+ */
+export function diffPreviewFromPatch(
+  patch: string,
+  path: string,
+): PermissionToolPreview {
+  const parsed = parseDiffPatch(patch, path);
+  const lines = flattenDiffLines(parsed);
+  let at = 0;
+  const hunkHeaders = parsed.hunks.map((hunk) => {
+    const row = { at, text: hunk.header };
+    at += hunk.lines.length;
+    return row;
+  });
+  return {
+    toolName: "apply_patch",
+    title: "",
+    header: parsed.filePath || path,
+    meta: diffMeta(lines),
+    copyText: patch,
+    kind: "diff",
+    lines,
+    hunkHeaders,
+  };
+}
+
 /** Tool-specific, render-ready preview shared by permission gates and transcript foldouts. */
 export function buildToolCallPreview(
   context: PermissionToolCallContext,
@@ -269,24 +300,7 @@ export function buildToolCallPreview(
   if (normalized === "apply_patch") {
     const path = stringArg(args, "path", "filePath");
     const patch = stringArg(args, "patch", "diff");
-    const parsed = parseDiffPatch(patch, path);
-    const lines = flattenDiffLines(parsed);
-    let at = 0;
-    const hunkHeaders = parsed.hunks.map((hunk) => {
-      const row = { at, text: hunk.header };
-      at += hunk.lines.length;
-      return row;
-    });
-    return {
-      toolName,
-      title,
-      header: parsed.filePath || path,
-      meta: diffMeta(lines),
-      copyText: patch,
-      kind: "diff",
-      lines,
-      hunkHeaders,
-    };
+    return { ...diffPreviewFromPatch(patch, path), toolName, title };
   }
 
   if (normalized === "edit") {

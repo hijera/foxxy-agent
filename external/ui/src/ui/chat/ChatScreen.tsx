@@ -16,6 +16,7 @@ import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
+import { SessionChangesCard } from "../changes/SessionChangesCard";
 import { useT } from "../i18n/I18nProvider";
 import {
   subscribeShellStack,
@@ -85,6 +86,10 @@ export function ChatScreen(props: {
   /** Every background task of this chat, for the opener under the transcript. */
   backgroundTasks?: BackgroundTask[];
   onOpenBackgroundTasks?: () => void;
+  /** Opens the session diff viewer from the changed-files card under the transcript. */
+  onOpenSessionChanges?: (path?: string) => void;
+  /** Opens the full-screen review window from the card summary. */
+  onOpenChangesViewer?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
@@ -398,6 +403,16 @@ export function ChatScreen(props: {
                 <BackgroundTasksChip
                   tasks={props.backgroundTasks}
                   onOpen={props.onOpenBackgroundTasks}
+                />
+              ) : null}
+              {props.onOpenSessionChanges &&
+              props.onOpenChangesViewer &&
+              props.sessionId ? (
+                <SessionChangesCard
+                  sessionId={props.sessionId}
+                  generating={props.generating === true}
+                  onOpenReview={props.onOpenSessionChanges}
+                  onOpenViewer={props.onOpenChangesViewer}
                 />
               ) : null}
             </div>

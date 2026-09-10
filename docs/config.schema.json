@@ -857,6 +857,11 @@
           "type": "boolean",
           "description": "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Set false to show only the animated dots. Unset defaults to true.",
           "default": true
+        },
+        "session_changes": {
+          "type": "boolean",
+          "description": "Show a card under the transcript summarising every file the session changed, with a viewer for the diffs and a button to roll them back. Set false to hide the card; the Changes button in the IntelliJ and VS Code plugins stays available. Unset defaults to true.",
+          "default": true
         }
       }
     },

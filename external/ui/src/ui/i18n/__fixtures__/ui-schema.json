@@ -1186,6 +1186,11 @@
           "title": "Sending messages",
           "type": "string"
         },
+        "session_changes": {
+          "description": "Show a card under the transcript summarising every file the session changed, with a viewer for the diffs and a button to roll them back. Turn off to hide the card; the Changes button in the IntelliJ and VS Code plugins stays available.",
+          "title": "Changed files card",
+          "type": "boolean"
+        },
         "status_line": {
           "description": "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Turn off to show only the animated dots.",
           "title": "Status line",
@@ -1198,7 +1203,8 @@
         "enabled",
         "locale",
         "send_mode",
-        "status_line"
+        "status_line",
+        "session_changes"
       ]
     },
     "vcs": {

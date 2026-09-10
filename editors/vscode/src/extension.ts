@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { ProcessManager } from "./process/processManager";
 import type { ProxyEnv } from "./process/proxyEnv";
 import { IdeDiffService } from "./diff/ideDiffService";
+import { SessionChangesProvider } from "./changes/sessionChangesProvider";
+import type { ChangedFile } from "./changes/sessionChanges";
 import { EditorStateService } from "./ide/editorStateService";
 import { TerminalStateService } from "./ide/terminalStateService";
 import {
@@ -47,6 +49,7 @@ import { error, withProgress } from "./notifications";
 
 let processManager: ProcessManager | null = null;
 let diffService: IdeDiffService | null = null;
+let changesProvider: SessionChangesProvider | null = null;
 let editorStateService: EditorStateService | null = null;
 let terminalStateService: TerminalStateService | null = null;
 let viewProvider: FoxxyCodeViewProvider | null = null;
@@ -100,6 +103,12 @@ export function activate(context: vscode.ExtensionContext): void {
     log,
   });
   diffService = new IdeDiffService(workspaceRoot, log);
+  changesProvider = new SessionChangesProvider(log);
+  diffService.setOpenChangesHandler((path) => void changesProvider?.reveal(path));
+  context.subscriptions.push(
+    changesProvider,
+    vscode.window.registerTreeDataProvider(SessionChangesProvider.viewId, changesProvider),
+  );
   editorStateService = new EditorStateService(log);
   terminalStateService = new TerminalStateService(log);
 
@@ -127,6 +136,14 @@ export function activate(context: vscode.ExtensionContext): void {
   registerCommandPair(context, "foxxycode.openSettings", () => void openSettingsUi());
   registerCommandPair(context, "foxxycode.showLogs", () => activationOutput?.show());
   registerCommandPair(context, "foxxycode.showWelcome", () => void openWelcomeWalkthrough(true));
+  registerCommandPair(context, "foxxycode.showChanges", () => void changesProvider?.reveal());
+  registerCommandPair(context, "foxxycode.refreshChanges", () => void changesProvider?.refresh());
+  // Row activation: not a command pair, it is never shown in the palette.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("foxxycode.openChangedFile", (file: ChangedFile) =>
+      changesProvider?.openDiff(file),
+    ),
+  );
 
   // Live locale refresh + re-read settings for the next process start.
   context.subscriptions.push(
@@ -151,6 +168,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+  changesProvider?.dispose();
   diffService?.dispose();
   editorStateService?.dispose();
   terminalStateService?.dispose();
@@ -234,6 +252,7 @@ async function startController(controller: FoxxyCodePanelController): Promise<vo
     syncLocaleContext();
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
+    changesProvider?.setBaseUrl(baseUrl);
     editorStateService?.startIfNeeded(baseUrl);
     terminalStateService?.startIfNeeded(baseUrl);
   } catch (e) {
@@ -256,6 +275,7 @@ async function restartActive(): Promise<void> {
     syncLocaleContext();
     await controller.setBaseUrl(baseUrl);
     diffService?.startIfNeeded(baseUrl);
+    changesProvider?.setBaseUrl(baseUrl);
     editorStateService?.startIfNeeded(baseUrl);
     terminalStateService?.startIfNeeded(baseUrl);
   } catch (e) {
@@ -348,6 +368,7 @@ class FoxxyCodeViewProvider implements vscode.WebviewViewProvider {
       syncLocaleContext();
       await controller.setBaseUrl(baseUrl);
       this.diffService.startIfNeeded(baseUrl);
+      changesProvider?.setBaseUrl(baseUrl);
       editorStateService?.startIfNeeded(baseUrl);
       terminalStateService?.startIfNeeded(baseUrl);
     } catch (e) {

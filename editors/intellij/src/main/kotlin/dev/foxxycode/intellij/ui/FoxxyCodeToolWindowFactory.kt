@@ -16,5 +16,8 @@ class FoxxyCodeToolWindowFactory : ToolWindowFactory, DumbAware {
         val content = toolWindow.contentManager.factory.createContent(panel, "", false)
         content.setDisposer(panel)
         toolWindow.contentManager.addContent(content)
+        // Reviewing what the session changed is a diff task, so it gets a button
+        // in the IDE chrome rather than living only inside the webview card.
+        toolWindow.setTitleActions(listOf(FoxxyCodeSessionChangesAction()))
     }
 }

@@ -185,6 +185,8 @@ import {
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
+import { SessionChangesPanel } from "./changes/SessionChangesPanel";
+import { DiffViewerModal } from "./changes/DiffViewerModal";
 import {
   clearFinishedBackgroundTasks,
   getBackgroundTask,
@@ -2393,6 +2395,9 @@ export function App() {
         const { setStatusLineEnabled, readStatusLineFromConfigDoc } =
           await import("./chat/statusLineConfig");
         setStatusLineEnabled(readStatusLineFromConfigDoc(res.data));
+        const { setSessionChangesEnabled, readSessionChangesFromConfigDoc } =
+          await import("./chat/sessionChangesConfig");
+        setSessionChangesEnabled(readSessionChangesFromConfigDoc(res.data));
       }
     })();
   }, [headers]);
@@ -4600,6 +4605,14 @@ export function App() {
 
   // The panel belongs to a chat, so it only exists when one is open.
   const tasksPanelOpen = tasksOpen && !!sessionId.trim();
+  // The changed-files card opens this; it is a sibling drawer of the tasks
+  // panel rather than a route, so it survives transcript re-renders.
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [changesPath, setChangesPath] = useState<string>("");
+  // The full review window is a modal rather than a drawer: it needs the whole
+  // width to put two diff columns side by side.
+  const [changesViewerOpen, setChangesViewerOpen] = useState(false);
+  const changesPanelOpen = changesOpen && !!sessionId.trim();
 
   const shellBackdropOpen =
     sessionsOpen ||
@@ -4697,6 +4710,7 @@ export function App() {
           "shell-main",
           sessionsOpen ? "shell-history-open" : "",
           tasksPanelOpen ? "shell-tasks-open" : "",
+          changesPanelOpen ? "shell-changes-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -4792,6 +4806,21 @@ export function App() {
             />
           </div>
         ) : null}
+        {changesViewerOpen && sessionId.trim() ? (
+          <DiffViewerModal
+            open
+            sessionId={sessionId}
+            onClose={() => setChangesViewerOpen(false)}
+          />
+        ) : null}
+        {changesPanelOpen ? (
+          <SessionChangesPanel
+            open
+            sessionId={sessionId}
+            initialPath={changesPath || undefined}
+            onClose={() => setChangesOpen(false)}
+          />
+        ) : null}
         {tasksPanelOpen ? (
           <BackgroundTasksPanel
             open
@@ -4815,6 +4844,11 @@ export function App() {
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          onOpenChangesViewer={() => setChangesViewerOpen(true)}
+          onOpenSessionChanges={(path?: string) => {
+            setChangesPath(path || "");
+            setChangesOpen(true);
+          }}
           backgroundTasks={backgroundTasks}
           onOpenBackgroundTasks={openTasksFromNav}
           backgroundTasksByToolCallId={backgroundTasksByToolCallId}

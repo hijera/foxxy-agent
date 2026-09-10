@@ -90,6 +90,13 @@ class FoxxyCodeIdeDiffService(private val project: Project) : Disposable {
             }
             return
         }
+        // Review on the changed-files card. User-initiated and about the whole
+        // session rather than one edit, so it runs before the nativeDiffs and
+        // in-project guards, the same way open_file does.
+        if (ev.isOpenChanges) {
+            FoxxyCodeSessionChangesService.getInstance(project).showChanges(ev.sessionId, ev.path)
+            return
+        }
         if (!FoxxyCodeSettings.getInstance().state.nativeDiffs) return
         if (!isInProject(ev.path)) return
         ApplicationManager.getApplication().invokeLater {

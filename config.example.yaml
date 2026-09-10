@@ -400,6 +400,8 @@ logger:
 #                         #   "off"        keyboard send disabled (Send button only)
 #   status_line: true     # false = only animated dots while the agent works, no live
 #                         # status label (current tool / waiting for the model / elapsed)
+#   session_changes: true # false = hide the changed-files card under the transcript
+#                         # (the Changes button in the IDE plugins is unaffected)
 
 # Interactive browser automation tool (built with -tags browser; disabled by default).
 # Drives a local Chrome/Chromium over the DevTools Protocol via chromedp.

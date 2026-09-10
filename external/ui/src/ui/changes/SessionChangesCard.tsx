@@ -1,0 +1,204 @@
+import { useState, useSyncExternalStore } from "react";
+import { useT } from "../i18n/I18nProvider";
+import { isEditorEmbed } from "../embedShell";
+import {
+  DEFAULT_SESSION_CHANGES,
+  getSessionChangesEnabled,
+  onSessionChangesChange,
+} from "../chat/sessionChangesConfig";
+import { openSessionChangesInIde, revertSessionChanges } from "./api";
+import { baseName, dirName, fileCountKey } from "./sessionChangesText";
+import { useSessionChanges } from "./useSessionChanges";
+import type { ChangedFile } from "./types";
+
+/** How many rows the card lists before the rest are only reachable in the viewer. */
+const ROW_CAP = 8;
+
+function ChangedRow(props: { file: ChangedFile; onOpen: (path: string) => void }) {
+  const { t } = useT();
+  const file = props.file;
+  const dir = dirName(file.path);
+  return (
+    <button
+      type="button"
+      className={"changes-row changes-row--" + file.status}
+      title={file.path}
+      data-testid={`changes-row-${file.path}`}
+      onClick={() => props.onOpen(file.path)}
+    >
+      <span className="changes-row-path">
+        <span className="changes-row-name">{baseName(file.path)}</span>
+        {dir ? <span className="changes-row-dir">{dir}</span> : null}
+      </span>
+      {file.binary ? (
+        <span className="changes-row-binary">{t("changes.binary")}</span>
+      ) : (
+        <span className="changes-row-stat">
+          <span className="changes-add">{"+" + file.additions}</span>
+          <span className="changes-del">{"−" + file.deletions}</span>
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * The changed-files card, sitting under the last message the way the background
+ * tasks chip does.
+ *
+ * It summarises what the whole session did to the workspace, which is why it
+ * belongs at the bottom of the transcript rather than beside any one turn: the
+ * numbers describe every turn above it together. Clicking a row opens the diff
+ * viewer — or, inside an editor panel, hands the review to the plugin so the
+ * diffs open in the IDE's own viewer.
+ */
+export function SessionChangesCard(props: {
+  sessionId: string;
+  generating: boolean;
+  /** Opens one file in the side drawer; also the fallback for a row click. */
+  onOpenReview: (path?: string) => void;
+  /** Opens the full review window, which shows every file at once. */
+  onOpenViewer: () => void;
+}) {
+  const { t } = useT();
+  const enabled = useSyncExternalStore(
+    onSessionChangesChange,
+    getSessionChangesEnabled,
+    () => DEFAULT_SESSION_CHANGES,
+  );
+  const { changes, reload } = useSessionChanges({
+    sessionId: props.sessionId,
+    enabled,
+    generating: props.generating,
+  });
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Nothing changed in this chat, so there is nothing to review.
+  if (!enabled || changes.totals.files === 0) {
+    return null;
+  }
+
+  // Inside an editor the diffs belong in the IDE's own viewer; the in-app
+  // surface is the fallback when no plugin is listening on the event stream.
+  const openVia = (fallback: () => void, path?: string) => {
+    if (!isEditorEmbed()) {
+      fallback();
+      return;
+    }
+    void (async () => {
+      const res = await openSessionChangesInIde(props.sessionId, path);
+      if (!res.ok || !res.data.delivered) {
+        fallback();
+      }
+    })();
+  };
+
+  // A row asks about one file, so it opens the drawer; the summary and Review
+  // ask about the change set, which is what the full window is for.
+  const openRow = (path: string) => {
+    openVia(() => props.onOpenReview(path), path);
+  };
+  const openAll = () => {
+    openVia(() => props.onOpenViewer());
+  };
+
+  const revert = () => {
+    setBusy(true);
+    void (async () => {
+      await revertSessionChanges(props.sessionId);
+      setBusy(false);
+      setConfirming(false);
+      reload();
+    })();
+  };
+
+  const rows = changes.files.slice(0, ROW_CAP);
+  const hidden = changes.files.length - rows.length;
+  const countLabel = t(fileCountKey(changes.totals.files), {
+    count: changes.totals.files,
+  });
+
+  return (
+    <section className="changes-card" data-testid="session-changes-card">
+      <div className="changes-card-head">
+        <button
+          type="button"
+          className="changes-card-summary"
+          data-testid="changes-card-open"
+          onClick={openAll}
+        >
+          <span className="changes-card-title">{countLabel}</span>
+          <span className="changes-card-stat">
+            <span className="changes-add">{"+" + changes.totals.additions}</span>
+            <span className="changes-del">
+              {"−" + changes.totals.deletions}
+            </span>
+          </span>
+        </button>
+        <div className="changes-card-actions">
+          {confirming ? (
+            <>
+              <span className="changes-confirm-text">
+                {t("changes.revertConfirm")}
+              </span>
+              <button
+                type="button"
+                className="changes-action changes-action--danger"
+                disabled={busy}
+                data-testid="changes-revert-confirm"
+                onClick={revert}
+              >
+                {busy ? t("changes.reverting") : t("changes.revertYes")}
+              </button>
+              <button
+                type="button"
+                className="changes-action"
+                disabled={busy}
+                data-testid="changes-revert-cancel"
+                onClick={() => setConfirming(false)}
+              >
+                {t("changes.revertNo")}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="changes-action"
+                title={t("changes.revertTitle")}
+                data-testid="changes-revert"
+                onClick={() => setConfirming(true)}
+              >
+                {t("changes.revert")}
+              </button>
+              <button
+                type="button"
+                className="changes-action changes-action--primary"
+                data-testid="changes-review"
+                onClick={openAll}
+              >
+                {t("changes.review")}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="changes-card-rows">
+        {rows.map((file) => (
+          <ChangedRow key={file.path} file={file} onOpen={openRow} />
+        ))}
+        {hidden > 0 ? (
+          <button
+            type="button"
+            className="changes-row changes-row--more"
+            data-testid="changes-row-more"
+            onClick={openAll}
+          >
+            {t("changes.moreFiles", { count: hidden })}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
