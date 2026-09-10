@@ -160,6 +160,13 @@ export type ConsumeComposerSseParams = {
    */
   onMcpConnecting?: (connecting: boolean) => void;
   /**
+   * FoxxyCode extension. Fired when a turn is parked between two attempts at the same
+   * model call because the provider produced no output at all (**`true`**), and when the
+   * next attempt starts (**`false`**). Transient status only — a call that answers sends
+   * nothing at all.
+   */
+  onLlmRetrying?: (retrying: boolean) => void;
+  /**
    * FoxxyCode extension. Fired when the backend switched the session profile on
    * its own — a plan run, or the model calling `plan_exit`. Without it the
    * composer keeps the pill the user last picked and the next turn posts a
@@ -251,6 +258,7 @@ export async function consumeComposerSseReader(
     onPermission,
     onCompaction,
     onMcpConnecting,
+    onLlmRetrying,
     onDesignPlan,
     onModeChanged,
   } = p;
@@ -631,6 +639,16 @@ export async function consumeComposerSseReader(
             try {
               const payload = JSON.parse(ev.data) as { phase?: string };
               onMcpConnecting?.(payload.phase === "connecting");
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "llm_retry") {
+            try {
+              const payload = JSON.parse(ev.data) as { phase?: string };
+              onLlmRetrying?.(payload.phase === "waiting");
             } catch {
               // ignore
             }

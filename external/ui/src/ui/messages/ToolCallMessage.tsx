@@ -15,18 +15,19 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
+  agentTaskName,
+  agentTranscriptSessionId,
   taskStatusLabel,
   taskTimingLine,
   taskTone,
 } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
-import { BrowserAction } from "./BrowserAction";
-import {
-  isBrowserToolName,
-  parseBrowserActionResult,
-} from "./browserActionDisplay";
+import { BrowserAction, BrowserIcon } from "./BrowserAction";
+import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
+import { isBrowserToolName, browserActionLabel } from "./browserActionDisplay";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -52,7 +53,10 @@ function QuestionToolTimelineReadout(props: {
 
   if (qs.length === 0) {
     return (
-      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+      <p
+        className="muted"
+        style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
+      >
         {props.t("messages.toolQuestionMirrorHint")}
       </p>
     );
@@ -111,6 +115,10 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   backgroundNowMs?: number | undefined;
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
+  /** Workspace of this session, for the approval offered on a refused spawn. */
+  workspacePath?: string | undefined;
+  /** Opens the child transcript of a subagent this call spawned. */
+  onOpenSubagentTranscript?: ((sessionId: string) => void) | undefined;
 }) {
   const { t } = useT();
   const preview = useMemo(
@@ -118,7 +126,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     [props.resultText],
   );
   const full = props.fullResultText || "";
-  const rawName = (props.title || props.kind || t("messages.toolDefaultName")).trim();
+  const rawName = (
+    props.title ||
+    props.kind ||
+    t("messages.toolDefaultName")
+  ).trim();
   const toolPreview = useMemo(
     () =>
       buildToolCallPreview(
@@ -134,6 +146,19 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
+
+  // A spawn the runtime refused may have been refused for want of an approval;
+  // the notice below decides that against the catalog, not against the text.
+  const refusedAgentName = useMemo(
+    () =>
+      refusedSpawnAgentName({
+        title: props.title,
+        kind: props.kind,
+        status: props.status,
+        argsText: props.argsText,
+      }),
+    [props.argsText, props.kind, props.status, props.title],
+  );
 
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
@@ -161,10 +186,6 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [props.argsText]);
 
   const isBrowserTool = isBrowserToolName(rawName);
-  const browserInfo = useMemo(
-    () => (isBrowserTool ? parseBrowserActionResult(props.resultText) : null),
-    [isBrowserTool, props.resultText],
-  );
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -181,6 +202,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [isPatchTool, props.argsText]);
 
   const displayLabel = useMemo(() => {
+    if (isBrowserTool)
+      return browserActionLabel(
+        rawName,
+        props.argsText,
+        /^error:/i.test(preview.trim()) ? "failed" : status,
+        t,
+      );
     if (isQuestionTool) {
       return t("messages.toolQuestionLabel");
     }
@@ -188,7 +216,16 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     return pendingLike
       ? `${rawName || fallback}${t("messages.toolPendingSuffix")}`
       : rawName || fallback;
-  }, [isQuestionTool, pendingLike, rawName, t]);
+  }, [
+    isQuestionTool,
+    isBrowserTool,
+    props.argsText,
+    preview,
+    status,
+    pendingLike,
+    rawName,
+    t,
+  ]);
 
   const permissionWaiting = props.permissionWaiting === true;
 
@@ -280,7 +317,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   useEffect(() => {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
-      ((isWriteTool || isEditTool) &&
+      ((isWriteTool || isEditTool || isBrowserTool) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
@@ -292,6 +329,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     isEditTool,
     isPatchTool,
     isWriteTool,
+    isBrowserTool,
     patchContent,
     props.argsText,
     props.toolCallId,
@@ -361,7 +399,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showBrowserAction = isBrowserTool && !!browserInfo;
+  const showBrowserAction = isBrowserTool;
   const toolPreviewHasContent =
     toolPreview.header.trim() !== "" ||
     toolPreview.meta.length > 0 ||
@@ -390,6 +428,12 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !!(resultBody && resultBody.length > 0);
   const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const backgroundTask = props.backgroundTask;
+  // Present only for a spawn_agent row whose child session exists: the
+  // parent transcript shows the wait, the child's own transcript shows the
+  // work, and this is the link between them.
+  const subagentSessionId = backgroundTask
+    ? agentTranscriptSessionId(backgroundTask)
+    : null;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
   const hasBody =
     isQuestionTool ||
@@ -410,9 +454,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         className="thinking-details foxxycode-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
       >
-        <summary className="thinking-summary" aria-label={t("messages.toolSummaryAriaLabel")}>
+        <summary
+          className="thinking-summary"
+          aria-label={t("messages.toolSummaryAriaLabel")}
+        >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
+            {isBrowserTool && <BrowserIcon />}
             <span className="thinking-label">{displayLabel}</span>
             {durationLabel.trim() !== "" ? (
               <span className="thinking-dur" aria-hidden="true">
@@ -435,6 +483,15 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   aria-hidden="true"
                 />
                 <span className="tool-bgtask-chip-text">
+                  {/*
+                    A delegated step is silent by construction: the child's
+                    progress goes to its own transcript, so the parent row is
+                    the only place the wait is visible. Naming the agent turns
+                    "something is running" into "explore is running".
+                  */}
+                  {agentTaskName(backgroundTask)
+                    ? `${agentTaskName(backgroundTask)} · `
+                    : ""}
                   {taskStatusLabel(backgroundTask.status)} ·{" "}
                   {taskTimingLine(backgroundTask, backgroundNowMs)}
                 </span>
@@ -447,7 +504,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
             className={[
               "thinking-body foxxycode-tool-call-body",
               isQuestionTool && "foxxycode-tool-call-body--question",
-              hasConnectedResult && "foxxycode-tool-call-body--connected-result",
+              hasConnectedResult &&
+                "foxxycode-tool-call-body--connected-result",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -461,9 +519,12 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 t={t}
               />
             ) : null}
-            {showBrowserAction && browserInfo ? (
+            {showBrowserAction ? (
               <BrowserAction
-                info={browserInfo}
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
                 sessionId={(props.sessionId || "").trim()}
               />
             ) : null}
@@ -520,6 +581,19 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                     {t("messages.toolBgTaskOpen")}
                   </button>
                 ) : null}
+                {subagentSessionId && props.onOpenSubagentTranscript ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-transcript-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onOpenSubagentTranscript?.(subagentSessionId);
+                    }}
+                  >
+                    {t("messages.toolSubagentOpenTranscript")}
+                  </button>
+                ) : null}
                 {backgroundTask.running && props.onStopBackgroundTask ? (
                   <button
                     type="button"
@@ -541,6 +615,18 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
           </div>
         ) : null}
       </details>
+      {/*
+        Outside the <details>: a refused spawn is only actionable if the user
+        sees it, and the row is collapsed by default. The notice renders
+        nothing unless the catalog confirms the definition is awaiting
+        approval, so an unrelated spawn failure adds no chrome.
+      */}
+      {refusedAgentName ? (
+        <SubagentApprovalNotice
+          agentName={refusedAgentName}
+          workspacePath={props.workspacePath}
+        />
+      ) : null}
     </div>
   );
 });

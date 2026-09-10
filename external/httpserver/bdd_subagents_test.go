@@ -283,6 +283,18 @@ func (s *subagentsHTTPState) workspaceDefinition(name string) error {
 	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
 }
 
+// A definition that declares its own bounds, so the catalog has something to
+// report to the surface the operator approves it from.
+func (s *subagentsHTTPState) workspaceBoundedDefinition(name string) error {
+	dir := filepath.Join(s.root, ".foxxycode", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	body := fmt.Sprintf("---\nname: %s\ndescription: BDD helper %s that reviews what it is given.\n"+
+		"tools: read, grep\npermission_mode: ask\ntimeout_seconds: 120\n---\nYou are the bdd subagent %s.\n", name, name, name)
+	return os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644)
+}
+
 // ---- HTTP calls ----
 
 func (s *subagentsHTTPState) do(method, path, body string) error {
@@ -504,6 +516,37 @@ func (s *subagentsHTTPState) catalogNamesNeedingApproval(name, scope string) err
 	return nil
 }
 
+// The approval surface decides on the bounds, so the catalog has to carry
+// them - and never the role body, which a client would render before anyone
+// approved the file.
+func (s *subagentsHTTPState) catalogReportsBounds(name string) error {
+	item, err := s.catalogItem(name)
+	if err != nil {
+		return err
+	}
+	tools, _ := item["tools"].([]interface{})
+	if len(tools) != 2 || tools[0] != "read" || tools[1] != "grep" {
+		return fmt.Errorf("%q reports tools %v", name, item["tools"])
+	}
+	if item["permission_mode"] != "ask" {
+		return fmt.Errorf("%q reports permission_mode %v", name, item["permission_mode"])
+	}
+	if secs, _ := item["timeout_seconds"].(float64); secs != 120 {
+		return fmt.Errorf("%q reports timeout_seconds %v", name, item["timeout_seconds"])
+	}
+	if size, _ := item["role_bytes"].(float64); size == 0 {
+		return fmt.Errorf("%q reports no role size: %v", name, item)
+	}
+	encoded, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(encoded), "You are the bdd subagent") {
+		return fmt.Errorf("the role body reached the client: %s", encoded)
+	}
+	return nil
+}
+
 func (s *subagentsHTTPState) catalogNamesTrusted(name string) error {
 	item, err := s.catalogItem(name)
 	if err != nil {
@@ -574,6 +617,7 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a live child session "([^"]*)" of that session backed by a running subagent task$`, s.liveChildWithTask)
 	sc.Step(`^a live child session "([^"]*)" of "([^"]*)" backed by a running subagent task$`, s.liveChildOfWithTask)
 	sc.Step(`^the server workspace has a subagent definition "([^"]*)" under \.foxxycode/agents$`, s.workspaceDefinition)
+	sc.Step(`^the server workspace has a bounded subagent definition "([^"]*)" under \.foxxycode/agents$`, s.workspaceBoundedDefinition)
 
 	sc.Step(`^I GET the background tasks of that session$`, s.listTasks)
 	sc.Step(`^I GET the sessions list$`, s.listSessions)
@@ -592,6 +636,7 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the catalog names the built-in "([^"]*)"$`, s.catalogNamesBuiltin)
 	sc.Step(`^the catalog names "([^"]*)" with scope "([^"]*)" needing approval$`, s.catalogNamesNeedingApproval)
 	sc.Step(`^the catalog names "([^"]*)" as trusted$`, s.catalogNamesTrusted)
+	sc.Step(`^the catalog reports the bounds "([^"]*)" declares$`, s.catalogReportsBounds)
 	sc.Step(`^the subagent task of "([^"]*)" is no longer running$`, s.taskNoLongerRunning)
 	sc.Step(`^the session bundle "([^"]*)" is gone$`, s.bundleGone)
 	sc.Step(`^the session bundles "([^"]*)" and "([^"]*)" are gone$`, s.twoBundlesGone)

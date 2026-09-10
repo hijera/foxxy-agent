@@ -103,12 +103,31 @@ the default theme; light frames cover the surfaces that gained colours.
 - `pr-56-subagent-readonly-1280-{dark,light}.png` - a child `sub_…` transcript: read-only notice in place of the composer, «Открыть родительский чат»
 - `pr-56-settings-subagents-1280-{dark,light}.png` - Settings → Субагенты (enable switch, definition dirs, project trust policy)
 - `pr-56-settings-providers-neuraldeep-1280-dark.png` - NeuralDeep provider card with the API endpoint select
+
+## Subagent trust in the IDE (2026-09-07)
+
+Captured from the bundled SPA (`make build TAGS="http ui"`) against a stub model, with an
+unapproved project definition in `<ws>/.foxxycode/agents/reviewer.md` and a user-scope
+`writer` in the FoxxyCode home. Named by feature rather than by PR number, which is not
+knowable while the PR is open.
+
+- `subagents-trust-settings-1280-{dark,light}.png`, `subagents-trust-settings-390-dark.png` - Settings → Субагенты: the generated form plus the definition catalog, the amber shield on the project row, and the disclosure of what a receipt would cover
+- `subagents-trust-chat-refused-1280-{dark,light}.png`, `subagents-trust-chat-refused-390-dark.png` - a refused `spawn_agent` row with the approval notice, «Одобрить» and «Открыть настройки субагентов»
+- `subagents-trust-spawn-running-1280-dark.png` - a foreground spawn in flight: the row's chip names the agent and ticks, and the actions row offers «Открыть транскрипт субагента»
+- `subagents-trust-tasks-permission-1280-{dark,light}.png`, `subagents-trust-tasks-permission-390-dark.png` - a detached subagent's permission prompt on its task card, with the tasks chip in the amber «ждёт вашего ответа» state
 - `pr-56-settings-models-reasoning-{before,after}-1280-dark.png` - «Получить уровни ризонинга» before the fetch and with `low/medium/high` written back
 - `pr-56-settings-skills-switchfield-1280-dark.png`, `pr-56-settings-tools-switchfield-1280-dark.png` - boolean settings on the shared SwitchField
 - `pr-56-todo-preview-1280-{dark,light}.png` - `foxxycode_todo_item_update` calls rendered as localized todo cards
 ## Batch uploads
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
+
+## Todo tool card without a plan snapshot (September 2026)
+
+Captured from headless Chrome at 1280×1000 (dark, RU) against two live `http,ui` builds: `before` is the pre-fix `main` (0.2.51), `after` this branch. Two persisted fixture sessions carry the same transcript (`foxxycode_todo_plan_replace` + `foxxycode_todo_item_update`); one has the plan snapshot in `tool_calls/<id>/meta.json`, the other does not (what a write race, a failed enrichment, a session branch, or a pre-snapshot session leaves on disk).
+
+- `pr-todo-card-nosnapshot-{before,after}-1280-dark.png` - no snapshot on disk: before, both rows degrade to the generic tool card (raw JSON args + «Результат / updated item 1»); after, the plan is rebuilt from the call arguments (the list from the `markdown`, the item as «Пункт 2 · В работе»)
+- `pr-todo-card-snapshot-{before,after}-1280-dark.png` - snapshot on disk: byte-identical, the existing card is untouched
 
 ## Onboarding gate fix (September 2026)
 

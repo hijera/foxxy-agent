@@ -104,3 +104,30 @@ test("clicking opens the panel", () => {
   fireEvent.click(screen.getByTestId("bgtask-chip"));
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
+
+// The panel is closed by default and a detached prompt is in no transcript, so
+// the chip is the only thing that can raise the alarm.
+test("a subagent waiting for an answer takes over the chip", () => {
+  render(
+    <BackgroundTasksChip
+      tasks={[
+        task({ id: "bg_1" }),
+        task({
+          id: "bg_2",
+          kind: "agent",
+          agent: { name: "explore", session_id: "sub_1" },
+          pending_permission: {
+            sessionId: "sub_1",
+            toolCall: { toolCallId: "call_1", title: "[subagent explore] Run: ls" },
+            options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
+          },
+        }),
+      ]}
+      onOpen={() => {}}
+    />,
+  );
+  const chip = screen.getByTestId("bgtask-chip");
+  // Not "2 running tasks": what needs the user is the one that is stuck.
+  expect(chip).toHaveTextContent("1 subagent needs your answer");
+  expect(chip.className).toContain("is-awaiting");
+});

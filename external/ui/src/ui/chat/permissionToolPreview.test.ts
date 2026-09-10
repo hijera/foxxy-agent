@@ -11,6 +11,15 @@ import { setLocale } from "../i18n/i18n";
 
 afterEach(() => setLocale("en"));
 
+test("browser permission uses its action heading and preserves structured arguments", () => {
+  const preview = buildPermissionToolPreview(
+    payload("foxxycode_browser_click", { selector: "#submit" }),
+  );
+  expect(preview.kind).toBe("browser");
+  expect(preview.header).toBe("Click element");
+  expect(preview.copyText).toContain("#submit");
+});
+
 function payload(
   toolName: string,
   args: Record<string, unknown>,

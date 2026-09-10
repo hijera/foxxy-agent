@@ -140,7 +140,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **llm_retry** (`{\"phase\":\"waiting\",\"attempt\":1,\"delayMs\":60000}` then `{\"phase\":\"retrying\"}`, emitted only while a turn is parked between two attempts at the same model call because the provider produced no output — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -863,7 +863,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI.",
+					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI. A session live in this process also reports **messageSeq**, the number of messages in its transcript: unlike **activitySeq**, which advances once per *completed* turn, it moves **within** a turn, so a client polling a long one can tell whether a transcript reload would return anything new. It is absent for a session only on disk, because this route stays a cheap disk probe and does not load a bundle.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -942,7 +942,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/background-tasks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Background tasks of a session",
-					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id}`** naming the definition and the child session whose transcript **GET /foxxycode/sessions/{session_id}/messages** serves). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **foxxycode** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id}`** naming the definition and the child session whose transcript **GET /foxxycode/sessions/{session_id}/messages** serves). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. A **kind agent** row also carries **pending_permission** while a detached subagent behind it is blocked on a permission prompt: the same payload the SSE **permission** event carries (**sessionId** - the **child** session - **toolCall**, **options**) plus **agent_name** and **asked_at**. The parent turn that spawned such a run has ended, so the prompt has no stream to appear in; answer it with **POST /foxxycode/sessions/{child session}/permission**. It is never persisted: a prompt cannot outlive the process that raised it. The task pool lives in the running **foxxycode** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1026,14 +1026,14 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Subagent definitions visible from a workspace",
 					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
-						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **role_bytes**) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
 						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
 					"operationId": "listSubagents",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "cwd", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+							"description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -1875,7 +1875,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** never holds a prompt of its own (its requests are relayed to the parent chat) and answers **409**. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2816,6 +2816,19 @@ func openAPISpec() map[string]interface{} {
 						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
 						"trusted":        map[string]string{"type": "boolean"},
 						"needs_approval": map[string]string{"type": "boolean"},
+						"tools": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Allowlist from the frontmatter (exact names, a bare * or prefix* patterns); absent means everything the spawning session can call.",
+						},
+						"disallowed_tools": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Denylist from the frontmatter; it wins over tools.",
+						},
+						"permission_mode": map[string]interface{}{"type": "string", "enum": []string{"ask", "accept_edits", "bypass"}, "description": "Requested permission mode; absent means inherit. It can only narrow the parent's mode."},
+						"timeout_seconds": map[string]string{"type": "integer", "description": "The definition's own run limit; absent defers to the call and subagents.default_timeout_seconds."},
+						"max_turns":       map[string]string{"type": "integer", "description": "Cap on the child's ReAct rounds; absent follows subagents.max_turns, then agent.max_turns."},
+						"background":      map[string]string{"type": "boolean", "description": "The definition forces detached runs whatever the call asks for."},
+						"role_bytes":      map[string]string{"type": "integer", "description": "Size of the role body. The body itself is never served: an unapproved file's instructions must not reach a client that would render them."},
 					},
 					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
 				},
@@ -3684,7 +3697,7 @@ func subagentTrustRequestBody() map[string]interface{} {
 				"schema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**."},
 					},
 				},
 			},

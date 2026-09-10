@@ -145,6 +145,10 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		emitted = true
 		onChunk(c)
 	}
+	// progress reports an event that advanced generation without delivering
+	// anything, bypassing emit for the same reason as the openai path: the
+	// emitted flag gates retry classification and must track deliveries only.
+	progress := func() { onChunk(StreamChunk{Progress: true}) }
 
 	for stream.Next() {
 		event := stream.Current()
@@ -159,10 +163,14 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				emit(StreamChunk{ReasoningDelta: d.Thinking})
 			case anthropic.SignatureDelta:
 				thinkingSig = d.Signature
+				progress()
 			case anthropic.InputJSONDelta:
+				// Fire regardless of the lookup: the bytes arrived either way, and
+				// this is the Anthropic twin of the openai tool-argument case.
 				if acc, ok := toolUseMap[e.Index]; ok {
 					acc.input += d.PartialJSON
 				}
+				progress()
 			}
 
 		case anthropic.ContentBlockStartEvent:
@@ -173,13 +181,16 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					name: cb.Name,
 				}
 			}
+			progress()
 
 		case anthropic.MessageDeltaEvent:
 			stopReason = mapAnthropicStopReason(string(e.Delta.StopReason))
 			outputTokens = int(e.Usage.OutputTokens)
+			progress()
 
 		case anthropic.MessageStartEvent:
 			inputTokens = int(e.Message.Usage.InputTokens)
+			progress()
 		}
 	}
 

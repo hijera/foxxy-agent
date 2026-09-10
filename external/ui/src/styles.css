@@ -2355,6 +2355,40 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   background: color-mix(in srgb, var(--accent) 18%, var(--foxxycode-blend-base));
 }
 
+/* Approval offered under a refused spawn_agent row. It sits outside the row's
+   <details>, which is collapsed by default, because an approval nobody sees is
+   an approval nobody gives. Amber rather than accent: this is a gate, not a
+   suggestion. */
+.subagent-approval-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  margin: 6px 0 2px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  background: color-mix(in srgb, #ff9f0a 8%, var(--foxxycode-blend-base));
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
+}
+
+.subagent-approval-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  /* The declaring path can be long and must not stretch the transcript. */
+  overflow-wrap: anywhere;
+}
+
+.subagent-approval-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
 .msg {
   border-radius: var(--radius);
   padding: 12px 14px;
@@ -3390,6 +3424,184 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.browser-tool-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--muted);
+}
+.browser-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-field-label,
+.browser-content-head {
+  font-size: 12px;
+  color: var(--muted);
+}
+.browser-selector code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.browser-selector .hljs-selector-class,
+.browser-selector .hljs-selector-id,
+.browser-selector .hljs-selector-attr {
+  color: var(--accent);
+}
+.browser-content {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.browser-content-head .md-copy {
+  position: static;
+  flex-shrink: 0;
+}
+.browser-content-viewport {
+  max-height: 180px;
+  overflow-x: auto;
+}
+.browser-content-viewport--clip {
+  overflow-y: hidden;
+}
+.browser-content-viewport--scroll {
+  max-height: 360px;
+  overflow-y: auto;
+}
+.browser-content-viewport pre {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.browser-code .browser-content-viewport pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.browser-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+}
+.browser-result .tool-call-result-head {
+  padding: 0;
+  border: 0;
+}
+.browser-result--failed {
+  border-color: var(--foxxycode-status-error);
+}
+.browser-result--failed .tool-call-result-head,
+.browser-log-line--error {
+  color: var(--foxxycode-status-error);
+}
+.browser-log-line--warning {
+  color: var(--foxxycode-status-warn);
+}
+.browser-permission-preview > .browser-action {
+  padding: 12px;
+  box-sizing: border-box;
+}
+.browser-result-note {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.browser-scroll-screen {
+  width: 260px;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--muted);
+  border-radius: 5px;
+  background: var(--foxxycode-surface-raised);
+  color: var(--accent);
+}
+.browser-scroll-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--muted);
+  background: var(--foxxycode-glass-panel-border);
+}
+.browser-scroll-window-dots {
+  display: flex;
+  gap: 4px;
+}
+.browser-scroll-window-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.browser-scroll-address {
+  flex: 1;
+  height: 10px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 3px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-scroll-screen svg {
+  display: block;
+  width: 100%;
+}
+.browser-scroll-screen text {
+  fill: var(--text);
+  font-size: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+}
+.browser-scroll-guides {
+  stroke: var(--foxxycode-glass-panel-border);
+  stroke-dasharray: 3 5;
+  fill: none;
+}
+.browser-inspect-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: 12px;
+}
+.browser-inspect-table th,
+.browser-inspect-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.browser-inspect-table th {
+  font-weight: 500;
+  color: var(--muted);
+}
+.browser-inspect-table td {
+  white-space: pre-wrap;
 }
 
 .browser-action-line {
@@ -3406,10 +3618,10 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   display: block;
   padding: 0;
   margin: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--panel2, var(--panel));
+  background: var(--foxxycode-surface-raised);
   cursor: zoom-in;
   max-width: 100%;
   width: fit-content;
@@ -7432,6 +7644,39 @@ textarea#composer {
   border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
 }
 
+/* Subagents tab: the definition catalog reuses the MCP list chrome, so only
+   what has no MCP counterpart is defined here.
+
+   Everything a receipt covers is long and unbreakable — an absolute definition
+   path, a digest, a comma-separated tool list. A <code> does not wrap on its
+   own, so without these rules one row widens the whole fieldset past the
+   settings panel, the row descriptions lose their ellipsis, and the approve
+   control is pushed out of sight. */
+.settings-subagents-section .subagents-catalog-box,
+.settings-subagents-section .subagents-list,
+.settings-subagents-section .mcp-list-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.subagents-workspace code,
+.settings-subagents-section .mcp-trust-note,
+.settings-subagents-section .mcp-trust-note code {
+  overflow-wrap: anywhere;
+}
+
+/* The MCP facts label column is sized for "transport" and "runs"; a subagent
+   declaration's labels are longer ("permissions", "инструменты"), and at 72px
+   they wrap mid-word. */
+.settings-subagents-section .mcp-trust-facts dt {
+  flex: 0 0 104px;
+}
+
+.subagents-badge-pending {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
 .mcp-command {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.74rem;
@@ -9936,6 +10181,37 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .bgtask-dot--warning {
   background: #ff9f0a;
+}
+
+/* A detached subagent blocked on a permission prompt. The parent turn is over,
+   so this row is the only place the question can be asked - amber, and loud
+   enough that a closed drawer still advertises it through the chip. */
+.bgtask-card.is-awaiting,
+.bgtask-chip.is-awaiting {
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.bgtask-permission {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  background: color-mix(in srgb, #ff9f0a 8%, var(--foxxycode-blend-base));
+}
+
+.bgtask-permission-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
+}
+
+.bgtask-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .bgtask-dot--muted {

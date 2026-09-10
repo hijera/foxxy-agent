@@ -892,6 +892,14 @@ func (s *Server) foxxycodeSessionActivityGet(w http.ResponseWriter, r *http.Requ
 		"unreadComplete":    actSeq > readSeq && !turnActive,
 		"permissionPending": session.PendingPermissionHeld(dir),
 	}
+	// messageSeq moves inside a turn, which activitySeq does not: it advances
+	// once per completed turn. A client polling a long turn uses it to skip a
+	// transcript reload that would return the same thing. Only a session live
+	// in this process can answer - the endpoint stays a cheap disk probe and
+	// must not load a bundle to reply.
+	if st := s.mgr.SessionByID(id); st != nil {
+		out["messageSeq"] = st.MessageCount()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }

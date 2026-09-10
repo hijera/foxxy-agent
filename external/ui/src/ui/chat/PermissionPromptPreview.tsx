@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { BrowserAction, BrowserIcon } from "../messages/BrowserAction";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import type { PermissionToolPreview as Preview } from "./permissionToolPreview";
 
@@ -243,6 +244,24 @@ export function PermissionToolPreview({
     : expanded
       ? "scroll"
       : "clip";
+
+  if (preview.kind === "browser") {
+    return (
+      <div className="permission-preview browser-permission-preview">
+        <div className="permission-preview-bar">
+          <BrowserIcon />
+          <span>{preview.header}</span>
+        </div>
+        <BrowserAction
+          name={preview.toolName}
+          argsText={preview.argsText}
+          resultText=""
+          status="pending"
+          sessionId=""
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="permission-preview">

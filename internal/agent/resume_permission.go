@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -45,7 +46,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if !permission.Approved(perm) {
 		toolResultMsg := llm.Message{
 			Role:       llm.RoleTool,
-			Content:    "permission denied by user",
+			Content:    permissionDeniedResult(perm),
 			ToolCallID: tc.ID,
 		}
 		a.state.AddMessage(toolResultMsg)
@@ -88,9 +89,19 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 			continue
 		}
 		for _, tc := range m.ToolCalls {
-			if strings.TrimSpace(tc.ID) == toolCallID {
-				return tc, nil
+			if strings.TrimSpace(tc.ID) != toolCallID {
+				continue
 			}
+			// A session written before partial persists stopped carrying tool calls
+			// can hold one whose arguments were cut mid-write. The SPA restores a
+			// permission prompt for it, so approving would run the tool on truncated
+			// input; refuse with something the operator can act on instead of a
+			// per-tool unmarshal error.
+			if args := strings.TrimSpace(tc.InputJSON); args != "" && !json.Valid([]byte(args)) {
+				return llm.ToolCall{}, fmt.Errorf(
+					"tool call %s has incomplete arguments (the response was cut off before it finished writing them); ask again instead of resuming it", toolCallID)
+			}
+			return tc, nil
 		}
 	}
 	return llm.ToolCall{}, fmt.Errorf("tool call %s not found in session history", toolCallID)
