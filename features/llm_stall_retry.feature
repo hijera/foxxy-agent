@@ -12,6 +12,13 @@ Feature: A provider that goes quiet is waited out, not surrendered to
   is kept and the model is asked to carry on from it, because replaying would
   show the same text twice.
 
+  A model asked to carry on does not always obey: it starts the same answer from
+  the top instead, the connection eats that one too, and the operator watches the
+  same opening paragraph arrive every few minutes. So the attempts are compared
+  with each other. The second time an opening comes back, the model is told that
+  it is repeating itself and which steps have already run; if it keeps going, the
+  tools come off for one request and it has to answer from what it gathered.
+
   Scenario: A silent call is retried after a pause and the turn completes
     Given a model that answers nothing on its first call and then replies
     When the operator sends a prompt
@@ -43,3 +50,24 @@ Feature: A provider that goes quiet is waited out, not surrendered to
     When the operator sends a prompt
     Then the turn completes without a system error
     And the model was called once
+
+  Scenario: A model that keeps restarting the same answer is told so
+    Given a model that stalls on the same opening every time
+    When the operator sends a prompt
+    Then the first continuation asks the model to carry on
+    And the second continuation tells the model it is repeating itself
+    And the continuation nudges stay out of the transcript
+    And the turn stops with a notice naming the restarts
+
+  Scenario: A stall with nothing but reasoning is not asked to continue from an empty message
+    Given a model that stalls after thinking but before writing, then answers
+    When the operator sends a prompt
+    Then the turn completes without a system error
+    And the continuation does not point at an empty message
+
+  Scenario: A session reopened after a restart is not invited to repeat itself
+    Given a session whose previous turn ended writing the same answer twice
+    When the operator sends a prompt
+    Then the first request tells the model its previous turn was repeating
+    And the first request names the steps that already ran
+    And the continuation nudges stay out of the transcript

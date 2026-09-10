@@ -245,6 +245,18 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
 	}
 
+	// Restarting the app resets every guard in this file; it does not reset the
+	// transcript that tripped them. A turn that died writing one answer over and
+	// over is still on disk, and replaying it unremarked invites the next attempt to
+	// open exactly the same way - which is what "after a restart it starts the same
+	// dialogue again" is. Re-derived from the messages rather than a stored marker,
+	// because the process that would have written one is usually the process that
+	// was killed. LLM-facing only, like every other nudge.
+	if restarts, steps := priorTurnRestarts(a.state.GetMessages()); restarts > 0 {
+		a.log.Warn("previous turn ended writing the same answer over; telling the model", "restarts", restarts)
+		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: resumedRestartNudge(restarts, steps)})
+	}
+
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30
@@ -407,6 +419,12 @@ const (
 	toolQuarantinedResult = "not executed: the loop guard has taken this call away for the rest of this turn because it was being repeated without progress. Its earlier result stands, above in this conversation. Do something different, or answer with what you already know."
 
 	loopAnswerDirective = "The tool calls you keep asking for have been taken away for the rest of this turn, and no tools are available on this request. Write your reply to the user now, using everything you have already gathered. If something could not be determined, say so plainly instead of describing the tool call you would have made."
+
+	// restartAnswerDirective is loopAnswerDirective's twin for a turn the stall
+	// guard keeps restarting. Nothing has been taken away from the model there -
+	// the connection, not the guard, is eating the answer - so the wording must not
+	// accuse it of a tool loop it never ran.
+	restartAnswerDirective = "The connection has cut this answer several times and you started it from the top on each attempt. No tools are available on this request: write the reply now, as briefly as you can, from what you have already gathered. If something could not be determined, say so plainly instead of describing the tool call you would have made."
 )
 
 // maxBlockedRoundsBeforeAnswer bounds how many rounds may consist purely of
@@ -491,6 +509,18 @@ func (a *Agent) runReActLoop(
 	stalls := newStallRetry(&a.cfg.Agent)
 	recoveryTurns := 0
 	stallContinues := 0
+	// Set when the client has been told the turn is parked behind a partial answer,
+	// so the same goroutine that sees the provider come back can take it away again.
+	// Atomic: it is set on the loop and cleared from the stream callback.
+	var announcedPark atomic.Bool
+	// A turn the stall guard restarts can come back with the same answer all over
+	// again, which no detector in loopguard.go can see: each attempt is a separate,
+	// well-formed response, and the repetition exists only between them. See
+	// attempt_repeat.go. restartForceAnswer is the escalation, read at the top of the
+	// next iteration so it takes the tools off that request.
+	attemptRepeats := newAttemptRepeatDetector()
+	attemptRestarts := 0
+	restartForceAnswer := false
 
 	// maxTurns bounds the model's reasoning steps, so the bound grows with the
 	// iterations spent recovering from a provider failure and reactTurn - the index
@@ -506,7 +536,7 @@ func (a *Agent) runReActLoop(
 		// request so it has to answer from what it gathered. The system prompt is
 		// rendered from the same slice below, so its tool section disappears too.
 		callDefs := toolDefs
-		forceAnswer := blockedRounds >= maxBlockedRoundsBeforeAnswer
+		forceAnswer := blockedRounds >= maxBlockedRoundsBeforeAnswer || restartForceAnswer
 		if forceAnswer {
 			callDefs = nil
 		}
@@ -628,6 +658,17 @@ func (a *Agent) runReActLoop(
 		noteProgress := func(now time.Time) {
 			stopFirstTokenTimer()
 			lastProgress.Store(now.UnixNano())
+			// The provider is delivering again, so the "parked" label the client is
+			// showing over the frozen bubble has to go before the answer resumes under
+			// it. Every live channel routes through here - text, reasoning, tool calls
+			// and bare progress frames - so this is the one place that sees it.
+			if announcedPark.CompareAndSwap(true, false) {
+				_ = a.server.SendSessionUpdate(sessionID, acp.LLMRetryUpdate{
+					SessionUpdate: acp.UpdateTypeLLMRetry,
+					Phase:         acp.LLMRetryPhaseResumed,
+					Attempt:       stallContinues,
+				})
+			}
 			if transport.streaming && stallTimeout > 0 && stallArmed.CompareAndSwap(false, true) {
 				armStall(stallTimeout)
 			}
@@ -674,9 +715,15 @@ func (a *Agent) runReActLoop(
 			// LLM-facing only; never persisted to the transcript, the same way the
 			// loop-guard and empty-turn nudges are. Appended after the compaction
 			// rebuild above so it cannot be swallowed by one.
-			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: loopAnswerDirective})
+			directive, why := loopAnswerDirective, "loop guard asked for an answer with tools withheld"
+			if restartForceAnswer {
+				directive = restartAnswerDirective
+				why = "stall guard asked for an answer with tools withheld after repeated restarts"
+				restartForceAnswer = false
+			}
+			messages = append(messages, llm.Message{Role: llm.RoleUser, Content: directive})
 			blockedRounds = 0
-			a.log.Warn("loop guard asked for an answer with tools withheld", "turn", turn)
+			a.log.Warn(why, "turn", turn)
 		}
 
 		// Prune only the provider projection. The working slice and persisted
@@ -794,20 +841,58 @@ func (a *Agent) runReActLoop(
 		// identical request is replayed.
 		if stalled.Load() && loopAbort == loopAbortNone && ctx.Err() == nil && !a.state.IsUserCancelledTurn() {
 			if a.persistStalledMessage(response, &reasoningBuf, reasonClockStart, reasonClockEnd) {
+				// Has this attempt been here before? A hub that keeps dropping the same
+				// answer otherwise gets the same polite "carry on" every time, and the
+				// model answers it by starting over - which is the loop the operator
+				// watches: one identical opening paragraph per attempt.
+				partialContent := ""
+				var partialCalls []llm.ToolCall
+				if response != nil {
+					partialContent = response.Content
+					partialCalls = response.ToolCalls
+				}
+				seen, repeated := attemptRepeats.Observe(
+					attemptFingerprint(reasoningBuf.String(), partialContent, partialCalls))
+				if repeated {
+					attemptRestarts++
+				}
 				a.emitDebug(turn, "stream_stall", "", "", map[string]interface{}{
 					"idle":         stallTimeout.String(),
 					"continuation": stallContinues + 1,
+					"restarts":     attemptRestarts,
 				})
 				if stallContinues >= maxStallContinuations {
-					return string(acp.StopReasonRefused), stallAbortError(stallTimeout, stallContinues)
+					return string(acp.StopReasonRefused), stallAbortError(stallTimeout, stallContinues, attemptRestarts)
 				}
 				stallContinues++
 				recoveryTurns++
+				// Which nudge: "carry on from the message above" is only honest the first
+				// time, and only when there is visible text above to carry on from.
+				nudge := streamStallNudge
+				switch {
+				case repeated:
+					nudge = repeatedAttemptNudge(alreadyRanSteps(a.state.GetMessages(), alreadyRanStepsMax), seen)
+					if attemptRestarts >= attemptRestartsBeforeAnswer {
+						restartForceAnswer = true
+					}
+				case strings.TrimSpace(partialContent) == "":
+					nudge = stallNoTextNudge
+				}
 				a.log.Warn("provider stopped sending data mid-answer; continuing",
-					"idle", stallTimeout, "continuation", stallContinues)
+					"idle", stallTimeout, "continuation", stallContinues, "restarts", attemptRestarts)
+				// Tell the client the turn is parked. It is still showing the half-written
+				// answer as if it were arriving, and the row it renders the live status in
+				// is hidden for as long as a bubble streams - so without this the wait
+				// looks exactly like a turn that died.
+				announcedPark.Store(true)
+				_ = a.server.SendSessionUpdate(sessionID, acp.LLMRetryUpdate{
+					SessionUpdate: acp.UpdateTypeLLMRetry,
+					Phase:         acp.LLMRetryPhaseContinuing,
+					Attempt:       stallContinues,
+				})
 				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 				// LLM-facing only; never persisted to the transcript.
-				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: streamStallNudge})
+				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
 				continue
 			}
 		}

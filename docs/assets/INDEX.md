@@ -146,6 +146,18 @@ Captured from headless Chrome (dark, `?lang=ru`) against the Vite dev server on 
 - `pr-vscode-embed-after-vscode-id-{1280,390}-dark.png` - the same screen with `?embed=vscode` (what it sends now): flat 6px composer, no glass halo, identical to the intellij id
 - `pr-vscode-embed-plain-browser-1280-dark.png` - no embed id, for contrast: the browser keeps the rounded glass composer
 
+## Parked turn status row (September 2026)
+
+Captured from headless Chrome at 1280x800 against the Vite dev server, driven by a stub
+OpenAI endpoint that streams the opening of an answer and then goes quiet without closing
+the stream - the mid-answer stall the guard exists for.
+
+- `pr-parked-turn-before-1280-dark.png` - what the operator used to see: the answer frozen
+  mid-sentence and nothing else, because the row the live status renders in is hidden for as
+  long as a bubble counts as streaming
+- `pr-parked-turn-after-1280-{dark,light}.png` - the same moment with the status row under the
+  frozen answer: «Провайдер не отвечает — повторяю запрос» and a counter that keeps climbing
+
 ## Session mode/model sync (September 2026)
 
 Captured from headless Chrome (dark, ru) against a `make build TAGS="http ui"` binary backed by a stub OpenAI model, so the turns cost nothing and the model reliably calls `plan_exit`. Both runs use identical sessions stored on disk as `mode: plan`, `selectedModelId: kimi-k2.6`.

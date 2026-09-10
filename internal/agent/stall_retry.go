@@ -132,10 +132,24 @@ const maxStallContinuations = 3
 // streamLoopNudge and emptyAssistantContinuationNudge.
 const streamStallNudge = "Your previous response was cut off part-way through: the connection stopped delivering data before you finished. Everything you had produced is in the message above. Continue from exactly where it stops - do not repeat, restate or summarise anything you already wrote, and do not start over."
 
+// stallNoTextNudge replaces streamStallNudge when the cut answer carried no
+// visible text at all - only reasoning. OpenAI-compatible endpoints do not treat
+// reasoning as conversation content, so "continue from exactly where it stops"
+// points the model at an effectively empty message, and it answers that by
+// thinking the whole thing through again from the top.
+const stallNoTextNudge = "Your previous response was cut off before you wrote any answer text: only your internal reasoning got through, and it is not part of this conversation. Do not think it all through again from the start. Take the next concrete action now - make the tool call you had decided on, or write the reply - and keep it short enough to survive the connection."
+
 // stallAbortError is the notice surfaced when the provider keeps cutting the
-// answer short and the continuation budget runs out.
-func stallAbortError(idle time.Duration, continued int) error {
-	return fmt.Errorf("stopped: the provider stopped sending data mid-answer (no progress for %v) and did not finish after %d continuation attempts", idle, continued)
+// answer short and the continuation budget runs out. restarts, when any were
+// detected, says the model answered each continuation by starting the same reply
+// over rather than carrying it on - the two halves of the failure the operator
+// watched, in one line.
+func stallAbortError(idle time.Duration, continued, restarts int) error {
+	msg := fmt.Sprintf("stopped: the provider stopped sending data mid-answer (no progress for %v) and did not finish after %d continuation attempts", idle, continued)
+	if restarts > 0 {
+		msg += fmt.Sprintf("; the model restarted the same answer %d times instead of continuing it", restarts)
+	}
+	return errors.New(msg)
 }
 
 // stallGaveUpSuffix explains a wait the user sat through, so the error that ends

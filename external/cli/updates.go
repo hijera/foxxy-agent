@@ -157,7 +157,9 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
 	case acp.LLMRetryUpdate:
-		if u.Phase == acp.LLMRetryPhaseWaiting {
+		// A turn parked behind a partial answer reads the same to the operator as one
+		// waiting out a silent provider: nothing is arriving either way.
+		if u.Phase == acp.LLMRetryPhaseWaiting || u.Phase == acp.LLMRetryPhaseContinuing {
 			a.setStatus(newWorkingStatus(statusRetryingModel, ""))
 		} else if a.turnActive {
 			a.setStatus(newWaitingStatus())

@@ -165,6 +165,29 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 					})
 				}
 				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
+			} else if m.Reasoning != "" {
+				// The same replay as the branch above, for a message that announced no
+				// tool call. A stream the stall guard cut often leaves exactly that: the
+				// model had produced reasoning and nothing else, and the tool call it was
+				// writing is dropped on purpose. Without this the message reaches the
+				// provider as an assistant turn with empty content and nothing else.
+				//
+				// Whether that helps is the provider's call, and not every one honours it:
+				// measured against api.neuraldeep.ru on 2026-09-09, reasoning_content on an
+				// inbound message is dropped before tokenization - 1039 characters of it
+				// changed prompt_tokens by zero, and a marker planted in it came back
+				// unknown to the model. It costs nothing there and carries the context on
+				// APIs that do read the field back; the guard that actually covers a
+				// text-less partial is stallNoTextNudge, which assumes nothing.
+				asst := openai.ChatCompletionAssistantMessageParam{
+					Content: openai.ChatCompletionAssistantMessageParamContentUnion{
+						OfString: openai.String(m.Content),
+					},
+				}
+				asst.SetExtraFields(map[string]any{
+					"reasoning_content": m.Reasoning,
+				})
+				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			} else {
 				oaiMessages = append(oaiMessages, openai.AssistantMessage(m.Content))
 			}
