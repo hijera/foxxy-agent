@@ -1107,6 +1107,9 @@ func (a *Agent) runReActLoop(
 				continue
 			}
 			if response.StopReason == "max_tokens" {
+				// Nothing on screen separates this from a finished turn, so say it:
+				// the cap is a setting the user can raise, but only once told it was hit.
+				a.persistTruncationNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
 				return string(acp.StopReasonMaxTokens), nil
 			}
 			return string(acp.StopReasonEndTurn), nil
