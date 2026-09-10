@@ -53,7 +53,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `autocomplete` - inline code completion in the editor plugins (the greyed suggestion at the caret): `enabled` (off by default, because a suggestion is requested per keystroke), `model` (empty falls back to `agent.model`; pick a small fast entry), `mode` (`auto` = native fill-in-the-middle for Qwen-Coder / DeepSeek-Coder / CodeLlama / StarCoder / Codestral over `/v1/completions`, chat prompt otherwise; `chat`; `fim`), `temperature` (0 = greedy, the default), `trigger` (`auto` while typing / `manual` on the shortcut), `debounce_ms`, `max_tokens`, `timeout_ms`, `multi_line`, `related_files` (other open workspace files excerpted into the prompt; 0 disables), and the `max_prefix_bytes` / `max_suffix_bytes` context window around the caret;
 - `instructions` - project instruction files (AGENTS.md chain);
 - `skills` - discovery dirs, remote sources, `auto_discovery` for the model-driven `load_skill` tool;
-- `rules` - project rules discovery;
+- `rules` - project rules discovery: `auto_discover` scans `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` under the session workspace; `systems` narrows that to some of `foxxycode`, `agents-dir`, `cursor`, `claude`, `codex`, `agents`;
 - `mcp_servers` - MCP servers started per session (stdio command, args, env; url and headers for the http/sse transports; `insecure_skip_verify` to accept a self-signed TLS certificate; disabled flag);
 - `mcp` - trust policy for project-local `.foxxycode/mcp.json` declarations (`project_trust`);
 - `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;

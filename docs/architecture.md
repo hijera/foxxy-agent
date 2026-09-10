@@ -291,13 +291,11 @@ Loads operator **lifecycle hooks** - commands that read one JSON document on std
 
 ### Rules engine (`internal/rules`)
 
-Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD. Injected into **`{{.Rules}}`** separately from skills; see **`docs/rules.md`**.
+Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD; duplicates by file name resolve as foxxycode > agents-dir > cursor > claude > codex > agents. Injected into **`{{.Rules}}`** separately from skills; see **`docs/rules.md`**.
 
-Activation uses globs, **`alwaysApply`**, **`@mention`**, and sticky auto rules (see **`docs/rules.md`**).
+The extension selects the dialect (**`markdown.go`**): `.mdc` is read as a Cursor rule (`description`, `globs` as a comma-separated string or list, `alwaysApply`, default manual), `.md` as a Claude Code rule (`paths`; unconditional without them). Headers are read as YAML first, then by a lenient line reader, because Cursor's own `globs: **/*.go` is not valid YAML. Globs use doublestar syntax anchored at the session cwd (`Rule.Root`, **`MatchGlob`**).
 
-### IntelliJ IDEA project context (`internal/session`)
-
-When the session CWD contains `.idea/`, readable UTF-8 files below that directory are added recursively to every ReAct model request as project metadata, including module and required-plugin declarations. The files are explicitly marked as data rather than instructions, binary and unreadable files are skipped, individual files are capped at 256 KB, and the combined metadata body is capped at 512 KB.
+Activation uses globs, **`alwaysApply`**, **`@mention`**, sticky auto rules, and filesystem tool paths (`MatchScoped`: a `read`/`edit`/... targeting a matching path or a nested `AGENTS.md` subtree activates the rule); see **`docs/rules.md`**.
 
 ### Config (`internal/config`)
 

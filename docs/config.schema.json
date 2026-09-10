@@ -369,7 +369,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from .foxxycode/rules, .cursor/rules, .claude/rules, .codex/rules, and nested **/AGENTS.md under the session CWD. See docs/rules.md.",
+      "description": "Discovery of rule files from .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested **/AGENTS.md under the session CWD; .mdc files are read as Cursor rules and .md files as Claude Code rules. See docs/rules.md.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -379,7 +379,7 @@
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: foxxycode, cursor, claude, codex, agents. Empty means all.",
+          "description": "Restrict which rule systems are loaded: foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all.",
           "default": [],
           "items": { "type": "string" }
         }

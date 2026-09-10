@@ -210,8 +210,8 @@ Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, and nested `**/AGENTS.md` under the session CWD. |
-| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `cursor`, `claude`, `codex`, `agents`. |
+| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `**/AGENTS.md` under the session CWD. `.mdc` files are read as Cursor rules, `.md` files as Claude Code rules. |
+| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `agents-dir` (`.agents/rules`), `cursor`, `claude`, `codex`, `agents` (nested `AGENTS.md`). |
 
 ## `mcp_servers`
 

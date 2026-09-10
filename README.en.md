@@ -384,15 +384,26 @@ Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Rules
 
-Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/) convention; the root `AGENTS.md` is injected separately as a project docs preamble) when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
+Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, the tool-neutral **`.agents/rules`** (the rules sibling of `.agents/skills`), **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`**.
 
-Rule files often use Cursor-style frontmatter, for example:
+The file extension selects the dialect, so one folder can hold both kinds. A **`.mdc`** file is a Cursor rule (`description`, comma-separated `globs`, `alwaysApply`, manual unless one of them says otherwise); a **`.md`** file is a Claude Code rule (`paths`, and unconditional without them):
 
 ```markdown
 ---
-description: "Go coding standards"
-globs: ["**/*.go"]
+description: Go coding standards
+globs: **/*.go
 alwaysApply: false
+---
+
+Write all comments in English.
+Use fmt.Errorf("context: %w", err) for error wrapping.
+```
+
+```markdown
+---
+description: Go coding standards
+paths:
+  - "**/*.go"
 ---
 
 Write all comments in English.
