@@ -200,7 +200,7 @@ func (s *sessionChangesState) askWhatChangedInScope(scope string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET changes returned %d", res.StatusCode)
 	}
@@ -231,7 +231,7 @@ func (s *sessionChangesState) openDiff(name string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET changes/file returned %d", res.StatusCode)
 	}
@@ -248,7 +248,7 @@ func (s *sessionChangesState) rollBack() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST revert returned %d", res.StatusCode)
 	}
