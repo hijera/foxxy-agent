@@ -73,16 +73,16 @@ func TestMatchScopedGlobRules(t *testing.T) {
 	globbed := &rules.Rule{
 		ID: "cursor:go", Name: "go",
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto,
-		Globs:       []string{"internal/**/*.go"},
-		Root:        root,
-		Content:     "glob body",
+		Globs:   []string{"internal/**/*.go"},
+		Root:    root,
+		Content: "glob body",
 	}
 	mention := &rules.Rule{
 		ID: "cursor:manual", Name: "manual",
 		AlwaysApply: false, ApplyMode: rules.ApplyMention,
-		Globs:       []string{"**/*.go"},
-		Root:        root,
-		Content:     "manual body",
+		Globs:   []string{"**/*.go"},
+		Root:    root,
+		Content: "manual body",
 	}
 	catalog := []*rules.Rule{always, globbed, mention}
 

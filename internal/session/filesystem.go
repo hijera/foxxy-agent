@@ -150,10 +150,10 @@ type SessionMeta struct {
 	AgentMemory       string `json:"agentMemory,omitempty"`
 	// HookContext is what SessionStart hooks handed to the session.
 	HookContext string `json:"hookContext,omitempty"`
-	Title             string `json:"title,omitempty"`
-	TitlePinned       string `json:"titlePinned,omitempty"`
-	TitleAuto         string `json:"titleAuto,omitempty"`
-	UpdatedAt         string `json:"updatedAt,omitempty"`
+	Title       string `json:"title,omitempty"`
+	TitlePinned string `json:"titlePinned,omitempty"`
+	TitleAuto   string `json:"titleAuto,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
