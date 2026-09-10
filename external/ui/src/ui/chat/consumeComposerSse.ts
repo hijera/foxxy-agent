@@ -620,7 +620,24 @@ export async function consumeComposerSseReader(
           if (ev.event === "llm_retry") {
             try {
               const payload = JSON.parse(ev.data) as { phase?: string };
-              onLlmRetrying?.(payload.phase === "waiting");
+              // "waiting" is a pause before replaying a call that delivered
+              // nothing; "continuing" is a turn parked behind a half-written
+              // answer. Both mean nothing is arriving, which is what the status
+              // line reports - and the second is the one the operator sees most,
+              // because the bubble stays on screen through it.
+              //
+              // Only "resumed" takes the label away. "retrying" says the next
+              // attempt went out, not that anything came back, and an attempt can
+              // hang for its whole request timeout - clearing on it made the label
+              // blink out while the turn was still parked.
+              if (payload.phase === "resumed") {
+                onLlmRetrying?.(false);
+              } else if (
+                payload.phase === "waiting" ||
+                payload.phase === "continuing"
+              ) {
+                onLlmRetrying?.(true);
+              }
             } catch {
               // ignore
             }
