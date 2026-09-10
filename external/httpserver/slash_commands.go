@@ -173,7 +173,7 @@ func (s *Server) foxxycodeSlashCommandsGet(w http.ResponseWriter, r *http.Reques
 }
 
 // foxxycodeCommandsGet lists the deterministic built-in slash commands (/compact,
-// /plugin) on their own, so a client can surface a "Commands" group without paging
+// /export, /plugin) on their own, so a client can surface a "Commands" group without paging
 // through the skills catalogue. They run without an LLM turn. compact appears only
 // while compaction is enabled on the coddy engine, matching the slash catalogue.
 func (s *Server) foxxycodeCommandsGet(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,4 @@
-//go:build http
-
-package httpserver
+package export
 
 import (
 	"bytes"
@@ -11,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 // wrapRuns is the piece that lets a table cell hold a formatted sentence: fpdf's
@@ -301,4 +300,87 @@ func pdfContentStreams(t *testing.T, pdfBytes []byte) []string {
 		out = append(out, string(content))
 	}
 	return out
+}
+
+// pdfStreamRe finds the compressed content streams of a PDF and pdfTextRe the
+// text-showing operators inside them, so a test can assert on what the reader
+// actually sees.
+var pdfStreamRe = regexp.MustCompile(`(?s)stream\r?\n(.*?)endstream`)
+var pdfTextRe = regexp.MustCompile(`(?s)BT ([0-9.]+) ([0-9.]+) Td \(((?:\\.|[^\\)])*)\)Tj ET`)
+
+// A PDF hides its text inside compressed content streams; these helpers
+// inflate them so a test can assert on what the reader actually sees.
+// pdfTextOp is one text-showing operation lifted out of the PDF content stream,
+// carrying the absolute baseline position the text was drawn at.
+type pdfTextOp struct {
+	X, Y float64
+	Text string
+}
+
+// pdfTextOps inflates every FlateDecode content stream in the document and
+// returns the drawn text runs in document order. fpdf writes UTF-8 font text as
+// UTF-16BE inside a literal PDF string, so the payload is unescaped and decoded
+// back into a Go string.
+func pdfTextOps(pdfBytes []byte) []pdfTextOp {
+	var ops []pdfTextOp
+	for _, m := range pdfStreamRe.FindAllSubmatch(pdfBytes, -1) {
+		zr, err := zlib.NewReader(bytes.NewReader(m[1]))
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(zr)
+		_ = zr.Close()
+		if err != nil {
+			continue
+		}
+		for _, t := range pdfTextRe.FindAllSubmatch(content, -1) {
+			var x, y float64
+			if _, err := fmt.Sscanf(string(t[1])+" "+string(t[2]), "%f %f", &x, &y); err != nil {
+				continue
+			}
+			ops = append(ops, pdfTextOp{X: x, Y: y, Text: decodePDFString(t[3])})
+		}
+	}
+	return ops
+}
+
+// decodePDFString undoes PDF literal-string escaping and decodes the UTF-16BE
+// payload fpdf emits for embedded UTF-8 fonts.
+func decodePDFString(raw []byte) string {
+	var b []byte
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' || i+1 >= len(raw) {
+			b = append(b, raw[i])
+			continue
+		}
+		i++
+		switch c := raw[i]; c {
+		case 'n':
+			b = append(b, '\n')
+		case 'r':
+			b = append(b, '\r')
+		case 't':
+			b = append(b, '\t')
+		case '(', ')', '\\':
+			b = append(b, c)
+		default:
+			if c >= '0' && c <= '7' {
+				v, n := 0, 0
+				for i < len(raw) && n < 3 && raw[i] >= '0' && raw[i] <= '7' {
+					v = v*8 + int(raw[i]-'0')
+					i++
+					n++
+				}
+				i--
+				b = append(b, byte(v))
+				continue
+			}
+			b = append(b, c)
+		}
+	}
+	units := make([]uint16, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		units = append(units, uint16(b[i])<<8|uint16(b[i+1]))
+	}
+	return string(utf16.Decode(units))
 }

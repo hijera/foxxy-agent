@@ -1,6 +1,4 @@
-//go:build http
-
-package httpserver
+package export
 
 import (
 	"os"
