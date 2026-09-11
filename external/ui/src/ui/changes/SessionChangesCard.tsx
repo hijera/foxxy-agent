@@ -79,28 +79,28 @@ export function SessionChangesCard(props: {
     return null;
   }
 
-  // Inside an editor the diffs belong in the IDE's own viewer; the in-app
-  // surface is the fallback when no plugin is listening on the event stream.
-  const openVia = (fallback: () => void, path?: string) => {
+  // A row asks about one file. Inside an editor that belongs in the IDE's own
+  // viewer, opened on that file; the in-app drawer is the fallback when no
+  // plugin is listening on the event stream.
+  const openRow = (path: string) => {
     if (!isEditorEmbed()) {
-      fallback();
+      props.onOpenReview(path);
       return;
     }
     void (async () => {
       const res = await openSessionChangesInIde(props.sessionId, path);
       if (!res.ok || !res.data.delivered) {
-        fallback();
+        props.onOpenReview(path);
       }
     })();
   };
 
-  // A row asks about one file, so it opens the drawer; the summary and Review
-  // ask about the change set, which is what the full window is for.
-  const openRow = (path: string) => {
-    openVia(() => props.onOpenReview(path), path);
-  };
+  // The summary and Review ask about the change set, and the review window is
+  // the only surface that shows one. Handing these to the IDE put a single file
+  // in front of the user instead - the question they asked was "what changed",
+  // and the answer to that is a list, not a file.
   const openAll = () => {
-    openVia(() => props.onOpenViewer());
+    props.onOpenViewer();
   };
 
   const revert = () => {

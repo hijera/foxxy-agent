@@ -1293,7 +1293,8 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List every file the session changed",
 					"description": "Collapses the per-turn workspace diffs stored in the session bundle into one net change per file: the content the file had before the first turn that touched it against the content after the last one. " +
 						"Because those diffs come from snapshotting the workspace around each turn, an edit made by a shell command is reported exactly like one made by the **`edit`** tool. " +
-						"Files created and removed again within the session, or edited and edited back, are left out. **`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
+						"Files created and removed again within the session, or edited and edited back, are left out, as is anything under `.idea` or `.vscode` at any depth - an editor rewrites those on its own schedule, and that holds for every scope. " +
+						"**`status`** is **`added`**, **`modified`**, or **`deleted`**; a **`binary`** file carries no line counts and no patch. " +
 						"By default only stats are returned - **`include=patch`** adds the unified diff and **`include=content`** the decoded before/after sides (both may be combined, comma separated). " +
 						"A patch cut short at 256 KB sets **`truncated`**; **`additions`** and **`deletions`** still describe the whole file. This is what the SPA changed-files card and the IntelliJ / VS Code Changes views read. " +
 						"**`scope`** narrows what is reported: **`turn`** folds only the newest stored turn, **`uncommitted`** ignores the session entirely and diffs the **tracked** working copy against its base revision (git **`HEAD`**, or the Subversion **`BASE`**), and **`all`** adds the files version control does not track yet. " +

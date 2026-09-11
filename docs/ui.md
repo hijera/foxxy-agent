@@ -485,13 +485,28 @@ not any single message.
 - A session that changed nothing renders **no card at all**, and neither does one
   where every change cancelled out (a file created and removed again, or edited
   and edited back, is left out of the set).
-- **Review** opens the viewer. Inside an editor panel (`isEditorEmbed()`) it
-  instead POSTs `.../changes/open-in-ide`, so the diffs open in the IDE's own
-  viewer; if no plugin answers (`delivered: false`) it falls back to the in-app
-  one. Clicking a file row does the same, preselecting that file.
+- **Review** and the summary open the review window, in an editor panel too.
+  They ask what changed, and only the window shows a change set; handing them to
+  the IDE put one file in front of the reader instead. Each plugin keeps its own
+  toolbar button into the native viewer for when that is what is wanted.
+- **Clicking a file row** asks about one file, so inside an editor panel
+  (`isEditorEmbed()`) it POSTs `.../changes/open-in-ide` with that path and the
+  plugin opens its own diff on it; if no plugin answers (`delivered: false`) it
+  falls back to the in-app drawer.
+- **`.idea`, `.vscode`, `.git` and `.svn` never appear.** An editor rewrites its
+  settings on its own schedule and a VCS client rewrites its administrative area -
+  one `svn` command writes `wc.db` plus a binary pristine copy of every file it
+  touches, which would bury a three-line edit under a hundred `.svn-base` blobs.
+  The rule is `session.IsToolStatePath` and it applies three times over: the
+  workspace snapshot skips those folders, the aggregate drops them when a session
+  recorded by an older build is read back, and the working-copy scopes filter them
+  as well. Matching is on whole path segments, so `docs/idea.md`, `.ideas/plan.md`
+  and `git-notes.txt` are ordinary files.
 - **Undo** asks first, then POSTs `.../changes/revert`, which reverses every turn
   diff of the session: edited files go back to their pre-session content and
-  created files are removed. Git is not involved, so the confirmation says plainly
+  created files are removed. Tool state is skipped here too - putting `wc.db` or
+  `.git/index` back would leave the client describing a tree that is no longer
+  there, so a rollback would break the working copy it was asked to clean up. Git is not involved, so the confirmation says plainly
   that it undoes the whole session.
 - `ui.session_changes: false` (Settings → General) hides the card and stops it
   fetching. The Changes button in the IntelliJ and VS Code plugins is IDE chrome

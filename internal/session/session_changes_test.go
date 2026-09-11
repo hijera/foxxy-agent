@@ -1,6 +1,7 @@
 package session
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -230,5 +231,178 @@ func TestLatestTurnNumberEmpty(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("want no changes, got %+v", got)
+	}
+}
+
+// An IDE rewrites its own settings folder constantly - .idea/workspace.xml moves
+// on every caret change - so recording it would put churn nobody asked about at
+// the top of every review.
+func TestWorkspaceSnapshotSkipsEditorSettings(t *testing.T) {
+	cwd := t.TempDir()
+	for _, rel := range []string{
+		filepath.Join(".idea", "workspace.xml"),
+		filepath.Join(".vscode", "settings.json"),
+		filepath.Join("src", ".idea", "nested.xml"),
+		"real.txt",
+	} {
+		p := filepath.Join(cwd, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("before\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	before := TakeWorkspaceSnapshot(cwd)
+	for _, rel := range []string{
+		filepath.Join(".idea", "workspace.xml"),
+		filepath.Join(".vscode", "settings.json"),
+		filepath.Join("src", ".idea", "nested.xml"),
+		"real.txt",
+	} {
+		if err := os.WriteFile(filepath.Join(cwd, rel), []byte("after\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	diff, err := ComputeWorkspaceDiff(cwd, before)
+	if err != nil {
+		t.Fatalf("ComputeWorkspaceDiff: %v", err)
+	}
+	if diff == nil || len(diff.Changes) != 1 {
+		t.Fatalf("want only real.txt, got %+v", diff)
+	}
+	if diff.Changes[0].Path != "real.txt" {
+		t.Fatalf("unexpected change: %+v", diff.Changes[0])
+	}
+}
+
+// .svn is to Subversion what .git is to git: an administrative area the client
+// rewrites on its own. A turn where the agent runs any svn command would
+// otherwise fill the card with wc.db and pristine copies.
+func TestWorkspaceSnapshotSkipsSVNAdminDir(t *testing.T) {
+	cwd := t.TempDir()
+	for _, rel := range []string{
+		filepath.Join(".svn", "wc.db"),
+		filepath.Join(".svn", "pristine", "ab", "abc.svn-base"),
+		"real.js",
+	} {
+		p := filepath.Join(cwd, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("before\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	before := TakeWorkspaceSnapshot(cwd)
+	for _, rel := range []string{
+		filepath.Join(".svn", "wc.db"),
+		filepath.Join(".svn", "pristine", "ab", "abc.svn-base"),
+		"real.js",
+	} {
+		if err := os.WriteFile(filepath.Join(cwd, rel), []byte("after\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	diff, err := ComputeWorkspaceDiff(cwd, before)
+	if err != nil {
+		t.Fatalf("ComputeWorkspaceDiff: %v", err)
+	}
+	if diff == nil || len(diff.Changes) != 1 || diff.Changes[0].Path != "real.js" {
+		t.Fatalf("want only real.js, got %+v", diff)
+	}
+}
+
+// A session recorded before the snapshot learned to skip a version control
+// client's administrative folder still carries it, and in a Subversion working
+// copy the pristine blobs are the bulk of such a recording. The aggregate is
+// what every viewer and the rollback read, so it is where they stop.
+func TestAggregateSessionChangesSkipsToolState(t *testing.T) {
+	dir := t.TempDir()
+	storeTurn(t, dir, 1,
+		WorkspaceChange{Path: filepath.Join(".svn", "pristine", "3b", "3b7f.svn-base"), After: file("blob\n")},
+		WorkspaceChange{Path: filepath.Join(".svn", "wc.db"), Before: file("db1"), After: file("db2")},
+		WorkspaceChange{Path: filepath.Join(".idea", "workspace.xml"), Before: file("one"), After: file("two")},
+		WorkspaceChange{Path: filepath.Join(".vscode", "settings.json"), After: file("{}")},
+		WorkspaceChange{Path: filepath.Join(".git", "index"), Before: file("i1"), After: file("i2")},
+		// Names that merely look like the folders above stay: the match is on
+		// whole path segments.
+		WorkspaceChange{Path: "git-notes.txt", After: file("kept\n")},
+		WorkspaceChange{Path: filepath.Join("docs", "idea.md"), After: file("kept\n")},
+		WorkspaceChange{Path: "app.js", Before: file("a\n"), After: file("b\n")},
+	)
+
+	got, err := AggregateSessionChanges(dir)
+	if err != nil {
+		t.Fatalf("AggregateSessionChanges: %v", err)
+	}
+	var paths []string
+	for _, c := range got {
+		paths = append(paths, filepath.ToSlash(c.Path))
+	}
+	want := []string{"app.js", "docs/idea.md", "git-notes.txt"}
+	if len(paths) != len(want) {
+		t.Fatalf("want %v, got %v", want, paths)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("want %v, got %v", want, paths)
+		}
+	}
+}
+
+// Rolling a session back must not reach into a working copy's bookkeeping.
+// Restoring .svn/wc.db to what it held three turns ago leaves Subversion
+// describing a tree that no longer exists - the rollback would break the
+// working copy it was asked to clean up.
+func TestRestoreWorkspaceFilesSkipsToolState(t *testing.T) {
+	cwd := t.TempDir()
+	dir := t.TempDir()
+
+	writeAt := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(cwd, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	readAt := func(rel string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(cwd, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(b)
+	}
+
+	writeAt("app.js", "edited\n")
+	writeAt(filepath.Join(".svn", "wc.db"), "current")
+	writeAt(filepath.Join(".svn", "pristine", "3b", "3b7f.svn-base"), "blob")
+
+	storeTurn(t, dir, 1,
+		WorkspaceChange{Path: "app.js", Before: file("original\n"), After: file("edited\n")},
+		WorkspaceChange{Path: filepath.Join(".svn", "wc.db"), Before: file("stale"), After: file("current")},
+		// No Before: a plain rollback would delete this one.
+		WorkspaceChange{Path: filepath.Join(".svn", "pristine", "3b", "3b7f.svn-base"), After: file("blob")},
+	)
+
+	if _, err := RestoreWorkspaceFiles(cwd, dir, 0); err != nil {
+		t.Fatalf("RestoreWorkspaceFiles: %v", err)
+	}
+	if got := readAt("app.js"); got != "original\n" {
+		t.Fatalf("app.js not rolled back: %q", got)
+	}
+	if got := readAt(filepath.Join(".svn", "wc.db")); got != "current" {
+		t.Fatalf("svn bookkeeping was rewritten: %q", got)
+	}
+	if got := readAt(filepath.Join(".svn", "pristine", "3b", "3b7f.svn-base")); got != "blob" {
+		t.Fatalf("svn pristine copy was rewritten: %q", got)
 	}
 }

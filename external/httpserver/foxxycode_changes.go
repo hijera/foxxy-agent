@@ -105,6 +105,23 @@ func buildChangedFile(change session.FileChange, withPatch, withContent bool) ch
 	return dto
 }
 
+// visibleChanges drops what no review should open with: the folders a tool
+// keeps its own bookkeeping in.
+//
+// session.AggregateSessionChanges already filters the recorded scopes; this is
+// for the working-copy ones, which report whatever git or svn happens to track.
+// The rule itself lives in internal/session so both sides answer alike.
+func visibleChanges(changes []session.FileChange) []session.FileChange {
+	out := changes[:0]
+	for _, change := range changes {
+		if session.IsToolStatePath(change.Path) {
+			continue
+		}
+		out = append(out, change)
+	}
+	return out
+}
+
 // changeScope selects which set of edits a viewer request describes. The card
 // only ever wants the whole session; the viewer's switcher asks for the rest.
 type changeScope string
@@ -177,7 +194,7 @@ func (s *Server) loadChangeSet(ctx context.Context, st *session.State, sessionDi
 			return changeSetResult{}, err
 		}
 		changes, err := session.AggregateTurnChanges(sessionDir, turn)
-		return changeSetResult{changes: changes}, err
+		return changeSetResult{changes: visibleChanges(changes)}, err
 
 	case scopeUncommitted, scopeAll:
 		cwd := strings.TrimSpace(st.GetCWD())
@@ -215,11 +232,11 @@ func (s *Server) loadChangeSet(ctx context.Context, st *session.State, sessionDi
 		if err != nil {
 			return changeSetResult{}, err
 		}
-		return changeSetResult{changes: changes, untracked: untracked, vcs: vcs}, nil
+		return changeSetResult{changes: visibleChanges(changes), untracked: untracked, vcs: vcs}, nil
 
 	default:
 		changes, err := session.AggregateSessionChanges(sessionDir)
-		return changeSetResult{changes: changes}, err
+		return changeSetResult{changes: visibleChanges(changes)}, err
 	}
 }
 
@@ -243,6 +260,10 @@ func fileChangeFromSVN(w svnws.WorkChange) session.FileChange {
 // and the viewer makes one request per file - which turned opening a review of
 // a large working copy into tens of seconds of pointless blob reads.
 func (s *Server) loadChangeFile(ctx context.Context, st *session.State, sessionDir string, scope changeScope, path string) ([]session.FileChange, error) {
+	if session.IsToolStatePath(path) {
+		// Hidden from the list, so not reachable one at a time either.
+		return nil, nil
+	}
 	if scope != scopeUncommitted && scope != scopeAll {
 		// The session scopes fold JSON already on disk, so narrowing afterwards
 		// costs nothing worth a second code path.

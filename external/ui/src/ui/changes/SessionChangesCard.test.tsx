@@ -154,33 +154,45 @@ test("clicking a row opens that file in the side drawer", async () => {
   expect(onOpenViewer).not.toHaveBeenCalled();
 });
 
-test("inside an editor embed the review is handed to the plugin", async () => {
+test("inside an editor embed the review still opens the review window", async () => {
   window.sessionStorage.setItem("foxxycode.embed", "intellij");
   const onOpenReview = vi.fn();
-  fetchMock.mockImplementation(async (input: unknown) => {
-    if (String(input).includes("open-in-ide")) {
-      return jsonResponse({ delivered: true });
-    }
-    return jsonResponse(CHANGES);
-  });
+  const onOpenViewer = vi.fn();
 
   render(
     <SessionChangesCard
       sessionId="s1"
       generating={false}
       onOpenReview={onOpenReview}
-      onOpenViewer={() => {}}
+      onOpenViewer={onOpenViewer}
     />,
   );
   fireEvent.click(await screen.findByTestId("changes-review"));
 
-  await waitFor(() => {
-    expect(
-      fetchMock.mock.calls.some((c) => String(c[0]).includes("open-in-ide")),
-    ).toBe(true);
-  });
-  // The plugin took it, so the SPA drawer stays shut.
+  // Review is about the change set, and the window is the only surface that
+  // shows a change set. Handing it to the IDE gave one file at a time instead,
+  // which is what a row click is for.
+  expect(onOpenViewer).toHaveBeenCalledTimes(1);
   expect(onOpenReview).not.toHaveBeenCalled();
+  expect(
+    fetchMock.mock.calls.some((c) => String(c[0]).includes("open-in-ide")),
+  ).toBe(false);
+});
+
+test("inside an editor embed the summary opens the review window too", async () => {
+  window.sessionStorage.setItem("foxxycode.embed", "intellij");
+  const onOpenViewer = vi.fn();
+
+  render(
+    <SessionChangesCard
+      sessionId="s1"
+      generating={false}
+      onOpenReview={() => {}}
+      onOpenViewer={onOpenViewer}
+    />,
+  );
+  fireEvent.click(await screen.findByTestId("changes-card-open"));
+  expect(onOpenViewer).toHaveBeenCalledTimes(1);
 });
 
 test("a row click inside an editor embed names the file to the plugin", async () => {
@@ -212,9 +224,9 @@ test("a row click inside an editor embed names the file to the plugin", async ()
   });
 });
 
-test("with no plugin listening the embed falls back to the in-app window", async () => {
+test("with no plugin listening a row falls back to the in-app drawer", async () => {
   window.sessionStorage.setItem("foxxycode.embed", "vscode");
-  const onOpenViewer = vi.fn();
+  const onOpenReview = vi.fn();
   fetchMock.mockImplementation(async (input: unknown) => {
     if (String(input).includes("open-in-ide")) {
       return jsonResponse({ delivered: false });
@@ -226,12 +238,12 @@ test("with no plugin listening the embed falls back to the in-app window", async
     <SessionChangesCard
       sessionId="s1"
       generating={false}
-      onOpenReview={() => {}}
-      onOpenViewer={onOpenViewer}
+      onOpenReview={onOpenReview}
+      onOpenViewer={() => {}}
     />,
   );
-  fireEvent.click(await screen.findByTestId("changes-review"));
-  await waitFor(() => expect(onOpenViewer).toHaveBeenCalledTimes(1));
+  fireEvent.click(await screen.findByTestId("changes-row-index.html"));
+  await waitFor(() => expect(onOpenReview).toHaveBeenCalledWith("index.html"));
 });
 
 test("undo asks before rewriting the workspace", async () => {

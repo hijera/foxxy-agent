@@ -96,6 +96,13 @@ func aggregateTurns(sessionDir string, turns []int) ([]FileChange, error) {
 			continue
 		}
 		for _, ch := range diff.Changes {
+			if IsToolStatePath(ch.Path) {
+				// The snapshot skips these, but a session recorded before it
+				// learned to still carries them. Dropping them here rather than
+				// in each viewer means the card, the review window, both
+				// plugins and the rollback all describe the same change set.
+				continue
+			}
 			agg := byPath[ch.Path]
 			if agg == nil {
 				agg = &aggregate{}

@@ -640,3 +640,78 @@ func TestSessionChangesWorkingCopyScopesUnderSVN(t *testing.T) {
 		t.Fatalf("unexpected patch: %v", decodeJSON(t, rec)["patch"])
 	}
 }
+
+// Sessions recorded before the snapshot learned to skip them still carry the
+// editor's settings folders, and the git scopes see whatever the repository
+// tracks. Neither is review material, so the route drops them in every scope.
+func TestSessionChangesHidesEditorSettings(t *testing.T) {
+	e := newChangesEnv(t)
+	e.storeTurn(t, 1,
+		session.WorkspaceChange{Path: filepath.Join(".idea", "workspace.xml"),
+			Before: wsFile("a\n"), After: wsFile("b\n")},
+		session.WorkspaceChange{Path: filepath.Join(".vscode", "settings.json"),
+			Before: wsFile("a\n"), After: wsFile("b\n")},
+		session.WorkspaceChange{Path: filepath.Join("src", ".idea", "nested.xml"),
+			After: wsFile("x\n")},
+		session.WorkspaceChange{Path: "real.txt", After: wsFile("x\n")},
+	)
+
+	rec := e.do(t, http.MethodGet, "/foxxycode/sessions/"+e.id+"/changes")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	body := decodeJSON(t, rec)
+	files := body["files"].([]interface{})
+	if len(files) != 1 || files[0].(map[string]interface{})["path"] != "real.txt" {
+		t.Fatalf("want only real.txt, got %v", files)
+	}
+	if body["totals"].(map[string]interface{})["files"].(float64) != 1 {
+		t.Fatalf("totals must count only what is shown: %v", body["totals"])
+	}
+
+	// And they are not reachable one at a time either.
+	rec = e.do(t, http.MethodGet,
+		"/foxxycode/sessions/"+e.id+"/changes/file?path=.idea/workspace.xml")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("an editor settings file must be 404, got %d", rec.Code)
+	}
+}
+
+// A file that merely mentions the folder name is ordinary source.
+func TestSessionChangesKeepsLookalikePaths(t *testing.T) {
+	e := newChangesEnv(t)
+	e.storeTurn(t, 1,
+		session.WorkspaceChange{Path: "docs/idea.md", After: wsFile("x\n")},
+		session.WorkspaceChange{Path: ".ideas/plan.md", After: wsFile("x\n")},
+		session.WorkspaceChange{Path: "vscode-notes.txt", After: wsFile("x\n")},
+	)
+
+	rec := e.do(t, http.MethodGet, "/foxxycode/sessions/"+e.id+"/changes")
+	if n := len(decodeJSON(t, rec)["files"].([]interface{})); n != 3 {
+		t.Fatalf("want all 3 kept, got %d", n)
+	}
+}
+
+// The version control client's own bookkeeping is noise for the same reason the
+// editor's is, and a session recorded before the snapshot skipped it still has
+// it stored.
+func TestSessionChangesHidesVCSAdminDirs(t *testing.T) {
+	e := newChangesEnv(t)
+	e.storeTurn(t, 1,
+		session.WorkspaceChange{Path: filepath.Join(".svn", "wc.db"),
+			Before: wsFile("a\n"), After: wsFile("b\n")},
+		session.WorkspaceChange{Path: filepath.Join(".git", "index"),
+			Before: wsFile("a\n"), After: wsFile("b\n")},
+		session.WorkspaceChange{Path: "git-notes.txt", After: wsFile("x\n")},
+		session.WorkspaceChange{Path: "app.js", After: wsFile("x\n")},
+	)
+
+	rec := e.do(t, http.MethodGet, "/foxxycode/sessions/"+e.id+"/changes")
+	paths := []string{}
+	for _, f := range decodeJSON(t, rec)["files"].([]interface{}) {
+		paths = append(paths, f.(map[string]interface{})["path"].(string))
+	}
+	if len(paths) != 2 {
+		t.Fatalf("want app.js and git-notes.txt, got %v", paths)
+	}
+}
