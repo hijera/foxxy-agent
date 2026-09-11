@@ -18,6 +18,7 @@ import com.intellij.util.execution.ParametersListUtil
 import com.google.gson.JsonParser
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeLocaleState
+import dev.foxxycode.intellij.FoxxyCodeNotifications
 import dev.foxxycode.intellij.binary.FoxxyCodeBinaryResolver
 import dev.foxxycode.intellij.settings.FoxxyCodeSettings
 import dev.foxxycode.intellij.ui.FoxxyCodeLanguageListener
@@ -135,9 +136,18 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
 
             override fun processTerminated(event: ProcessEvent) {
                 log.info("[foxxycode] process terminated, exit=${event.exitCode}")
+                // Read both before they are cleared: `terminating` is this project's record
+                // that the stop was asked for, and a null baseUrl means the backend never
+                // finished starting (waitForReady reports that case itself).
+                val report = shouldReportBackendExit(
+                    deliberate = terminating.contains(h),
+                    reapingAll = FoxxyCodeBackends.isReapingAll,
+                    hadBecomeReady = baseUrl != null,
+                )
                 baseUrl = null
                 terminating.remove(h)
                 FoxxyCodeBackends.unregister(h)
+                if (report) reportUnexpectedExit(event.exitCode)
             }
         })
         h.startNotify()
@@ -186,6 +196,32 @@ class FoxxyCodeProcessManager(private val project: Project) : Disposable {
             }
         }
     }
+
+    /**
+     * Tell the user the backend died. A balloon, not the panel's own error view: the panel
+     * would swap the whole chat for an error message and throw away the transcript that is
+     * still on screen and still worth reading.
+     */
+    private fun reportUnexpectedExit(exitCode: Int) {
+        val detail = recentOutputText().trim()
+        val body = FoxxyCodeBundle.message("process.error.backendExited", exitCode) +
+            if (detail.isEmpty()) "" else "<br/><br/>" + htmlEscape(detail)
+        ApplicationManager.getApplication().invokeLater {
+            FoxxyCodeNotifications.error(
+                project,
+                FoxxyCodeBundle.message("notification.title.backendExited"),
+                body,
+            )
+        }
+    }
+
+    /** The backend prints plain text; a notification body is rendered as HTML. */
+    private fun htmlEscape(text: String): String =
+        text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br/>")
 
     /** Last lines the backend printed, kept so a startup failure can quote them to the user. */
     private val recentOutput = ArrayDeque<String>()

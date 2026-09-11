@@ -1,7 +1,8 @@
 /// <reference types="vitest/config" />
 
 import path from "node:path";
-import { defineConfig } from "vite";
+import { readFileSync, readdirSync } from "node:fs";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 // @ts-ignore -- plain .mjs module without type declarations
 import resolveColorMix from "./postcss-resolve-color-mix.mjs";
@@ -9,11 +10,30 @@ import resolveColorMix from "./postcss-resolve-color-mix.mjs";
 const backend = (process.env.FOXXYCODE_UI_BACKEND || "").trim();
 const cacheDir = (process.env.FOXXYCODE_UI_VITE_CACHE_DIR || "").trim();
 
+// Retain vendored grammar notices in the embedded JS distribution. The minifier
+// otherwise strips source comments, including comments marked as licenses.
+const grammarDirectory = path.resolve(import.meta.dirname, "src/ui/markdown/grammars");
+const syntaxLicenseBanner = readdirSync(grammarDirectory)
+  .filter((name) => name.endsWith(".LICENSE"))
+  .sort()
+  .map((name) => `/* ${name}\n${readFileSync(path.join(grammarDirectory, name), "utf8")}\n*/`)
+  .join("\n");
+
+const syntaxLicensePlugin: Plugin = {
+  name: "syntax-grammar-notices",
+  enforce: "post",
+  generateBundle(_options, bundle) {
+    for (const output of Object.values(bundle)) {
+      if (output.type === "chunk") output.code += `\n${syntaxLicenseBanner}\n`;
+    }
+  },
+};
+
 export default defineConfig({
   root: "src",
   publicDir: path.resolve(import.meta.dirname, "public"),
   ...(cacheDir ? { cacheDir } : {}),
-  plugins: [react()],
+  plugins: [react(), syntaxLicensePlugin],
   css: {
     // Resolves color-mix() to Chromium-104-safe literals at build time
     // (JCEF baseline, see docs/intellij-embedding.md). Applies in dev too.

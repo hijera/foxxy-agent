@@ -18,6 +18,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/hooks"
 	"github.com/hijera/foxxycode-agent/internal/ideenv"
 	"github.com/hijera/foxxycode-agent/internal/ideterm"
 	"github.com/hijera/foxxycode-agent/internal/llm"
@@ -90,6 +91,12 @@ type Agent struct {
 	detachedPermissions DetachedPermissionBroker
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
+	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
+	// countdown (tests); zero means limitWaitHeartbeat.
+	limitWaitHeartbeat time.Duration
+	// limitLedger is the user turn's account of time spent on usage
+	// limits (limit_wait.go); Run starts a fresh one.
+	limitLedger *limitWaitLedger
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
@@ -102,6 +109,17 @@ type Agent struct {
 	pinMu          sync.Mutex
 	loopPins       map[string]struct{}
 	loopQuarantine map[string]struct{}
+
+	// hooks is the operator hook runner of the current turn, built on first
+	// use from the definition files (hooks.go). hookStopReason carries a
+	// continue:false answered by a hook to the loop, which ends the turn.
+	hooks          *hooks.Runner
+	hooksMu        sync.Mutex
+	hooksLoaded    bool
+	hookStopReason string
+	// turnHookContext is what UserPromptSubmit hooks handed over for this
+	// turn's system prompt (hooks.go).
+	turnHookContext string
 }
 
 // addToolImage buffers an image produced by a tool (e.g. a browser screenshot) so the
@@ -168,15 +186,20 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
 	mode := a.state.GetMode()
+	// Hook definitions are re-read for every turn.
+	a.resetHooks()
+	a.hookStopReason = ""
+	a.turnHookContext = ""
+	a.limitLedger = &limitWaitLedger{}
 
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
-	// The built-in /compact and /plugin commands are operator input: they run
-	// deterministically, outside the tool set and the permission gate. A
-	// child's prompt is written by the parent model, so for a subagent the
-	// same text is an ordinary task and never reaches the built-ins.
+	// The built-in /compact, /plugin, and /export commands are operator input:
+	// they run deterministically, outside the tool set and the permission
+	// gate. A child's prompt is written by the parent model, so for a subagent
+	// the same text is an ordinary task and never reaches the built-ins.
 	if a.subagent == nil {
 		// The built-in /compact command compacts history instead of running the ReAct
 		// loop. runCompactCommand persists the command text itself (so it shows in the
@@ -190,6 +213,21 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		if args, ok := parsePluginCommand(userText); ok {
 			return a.runPluginCommand(ctx, args, userText)
 		}
+		// The built-in /export command writes the transcript to a file in the
+		// workspace; the command text is persisted after the export is built.
+		if args, ok := parseExportCommand(userText); ok {
+			return a.runExportCommand(ctx, args, userText)
+		}
+		// The built-in /export command writes the transcript to a file in the
+		// workspace; the command text is persisted after the export is built.
+		if args, ok := parseExportCommand(userText); ok {
+			return a.runExportCommand(ctx, args, userText)
+		}
+	}
+	// UserPromptSubmit hooks see the prompt before it becomes a message: a
+	// rejected prompt is never added, and the turn ends with the reason.
+	if reason, rejected := a.runUserPromptHooks(ctx, mode, userText); rejected {
+		return string(acp.StopReasonRefused), fmt.Errorf("prompt rejected by hook: %s", reason)
 	}
 
 	imageParts := a.state.TakePendingImageParts()
@@ -212,6 +250,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
+	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
@@ -288,13 +327,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			}
 			return session.WritePlanArchivedMarkdown(sd, md)
 		},
-		Sender:  a.server,
-		GetPlan: a.state.GetPlan,
-		SetPlan: a.state.SetPlan,
-		SetSessionMode: func(mode string) error {
-			a.state.SetMode(strings.TrimSpace(mode))
-			return nil
-		},
+		Sender:         a.server,
+		GetPlan:        a.state.GetPlan,
+		SetPlan:        a.state.SetPlan,
+		SetSessionMode: a.setSessionModeAnnounced,
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
@@ -333,6 +369,25 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.applySubagentEnv(toolEnv, mode)
 
 	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
+}
+
+// setSessionModeAnnounced switches the session profile and tells the client it
+// happened, the way session.RunPlan does. plan_exit is the model's own way out
+// of plan mode, so a client that never hears about it keeps posting "plan" and
+// the next turn writes that back onto the session.
+func (a *Agent) setSessionModeAnnounced(mode string) error {
+	m := strings.TrimSpace(mode)
+	a.state.SetMode(m)
+	if a.server == nil {
+		return nil
+	}
+	if err := a.server.SendSessionUpdate(a.state.GetID(), acp.ModeUpdate{
+		SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
+		CurrentModeID: m,
+	}); err != nil {
+		a.log.Warn("failed to send mode update", "error", err)
+	}
+	return nil
 }
 
 // wireFileEditHook connects Env.OnFileEdit to the update sender so filesystem writes are
@@ -393,6 +448,12 @@ const (
 	toolCycleNudge = "This call repeats a sequence of tool calls you have already run in this turn with the same arguments, so it was not executed again. Running it again will not return anything new. Note that an \"[evicted: ...]\" placeholder only means the text was dropped from your context to save room - the file has not changed, and re-reading it will produce the same content you already reasoned about. Work from what you have and take a genuinely different step, or tell the user what you cannot determine; do not repeat the sequence."
 
 	toolCycleSkippedResult = "not executed: the loop guard stopped this turn after a repeating sequence of tool calls"
+
+	// permissionTimeoutReason explains a gate that tools.permission_timeout_seconds
+	// closed. It travels as a PermissionResult.Reason so permissionDeniedResult
+	// renders it behind permissionNotGrantedPrefix: nobody refused the call, and
+	// the model must not tell the operator they rejected a prompt they never saw.
+	permissionTimeoutReason = "the permission request timed out with no answer from the operator"
 
 	// toolCycleStopNotice is the notice surfaced when a turn keeps cycling through
 	// the same sequence after every nudge. Unlike the identical-call notice it
@@ -474,6 +535,16 @@ func (a *Agent) runReActLoop(
 		loopNudgeBudget = a.cfg.Agent.EffectiveLoopNudgeMax()
 	}
 	loopNudges := 0
+	// Stop hooks may send the agent back to work; stopBlocks counts those
+	// continuations against hooks.stop_loop_limit and stopHookActive tells
+	// the hook that it already did so in this turn.
+	stopHookActive := false
+	stopBlocks := 0
+
+	// What this turn has spent waiting for hit usage limits (limit_wait.go).
+	// The same ledger the provider wrapper charges, so its retry sleeps and
+	// the loop's waits share one maximum.
+	limitWait := a.limitLedgerFor()
 	// stuckAction decides what happens once a tool loop has survived every nudge:
 	// quarantine the calls and carry on (the default), or end the turn.
 	stuckAction := a.cfg.Agent.EffectiveLoopStuckAction()
@@ -561,6 +632,10 @@ func (a *Agent) runReActLoop(
 
 		reasonClockStart := time.Time{}
 		reasonClockEnd := time.Time{}
+		// streamedAny records that a chunk of any kind reached the client
+		// from this call: a limit reported after that is never waited for
+		// and re-issued, whatever the provider's own error carries.
+		streamedAny := false
 		maybeMarkReasonEnd := func(now time.Time) {
 			if reasonClockStart.IsZero() || !reasonClockEnd.IsZero() {
 				return
@@ -669,6 +744,7 @@ func (a *Agent) runReActLoop(
 		emitReason := func(d string, now time.Time) {
 			noteProgress(now)
 			sawDelta.Store(true)
+			streamedAny = true
 			reasoningBuf.WriteString(d)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
@@ -686,6 +762,7 @@ func (a *Agent) runReActLoop(
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
 			noteProgress(now)
 			sawDelta.Store(true)
+			streamedAny = true
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -904,6 +981,26 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
+			// The provider named the moment its limit lifts and the operator
+			// asked the turn to wait for it: the countdown reaches the client,
+			// then the same call runs again (nothing was persisted for the
+			// failed one, so nothing repeats). A cancel during the wait ends
+			// the turn as a stop. The iteration is repeated, not counted.
+			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String(), streamedAny); ok {
+				waitStart := time.Now()
+				err := a.waitForLimitReset(ctx, sessionID, reset)
+				limitWait.Charge(time.Since(waitStart))
+				if err != nil {
+					if a.state.IsUserCancelledTurn() {
+						return string(acp.StopReasonCancelled), nil
+					}
+					// A shutdown or a deadline, not the user: the turn ends with
+					// the limit it was waiting on and says what cut the wait.
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
+				}
+				turn--
+				continue
+			}
 			// A mid-generation truncation keeps its partial answer like a user
 			// stop: the user already watched the text stream in, so it must
 			// survive in the transcript next to the honest error below.
@@ -1085,7 +1182,37 @@ func (a *Agent) runReActLoop(
 				continue
 			}
 			if response.StopReason == "max_tokens" {
+				// Nothing on screen separates this from a finished turn, so say it:
+				// the cap is a setting the user can raise, but only once told it was hit.
+				a.persistTruncationNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
 				return string(acp.StopReasonMaxTokens), nil
+			}
+			// A Stop hook may send the agent back to work with a follow-up that
+			// is submitted as the next user message (persisted, so the transcript
+			// explains the continuation), bounded by hooks.stop_loop_limit.
+			if followUp, again := a.runStopHooks(ctx, mode, response.Content, stopHookActive); again {
+				limit := a.cfg.Hooks.EffectiveStopLoopLimit()
+				if stopBlocks >= limit {
+					a.log.Warn("stop hook loop limit reached; ending the turn", "limit", limit)
+					return string(acp.StopReasonEndTurn), nil
+				}
+				// The follow-up needs an iteration to be read in; on the last one
+				// it would only leave a dangling user message behind.
+				if turn+1 >= maxTurns {
+					a.log.Warn("stop hook follow-up dropped: the turn cap is reached", "max_turns", maxTurns)
+					return string(acp.StopReasonEndTurn), nil
+				}
+				stopBlocks++
+				stopHookActive = true
+				follow := llm.Message{
+					Role:      llm.RoleUser,
+					Content:   stopHookPrefix + followUp,
+					CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				}
+				messages = append(messages, follow)
+				a.state.AddMessage(follow)
+				a.refreshConversationContextUsage(true)
+				continue
 			}
 			return string(acp.StopReasonEndTurn), nil
 		}
@@ -1366,9 +1493,13 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
 	}
 
+	// The persisted arguments are what a permission answered later resumes
+	// on, so a write that fails is remembered and cancels the call before
+	// any prompt instead of leaving a resume nothing trustworthy to run.
+	var argsPersistErr error
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		_ = session.MarkToolCallStarted(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "in_progress")
-		_ = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
+		argsPersistErr = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
 	}
 	a.emitDebug(turn, "tool_start", tc.Name, "", map[string]interface{}{"tool_call_id": tc.ID, "kind": toolKind(tc.Name)})
 
@@ -1401,58 +1532,73 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		return refusal, nil
 	}
 
+	// Operator hooks see the call before the permission gate, whatever the
+	// permission mode: a hook can deny it, approve it past the prompt, force
+	// the prompt, rewrite its arguments or add context to its result. They run
+	// on the permission resume path as well (the history holds the model's
+	// original arguments, so a rewrite must be applied again to what runs);
+	// there allow and ask are moot, because the user already answered.
+	var hookRes preToolUseOutcome
+	{
+		original := tc.InputJSON
+		var ran bool
+		hookRes, ran = a.runPreToolUseHooks(ctx, &tc, mode)
+		if ran && hookRes.blocked {
+			result := "blocked by hook: " + hookRes.reason
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		// The turn was cancelled while a hook was running: the hooks answered
+		// nothing, and the call must not run on the strength of that silence.
+		if ran && ctx.Err() != nil {
+			result := "cancelled before the tool ran"
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		if ran && skipPermission && !sameToolArgs(tc.InputJSON, original) {
+			// The user approved the arguments the prompt showed; a hook that
+			// changes them again on the resume is not covered by that answer.
+			result := "cancelled: a hook changed the approved arguments after the approval; run the call again"
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		if ran && !sameToolArgs(tc.InputJSON, original) {
+			// The rewritten arguments are what runs and what the operator must
+			// see on the tool call card; the model's own message keeps the
+			// original call, as it must for the transcript to replay. A
+			// permission answered later resumes on this persisted value, so a
+			// write that fails cancels the call before any prompt instead of
+			// letting the resume fall back to arguments nobody saw.
+			if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
+				argsPersistErr = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
+			}
+			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+				SessionUpdate: acp.UpdateTypeToolCallUpdate,
+				ToolCallID:    tc.ID,
+				Status:        "in_progress",
+				Content: []acp.ToolCallResultItem{
+					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
+				},
+			})
+		}
+	}
+
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
-	requiresPerm := ok && tool.RequiresPermission
-
 	var sessCmdGrants, sessWriteGrants []string
 	if st := sessionStatePtr(a.state); st != nil {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
 	}
+	requiresPerm := permissionRequired(ok && tool.RequiresPermission, tc, env, sessCmdGrants, sessWriteGrants)
 
-	if tc.Name == "run_command" {
-		switch env.PermissionMode {
-		case config.PermModeBypass:
-			requiresPerm = false
-		case config.PermModeAcceptEdits:
-			cmd := permission.ExtractRunCommand(tc.InputJSON)
-			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		default: // ask
-			cmd := permission.ExtractRunCommand(tc.InputJSON)
-			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		}
-	} else if configWriteTool(tc.Name) {
-		// Committing or rolling back the agent's own configuration can start
-		// new MCP processes and change the permission policy itself, so
-		// accept_edits does NOT auto-approve it the way it approves project
-		// file writes. Only the explicit bypass mode skips the prompt.
-		requiresPerm = env.PermissionMode != config.PermModeBypass
-	} else if filesystemWriteTool(tc.Name) {
-		switch env.PermissionMode {
-		case config.PermModeBypass, config.PermModeAcceptEdits:
-			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
-			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
-				requiresPerm = false
-			} else {
-				requiresPerm = false // auto-approve
-			}
-		default: // ask
-			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
-			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		}
+	// A hook's allow skips the prompt; its ask forces one even in a mode that
+	// would auto-approve.
+	if hookRes.allow {
+		requiresPerm = false
+	}
+	if hookRes.ask {
+		requiresPerm = true
 	}
 
 	if requiresPerm && !skipPermission {
@@ -1469,7 +1615,24 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
 				"changes committed after that snapshot leave the active file."
 		}
-		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
+		if argsPersistErr != nil {
+			result := "cancelled: the arguments could not be persisted before the permission prompt: " + argsPersistErr.Error()
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		// Notification hooks learn that a prompt is about to wait for the
+		// operator (a chat ping, a desktop notification); they cannot answer it.
+		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
+		// tools.permission_timeout_seconds bounds the wait so a connected but
+		// unresponsive client cannot hold the session turn lock forever; the
+		// default (0) keeps waiting, which is the interactive contract. The
+		// notification above goes out first: it announces the wait this bounds.
+		permCtx := ctx
+		var cancelPerm context.CancelFunc
+		if d := a.cfg.Tools.ResolvedPermissionTimeout(); d > 0 {
+			permCtx, cancelPerm = context.WithTimeout(ctx, d)
+		}
+		permResult, err := a.server.RequestPermission(permCtx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
 				ToolCallID: tc.ID,
@@ -1482,6 +1645,18 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			},
 			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
+		timedOut := permCtx.Err() == context.DeadlineExceeded
+		if cancelPerm != nil {
+			cancelPerm()
+		}
+		if timedOut {
+			a.log.Warn("permission prompt timed out; cancelling tool call",
+				"tool", tc.Name, "session", sessionID, "timeout", a.cfg.Tools.ResolvedPermissionTimeout())
+			if permResult == nil {
+				permResult = &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}
+			}
+			permResult.Reason = permissionTimeoutReason
+		}
 
 		if err != nil || !permission.Approved(permResult) {
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
@@ -1499,6 +1674,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// Execute the tool.
 	var result string
 	var execErr error
+	started := time.Now()
 
 	// Check if it's an MCP tool (name contains __).
 	if idx := strings.Index(tc.Name, "__"); idx >= 0 {
@@ -1514,6 +1690,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 	} else {
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
+	}
+
+	// PostToolUse (or PostToolUseFailure) feedback and the PreToolUse
+	// context travel with the result, so the model reads them next to the
+	// output they refer to.
+	if feedback := a.runPostToolUseHooks(ctx, tc, result, execErr, time.Since(started), mode); feedback != "" {
+		if execErr != nil {
+			execErr = fmt.Errorf("%w\n\n%s", execErr, feedback)
+		} else {
+			result = joinHookText(result, feedback)
+		}
+	}
+	if len(hookRes.context) > 0 {
+		text := hookContextText(hookRes.context)
+		if execErr != nil {
+			execErr = fmt.Errorf("%w\n\n%s", execErr, text)
+		} else {
+			result = joinHookText(result, text)
+		}
 	}
 
 	status := "completed"
@@ -1820,7 +2015,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	in := a.llmProviderInput(rm)
+	in := a.turnProviderInput(rm)
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
 	provider, err := mk(in)
 	if err != nil {
@@ -1848,6 +2043,34 @@ func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.Resolve
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS)
+}
+
+// turnProviderInput is llmProviderInput plus the bounds of a user turn: the
+// first-token timer as the call's own budget, and with the wait on, the
+// wait's maximum as the turn's budget and the turn's ledger. Helpers
+// (compaction, the memory copilot, title generation) use llmProviderInput
+// alone and never see the option.
+func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
+	in := a.llmProviderInput(rm)
+	// The first-token timer cuts a streamed call that stays silent, retry
+	// waits included: a server-requested pause the timer would cut anyway
+	// is reported as a quota reset instead of being slept through in vain.
+	if rm.Stream {
+		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
+			in.CallBudget = timeout
+		}
+	}
+	// With the wait on, its maximum bounds every sleep the turn spends on a
+	// limit, the wrapper's retries included: a pause beyond it comes back
+	// as a quota reset and ends the turn at once instead of being slept
+	// through by the retries first, and an explicit zero means no sleep on
+	// a limit anywhere. The wrapper's sleeps count against the turn's
+	// total, calls that succeed afterwards included.
+	if a.cfg.Agent.WaitForLimitReset {
+		in.RetryBudget, in.RetryBudgetSet = a.cfg.Agent.EffectiveWaitForLimitResetMax(), true
+		in.LimitLedger = a.limitLedgerFor()
+	}
+	return in
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
@@ -1880,17 +2103,15 @@ func wrapXMLCDATA(body string) string {
 	return "<![CDATA[" + escaped + "]]>"
 }
 
-// attachmentLineRangeRe matches the "#L<start>-<end>" resource URI fragment a
-// paste-to-chip mention carries (see internal/session lineRangeURI).
-var attachmentLineRangeRe = regexp.MustCompile(`#L(\d+)-(\d+)$`)
-
 func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	pathRaw := strings.TrimSpace(res.URI)
 	pathRaw = strings.TrimPrefix(pathRaw, "file://")
+	// A ranged @mention carries its lines as the "#L<start>-<end>" fragment that
+	// internal/session wrote; the same parser takes it back off the path.
+	pathRaw, startLine, endLine := session.SplitLineRangeURI(pathRaw)
 	lines := ""
-	if m := attachmentLineRangeRe.FindStringSubmatch(pathRaw); m != nil {
-		lines = m[1] + "-" + m[2]
-		pathRaw = strings.TrimSuffix(pathRaw, m[0])
+	if startLine > 0 {
+		lines = fmt.Sprintf("%d-%d", startLine, endLine)
 	}
 	pathFwd := filepath.ToSlash(pathRaw)
 	name := filepath.Base(pathFwd)
@@ -1913,18 +2134,63 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	return b.String()
 }
 
-// extractContextFiles returns file paths referenced in content blocks.
+// extractContextFiles returns the files a turn is about: what a path-scoped
+// rule or skill is matched against.
 func extractContextFiles(blocks []acp.ContentBlock) []string {
 	var files []string
 	for _, b := range blocks {
-		if b.Type == "resource" && b.Resource != nil {
-			uri := b.Resource.URI
-			if strings.HasPrefix(uri, "file://") {
-				files = append(files, fileURIPath(uri))
-			}
+		if b.Type != "resource" || b.Resource == nil {
+			continue
+		}
+		if p := contextFilePath(b.Resource.URI); p != "" {
+			files = append(files, p)
 		}
 	}
 	return files
+}
+
+// contextFilePath turns one resource URI into a filesystem path, or "" when it
+// names no file on disk.
+//
+// The two surfaces spell the same mention differently: an editor over ACP sends
+// file:///C:/proj/src/sample.go, while the HTTP surface sends the
+// workspace-relative path the user typed, "src/sample.go". Reading only the
+// file:// form left every path-scoped rule and skill inactive off ACP. A URI
+// carrying any other scheme (http://, data:) is not a path and is dropped.
+func contextFilePath(uri string) string {
+	uri = strings.TrimSpace(uri)
+	switch {
+	case uri == "":
+		return ""
+	case strings.HasPrefix(uri, "file://"):
+		return fileURIPath(uri)
+	case hasURIScheme(uri):
+		return ""
+	}
+	return uri
+}
+
+// hasURIScheme reports whether s opens with a URI scheme. A Windows drive
+// letter is deliberately not one: "C:/proj/x.go" is a path, and a scheme needs
+// more than a single letter before the colon.
+func hasURIScheme(s string) bool {
+	colon := strings.IndexByte(s, ':')
+	if colon < 2 {
+		return false
+	}
+	for i := 0; i < colon; i++ {
+		c := s[i]
+		switch {
+		case isASCIILetter(c):
+		case c >= '0' && c <= '9', c == '+', c == '-', c == '.':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // fileURIPath turns a file:// URI into a filesystem path. On Windows the

@@ -403,6 +403,7 @@ func (s *subagentsFeatureState) buildConfig() *config.Config {
 	cfg.Subagents.ProjectTrust = s.trustPolicy
 	cfg.Subagents.MaxConcurrent = s.maxConcurrent
 	cfg.Subagents.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
 	// The fork generates a session title with an extra LLM request after the
 	// first exchange; the scripted provider counts requests, so keep it off.
 	titleOff := false

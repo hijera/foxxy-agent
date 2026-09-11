@@ -181,6 +181,26 @@ describe("version stamping", () => {
   });
 });
 
+describe("script modules", () => {
+  // A `#!` line makes a script unimportable from vitest: vite's SSR transform hoists the
+  // imports above it, so the `#!` is no longer at byte 0 and the module fails to compile with
+  // "Invalid or unexpected token" - which surfaces as a syntax error in the *importing* test
+  // file and takes that whole suite down. changelog.test.ts was dead this way from the day it
+  // landed. Every script here is run as `node scripts/<name>.mjs`, so none of them needs one.
+  const scripts = fs.readdirSync(path.join(root, "scripts")).filter((f) => f.endsWith(".mjs"));
+
+  it("has scripts to check", () => {
+    expect(scripts.length).toBeGreaterThan(0);
+  });
+
+  it("keeps scripts/*.mjs free of shebangs, so tests can import them", () => {
+    for (const name of scripts) {
+      const src = fs.readFileSync(path.join(root, "scripts", name), "utf8");
+      expect(src.startsWith("#!"), `scripts/${name} starts with a shebang`).toBe(false);
+    }
+  });
+});
+
 describe("walkthrough", () => {
   const walkthrough = (pkg.contributes?.walkthroughs ?? []).find((w) => w.id === "foxxycode.welcome");
 

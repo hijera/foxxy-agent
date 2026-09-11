@@ -309,3 +309,44 @@ func TestSenderSendErrorWritesOpenAIFrameAndFlushes(t *testing.T) {
 		t.Fatalf("relay missed the stream error: primary=%q relay=%q", got, relayed.String())
 	}
 }
+
+// TestRequestPermissionClearsTheRecordWhenTheContextEnds pins the cleanup that
+// tools.permission_timeout_seconds made load-bearing. The deadline lives on the
+// agent side, so from here it arrives as a cancelled context; before the fix
+// only the answered path cleared the record, so a timed-out prompt stranded
+// pending_permission.json on disk. A stranded record is then matched by
+// tryResumePendingPermission, which reports a late answer as handled and only
+// then fails with "already has a result".
+func TestRequestPermissionClearsTheRecordWhenTheContextEnds(t *testing.T) {
+	dir := t.TempDir()
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+	sender.SetSessionDir(dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		r, _ := sender.RequestPermission(ctx, acp.PermissionRequestParams{
+			SessionID: "s1",
+			ToolCall:  acp.PermissionToolCall{ToolCallID: "tc-1", Title: "Run: run_command", Status: "pending"},
+		})
+		done <- r
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !session.PendingPermissionHeld(dir) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !session.PendingPermissionHeld(dir) {
+		t.Fatal("the prompt must record itself while it waits")
+	}
+
+	cancel()
+	got := <-done
+	if got == nil || got.OptionID != "reject" {
+		t.Fatalf("a cancelled prompt must answer reject, got %#v", got)
+	}
+	if session.PendingPermissionHeld(dir) {
+		t.Fatal("a prompt ended by context cancellation left pending_permission.json behind")
+	}
+}

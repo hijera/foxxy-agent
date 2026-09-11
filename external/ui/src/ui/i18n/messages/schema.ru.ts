@@ -107,25 +107,25 @@ export const schemaTextRu: Record<string, string> = {
   "Stable id referenced by the agent; must be unique in this list.":
     "Стабильный id, на который ссылается агент; должен быть уникальным в этом списке.",
   Command: "Команда",
-  "Executable for stdio transport (leave empty when using http url).":
-    "Исполняемый файл для транспорта stdio (оставьте пустым при использовании http url).",
+  "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd.":
+    "Исполняемый файл для транспорта stdio (оставьте пустым при использовании http url). ${CWD} раскрывается в cwd сессии.",
   Arguments: "Аргументы",
-  "Argv passed after command for stdio MCP servers.":
-    "Аргументы (argv), передаваемые после команды для stdio-серверов MCP.",
+  "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.":
+    "Аргументы (argv), передаваемые после команды для stdio-серверов MCP. ${CWD} раскрывается в cwd сессии.",
   Environment: "Окружение",
-  "Extra environment variables for the stdio child process.":
-    "Дополнительные переменные окружения для дочернего stdio-процесса.",
+  "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.":
+    "Дополнительные переменные окружения для дочернего stdio-процесса. ${CWD} в значении раскрывается в cwd сессии.",
   "Variable name": "Имя переменной",
   "Environment variable name passed to the MCP process.":
     "Имя переменной окружения, передаваемой процессу MCP.",
   Value: "Значение",
   "Variable value.": "Значение переменной.",
   "MCP URL": "URL MCP",
-  "HTTP(S) endpoint when type selects an HTTP-based MCP server.":
-    "HTTP(S)-эндпоинт, когда выбран тип HTTP-сервера MCP.",
+  "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd.":
+    "HTTP(S)-эндпоинт, когда выбран тип HTTP-сервера MCP. ${CWD} раскрывается в cwd сессии.",
   "HTTP headers": "HTTP-заголовки",
-  "Optional headers sent with MCP HTTP requests.":
-    "Необязательные заголовки, отправляемые с HTTP-запросами MCP.",
+  "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.":
+    "Необязательные заголовки, отправляемые с HTTP-запросами MCP. ${CWD} в значении раскрывается в cwd сессии.",
   "Header name": "Имя заголовка",
   "HTTP header name for MCP HTTP transports.":
     "Имя HTTP-заголовка для HTTP-транспортов MCP.",
@@ -292,6 +292,9 @@ export const schemaTextRu: Record<string, string> = {
   "Command allowlist": "Белый список команд",
   "If non-empty, only these shell command prefixes may run without extra policy.":
     "Если список не пуст, без дополнительной политики могут выполняться только эти префиксы команд шелла.",
+  "Permission timeout (s)": "Таймаут запроса разрешения (с)",
+  "How long a permission prompt may wait for the operator before the tool call is cancelled instead (0 waits forever).":
+    "Сколько запрос разрешения может ждать оператора, прежде чем вызов инструмента будет отменён (0 — ждать бесконечно).",
   "Forbid the model from running the plan itself":
     "Запретить модели самой начать выполнять план",
   "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.":
@@ -302,8 +305,8 @@ export const schemaTextRu: Record<string, string> = {
   "Slash commands and skill packs discovered from these directories.":
     "Слэш-команды и наборы навыков, обнаруживаемые в этих каталогах.",
   "Skill directories": "Каталоги навыков",
-  "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.":
-    "Пути поиска навыков. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} и ${CWD} подставляются во время выполнения.",
+  "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.":
+    "Пути поиска навыков. По умолчанию: ~/.agents/skills (глобально, общий с npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (для foxxycode), ${CWD}/.foxxycode/skills (в проекте). ${FOXXYCODE_HOME} подставляется при загрузке файла; ${CWD} остаётся в записи и раскрывается для каждой сессии против её рабочей папки.",
   "Remote skill sources": "Удалённые источники навыков",
   "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.":
     "Удалённые источники для установки навыков: GitHub owner/repo[@ref], git-URL или http(s)-ссылка на marketplace.json стандарта agents. Загружаются по требованию через Sync (не автоматически) в управляемый каталог навыков.",
@@ -581,6 +584,48 @@ export const schemaTextRu: Record<string, string> = {
   "List repository branches": "Список веток репозитория",
   "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.":
     "Разрешает получать список trunk и branches/ для меню чипа SVN. Требует обращения к серверу; отключите на медленном канале.",
+
+  // Hooks
+  "Hooks":
+    "Хуки",
+  "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.":
+    "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
+  "Load and run hooks at all (default true).":
+    "Загружать и запускать хуки вообще (по умолчанию включено).",
+  "Definition files":
+    "Файлы определений",
+  "Lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.":
+    "Сначала файлы с низшим приоритетом; выполняется каждый подходящий хук. ${FOXXYCODE_HOME} и ${CWD} раскрываются. Файлы внутри рабочей папки считаются проектными и подчиняются политике доверия; из файла настроек Claude Code читается только ключ hooks.",
+  "Project hooks":
+    "Проектные хуки",
+  'Hook files found inside the workspace travel with the checkout. "ask": list them but run nothing until the file is approved for this workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust). "allow": treat them like your own file. "deny": never read them.':
+    "Файлы хуков внутри рабочей папки приходят вместе с checkout. «ask»: показывать их, но ничего не запускать, пока файл не одобрен для этой папки на машине, где работает foxxycode (foxxycode hooks trust там или POST /foxxycode/hooks/trust). «allow»: считать их своими. «deny»: никогда не читать.",
+  "Hard limit for one hook process whose definition gives no timeout (default 60).":
+    "Жёсткий лимит для процесса хука, у которого в определении нет своего таймаута (по умолчанию 60).",
+  "Stop loop limit":
+    "Лимит цикла Stop",
+  "How many times per turn a Stop hook may send the agent back to work (default 5).":
+    "Сколько раз за ход хук Stop может вернуть агента к работе (по умолчанию 5).",
+  "Max output chars":
+    "Максимум символов вывода",
+  "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).":
+    "Предел для контекста, сообщений и причин, которые один хук передаёт модели или пользователю; более длинные значения обрезаются с пометкой (по умолчанию 10000).",
+
+  // agent.wait_for_limit_reset
+  "Wait for limit reset":
+    "Ждать сброса лимита",
+  "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.":
+    "Дождаться снятия упёртого лимита и повторить вызов, вместо того чтобы завершить ход ошибкой провайдера; ход и поток клиента всё это время остаются открытыми.",
+  "Wait for limit reset max ms":
+    "Максимум ожидания сброса, мс",
+  "Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits.":
+    "Самая долгая пауза, которую ход готов ждать, в миллисекундах (по умолчанию четыре часа); более длинная завершает ход сразу, 0 — не ждать никогда.",
+
+  // providers[].usage_limits_panel
+  "Usage limits panel":
+    "Панель лимитов аккаунта",
+  "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.":
+    "Показывать лимиты аккаунта этого провайдера (раздел и баннер в веб-интерфейсе, строка футера и /usage в консоли) и обращаться ради них к его эндпоинту лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; затрагивает только провайдеров, у которых есть источник лимитов (neuraldeep).",
 };
 
 /**

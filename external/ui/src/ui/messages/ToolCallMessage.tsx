@@ -16,6 +16,7 @@ import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
 import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
+import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
   agentTaskName,
@@ -26,6 +27,9 @@ import {
 } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
 import { BrowserAction, BrowserIcon } from "./BrowserAction";
+import { SpawnAgentCard } from "./SpawnAgentCard";
+import { SvnAction, SvnIcon } from "./SvnAction";
+import { svnOperation, svnFailed } from "./svnActionDisplay";
 import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
 import { isBrowserToolName, browserActionLabel } from "./browserActionDisplay";
 
@@ -186,6 +190,15 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [props.argsText]);
 
   const isBrowserTool = isBrowserToolName(rawName);
+  const isSpawnAgentTool =
+    rawName.toLowerCase() === "spawn_agent" ||
+    (props.kind || "").trim().toLowerCase() === "spawn_agent";
+  const spawnAgent = useMemo(
+    () => (isSpawnAgentTool ? parseSpawnAgentArgs(props.argsText) : null),
+    [isSpawnAgentTool, props.argsText],
+  );
+  const svnOp = svnOperation(rawName);
+  const isSvnTool = svnOp !== null;
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -202,6 +215,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [isPatchTool, props.argsText]);
 
   const displayLabel = useMemo(() => {
+    if (svnOp) return t(`messages.svn.operation.${svnOp}`);
     if (isBrowserTool)
       return browserActionLabel(
         rawName,
@@ -219,6 +233,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [
     isQuestionTool,
     isBrowserTool,
+    svnOp,
     props.argsText,
     preview,
     status,
@@ -317,7 +332,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   useEffect(() => {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
-      ((isWriteTool || isEditTool || isBrowserTool) &&
+      (isSpawnAgentTool && !spawnAgent && !pendingLike) ||
+      ((isWriteTool || isEditTool || isBrowserTool || isSvnTool) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
@@ -330,6 +346,10 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     isPatchTool,
     isWriteTool,
     isBrowserTool,
+    isSpawnAgentTool,
+    spawnAgent,
+    pendingLike,
+    isSvnTool,
     patchContent,
     props.argsText,
     props.toolCallId,
@@ -411,8 +431,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
   // Browser calls keep their dedicated screenshot/console card as the only renderer.
+  // A spawn_agent call gets its own card instead of the generic preview.
   const showToolPreview =
-    !isQuestionTool && !isBrowserTool && toolPreviewHasContent;
+    !isQuestionTool &&
+    !isBrowserTool &&
+    !spawnAgent &&
+    !isSvnTool &&
+    toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
@@ -421,6 +446,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     !isQuestionTool &&
     !isPatchTool &&
     !isBrowserTool &&
+    !isSvnTool &&
     !(
       status === "completed" &&
       (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
@@ -436,8 +462,10 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     : null;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
   const hasBody =
+    !!spawnAgent ||
     isQuestionTool ||
     showBrowserAction ||
+    isSvnTool ||
     showToolPreview ||
     showPatchResult ||
     showResult ||
@@ -461,7 +489,13 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             {isBrowserTool && <BrowserIcon />}
+            {isSvnTool && <SvnIcon />}
             <span className="thinking-label">{displayLabel}</span>
+            {isSvnTool && svnFailed(status, full || preview) && (
+              <span className="svn-summary-error">
+                {t("messages.svn.failed")}
+              </span>
+            )}
             {durationLabel.trim() !== "" ? (
               <span className="thinking-dur" aria-hidden="true">
                 {durationLabel}
@@ -528,6 +562,17 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 sessionId={(props.sessionId || "").trim()}
               />
             ) : null}
+            {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
+            {isSvnTool && (
+              <SvnAction
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
+                permissionWaiting={permissionWaiting}
+                truncated={props.resultWasTruncated && !(showExpanded && full)}
+              />
+            )}
             {showToolPreview ? (
               <PermissionToolPreview
                 preview={toolPreview}

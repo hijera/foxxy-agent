@@ -67,6 +67,7 @@ const SECTION_DESC_IDS = new Set([
   "autocomplete",
   "tools",
   "subagents",
+  "hooks",
   "mcp_servers",
   "skills",
   "memory",

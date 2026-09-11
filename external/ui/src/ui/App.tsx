@@ -35,6 +35,7 @@ import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
 import { planSessionStatsApply } from "./chat/sessionTokenTotals";
 import { stripCompactionPreamble } from "./chat/compactionSummary";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
+import { fetchJSON } from "./env/fetchJSON";
 import {
   preserveTranscriptItemIds,
   stablePermissionPromptItemId,
@@ -62,6 +63,10 @@ import {
   type SubagentTranscriptMeta,
 } from "./chat/subagentTranscript";
 import { shouldApplyTranscriptSnapshot } from "./chat/transcriptSnapshotGuard";
+import {
+  shouldAdoptServerModeAfterTurn,
+  shouldApplySessionSelection,
+} from "./chat/sessionSelectionApply";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
@@ -96,6 +101,8 @@ import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
+import type { ProviderUsage } from "./chat/providerUsage";
+import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import {
   injectBranchNavItems,
@@ -372,19 +379,6 @@ function randomSessionId(): string {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return `sess_${hex}`;
-}
-
-async function fetchJSON<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<{ ok: boolean; status: number; data?: T }> {
-  const res = await fetch(path, init);
-  const status = res.status;
-  if (!res.ok) {
-    return { ok: false, status };
-  }
-  const data = (await res.json()) as T;
-  return { ok: true, status, data };
 }
 
 function newId(prefix: string): string {
@@ -918,7 +912,8 @@ export function App() {
   const serverEventHandlersRef = useRef<{
     turnStarted: (sid: string) => void;
     turnEnded: (sid: string) => void;
-  }>({ turnStarted: () => {}, turnEnded: () => {} });
+    providerUsage: (usage: ProviderUsage) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {}, providerUsage: () => {} });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -1173,17 +1168,51 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  // Provider account usage for the composer's usage section and banner: read
+  // over REST at session open, model change and after each viewed turn, pushed
+  // by the events stream in between (chat/useProviderUsage.ts).
+  const [providerUsageTurnEpoch, setProviderUsageTurnEpoch] = useState(0);
+  const noteUsageTurnEnded = useCallback((sid: string) => {
+    if (viewedSessionIdRef.current.trim() === sid.trim()) {
+      setProviderUsageTurnEpoch((n) => n + 1);
+    }
+  }, []);
+  const providerUsageState = useProviderUsage({
+    sessionId,
+    llmModel,
+    turnEpoch: providerUsageTurnEpoch,
+  });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
-   * Raw model/reasoning stored on the opened session. Held until the backends
-   * list (`llmModelIds`) is available so the restore survives whichever of
-   * `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on reload.
+   * Raw mode/model/reasoning stored on the opened session. Held until the
+   * backends list (`llmModelIds`) is available so the restore survives whichever
+   * of `/v1/models` and `/foxxycode/sessions/.../messages` resolves first on
+   * reload.
    */
   const [openSessionSelection, setOpenSessionSelection] = useState<{
     sid: string;
     model: string;
     reasoning: string;
+    mode: string;
   } | null>(null);
+  /**
+   * Session whose stored selection has already been restored. `loadMessages`
+   * also runs after every turn and on every reconnect, and each response
+   * carries the stored selection, so without this the restore would keep
+   * reverting a Mode or Model the user picked a moment earlier.
+   */
+  const appliedSelectionSidRef = useRef("");
+  /** Session whose Mode/Model the user changed by hand; their pick wins. */
+  const userTouchedSelectionSidRef = useRef("");
+  /**
+   * Bumped on every hand-made Mode change. A turn snapshots it so the
+   * post-turn mode adoption can tell "the server switched under us" from
+   * "the user picked a new mode while the turn was running".
+   */
+  const modeEditSeqRef = useRef(0);
+  /** Current mode, readable from callbacks that outlive their render. */
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -2271,16 +2300,27 @@ export function App() {
     })();
   }, []);
 
-  // Apply the opened session's saved model/reasoning once the backends list is
-  // known. Runs whenever either input lands, so the restore is independent of
-  // whether /v1/models or the session messages resolve first after a reload.
+  // Apply the opened session's saved mode/model/reasoning once the backends
+  // list is known. Runs whenever either input lands, so the restore is
+  // independent of whether /v1/models or the session messages resolve first
+  // after a reload — but only ONCE per session open, because the same snapshot
+  // rides every later transcript reconcile and would otherwise revert a pick
+  // the user just made.
   useEffect(() => {
     if (!openSessionSelection || llmModelIds.length === 0) {
       return;
     }
-    if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
+    if (
+      !shouldApplySessionSelection({
+        stashSid: openSessionSelection.sid,
+        viewedSid: viewedSessionIdRef.current,
+        appliedSid: appliedSelectionSidRef.current,
+        userTouchedSid: userTouchedSelectionSidRef.current,
+      })
+    ) {
       return;
     }
+    appliedSelectionSidRef.current = openSessionSelection.sid;
     setLlmModel(
       pickLlmModelForOpenSession({
         backends: llmModelIds,
@@ -2290,6 +2330,12 @@ export function App() {
       }),
     );
     setLlmReasoning(openSessionSelection.reasoning);
+    // The session profile is stored server-side, so a reopened chat comes back
+    // in the mode it was left in instead of dropping to agent.
+    const storedMode = openSessionSelection.mode.trim();
+    if ((PROFILE_MODES as readonly string[]).includes(storedMode)) {
+      setMode(storedMode);
+    }
   }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
 
   useEffect(() => {
@@ -2429,8 +2475,12 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
+        // status 0 is fetchJSON's "no answer from the server" (dropped connection),
+        // which has no code worth showing the user.
         setSessionsError(
-          t("sessions.backendUnavailable", { status: res.status }),
+          res.status === 0
+            ? t("sessions.offline")
+            : t("sessions.backendUnavailable", { status: res.status }),
         );
         return null;
       }
@@ -2567,6 +2617,10 @@ export function App() {
       freshLoad?: boolean;
       expectedEpoch?: number;
       allowApplyWhileActive?: boolean;
+      /** Post-turn reconcile: line the composer up with the session's mode. */
+      adoptServerMode?: boolean;
+      /** modeEditSeqRef as it stood when that turn started. */
+      modeEditSeqAtTurnStart?: number;
     },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
@@ -2592,6 +2646,7 @@ export function App() {
       model?: string;
       selectedModelId?: string;
       selectedReasoning?: string;
+      mode?: string;
       memoryTurns?: MemoryTurnApi[];
       subagent?: {
         parentSessionId?: string;
@@ -2625,11 +2680,33 @@ export function App() {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
+      // The effect restores it once per session open — see
+      // shouldApplySessionSelection — because this call also runs after every
+      // turn and every reconnect.
       setOpenSessionSelection({
         sid,
         model: (res.data.model || res.data.selectedModelId || "").trim(),
         reasoning: (res.data.selectedReasoning || "").trim(),
+        mode: (res.data.mode || "").trim(),
       });
+      // The backend may have switched the profile itself (a plan run, or the
+      // model calling plan_exit). The SSE `mode` frame is the primary signal;
+      // this is the recovery for a turn whose stream we did not see whole, and
+      // it defers to a Mode the user changed while the turn was running.
+      if (opts?.adoptServerMode) {
+        const serverMode = (res.data.mode || "").trim();
+        if (
+          shouldAdoptServerModeAfterTurn({
+            serverMode,
+            currentMode: modeRef.current,
+            knownModes: PROFILE_MODES,
+            editSeqAtTurnStart: opts.modeEditSeqAtTurnStart ?? modeEditSeqRef.current,
+            editSeqNow: modeEditSeqRef.current,
+          })
+        ) {
+          setMode(serverMode);
+        }
+      }
       // A child session locks the composer; an ordinary one carries no marker.
       setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
     }
@@ -2674,11 +2751,16 @@ export function App() {
     const next: TranscriptItem[] = [];
     const pushUiNoticesForTurn = (turn: number) => {
       for (const row of noticesByTurn.get(turn) || []) {
-        if (row.level !== "error") continue;
+        // Only the two levels the transcript knows how to render; a level a
+        // newer server may add stays invisible rather than mis-rendered.
+        if (row.level !== "error" && row.level !== "notice") continue;
         next.push({
           id: row.id,
           type: "system_notice",
-          level: "error",
+          // The server calls the neutral level "notice"; the transcript has
+          // called it "info" since the re-attach rows, and renders one style
+          // for both.
+          level: row.level === "notice" ? "info" : "error",
           message: row.message,
           createdAtUtc: row.createdAt,
         });
@@ -3070,6 +3152,12 @@ export function App() {
       setActiveDraftId(id);
       setSessionId("");
       viewedSessionIdRef.current = "";
+      // A local draft is a new chat: it has no stored profile of its own, so it
+      // must not inherit the mode of the session being left.
+      setMode("agent");
+      setOpenSessionSelection(null);
+      appliedSelectionSidRef.current = "";
+      userTouchedSelectionSidRef.current = "";
       const row = readClientDraftSessions().find((r) => r.localId === id);
       setDraft(row?.draftText || "");
       setDraftHashInLocation(id, { historySidebar: keepHistoryOpen });
@@ -3115,8 +3203,14 @@ export function App() {
     reasoningDurationMsByContentRef.current = new Map();
     evictStaleSessionCaches("");
     // Drop any stashed session selection so its restore effect cannot reapply
-    // the old session's model over the new chat default.
+    // the old session's model over the new chat default. Clearing the applied
+    // marker lets the same session restore again when it is reopened later.
     setOpenSessionSelection(null);
+    appliedSelectionSidRef.current = "";
+    userTouchedSelectionSidRef.current = "";
+    // A new chat starts in agent; the mode used to survive New chat while the
+    // model was reset, so a plan session leaked its profile into the next one.
+    setMode("agent");
     if (llmModelIds.length > 0) {
       setLlmModel(
         pickDefaultLlmModelForNewChat({
@@ -3743,6 +3837,7 @@ export function App() {
       void loadMessages(key, { preserveOnError: true });
       void refreshSessionStats(key);
     },
+    providerUsage: providerUsageState.applyPushed,
   };
 
   useEffect(() => {
@@ -3750,6 +3845,8 @@ export function App() {
     void subscribeServerEvents({
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onProviderUsage: (_sid, usage) =>
+        serverEventHandlersRef.current.providerUsage(usage),
       onConnectedChange: setServerEventsConnected,
       signal: ctl.signal,
     });
@@ -3942,6 +4039,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
@@ -3949,6 +4047,7 @@ export function App() {
         onLlmRetrying: (retrying: boolean) => setLlmRetrying(key, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(key, slug),
+        onModeChanged: (m: string) => onServerModeChanged(key, m),
       });
 
       const syncAssistantFromServer = async () => {
@@ -4081,6 +4180,10 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      // A relay this client cut short (its own POST or a newer relay took
+      // over) did not end the turn; only a stream that ran to its end
+      // spent quota.
+      if (!fetchCtl.signal.aborted) noteUsageTurnEnded(key);
       // The session is no longer pinned; bound the cache now rather than
       // only after the reconciliation below succeeds.
       evictStaleSessionCaches(viewedSessionIdRef.current);
@@ -4102,6 +4205,10 @@ export function App() {
     let postSessionKey = "";
     let completedNormally = false;
     let assistantStreamId = "";
+    // A Mode the user switches while this turn runs is a choice for the NEXT
+    // turn, so the post-turn reconcile must not overwrite it with the mode the
+    // session is in now.
+    const modeEditSeqAtTurnStart = modeEditSeqRef.current;
     const isNewChatFirstSend = !sessionId.trim();
     let releaseSessionId: ((id: string) => void) | undefined;
     const sessionIdWhenKnown = isNewChatFirstSend
@@ -4395,6 +4502,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
@@ -4403,6 +4511,7 @@ export function App() {
           setLlmRetrying(streamKey, retrying),
         onDesignPlan: (slug: string) =>
           handleComposerSseDesignPlan(streamKey, slug),
+        onModeChanged: (m: string) => onServerModeChanged(streamKey, m),
       });
 
       const syncAssistantFromServer = async () => {
@@ -4529,6 +4638,8 @@ export function App() {
         preserveOnError: true,
         expectedEpoch: reconcileEpoch,
         allowApplyWhileActive: true,
+        adoptServerMode: viewingEnd === postSessionKey,
+        modeEditSeqAtTurnStart,
       });
       void refreshSessionStats(sidEffective);
       markViewedSessionActivityRead(sidEffective);
@@ -4571,6 +4682,8 @@ export function App() {
         void loadMessages(sidEffective, {
           skipSetItems: viewingFin !== postSessionKey.trim(),
           preserveOnError: true,
+          adoptServerMode: viewingFin === postSessionKey.trim(),
+          modeEditSeqAtTurnStart,
         });
         void loadSessionsList(true);
         markViewedSessionActivityRead(postSessionKey.trim());
@@ -4597,9 +4710,13 @@ export function App() {
     resetLiveRecoveryState(sid);
     stopDiskFallbackPoll(sid);
     // Always send the server-side cancel so Stop works even after page reload.
+    // Fire-and-forget: if the connection is already gone the turn is unreachable
+    // anyway, and an escaping rejection would paint the IDE panel's error overlay.
     void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}/cancel`, {
       method: "POST",
       headers: { [HDR]: sid },
+    }).catch(() => {
+      /* ignore */
     });
     // Also abort the in-progress fetch request if we have one from this page session.
     postAbortBySidRef.current.get(sid)?.abort();
@@ -4651,6 +4768,9 @@ export function App() {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ selectedReasoning: lv }),
+      }).catch(() => {
+        // The choice is already applied locally and in the cookie; a lost write
+        // must not surface as an unhandled rejection.
       });
     },
     [sessionId, headers],
@@ -4668,14 +4788,72 @@ export function App() {
       if (!sid || !llmModelIds.includes(mid)) {
         return;
       }
+      // The pick outranks whatever the session had stored, so a reconcile still
+      // in flight cannot revert it.
+      userTouchedSelectionSidRef.current = sid;
+      // A client draft has no server session yet; the first turn persists the
+      // pick through metadata.model, and a PATCH here would only 404.
+      if (isClientDraftSessionId(sid)) {
+        return;
+      }
       void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ selectedModelId: mid }),
+      }).catch(() => {
+        // The choice is already applied locally and in the cookie; a lost write
+        // must not surface as an unhandled rejection.
       });
     },
     [sessionId, llmModelIds, headers],
   );
+
+  // A Mode switch is a session change, not a client preference: it is stored
+  // right away so a reload comes back in the same profile, and it still rides
+  // the next turn as the top-level `model` of POST /v1/responses.
+  const onModeChange = useCallback(
+    (next: string) => {
+      const m = next.trim();
+      if (!m || !(PROFILE_MODES as readonly string[]).includes(m)) {
+        return;
+      }
+      setMode(m);
+      modeEditSeqRef.current += 1;
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      userTouchedSelectionSidRef.current = sid;
+      if (isClientDraftSessionId(sid)) {
+        return;
+      }
+      void fetch(`/foxxycode/sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: m }),
+      }).catch(() => {
+        // The mode is already applied locally; a lost write must not surface as
+        // an unhandled rejection.
+      });
+    },
+    [sessionId, headers],
+  );
+
+  // The backend switched the profile on its own (a plan run, or the model
+  // calling plan_exit). Adopting it keeps the composer from posting a mode the
+  // session has already left, which the next turn would write back. A relay we
+  // watch in the background must not repaint the composer of another chat, so
+  // the frame only lands when it names the session on screen.
+  const onServerModeChanged = useCallback((sid: string, next: string) => {
+    const m = next.trim();
+    if (!m || !(PROFILE_MODES as readonly string[]).includes(m)) {
+      return;
+    }
+    if (sid.trim() !== viewedSessionIdRef.current.trim()) {
+      return;
+    }
+    setMode(m);
+  }, []);
 
   const contextPct = useMemo(
     () => contextUsagePercent(maxContextTokens, contextBreakdown),
@@ -5172,6 +5350,9 @@ export function App() {
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}
+          providerUsage={providerUsageState.usage}
+          usageBannerDismissedKey={providerUsageState.dismissedKey}
+          onUsageBannerDismiss={providerUsageState.dismissBanner}
           contextPct={contextPct}
           maxContextTokens={maxContextTokens}
           contextBreakdown={contextBreakdown}
@@ -5192,7 +5373,7 @@ export function App() {
                   : {}),
               }
             : {})}
-          onModeChange={setMode}
+          onModeChange={onModeChange}
           onDraftChange={setDraft}
           generating={generating}
           onContextRingOpen={() => {

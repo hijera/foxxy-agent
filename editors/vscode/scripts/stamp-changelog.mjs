@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Stamps the `## Unreleased — YYYY-MM-DD` section of CHANGELOG.md with the version being
 // packaged, the way editors/intellij/build.gradle.kts does for the IntelliJ plugin.
 //
@@ -11,6 +10,10 @@
 //
 // Usage: node scripts/stamp-changelog.mjs <X.Y.Z> [path/to/CHANGELOG.md]
 // Exit 0 whether or not an Unreleased heading was present; a non-semver version is a no-op.
+// No shebang, on purpose: test/changelog.test.ts imports this module, and vite's SSR
+// transform hoists the imports above everything else, which moves a `#!` line off byte 0 and
+// makes the module fail to compile with "Invalid or unexpected token" - killing that whole
+// test file silently. The Makefile runs this as `node scripts/stamp-changelog.mjs` anyway.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

@@ -52,13 +52,13 @@ func Run(args []string, deps CommandDeps) error {
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
 	modeFlag := fs.String("mode", "", "start in this mode: agent|plan")
 	permMode := fs.String("permission-mode", "", "permission mode: ask|accept_edits|bypass")
-	remoteFlag := fs.String("remote", "", "connect to a remote foxxycode http server (configured remote name, host:port, or http(s) URL)")
+	remoteFlag := fs.String("remote", "", "connect to a remote foxxycode serve server (configured remote name, host:port, or http(s) URL)")
 	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from FOXXYCODE_REMOTE_TOKEN)")
 	themeFlag := fs.String("theme", "auto", "color theme: dark|light|auto")
 	plainFlag := fs.Bool("plain", false, "deterministic rendering for tests: no terminal queries or protocol negotiation")
-	logLevel := fs.String("log-level", "", "debug|info|warn|error (default from config)")
+	logLevel := fs.String("log-level", "", "log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)")
 	logFile := fs.String("log-file", "", "log file path (default <home>/logs/cli.log)")
-	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	fs.Usage = func() {
@@ -270,7 +270,7 @@ func warnInsecureRemote(ropts *remote.Options, w io.Writer) {
 	_, _ = fmt.Fprintf(w, "warning: sending the bearer token over plain http to %s; prefer https or a trusted network\n", ropts.BaseURL)
 }
 
-// buildRemoteApp wires the console against a remote foxxycode http server: the
+// buildRemoteApp wires the console against a remote foxxycode serve server: the
 // remote handler replaces the manager and streams ACP updates back through
 // the app's sender.
 func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger, term appTerminal, themeName string, plain bool) (*App, error) {
@@ -348,6 +348,11 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 			if w, ok := app.mgr.(interface{ WaitCancels(time.Duration) }); ok {
 				w.WaitCancels(5 * time.Second)
 			}
+		}
+		if c, ok := app.mgr.(interface{ Close() }); ok {
+			// A remote backend refuses further usage pulls and drops the ones
+			// in flight: nothing may fire into the closed console.
+			c.Close()
 		}
 		app.Close()
 		app.JoinWorkers(3 * time.Second)

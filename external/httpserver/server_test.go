@@ -313,7 +313,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -1936,6 +1936,71 @@ func TestFoxxyCodeSessionPatchSelectedModelId(t *testing.T) {
 	}
 }
 
+// The happy path lives in features/session_mode_model_sync.feature; these are
+// the edge cases that keep a bad mode out of session.json.
+func TestFoxxyCodeSessionPatchModeRejectsUnknownValues(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	store := &session.FileStore{Root: sessRoot}
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := res.SessionID
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	patch := func(payload string) (int, []byte) {
+		req, err := http.NewRequest(http.MethodPatch, ts.URL+"/foxxycode/sessions/"+url.PathEscape(sid), strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-FoxxyCode-Session-ID", sid)
+		resHTTP, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(resHTTP.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resHTTP.StatusCode, b
+	}
+
+	if status, b := patch(`{"mode":"plan"}`); status != http.StatusOK {
+		t.Fatalf("patch mode status %d %s", status, b)
+	}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Mode != "plan" {
+		t.Fatalf("disk mode %q, want plan", snap.Meta.Mode)
+	}
+
+	// A bad mode must not land on the session: the reload guard in the manager
+	// would silently rewrite it to agent, losing the user's real choice.
+	if status, b := patch(`{"mode":"wizard"}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for unknown mode got %d %s", status, b)
+	}
+	if status, b := patch(`{"mode":"  "}`); status != http.StatusBadRequest {
+		t.Fatalf("want 400 for blank mode got %d %s", status, b)
+	}
+	if st := mgr.SessionByID(sid); st == nil || st.GetMode() != "plan" {
+		t.Fatalf("a refused patch changed the session mode: %v", st)
+	}
+
+	// An empty body still names every writable key, mode included.
+	status, b := patch(`{}`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("want 400 for an empty patch got %d %s", status, b)
+	}
+	if !strings.Contains(string(b), "mode") {
+		t.Fatalf("the required-keys error does not mention mode: %s", b)
+	}
+}
+
 func TestResponsesDirectPersistsAssistantModel(t *testing.T) {
 	_, srv, _ := testHTTPServerPersist(t)
 	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
@@ -2060,9 +2125,10 @@ func TestFoxxyCodeSlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	// 4 skills (apples, zebra, and the two bundled ones) plus the built-in compact and
-	// plugin commands, which lead the catalog (compact first while the coddy engine is on).
-	if r1.StatusCode != http.StatusOK || page1.Total != 6 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "compact" {
+	// 4 skills (apples, zebra, and the two bundled ones) plus the built-in compact,
+	// export and plugin commands, which lead the catalog (compact first while the
+	// coddy engine is on).
+	if r1.StatusCode != http.StatusOK || page1.Total != 7 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "compact" {
 		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
 	}
 
@@ -3788,5 +3854,61 @@ func TestAskProfileRefusesRunPlanSlugBeforeTurn(t *testing.T) {
 	}
 	if runs != 0 {
 		t.Fatalf("a turn ran %d time(s) despite the refusal", runs)
+	}
+}
+
+// GET /foxxycode/skills accepts the optional X-FoxxyCode-Session-ID header the way
+// /foxxycode/slash-commands does: a malformed id is a 400, an unknown session a
+// 404, and the header-less call keeps listing the server default workspace.
+func TestFoxxyCodeSkillsListSessionHeaderErrors(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(defaultCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: defaultCWD},
+		Skills: config.Skills{Dirs: []string{"${CWD}/.agents/skills"}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(header string) (int, string) {
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/foxxycode/skills", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header != "" {
+			req.Header.Set("X-FoxxyCode-Session-ID", header)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(b)
+	}
+	if code, body := get("../escape"); code != http.StatusBadRequest {
+		t.Fatalf("malformed session id: status %d body %s", code, body)
+	}
+	if code, body := get("sess_0123456789abcdef"); code != http.StatusNotFound {
+		t.Fatalf("unknown session: status %d body %s", code, body)
+	}
+	if code, body := get(""); code != http.StatusOK {
+		t.Fatalf("no header: status %d body %s", code, body)
 	}
 }

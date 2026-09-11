@@ -87,7 +87,8 @@ type streamableHTTPTransport struct {
 	mu        sync.Mutex
 	sessionID string
 
-	closed chan struct{}
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // httpStatusError reports a non-2xx response to a JSON-RPC POST.
@@ -169,11 +170,7 @@ func (t *streamableHTTPTransport) deliver(data []byte) {
 func (t *streamableHTTPTransport) Messages() <-chan []byte { return t.msgs }
 
 func (t *streamableHTTPTransport) Close() error {
-	select {
-	case <-t.closed:
-	default:
-		close(t.closed)
-	}
+	t.closeOnce.Do(func() { close(t.closed) })
 	return nil
 }
 
@@ -186,6 +183,8 @@ type sseTransport struct {
 	msgs     chan []byte
 	cancel   context.CancelFunc
 	closed   chan struct{}
+	// closeOnce keeps the teardown single-shot across racing Close callers.
+	closeOnce sync.Once
 }
 
 func newSSETransport(ctx context.Context, name, rawURL string, headers map[string]string, insecure bool) (*sseTransport, error) {
@@ -341,12 +340,10 @@ func (t *sseTransport) Send(ctx context.Context, data []byte) error {
 func (t *sseTransport) Messages() <-chan []byte { return t.msgs }
 
 func (t *sseTransport) Close() error {
-	select {
-	case <-t.closed:
-	default:
+	t.closeOnce.Do(func() {
 		close(t.closed)
-	}
-	t.cancel()
+		t.cancel()
+	})
 	return nil
 }
 

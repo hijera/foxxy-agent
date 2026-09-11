@@ -1,5 +1,7 @@
 package config
 
+func boolPtr(v bool) *bool { return &v }
+
 // SchemaExampleConfigJSON returns representative defaults for JSON Schema "default"
 // and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
 // and field semantics where possible.
@@ -106,6 +108,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			MaxDepth:              &subagentsMaxDepth,
 			DefaultTimeoutSeconds: SubagentsDefaultTimeoutSeconds,
 			MaxTurns:              0,
+		},
+		Hooks: HooksJSON{
+			Enabled:               boolPtr(true),
+			Files:                 DefaultHookFiles(),
+			ProjectTrust:          ProjectTrustAsk,
+			DefaultTimeoutSeconds: HooksDefaultTimeoutSeconds,
+			StopLoopLimit:         HooksDefaultStopLoopLimit,
+			MaxOutputChars:        HooksDefaultMaxOutputChars,
 		},
 		Logger: LoggerJSON{
 			Level:    LogLevelInfo,

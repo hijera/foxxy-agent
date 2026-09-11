@@ -127,6 +127,9 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	// prompts outlive this turn too.
 	ag.SetSubagentRuntime(s.mgr)
 	ag.SetDetachedPermissionBroker(s)
+	// The resumed turn calls the model like any other: its release refreshes
+	// the provider usage.
+	session.MarkTurnRan(ctx)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)
 		return

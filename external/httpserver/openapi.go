@@ -322,7 +322,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List slash commands from skills (paginated)",
 					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
-						"When **X-FoxxyCode-Session-ID** is set (existing session), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
+						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default cwd applies.",
 					"operationId": "listSlashCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -635,6 +635,50 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/workspace/file": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read one workspace text file as display lines",
+					"description": "Backs the composer's line-range picker, the panel that opens while typing **`@path:`** so a ranged mention (**`@path:21-31`**) can be pointed at. " +
+						"**`path_rel`** is workspace-relative and never escapes session **cwd**. Legacy encodings are decoded to UTF-8 and files over 512 KiB are refused. " +
+						"A trailing newline adds no empty last line and CRLF files lose the stray **`\\r`**. **`max_lines`** (1 to 5000, default 2000) caps **`lines`**; **`total_lines`** always counts the whole file and **`truncated`** says whether the cap applied. " +
+						"A directory, a binary or otherwise undecodable file, and a traversing path yield **400**; a missing file yields **404**.",
+					"operationId": "foxxycodeWorkspaceFileGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the read root.",
+						},
+						map[string]interface{}{
+							"name": "path_rel", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Workspace-relative file path.",
+						},
+						map[string]interface{}{
+							"name": "max_lines", "in": "query", "required": false,
+							"schema": map[string]interface{}{
+								"type": "integer", "minimum": 1, "maximum": 5000, "default": 2000,
+							},
+							"description": "Cap on returned lines.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "File content split into display lines",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/FoxxyCodeWorkspaceFile",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/workspace/context": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree, svn branch)",
@@ -728,6 +772,65 @@ func openAPISpec() map[string]interface{} {
 						"500": errorResponseRef(),
 					},
 				},
+				"post": map[string]interface{}{
+					"summary": "Create a subfolder for the workspace folder picker",
+					"description": "Creates **`name`** inside **`path`** (default: session cwd via **`X-FoxxyCode-Session-ID`**, else the server default cwd) and answers with the " +
+						"**listing of the folder just created**, so the picker can step into it and open it as the workspace. " +
+						"**`name`** must be a single new entry: an empty name, **`.`**, **`..`**, a volume name, or anything containing **`/`** or **`\\`** yields **400**, and so does a " +
+						"parent that does not exist (the chain is never created) or the **`:drives:`** level, which has no directory behind it. " +
+						"An existing folder of that name yields **409**.",
+					"operationId": "foxxycodeWorkspaceFoldersPost",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the default parent folder.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"name"},
+									"properties": map[string]interface{}{
+										"path": map[string]interface{}{
+											"type":        "string",
+											"description": "Absolute folder the new one is created in. Defaults to the session **cwd**.",
+										},
+										"name": map[string]interface{}{
+											"type":        "string",
+											"description": "Name of the new folder: one entry, no path separators.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Listing of the folder that was created (empty **`folders`**)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":  map[string]interface{}{"type": "string", "example": "foxxycode.workspace_folders"},
+											"path":    map[string]interface{}{"type": "string"},
+											"parent":  map[string]interface{}{"type": "string"},
+											"folders": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object"}},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
 			},
 			"/foxxycode/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
@@ -787,7 +890,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers).",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded.",
 					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -1092,10 +1195,78 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/hooks": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Hook definition files visible from a workspace",
+					"description": "Lists the hook definition files a session with this **cwd** would load, in load order (**`hooks.files`**: the operator's **`${FOXXYCODE_HOME}/hooks.json`**, then the workspace's **`.claude/settings.json`**, **`.claude/settings.local.json`** and **`.foxxycode/hooks.json`**). " +
+						"Each item carries **file** (the name receipts use: the workspace-relative path for project scope, the absolute path otherwise), **path**, **scope** (**user**, **project**), **digest** (SHA-256 of the file), the trust decision for this workspace (**trust**, mirrored as **trusted** and **needs_approval**), **error** for a file that does not parse, **warnings**, and **hooks**: one row per handler with its event, matcher, command and flags. " +
+						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See **`docs/hooks.md`**.",
+					"operationId": "listHooks",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "foxxycode.hook_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/hooks/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project hooks file for a workspace",
+					"description": "Records a receipt in **`<home>/hooks-trust.json`** binding the workspace, the file and the digest of its current content, so its hooks run under **`hooks.project_trust: ask`** from the next turn. Rewriting the file changes the digest and withdraws the approval. " +
+						"Body **`{\"cwd\": ..., \"file\": ...}`**: **cwd** selects the workspace (default: the server's default cwd; it must be the session's server-side workspace, since receipts are keyed by that path) and **file** names the file as **GET /foxxycode/hooks** lists it. **404** when no such file is visible from the workspace; **400** for a user-scope file (nothing to approve), a file that does not parse, a missing **file**, a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/hooks/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project hooks file approval",
+					"description": "Removes the receipt of the named file for the workspace (same body as the trust route). Withdrawing an approval that was never on file changes nothing and still answers with the current entry. **404** when no such file is visible from the workspace; **400** for a missing **file**, a malformed body or a relative **cwd**.",
+					"operationId": "untrustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
+					"description": "Set **title** (pinned title), **mode** (session profile: **`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**; **400** for anything else), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **mode** persists the profile without sending a turn, so a client that switches Mode and reloads gets it back; a turn sets it too, through the top-level **`model`** of **POST /v1/responses**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1111,6 +1282,7 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"title":             map[string]string{"type": "string"},
+										"mode":              map[string]string{"type": "string"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
@@ -1575,7 +1747,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** is the stored session profile (**`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**), so a client restores the composer's Mode on load instead of dropping every reopened session back to **agent**. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
@@ -2175,9 +2347,17 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/skills": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "List skills",
-					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.foxxycode/skills/.disabled`).",
+					"summary": "List skills",
+					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.foxxycode/skills/.disabled`). " +
+						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default cwd applies.",
 					"operationId": "listSkills",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Optional session whose cwd scopes skill path expansion.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Skill list",
@@ -2301,6 +2481,26 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
 						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/providers/{name}/usage": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get provider account usage",
+					"description": "Account usage behind a provider row, for the status bar of every surface. Today only `neuraldeep` rows have a source: the hub's read-only `GET /v1/limits`, read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows); `{ok:false, unsupported:true}` for a provider type without a source; `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server.",
+					"operationId": "getProviderUsage",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "`1` asks for a fresh read instead of the cached snapshot, subject to the pacing floor.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Account usage answer.", "#/components/schemas/ProviderUsageAnswer"),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -3051,6 +3251,42 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
 				},
+				"HookCatalogHandler": map[string]interface{}{
+					"type":        "object",
+					"description": "One handler of a hooks file as the catalog shows it.",
+					"properties": map[string]interface{}{
+						"event":           map[string]string{"type": "string", "description": "Event name, for example PreToolUse."},
+						"matcher":         map[string]string{"type": "string", "description": "Matcher of the group; absent or empty means every occurrence."},
+						"type":            map[string]string{"type": "string", "description": "Handler type; only command runs."},
+						"command":         map[string]string{"type": "string"},
+						"args":            map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Present for the exec form."},
+						"timeout_seconds": map[string]string{"type": "integer"},
+						"async":           map[string]string{"type": "boolean"},
+						"fail_closed":     map[string]string{"type": "boolean"},
+						"unsupported":     map[string]string{"type": "string", "description": "Why the handler never runs (an unsupported type)."},
+					},
+					"required": []string{"event", "type"},
+				},
+				"HookCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One hook definition file as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"file":           map[string]string{"type": "string", "description": "The name receipts and the CLI use: the workspace-relative path for project scope, the absolute path otherwise."},
+						"path":           map[string]string{"type": "string", "description": "Absolute file path."},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"user", "project"}},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the file bytes."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+						"error":          map[string]string{"type": "string", "description": "Parse or read error of an invalid file."},
+						"warnings":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"hooks": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogHandler"},
+						},
+					},
+					"required": []string{"file", "path", "scope", "trust", "trusted", "needs_approval", "hooks"},
+				},
 				"DesignPlan": map[string]interface{}{
 					"type":        "object",
 					"description": "A design plan file (plans/<slug>.plan.md) inside the session bundle.",
@@ -3557,10 +3793,16 @@ func openAPISpec() map[string]interface{} {
 						},
 						"source": map[string]interface{}{
 							"type": "object",
+							"description": "How the attachment body is sourced. **`literal`** supplies it directly; **`start`**/**`end`** are byte offsets into the decoded file; " +
+								"**`startLine`**/**`endLine`** are a 1-based inclusive line range, which is what a ranged mention (**`@path:21-31`**) sends. " +
+								"A literal wins over byte offsets, which win over the line range; only a body that really is the line slice is labelled, so the model sees **`lines=\"21-31\"`** for a sliced file and no label for a literal or byte-offset body. " +
+								"A range the file cannot honour (zero, inverted, or starting past the last line) is answered with **400**; an end past the last line clamps.",
 							"properties": map[string]interface{}{
-								"literal": map[string]string{"type": "string"},
-								"start":   map[string]string{"type": "integer"},
-								"end":     map[string]string{"type": "integer"},
+								"literal":   map[string]string{"type": "string"},
+								"start":     map[string]string{"type": "integer"},
+								"end":       map[string]string{"type": "integer"},
+								"startLine": map[string]interface{}{"type": "integer", "minimum": 1},
+								"endLine":   map[string]interface{}{"type": "integer", "minimum": 1},
 							},
 						},
 					},
@@ -3663,6 +3905,22 @@ func openAPISpec() map[string]interface{} {
 						"page_size": map[string]string{"type": "integer"},
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
+				},
+				"FoxxyCodeWorkspaceFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":    map[string]string{"type": "string", "example": "foxxycode.workspace_file"},
+						"path_rel":  map[string]string{"type": "string"},
+						"mime_type": map[string]string{"type": "string", "example": "text/plain; charset=utf-8"},
+						"lines": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Display lines without their terminators.",
+						},
+						"total_lines": map[string]string{"type": "integer"},
+						"truncated":   map[string]string{"type": "boolean"},
+					},
+					"required": []string{"object", "path_rel", "lines", "total_lines", "truncated"},
 				},
 				"FoxxyCodeWorkspaceContext": map[string]interface{}{
 					"type": "object",
@@ -3959,6 +4217,44 @@ func subagentTrustRequestBody() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**."},
 					},
+				},
+			},
+		},
+	}
+}
+
+// hookTrustRequestBody is the body of the hooks trust routes.
+func hookTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": true,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd":  map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"file": map[string]string{"type": "string", "description": "The file as **GET /foxxycode/hooks** names it (workspace-relative for project scope)."},
+					},
+					"required": []string{"file"},
+				},
+			},
+		},
+	}
+}
+
+// hookEntryResponse describes a 200 carrying one refreshed hooks catalog entry.
+func hookEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "foxxycode.hook_source"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
 				},
 			},
 		},

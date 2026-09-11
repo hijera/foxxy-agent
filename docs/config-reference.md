@@ -10,7 +10,7 @@ A machine-readable [JSON Schema](config.schema.json) accompanies this reference.
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [config.md](config.md#environment-variable-references)).
 
 ## Agent self-configuration
 
@@ -54,6 +54,7 @@ The bundled `/configure-foxxycode` skill teaches the agent this syntax, the conf
 | [`mcp`](#mcp) | object | Trust policy for project-local MCP discovery | — |
 | [`subagents`](#subagents) | object | Subagent definitions, trust policy and pool bounds | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
+| [`hooks`](#hooks) | object | Lifecycle hook definition files, trust policy and runner bounds | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
 | [`memory`](#memory) | object | Long-term memory copilot | `memory` |
@@ -76,6 +77,7 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). For `type: neuraldeep`, when the key is empty from all three sources the key stored by `foxxycode providers login <name>` (`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`) is used - an explicit key always wins over the stored login. |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | environment proxy | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Overrides a proxy inherited from the environment (`HTTP_PROXY`/`HTTPS_PROXY` — the IDE plugin forwards the editor's proxy this way); `NO_PROXY` is still honored and local addresses always connect directly. When empty, the environment proxy is used, or a direct connection when there is none. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
+| `usage_limits_panel` | bool | no | `true` | — | Shows the row's account usage panel (the console footer line and `/usage`, the usage section and banner in the web UI) and enables the reads behind it (the hub's `GET /v1/limits` for `type: neuraldeep`). `false` hides the panel on every surface and stops those reads for this row: `GET /foxxycode/providers/{name}/usage` answers `unsupported` with `disabled: true`, and nothing is published at session start or after a turn. Omitted means on. Only rows whose type has a usage source are affected; the key is accepted on any row. Settings → LLM Providers shows it as the **Usage limits panel** switch. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -88,6 +90,7 @@ providers:
     type: openai
     api_base: "http://localhost:11434/v1"
     api_key: "~"
+    # usage_limits_panel: false  # hide the account usage panel for this row
   - name: codex
     type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
@@ -170,6 +173,8 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
 | `loop_tool_cycle_repeats` | int | no | `3` | Repetitions of the same *sequence* of tool calls before the guard steps in — what catches a model rotating through several calls instead of repeating one; `0` disables the check. Sequences of 2 to 8 calls are searched for, and because a lap is allowed to vary, a longer rotation is usually caught earlier through a shorter sub-pattern inside it. |
 | `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it acts on a loop. |
+| `wait_for_limit_reset` | bool | no | `false` | Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error. The turn lock and the client stream stay open while it waits, and the client is told "Usage limit reached" with the reset time every 20 s. Unrelated to `llm_stall_retry`, which re-issues a call that produced no output at all. |
+| `wait_for_limit_reset_max_ms` | int | no | `14400000` (4 h) | Longest time one turn spends waiting for limits in total, the retry wrapper's own sleeps on a limit included; a pause beyond it ends the turn at once, and an explicit `0` never sleeps on a limit. |
 | `loop_stuck_action` | string | no | `quarantine` | What the guard does once a tool loop has survived every nudge. `quarantine` takes the looping calls away for the rest of the turn and lets it run on to a real answer, asking for that answer with the tools withheld if nothing else is left; `stop` ends the turn with a notice. A degenerate output stream always stops the turn regardless. |
 
 ## `prompts`
@@ -209,8 +214,8 @@ Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, and nested `**/AGENTS.md` under the session CWD. |
-| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `cursor`, `claude`, `codex`, `agents`. |
+| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `**/AGENTS.md` under the session CWD. `.mdc` files are read as Cursor rules, `.md` files as Claude Code rules. |
+| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `agents-dir` (`.agents/rules`), `cursor`, `claude`, `codex`, `agents` (nested `AGENTS.md`). |
 
 ## `mcp_servers`
 
@@ -220,11 +225,11 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 |---|---|---|---|---|
 | `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
-| `command` | string | stdio only | — | Executable for stdio transport. |
+| `command` | string | stdio only | — | Executable for stdio transport. `${CWD}` expands to the session cwd. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
-| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
+| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. `${CWD}` in a value expands to the session cwd. |
 | `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
-| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). `${CWD}` in a value expands to the session cwd. |
 | `insecure_skip_verify` | bool | no | `false` | Accept this http/sse server's TLS certificate without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks. Setting it changes the declaration digest, so a project-local entry needs approving again. |
 | `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
 | `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
@@ -266,6 +271,7 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 |---|---|---|---|---|
 | `permission_mode` | string | no | `ask` | `ask` — prompt for commands and file writes; `accept_edits` — auto-approve writes, prompt for commands; `bypass` — never ask (trusted environments only). Overridable per session via ACP `session/set_config_option`. |
 | `command_allowlist` | string list | no | `[]` | Commands that never require permission. Exact or prefix match (prefix + space + args). `"*"` allows everything. |
+| `permission_timeout_seconds` | int | no | `0` | How long a permission prompt may wait for the operator before the tool call is cancelled instead. `0` waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
 | `plan_no_self_run` | bool | no | `false` | Forbid the model from starting to execute a plan itself. In plan mode `plan_exit` is not offered and any tool outside the plan allowlist is refused instead of run, so only **Run plan** starts the implementation. The `-plan-no-self-run` flag on `foxxycode acp` / `foxxycode http` overrides this value; the IntelliJ and VS Code plugins pass it, so their panels are guarded by default. |
 | `output_limits` | object | no | — | Per-tool line and byte ceilings for results and errors. |
@@ -314,6 +320,21 @@ Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the
 | `max_turns` | int | no | `agent.max_turns` | ReAct rounds a child may take. |
 
 Approvals for project-scope definitions are recorded in `~/.foxxycode/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
+
+## `hooks`
+
+Hooks (`config.Hooks`, `internal/config/hooks.go`): operator commands run at lifecycle points of a session. A hook reads one JSON document on stdin and answers with an exit code plus optional JSON on stdout; a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, force the prompt, rewrite its arguments or add context, and a `PostToolUse` / `PostToolUseFailure` hook can add feedback. Definitions are JSON files in Claude Code's shape. `0` on every integer key means "use the default". See `docs/hooks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Load and run hooks at all. |
+| `files` | string list | no | `["${FOXXYCODE_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.foxxycode/hooks.json"]` | Definition files, lowest priority first; every matching hook runs, priority orders the catalog and the run order. `${FOXXYCODE_HOME}` expands at load time, `${CWD}` per session; a relative entry resolves against the session cwd. A file at or under the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. Only the `hooks` key of a Claude Code settings file is read. |
+| `project_trust` | string | no | `ask` | Policy for project-scope files, which travel with the checkout. `ask` — parse and list them, but run none of their hooks until the operator approved that exact file for that workspace on the machine running foxxycode (`foxxycode hooks trust <file>` there, or `POST /foxxycode/hooks/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own file; `deny` — never read them. |
+| `default_timeout_seconds` | int | no | `60` | Hard limit for one hook process whose definition gives no `timeout`; the whole process group is terminated past it. |
+| `stop_loop_limit` | int | no | `5` | How many times per turn a `Stop` hook may send the agent back to work. |
+| `max_output_chars` | int | no | `10000` | Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. |
+
+Approvals for project-scope files are recorded in `~/.foxxycode/hooks-trust.json`, keyed by the canonical workspace path, the workspace-relative file path and a digest of the file, so editing an approved file asks again.
 
 ## `logger`
 

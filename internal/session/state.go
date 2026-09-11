@@ -58,11 +58,19 @@ type State struct {
 	// Resolved against the effective model's levels by EffectiveReasoning.
 	SelectedReasoning string
 
+	// HookContext is the context SessionStart hooks handed to the session;
+	// every system prompt of the session carries it (see docs/hooks.md).
+	HookContext string
+
 	// Messages is the conversation history.
 	Messages []llm.Message
 
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
+
+	// hookNotices remembers which hooks-file notices this live session has
+	// already recorded (see MarkHookNoticeShown); not persisted.
+	hookNotices map[string]bool
 
 	// MCPClients are MCP servers supplied by the session client (for example
 	// ACP). They survive configured project-server reconnects.
@@ -511,6 +519,28 @@ func (s *State) SetSelectedModelID(id string) {
 	s.touchPersist()
 }
 
+// GetHookContext returns the context SessionStart hooks handed to the session.
+func (s *State) GetHookContext() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.HookContext
+}
+
+// SetHookContext replaces the SessionStart hook context and persists it.
+func (s *State) SetHookContext(text string) {
+	s.mu.Lock()
+	s.HookContext = strings.TrimSpace(text)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// RestoreHookContextWithoutPersist sets the hook context from disk (session load).
+func (s *State) RestoreHookContextWithoutPersist(text string) {
+	s.mu.Lock()
+	s.HookContext = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
 // GetSelectedReasoning returns the session reasoning override, or empty.
 func (s *State) GetSelectedReasoning() string {
 	s.mu.RLock()
@@ -622,6 +652,12 @@ func (s *State) SetAgentMemory(text string) {
 	s.AgentMemory = text
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// ConversationTitle returns the pinned title, or the one derived from the
+// first user message (the value session.json records).
+func (s *State) ConversationTitle() string {
+	return persistedConversationTitle(s)
 }
 
 // GetTitlePinned returns the user-pinned session title shown in snapshots, if any.

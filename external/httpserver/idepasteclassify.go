@@ -47,7 +47,7 @@ func (s *Server) foxxycodeIdePasteClassifyPost(w http.ResponseWriter, r *http.Re
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
 	}
-	cwdAbs, ok := s.resolveSlashListCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}

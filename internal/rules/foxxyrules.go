@@ -37,7 +37,7 @@ func (p *FoxxyRulesProvider) Load(root string) ([]*Rule, error) {
 	if strings.TrimSpace(string(data)) == "" {
 		return nil, nil
 	}
-	r, err := parseRuleFile(root, SourceFoxxyCode, data)
+	r, err := ParseRuleFile(root, SourceFoxxyCode, data)
 	if err != nil {
 		return nil, err
 	}

@@ -138,3 +138,84 @@ test("a malformed event payload is skipped rather than thrown", async () => {
 
   expect(seen).toEqual(["sess_ok"]);
 });
+
+test("provider_usage frames reach their handler with the session that caused them", async () => {
+  const seen: Array<{ sid: string; used: number | undefined }> = [];
+  const ctl = new AbortController();
+  const frame =
+    `event: provider_usage\ndata: ${JSON.stringify({
+      object: "foxxycode.provider_usage",
+      sessionId: "sess_a",
+      usage: { provider: "neuraldeep", providerType: "neuraldeep", windows: [{ id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 }] },
+    })}\n\n`;
+  const fetchImpl = vi.fn(async () =>
+    responseOf(`event: ready\ndata: {"object":"foxxycode.events_ready"}\n\n` + frame + `event: provider_usage\ndata: {"broken":true}\n\n`),
+  );
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onProviderUsage: (sid, usage) => {
+      seen.push({ sid, used: usage.windows?.[0]?.used });
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+  expect(seen).toEqual([{ sid: "sess_a", used: 42 }]);
+});
+
+test("a config reload tells the client to re-read what the config decides", async () => {
+  let reloads = 0;
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"foxxycode.events_ready"}\n\n` +
+        `event: config_reloaded\ndata: ${JSON.stringify({
+          object: "foxxycode.config_reloaded",
+          at: "2026-09-09T12:00:00Z",
+        })}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onConfigReloaded: () => {
+      reloads += 1;
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(reloads).toBe(1);
+});
+
+// The event carries no model list, so a client that has no use for one must not be
+// forced to handle it: the callback stays optional.
+test("a config reload without a handler is not an error", async () => {
+  const ended: string[] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"foxxycode.events_ready"}\n\n` +
+        `event: config_reloaded\ndata: {"object":"foxxycode.config_reloaded"}\n\n` +
+        turnEvent("turn_ended", "sess_z"),
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: (sid) => {
+      ended.push(sid);
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(ended).toEqual(["sess_z"]);
+});

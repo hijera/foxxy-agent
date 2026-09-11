@@ -143,7 +143,7 @@ func (s *Server) foxxycodeWorkspaceFilesGet(w http.ResponseWriter, r *http.Reque
 		includeDirs = true
 	}
 
-	cwdAbs, ok := s.resolveSlashListCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}

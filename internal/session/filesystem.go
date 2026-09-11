@@ -16,9 +16,13 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
+// MessagesFileName is the transcript file inside a session bundle; hooks
+// receive its path as transcript_path.
+const MessagesFileName = "messages.json"
+
 const (
 	sessionMetaFile      = "session.json"
-	messagesFile         = "messages.json"
+	messagesFile         = MessagesFileName
 	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
 	todosDirName         = "todos"
@@ -73,6 +77,51 @@ func (f *FileStore) HasPersistedSnapshot(sessionID string) bool {
 	meta := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
 	fi, err := os.Stat(meta)
 	return err == nil && !fi.IsDir()
+}
+
+// ResolveSessionID returns the stored session whose folder id is idOrPrefix,
+// or the single stored session whose id starts with it. Folders without a
+// session.json are not sessions.
+func (f *FileStore) ResolveSessionID(idOrPrefix string) (string, error) {
+	q := strings.TrimSpace(idOrPrefix)
+	if q == "" {
+		return "", fmt.Errorf("session id is empty")
+	}
+	if f == nil || f.Root == "" {
+		return "", fmt.Errorf("session store not available")
+	}
+	if err := ValidateFolderSessionID(q); err != nil {
+		return "", err
+	}
+	if f.HasPersistedSnapshot(q) {
+		return q, nil
+	}
+	de, err := os.ReadDir(f.Root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("session not found: %s", q)
+		}
+		return "", err
+	}
+	var matches []string
+	for _, ent := range de {
+		if !ent.IsDir() || !strings.HasPrefix(ent.Name(), q) || !f.HasPersistedSnapshot(ent.Name()) {
+			continue
+		}
+		matches = append(matches, ent.Name())
+	}
+	sort.Strings(matches)
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("session not found: %s", q)
+	case 1:
+		return matches[0], nil
+	}
+	shown := matches
+	if len(shown) > 5 {
+		shown = shown[:5]
+	}
+	return "", fmt.Errorf("session id prefix %q is ambiguous (%d matches: %s)", q, len(matches), strings.Join(shown, ", "))
 }
 
 // ActiveTodoPath is the markdown file for the current todo list.
@@ -144,10 +193,12 @@ type SessionMeta struct {
 	SelectedModelID   string `json:"selectedModelId,omitempty"`
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
-	Title             string `json:"title,omitempty"`
-	TitlePinned       string `json:"titlePinned,omitempty"`
-	TitleAuto         string `json:"titleAuto,omitempty"`
-	UpdatedAt         string `json:"updatedAt,omitempty"`
+	// HookContext is what SessionStart hooks handed to the session.
+	HookContext string `json:"hookContext,omitempty"`
+	Title       string `json:"title,omitempty"`
+	TitlePinned string `json:"titlePinned,omitempty"`
+	TitleAuto   string `json:"titleAuto,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
@@ -485,6 +536,7 @@ func (f *FileStore) Save(state *State) error {
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),
+		HookContext:       state.GetHookContext(),
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
@@ -637,7 +689,7 @@ func stripXMLBlock(s, tag string) string {
 		if start < 0 {
 			break
 		}
-		end := strings.Index(lower[start:], lowerClose)
+		end := closeTagOutsideCDATA(lower[start:], lowerOpen, lowerClose)
 		if end < 0 {
 			s = s[:start]
 			break
@@ -645,6 +697,30 @@ func stripXMLBlock(s, tag string) string {
 		s = s[:start] + s[start+end+len(close):]
 	}
 	return s
+}
+
+// closeTagOutsideCDATA finds the close tag that ends the block opening at the
+// start of s, skipping over CDATA sections. A hydrated attachment carries the
+// file body inside CDATA (internal/agent wrapXMLCDATA splits an embedded "]]>"
+// across two sections), so a file that itself contains the close tag must not
+// cut the scan short. Returns -1 when the block is unterminated.
+func closeTagOutsideCDATA(s, lowerOpen, lowerClose string) int {
+	const cdataOpen, cdataClose = "<![cdata[", "]]>"
+	for pos := len(lowerOpen); pos < len(s); {
+		if strings.HasPrefix(s[pos:], cdataOpen) {
+			n := strings.Index(s[pos+len(cdataOpen):], cdataClose)
+			if n < 0 {
+				return -1
+			}
+			pos += len(cdataOpen) + n + len(cdataClose)
+			continue
+		}
+		if strings.HasPrefix(s[pos:], lowerClose) {
+			return pos
+		}
+		pos++
+	}
+	return -1
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.
