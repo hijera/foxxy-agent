@@ -916,7 +916,13 @@ export function App() {
     turnStarted: (sid: string) => void;
     turnEnded: (sid: string) => void;
     providerUsage: (usage: ProviderUsage) => void;
-  }>({ turnStarted: () => {}, turnEnded: () => {}, providerUsage: () => {} });
+    configReloaded: () => void;
+  }>({
+    turnStarted: () => {},
+    turnEnded: () => {},
+    providerUsage: () => {},
+    configReloaded: () => {},
+  });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -1109,7 +1115,14 @@ export function App() {
     new Map(),
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
-  const [modelsEpoch, setModelsEpoch] = useState(0);
+  /**
+   * Bumped whenever the server's configuration moved: a settings save here, or a
+   * `config_reloaded` event from a swap made elsewhere (the agent's `config_commit`,
+   * a skill install, another tab, an edit on disk that `serve` picked up). Everything
+   * derived from the config re-reads on it, so a model added mid-session reaches the
+   * picker without a page reload.
+   */
+  const [configEpoch, setConfigEpoch] = useState(0);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -2174,7 +2187,8 @@ export function App() {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-  }, []);
+    // Slash commands are derived from skills.dirs, so a config swap moves them too.
+  }, [configEpoch]);
 
   // Background tasks outlive the SSE stream of the turn that started them, so
   // the drawer and the nav badge are kept honest by polling rather than by the
@@ -2311,11 +2325,12 @@ export function App() {
         );
       }
     })();
-    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+    // configEpoch bumps after every config swap, so a model added to models[] - and the
+    // multimodal flag on one already there - reaches the picker without a page reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelsEpoch]);
+  }, [configEpoch]);
 
-  // Onboarding is decided once per page load. It used to re-run on modelsEpoch,
+  // Onboarding is decided once per page load. It used to re-run on configEpoch,
   // so every Settings save re-fetched the status and reopened a picker the user
   // had already dismissed. Re-entry is the "Restart onboarding" button
   // (restartOnboarding below), not a save.
@@ -3861,6 +3876,7 @@ export function App() {
       void refreshSessionStats(key);
     },
     providerUsage: providerUsageState.applyPushed,
+    configReloaded: () => setConfigEpoch((e) => e + 1),
   };
 
   useEffect(() => {
@@ -3870,6 +3886,7 @@ export function App() {
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
+      onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onConnectedChange: setServerEventsConnected,
       signal: ctl.signal,
     });
@@ -5363,7 +5380,7 @@ export function App() {
           <div className="settings-dock-cluster">
             <Settings
               onClose={onCloseSettings}
-              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
+              onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
               onRestartOnboarding={restartOnboarding}
               // Subagent approvals are keyed by workspace, and spawn_agent
@@ -5566,7 +5583,7 @@ export function App() {
           open={showProviderPicker}
           onSaved={() => {
             setShowProviderPicker(false);
-            setModelsEpoch((e) => e + 1);
+            setConfigEpoch((e) => e + 1);
             maybeStartTour();
           }}
           onSkip={() => {

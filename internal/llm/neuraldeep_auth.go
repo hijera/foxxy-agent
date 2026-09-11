@@ -44,19 +44,44 @@ const (
 	// EnvNeuralDeepBaseURL overrides the pinned NeuralDeep API base for stands
 	// and tests (mirrors FOXXYCODE_CODEX_BASE_URL).
 	EnvNeuralDeepBaseURL = "FOXXYCODE_NEURALDEEP_BASE_URL"
-	// NeuralDeepClientID names the key the hub mints for FoxxyCode. It is in the
-	// hub's client allowlist; a hub that predates it silently falls back to
-	// the "foxxycode-cli" key name in the browser flow.
-	NeuralDeepClientID = "foxxycode"
-
-	neuralDeepLoginTimeout = 15 * time.Minute
+	// NeuralDeepClientID is the client this agent presents to the NeuralDeep hub.
+	//
+	// It is the hub's identifier, not this fork's name, and it must not be
+	// rebranded: the value lives in the hub's client allowlist, which is a
+	// server this repository does not own. The rebrand did rename it once, and
+	// the browser flow tolerated that - the hub only labels the key with it -
+	// while the device flow answers POST /api/cli/device/start with
+	// {"detail":"unknown client"} and no sign-in is possible at all. Asked
+	// directly, the hub accepts "coddy" and refuses "foxxycode".
+	//
+	// What the user sees in their account is NeuralDeepKeyLabel and, for the
+	// device flow, a label naming this host - both of which are ours to brand.
+	NeuralDeepClientID = "coddy"
+	// NeuralDeepKeyLabel names the stored key in the user's hub account when the
+	// browser flow does not supply a label of its own.
+	NeuralDeepKeyLabel = "foxxycode"
 )
 
+// neuralDeepLoginTimeout bounds a sign-in wait. A variable, not a constant, so
+// a test can shrink a wait that would otherwise outlive `go test`'s own
+// timeout and take the whole package down with it.
+var neuralDeepLoginTimeout = 15 * time.Minute
+
+// SetNeuralDeepLoginTimeout replaces that deadline and returns the call that
+// restores it. Test-only seam: the CLI harnesses live in another package and
+// drive a whole sign-in, so a stuck flow would otherwise outlast `go test`.
+func SetNeuralDeepLoginTimeout(d time.Duration) func() {
+	prev := neuralDeepLoginTimeout
+	neuralDeepLoginTimeout = d
+	return func() { neuralDeepLoginTimeout = prev }
+}
+
 // Poll pacing for the device flow. Variables so tests can shrink the delays;
-// production keeps RFC-friendly values. The floor guards against a hub that
-// answers interval <= 0, which would otherwise busy-loop the poller.
+// production keeps RFC-friendly values. A hub that names no interval gets the
+// RFC default; the floor bounds one that asks for something smaller.
 var (
 	neuralDeepPollFloor    = time.Second
+	neuralDeepPollDefault  = 5 * time.Second
 	neuralDeepSlowDownStep = 5 * time.Second
 )
 
@@ -289,11 +314,6 @@ func maskNeuralDeepKey(key string) string {
 
 var neuralDeepSecretRe = regexp.MustCompile(`sk-[A-Za-z0-9_-]+`)
 
-// neuralDeepModelIDRe accepts the catalog ids the hub publishes. The id is
-// interpolated into a UCI config path (`models[model=<name>/<id>]`), so
-// anything outside this safe alphabet is skipped rather than staged.
-var neuralDeepModelIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
 // redactNeuralDeepSecrets masks hub keys wherever they may surface: upstream
 // error bodies, callback URLs, log lines. Every error this file returns and
 // every snippet persisted by HTTP login attempts must pass through it.
@@ -382,7 +402,7 @@ func NeuralDeepSignIn(ctx context.Context, hub string, hc *http.Client, authPath
 			_, _ = io.WriteString(w, neuralDeepPage("Ключ не получен", "Хаб не передал ключ. Попробуйте войти заново."))
 			return
 		}
-		if err := SaveNeuralDeepAuth(authPath, key, hub, NeuralDeepClientID, NeuralDeepClientID); err != nil {
+		if err := SaveNeuralDeepAuth(authPath, key, hub, NeuralDeepClientID, NeuralDeepKeyLabel); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, neuralDeepPage("Не удалось сохранить ключ", html.EscapeString(redactNeuralDeepSecrets(err.Error()))))
 			deliver(outcome{err: err})
@@ -473,6 +493,14 @@ func StartNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Client
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		// The hub throttles sign-in starts. This is the first thing a login
+		// does, so the raw status would be the whole user-facing message.
+		if wait := parseUsageRetryAfter(resp.Header.Get("Retry-After")); wait > 0 {
+			return nil, fmt.Errorf("neuraldeep auth: the hub is rate limiting sign-ins; try again in %s", wait.Round(time.Second))
+		}
+		return nil, errors.New("neuraldeep auth: the hub is rate limiting sign-ins; try again in a minute")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, neuralDeepHTTPError("device start", resp)
 	}
@@ -530,6 +558,12 @@ func PollNeuralDeepDeviceToken(ctx context.Context, hub string, hc *http.Client,
 			return "", false, errors.New("neuraldeep auth: device token response had no access_token")
 		}
 		return ok.AccessToken, false, nil
+	}
+	// A hub that throttles polling is asking for a wider interval, which is
+	// what slow_down means in RFC 8628. Failing the login here would throw
+	// away a confirmation the user may be about to give.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", true, nil
 	}
 	var rfcErr struct {
 		Error string `json:"error"`
@@ -595,7 +629,13 @@ func CompleteNeuralDeepDeviceLoginWith(ctx context.Context, hub string, hc *http
 	}
 	ctx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
-	interval := max(time.Duration(login.Interval)*time.Second, neuralDeepPollFloor)
+	// RFC 8628 §3.5 puts the default at five seconds. A hub that names no
+	// interval used to be polled at the floor instead, which is 900 requests
+	// over a fifteen-minute wait now that this flow is every terminal login.
+	interval := neuralDeepPollDefault
+	if login.Interval > 0 {
+		interval = max(time.Duration(login.Interval)*time.Second, neuralDeepPollFloor)
+	}
 	for {
 		key, slowDown, err := PollNeuralDeepDeviceToken(ctx, hub, hc, login.DeviceCode)
 		if err != nil {
@@ -784,7 +824,7 @@ func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name,
 	}
 	for _, m := range st.Models {
 		id := strings.TrimSpace(m.ID)
-		if !neuralDeepModelIDRe.MatchString(id) {
+		if !catalogModelIDRe.MatchString(id) {
 			// The id feeds a config path; a hub (or a stand-in) must not be
 			// able to smuggle path syntax into the staged commands.
 			continue

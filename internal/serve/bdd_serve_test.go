@@ -84,7 +84,7 @@ func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
 			Run:        block(KindHTTP),
 		},
 		{
-			Kind: KindGateway, ConfigKey: "gateways.telegram.enable", BuildTag: "gateway", Available: gatewayAvailable,
+			Kind: KindGateway, ConfigKey: "gateways.telegram.enabled", BuildTag: "gateway", Available: gatewayAvailable,
 			Enabled:     func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
 			Fingerprint: func(c *config.Config) string { return c.Gateways.Telegram.Token },
 			Run:         block(KindGateway),
@@ -95,7 +95,7 @@ func (s *serveFeatureState) describe(gatewayAvailable bool) []Subsystem {
 			Run:     block(KindSwarm),
 		},
 		{
-			Kind: KindScheduler, ConfigKey: "scheduler.enable", BuildTag: "scheduler", Available: true,
+			Kind: KindScheduler, ConfigKey: "scheduler.enabled", BuildTag: "scheduler", Available: true,
 			Enabled:     func(c *config.Config) bool { return c.Scheduler.Enabled },
 			Fingerprint: func(c *config.Config) string { return c.Scheduler.Dir },
 			Run:         block(KindScheduler),

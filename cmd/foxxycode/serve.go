@@ -73,9 +73,9 @@ func runServe(args []string) error {
 	swarmInsecure := fs.Bool("swarm-allow-insecure", false, "permit binding the relay off loopback without a client token")
 
 	httpOn := fs.Bool("http", true, "run the HTTP API in this process; overrides httpserver.enabled")
-	gatewayOn := fs.Bool("gateway", false, "run the messenger gateway; overrides gateways.*.enable")
+	gatewayOn := fs.Bool("gateway", false, "run the messenger gateway; overrides gateways.*.enabled")
 	swarmOn := fs.Bool("swarm", false, "run the swarm relay; overrides swarm.enabled")
-	schedulerOn := fs.Bool("scheduler", false, "run the cron scheduler; overrides scheduler.enable")
+	schedulerOn := fs.Bool("scheduler", false, "run the cron scheduler; overrides scheduler.enabled")
 
 	daemon := fs.Bool("daemon", false, "run in the background under a dispatcher that restarts the process if it dies (see `foxxycode serve status|stop|restart`)")
 	fs.BoolVar(daemon, "d", false, "alias of --daemon")
@@ -396,7 +396,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 		},
 		{
 			Kind:      serve.KindGateway,
-			ConfigKey: "gateways.telegram.enable",
+			ConfigKey: "gateways.telegram.enabled",
 			BuildTag:  "gateway",
 			Available: gateway.Available,
 			Enabled:   func(c *config.Config) bool { return c.Gateways.Telegram.Enabled },
@@ -427,7 +427,7 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 		},
 		{
 			Kind:      serve.KindScheduler,
-			ConfigKey: "scheduler.enable",
+			ConfigKey: "scheduler.enabled",
 			BuildTag:  "scheduler",
 			Available: scheduler.Available,
 			Enabled:   func(c *config.Config) bool { return c.SchedulerEffectiveEnabled() },

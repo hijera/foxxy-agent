@@ -103,7 +103,7 @@ Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install   # copies build/foxxycode to ~/.local/bin or /usr/local/bin
 ```
 
@@ -185,7 +185,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 ### Build tags
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli browser"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
 
 | Tag | Enables | Docs |
 |-----|---------|------|
@@ -204,7 +204,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`browser`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser"`**. Unlike the release archives, it does **not** carry the **`gateway`** tag: build your own image for the messenger gateway (**`docker-compose.dev.yml`** or a custom **`BUILD_TAGS`**), see **[docs/docker.md](docs/docker.md)**.
+Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`browser`**, **`gateway`** and **`swarm`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**, so the default command (**`serve`**) runs whichever subsystems the mounted **`config.yaml`** enables, see **[docs/docker.md](docs/docker.md)**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -254,7 +254,7 @@ If **`$FOXXYCODE_HOME/config.yaml`** is absent, the loader may use **`config.yam
 
 **Providers and models**
 
-- **`providers`** - named backends (**`type`**: **`openai`** for OpenAI and OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, selected with **`api_base`**). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). Each row has **`api_key`** (literal, **`${ENV}`** expanded when the file loads, or empty to read **`NAME_API_KEY`** from the environment at LLM call time, with **`NAME`** derived from **`providers[].name`** in uppercase and hyphens mapped to underscores), and optionally **`api_base`** when the API is not the vendor default. **`neuraldeep`** ignores **`api_base`**: its endpoint is fixed at **`https://api.neuraldeep.ru/v1`**, so only an **`api_key`** is needed. Instead of pasting a key you can sign in with your hub account: **`foxxycode providers login neuraldeep`** opens the browser (loopback callback; **`--device`** for headless machines), stores the hub-issued key under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`foxxycode providers list`** shows every provider with the credential source requests actually use, and **`foxxycode providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
+- **`providers`** - named backends (**`type`**: **`openai`** for OpenAI and OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, selected with **`api_base`**, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`** expanded when the file loads, or empty to read **`NAME_API_KEY`** from the environment at LLM call time, with **`NAME`** derived from **`providers[].name`** in uppercase and hyphens mapped to underscores) and optionally **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`foxxycode providers login codex`** in a terminal (**`foxxycode codex login`** remains a deprecated alias that prints a warning); `api_key` and `api_base` are ignored and credentials live under **`$FOXXYCODE_HOME/providers/<name>/`**. The terminal login also adds the provider, the subscription models Codex lists, and an **`agent.model`** to **`config.yaml`** when they are missing (**`--no-config`** skips that). Codex is only a model backend - the agent keeps FoxxyCode's own prompt, tools and permissions - and an existing Codex CLI login at **`~/.codex/auth.json`** is picked up as a fallback. For **`neuraldeep`**, **`api_base`** picks the deployment: **`https://api.neuraldeep.ru/v1`** (Russia, the default) or **`https://api.neuraldeep.tech/v1`** (the international mirror); any other value falls back to the default. Instead of pasting a key you can sign in with your hub account: **`foxxycode providers login neuraldeep`** prints a short code and the hub page to confirm it on (the device flow, RFC 8628 - the browser can be on any machine, which is what a server reached over SSH needs; **`--browser`** asks for the loopback callback instead, which only completes in a browser running on this machine; **`--api-base`** picks the deployment and moves an existing row to it), stores the hub-issued key under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers an endpoint dropdown and **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`foxxycode providers list`** shows every provider with the credential source requests actually use, and **`foxxycode providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
 - **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
 - **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn.
 
@@ -287,7 +287,7 @@ Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based def
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
 
 **`foxxycode update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/foxxycode`**) or when you run **`./build/foxxycode update`** to refresh a local build artifact.
 
@@ -650,7 +650,7 @@ make test
 # Example harnesses (see examples/README.md): ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 
 ./build/foxxycode -v    # same as --version
 

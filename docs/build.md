@@ -28,7 +28,7 @@ python scripts/build.py
 **Non-interactive** (CI or scripts):
 
 ```bash
-# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory cli browser")
+# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory cli browser gateway swarm")
 python scripts/build.py --target cli --preset full
 
 # Lean ACP-only binary (no npm step)
@@ -91,20 +91,20 @@ go build -tags=http,ui,scheduler,memory,cli,browser,gateway \
   ./cmd/foxxycode/
 ```
 
-The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
+The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
 ## Install on your PATH
 
 **`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
 
-- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory cli browser"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli browser"`** first.
+- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** first.
 
 - **root** - **`/usr/local/bin/foxxycode`**
 - **non-root** - **`~/.local/bin/foxxycode`** (ensure that directory is on **`PATH`**)
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install
 ```
 
@@ -151,7 +151,7 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
@@ -311,4 +311,4 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory cli browser"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** (or **`go build -tags=...`** as above).

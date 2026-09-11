@@ -301,11 +301,32 @@ func waitMilliseconds(timeout time.Duration) uint32 {
 	return uint32(timeout.Milliseconds())
 }
 
-// ProcessAlive reports whether one process is still running. On Windows this is
-// the same question ProcessGroupAlive answers - there is no group to probe, only
-// the process object and its creation time - so the two share an implementation.
+// ProcessAlive reports whether one process is still running.
+//
+// With a recorded creation time this is the same question ProcessGroupAlive
+// answers - there is no group to probe on Windows, only the process object and
+// its creation time - so that identity check is reused.
+//
+// A zero startedAt means the caller has no identity to check, not that the pid is
+// unproven: StartDetached asks about a process it launched a moment ago and has
+// nothing to compare against yet. ProcessGroupAlive refuses that case on purpose -
+// it authorizes killing a persisted pid, where an unproven pid must not be offered
+// up - but refusing it here reported a healthy daemon as one that exited during
+// startup. Liveness alone is the answer, which is what the unix side already gives.
 func ProcessAlive(pid int, startedAt time.Time) bool {
-	return ProcessGroupAlive(pid, startedAt)
+	if !startedAt.IsZero() {
+		return ProcessGroupAlive(pid, startedAt)
+	}
+	if pid <= 0 {
+		return false
+	}
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+	_, running := waitProcess(handle, 0)
+	return running
 }
 
 // StopProcess ends one process and the tree below it. Windows offers no

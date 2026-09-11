@@ -29,8 +29,8 @@ func fakeNeuralDeepHub(t *testing.T, key string, wrongStateFirst bool) *httptest
 		case "/api/cli/auth/start":
 			q := r.URL.Query()
 			port, state := q.Get("port"), q.Get("state")
-			if q.Get("client") != "foxxycode" {
-				t.Errorf("client = %q, want foxxycode", q.Get("client"))
+			if q.Get("client") != NeuralDeepClientID {
+				t.Errorf("client = %q, want %q", q.Get("client"), NeuralDeepClientID)
 			}
 			cb := fmt.Sprintf("http://127.0.0.1:%s/cb?state=%s&key=%s", port, url.QueryEscape(state), url.QueryEscape(key))
 			if wrongStateFirst {
@@ -108,7 +108,7 @@ func TestNeuralDeepSignInStoresKeyFromCallback(t *testing.T) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		t.Fatalf("auth file json: %v", err)
 	}
-	if f.APIKey != "sk-hub-key" || f.Client != "foxxycode" || f.Hub != hub.URL {
+	if f.APIKey != "sk-hub-key" || f.Client != NeuralDeepClientID || f.Hub != hub.URL {
 		t.Fatalf("auth file = %+v", f)
 	}
 	if runtime.GOOS != "windows" {
@@ -146,7 +146,7 @@ func TestNeuralDeepSignInWrongStateKeepsWaiting(t *testing.T) {
 			u, _ := url.Parse(p.AuthURL)
 			q := u.Query()
 			wrongURL := wrongHub.URL + "/api/cli/auth/start?" + url.Values{
-				"port": {q.Get("port")}, "state": {q.Get("state")}, "client": {"foxxycode"},
+				"port": {q.Get("port")}, "state": {q.Get("state")}, "client": {NeuralDeepClientID},
 			}.Encode()
 			resp := browseLikeAUser(t, wrongURL)
 			if resp.StatusCode != http.StatusBadRequest {
@@ -230,8 +230,8 @@ func TestNeuralDeepDeviceSignInPollsUntilApproved(t *testing.T) {
 		case "/api/cli/device/start":
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["client"] != "foxxycode" {
-				t.Errorf("device client = %q, want foxxycode", body["client"])
+			if body["client"] != NeuralDeepClientID {
+				t.Errorf("device client = %q, want %q", body["client"], NeuralDeepClientID)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code": "dev-1", "user_code": "BCDF-GHJK",
@@ -603,5 +603,75 @@ func TestApplyNeuralDeepLoginMovesAnExistingRowToTheLoginEndpoint(t *testing.T) 
 				t.Fatalf("row after login = %+v, want api_base %q", prov, tc.wantBase)
 			}
 		})
+	}
+}
+
+func TestStartNeuralDeepDeviceLoginReportsRateLimitWithTheWait(t *testing.T) {
+	// A 429 on the very first call is the whole login: the message has to say
+	// how long to wait instead of leaking a status code and a JSON body.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
+	}))
+	defer srv.Close()
+
+	_, err := StartNeuralDeepDeviceLogin(context.Background(), srv.URL, srv.Client(), "foxxycode @ host")
+	if err == nil {
+		t.Fatal("a rate limited start must fail")
+	}
+	if !strings.Contains(err.Error(), "42s") || !strings.Contains(err.Error(), "rate limiting") {
+		t.Fatalf("error must name the wait, got %v", err)
+	}
+	if strings.Contains(err.Error(), "429") {
+		t.Fatalf("error must read as a sentence, not a status dump: %v", err)
+	}
+}
+
+func TestStartNeuralDeepDeviceLoginRateLimitWithoutRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := StartNeuralDeepDeviceLogin(context.Background(), srv.URL, srv.Client(), "foxxycode @ host")
+	if err == nil || !strings.Contains(err.Error(), "try again in a minute") {
+		t.Fatalf("a 429 without Retry-After must still advise a wait, got %v", err)
+	}
+}
+
+func TestPollNeuralDeepDeviceTokenTreatsThrottlingAsSlowDown(t *testing.T) {
+	// A throttled poll is not a failed login: the user may be about to confirm,
+	// and RFC 8628 already has a word for "poll less often".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"detail":"rate limited"}`))
+	}))
+	defer srv.Close()
+
+	key, slowDown, err := PollNeuralDeepDeviceToken(context.Background(), srv.URL, srv.Client(), "dc")
+	if err != nil {
+		t.Fatalf("a 429 must not end the login: %v", err)
+	}
+	if key != "" || !slowDown {
+		t.Fatalf("key = %q, slowDown = %v, want empty key and a slow down", key, slowDown)
+	}
+}
+
+// The rebrand renamed this once and the hub stopped knowing us. The browser
+// flow hid it - the hub only labels the stored key with the client - while the
+// device flow answers /api/cli/device/start with {"detail":"unknown client"}
+// and no sign-in is possible at all. Asked directly, the live hub accepts
+// "coddy" and refuses "foxxycode". The value belongs to the hub's allowlist,
+// which is a server this repository does not own, so it is pinned here by
+// value rather than left to the next sweep over the fork's own name. What the
+// user sees in their account is the label, which is ours.
+func TestNeuralDeepClientIDIsTheHubsIdentifierNotOurName(t *testing.T) {
+	if NeuralDeepClientID != "coddy" {
+		t.Fatalf("NeuralDeepClientID = %q, want %q: the hub allowlists this value and refuses anything else",
+			NeuralDeepClientID, "coddy")
+	}
+	if NeuralDeepKeyLabel == NeuralDeepClientID {
+		t.Fatalf("the key label must stay this fork's own name, not the hub's client id (%q)", NeuralDeepClientID)
 	}
 }
