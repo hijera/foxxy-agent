@@ -1746,7 +1746,73 @@ read-only детский транскрипт, Settings → Субагенты, 
 
 ---
 
+## Волна `2c0872c4 → b1605996` (теги `1.0.2`–`1.0.29`) — ГОТОВО
+
+**131 не-merge коммит** (2026-09-04…09-10), **682 файла, +66 192 / −3 247 строк** — вдвое
+больше предыдущего рекорда волны (`7123d25a → 2c0872c4`: 51 коммит / 329 файлов).
+Портирована **шестью PR** на стеке веток: каждый следующий базируется на предыдущем,
+чтобы ревью видело только свой верхний коммит.
+
+| PR | Ветка | Блок |
+| --- | --- | --- |
+| [#70](https://github.com/hijera/foxxy-agent/pull/70) | `claude/port-coddy-agent-changes-36a716` | упоминания с диапазоном строк, хуки, `${CWD}`, `.agents/rules`, карточки `spawn_agent` |
+| [#71](https://github.com/hijera/foxxy-agent/pull/71) | `claude/upstream-wave-export-syntax` | объединение экспорта, подсветка синтаксиса, «Новая папка» в пикере |
+| [#72](https://github.com/hijera/foxxy-agent/pull/72) | `claude/upstream-wave-usage-limits` | лимиты аккаунта NeuralDeep, ожидание сброса лимита |
+| [#74](https://github.com/hijera/foxxy-agent/pull/74) | `claude/upstream-wave-swarm` | `serve`, рой (swarm), уровни логов по компонентам |
+| [#75](https://github.com/hijera/foxxy-agent/pull/75) | `claude/upstream-wave-packaging` | deb/rpm/Homebrew, `providers login codex` |
+| [#77](https://github.com/hijera/foxxy-agent/pull/77) | `claude/upstream-wave-misc` | device flow, комментарии в `config.yaml`, broadcast перезагрузки, Docker, русская терминология |
+
+### Решения по волне
+
+| Вопрос | Решение |
+| --- | --- |
+| Объём | Портируем всё, включая swarm, hooks и serve |
+| Экспорт сессии | У форка **уже был** свой экспорт (20 файлов `session_export_*.go`), у upstream — слэш-команда с теми же именами файлов. Сведены в один движок `internal/export`; шесть форматов на обеих поверхностях; дефолты разные (UI — только диалог, `/export` — с инструментами) |
+| `foxxycode codex` | Upstream команду удалил; здесь осталась псевдонимом с предупреждением |
+| Ключи-переключатели | Upstream переименовал `cors.enabled` → `enable` и завёл новые как `enable`. Здесь везде `enabled`: шестнадцать ключей форка уже так читаются, и переименование молча сломало бы существующие конфиги |
+| Адрес по умолчанию | `foxxycode http` остаётся на `0.0.0.0`; узкий loopback-фоллбек (`ServeListenHost`) — только для `foxxycode serve`, где один процесс поднимает все подсистемы |
+| `wait_for_limit_reset` | Как в upstream: выключено по умолчанию. Взаимодействие с форковым `llm_stall_retry` описано в `docs/config-reference.md` |
+| `$id` JSON-схемы | GitHub Pages форка, включён из `main:/docs`. `docs/config.schema.json` **и есть** публикуемый файл — копии нет, поэтому upstream-скрипт `sync-site-schema.sh` не портирован |
+| Packaging | Файлы `packaging/` под foxxyCode + deb/rpm в релизе; Homebrew — только шаблоны, без tap; homebrew/core-сабмишена нет (порог notability не близко) |
+| Русская терминология | «навык» → «скил», названия тем английские, режим «Вопросы» → «Чат» — **на всех ключах форка**, не только на тронутых upstream. Грамматическая ошибка upstream «Автообнаружение скилы» исправлена на «скилов» |
+| Образ Docker | Собирается со всеми поверхностями, `CMD` стал `serve -H 0.0.0.0 -P 12345` — поведенческое изменение для тех, кто запускает образ без override |
+
+### Чем этот порт отличался от предыдущих
+
+**Upstream взял у форка фичу.** Блок упоминаний с диапазоном строк помечен у upstream как
+`Ported from hijera/foxxy-agent#54 minus its IDE half`, поэтому PR 1 оставил форковые
+терминальную и paste-половины и взял только доработки upstream.
+
+**Swarm и serve оказались сцеплены.** CLI-вход роя upstream свернул внутрь `serve`, а
+`serve_gateway.go` требует per-component логгер из «прочего» коммита `641c8a72`, поэтому
+три блока приехали одним PR вместо трёх.
+
+**Форковые фичи вмешивались в портируемые тесты.** Автогенерация заголовка тратит лишний
+сценарный ответ модели, а `llm_stall_retry` переотправляет вызов, не давший вывода, —
+вместе они съедали исчерпанный 429 в фикстуре ожидания лимита. Оба выключены в
+затронутых фикстурах, взаимодействие задокументировано.
+
+**Полный диск выглядел как сломанная ветка.** На середине волны `go test ./...` выдал
+`[build failed]` в трёх несвязанных пакетах: на `C:` оставалось 76 МБ. Кеш `go-build`
+(31 ГБ) и брошенные `Test*`-каталоги в `%TEMP%` (2.9 ГБ) вернули 33 ГБ.
+
+---
+
 ## Последняя синхронизация
+
+| Поле | Значение |
+| --- | --- |
+| **Дата** | 2026-09-11 |
+| **Синхронизировано до `upstream/main`** | `b1605996` (2026-09-10) |
+| **Ближайший upstream-тег** | `1.0.29` |
+| **Наш коммит-порт** | шесть PR на стеке веток: [#70](https://github.com/hijera/foxxy-agent/pull/70), [#71](https://github.com/hijera/foxxy-agent/pull/71), [#72](https://github.com/hijera/foxxy-agent/pull/72), [#74](https://github.com/hijera/foxxy-agent/pull/74), [#75](https://github.com/hijera/foxxy-agent/pull/75), [#77](https://github.com/hijera/foxxy-agent/pull/77) — см. таблицу волны выше |
+| **Гейты** | `go build` и `go test` на дефолтном наборе и на `http ui cli gateway scheduler memory browser swarm`; `make lint`, `lint-ui`, `lint-windows`, `check-windows`; vitest (211 файлов, 1527 тестов), `tsc`, `build:go` с проверкой Chromium 104; `make deb rpm` собран и распакован (права 0755 на `/usr/bin/foxxycode`, man, дополнения, лицензия) |
+| **Живой прогон** | **отложен** — см. ниже |
+| **Отложенные follow-up** | живой прогон волны (реальный ключ NeuralDeep: панель лимитов и `/usage`; локальное кольцо роя из реле и двух узлов; хуки в тестовом проекте; `serve --daemon` через перезапуск; `/export`, `@file#L10-20`, «Новая папка», подсветка на семи темах) и скриншоты SPA с живой сборки; четыре PNG `docs/assets/screenshot-tool-previews*.png` (долг прошлых волн) |
+
+---
+
+## Предыдущая синхронизация (`7123d25a → 2c0872c4`)
 
 | Поле | Значение |
 | --- | --- |
@@ -1883,7 +1949,7 @@ read-only детский транскрипт, Settings → Субагенты, 
 ## Как обновить этот файл в следующий раз
 
 1. `git fetch upstream --prune`
-2. `git log --oneline --no-merges 2c0872c4..upstream/main` — список кандидатов.
+2. `git log --oneline --no-merges b1605996..upstream/main` — список кандидатов.
 3. Портировать непортированное (ребренд `coddy → foxxycode`; см. `AGENTS.md` / память форка).
 4. Прогнать гейты: `make test`, `make lint`, `npm --prefix external/ui run build:go`.
 5. Обновить таблицу «Последняя синхронизация» выше на новый `upstream/main`.
