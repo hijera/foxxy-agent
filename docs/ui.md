@@ -383,7 +383,7 @@ Verification use cases
 
 ## Composer **`@`** workspace files
 
-- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFilePathsFromText`** (**`internal/session/at_paths_extract.go`**) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
+- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFileRefsFromText`** (**`internal/session/at_paths_extract.go`**; **`ExtractAtFilePathsFromText`** keeps the range-free contract for **`@plans/...`** mentions) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
 - **`@`** menu uses **`GET /foxxycode/workspace/files`** with **`dirs=true`** so **`kind`** **`dir`** rows drill down. Choosing a **`dir`** inserts **`@`** + **`path_rel`** (often ending in **`/`**) without hydrating file body. Choosing a **`file`** inserts **`@`** + **`path_rel`** plus a trailing ASCII space where appropriate. **`Composer`** defers two **`updatePickerMenus`** ticks after a row choice so the workspace dropdown does not immediately reopen (trailing space and **`MENU_PATH_CHAR`** still satisfy **`atMenuDraftAtCaret`** until the user edits again).
 - Empty **`@`** prefix (caret right after **`@`**) loads recent rows from **`localStorage`** (**`workspaceAtRecents`**), keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), with no extra banner line (**`Type after @ to search`** only when the list is empty). Entries come from **`@`** row picks and **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-FoxxyCode-Session-ID`**).
 - Fenced code blocks and Markdown blockquote lines suppress **`@`** menu parity with **`draftSlash`** ( **`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`** ).
@@ -391,6 +391,23 @@ Verification use cases
 - **`@`** search with zero matches keeps the picker open (**`No files`**) instead of collapsing the menu (**`composer-at-chip-inline`** hides for **`atNoMatch`**, same **`atIdx`**, **`prefix`** as the stale filter).
 - Stacked-shell viewports (**`(max-width: 1199px)`**) render workspace and slash pickers as a **`slash-menu--sheet`** with **`slash-sheet-backdrop`** so the panel is usable on phones.
 - Picker subtitle uses **`workspacePickRowSubtitle`** - second column shows **`parent/`** only when **`path_rel`** is nested, root entries omit it (empty string).
+
+### Line ranges (**`@path:N-M`**)
+
+- A mention may narrow a file to a **1-based inclusive** line range: **`@Dockerfile:21-31`**. **`listAtPathSpans`** absorbs the suffix, so the mirror chips the whole token as one **`composer-at-chip-inline`**; the range must end the token (**`:21-31x`** stays prose) and **`1 <= start <= end`**. **`internal/session/at_paths_extract.go`** carries the same grammar for prompts hydrated server-side (**`ExtractAtFileRefsFromText`**), and the two test suites share their literals.
+- Only those lines reach the model. The range rides **`acp.Resource.URI`** as a **`#L<start>-<end>`** fragment (**`lineRangeURI`** / **`sliceLines`** in **`internal/session/promptfiles.go`**) and **`resourceBlockToXMLAttachment`** turns it into **`<foxxycode_attachment path="..." name="..." lines="21-31">`**. An end past the last line clamps. A range the file cannot honour (zero, inverted, or starting past the last line) is never widened into the whole file: an explicit **`attachments[]`** range or a client **`resource`** with such a **`#L`** fragment is refused (**`ErrLineRange`**, HTTP **400**), and a range typed into the prompt text stays prose and attaches nothing, like any other unresolvable **`@`** token. The **`lines`** label is written only for a body that really is the slice; a **`source.literal`** or byte-offset (**`source.start`** / **`end`**) body travels without it. The picker preview is a snapshot taken when the panel opened; the lines that reach the model are read from disk at send time, and a session switch drops the preview. **`stripFoxxyCodeAttachmentsForUserDisplay`** collapses such a block back to **`@path:N-M`**; a plain mention never covers a ranged one of the same path, nor the other way round.
+- Typing the **`:`** closes the file picker on its own (**`:`** is no **`MENU_PATH_CHAR`**) and opens the **line-range picker** in its place: **`atRangeDraftAtCaret`** / **`replaceAtRangeSuffix`** / **`highlightedRange`** in **`external/ui/src/ui/skills/draftAtRange.ts`**, panel **`data-testid="at-range-picker"`** rendered through the same portal / **`slash-menu--sheet`** chrome as the **`@`** menu. It previews the file (**`GET /foxxycode/workspace/file`**, one fetch per path) and highlights **`at-range-line--sel`** as the digits are typed; a start without an end highlights that one line.
+- The composer text stays the only input - there are no number fields. On desktop the rows are buttons: **`mousedown`** anchors the range, dragging over rows extends it, and each step rewrites the suffix through **`replaceAtRangeSuffix`** (**`preventDefault`** keeps focus in the textarea). On **`isMobileShell`** the rows render as plain **`div`**s with no pointer handlers - a phone has no mouse to drag with, so the range is typed.
+- A path that does not resolve leaves the panel closed, so **`@user:1-2`** in prose never opens an empty panel; the settled path is remembered so the next digit refetches nothing. **`Escape`** dismisses the panel and suppresses it for that mention until the draft moves on; **`Enter`** is left alone and still sends.
+
+| Case | Expected | Automated check |
+| --- | --- | --- |
+| AR1 | **`@f.go:21-31`** chips as one token and attaches only those lines | **`draftAt.test.ts`**, **`at_line_range_test.go`**, **`features/at_line_range_mention.feature`** |
+| AR2 | **`:21`**, **`:21-31x`**, **`:31-21`**, **`:0-5`** are not ranges | **`draftAt.test.ts`**, **`at_line_range_test.go`** |
+| AR3 | Colon opens the picker; digits move the highlight | **`Composer.test.tsx`**, **`draftAtRange.test.ts`** |
+| AR4 | Desktop drag writes the range; mobile rows are not buttons | **`Composer.test.tsx`** |
+| AR5 | Unresolvable path keeps the panel closed | **`Composer.test.tsx`** |
+| AR6 | User bubble shows **`@path:N-M`** instead of the attachment body | **`stripFoxxyCodeAttachments.test.ts`** |
 
 | Case | Expected | Automated check |
 | --- | --- | --- |
@@ -418,6 +435,10 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - Details reuse the permission card's tool-specific preview in a static mode: full diff / path / command content, but no copy, **More…**, or approval actions. **read**, **grep**, **glob**, and **print_tree** also receive compact structured argument previews; unknown tools keep a styled monospace fallback. The separate **Result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, there is no overflow toggle or fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), with **overflow-y** hidden until **More…**. **More…** (**`data-testid="tool-result-more"`**) performs **GET `/foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, then enables **overflow-y auto** at the same height and becomes **Less** (**`data-testid="tool-result-less"`**); **Less** restores the clipped preview without a second GET while **fullResultText** stays in memory. Both use the shared left-aligned **`tool-overflow-toggle`** tab button attached flush to the result panel's bottom border.
 
 ## Tool call card (bundled SPA, current)
+
+`spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the full multiline prompt. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Completed calls with truncated history arguments load the full arguments once; malformed arguments or failed fetches retain the plain argument preview. Result output and Load more / Hide behave as for other tools.
+
+The happy path is in `features/spawn_agent_card.feature`, run by the `http,ui` godog harness through the React DOM test in `SpawnAgentCard.test.tsx`. Edge cases cover invalid arguments, absent/invalid timeouts, escaped prompt text, and history fetch failure.
 
 Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklist.
 
@@ -478,6 +499,19 @@ Automated checks:
 - **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
+
+### Hooks
+
+**Settings > Hooks** is a schema-driven object tab like Subagents (`settings-tab-hooks`): the `hooks` config section (`enabled`, `files`, `project_trust`, `default_timeout_seconds`, `stop_loop_limit`, `max_output_chars`) with localized labels and blurbs (`settings.section.hooks.*`, `settings.schema.hooks.*`) and the defaults of `SchemaExampleConfigJSON` as placeholders. Definitions themselves live in JSON files (`docs/hooks.md`); the tab edits where they are read from and how project files are trusted.
+
+![Settings Hooks tab](assets/screenshot-fullhd-settings-hooks.png)
+
+A held project hooks file surfaces in the transcript as a **notice-level system row**: `GET /foxxycode/sessions/{id}/messages` carries it in `uiLog` with `level: "notice"`, the SPA renders it with the same `SystemNoticeMessage` as an error row (`system_notice` transcript item, `level: "notice"`) in a calmer blue palette, `role="status"` instead of `role="alert"`, the copy control, and **no retry control** even when the row is the last item. Rows with any other level stay invisible rather than mis-rendered.
+
+![Held hooks file notice](assets/screenshot-hooks-notice-dark.png)
+
+- **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
+- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
 
 ### Subagent transcripts
 

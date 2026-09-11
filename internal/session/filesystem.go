@@ -16,9 +16,13 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
+// MessagesFileName is the transcript file inside a session bundle; hooks
+// receive its path as transcript_path.
+const MessagesFileName = "messages.json"
+
 const (
 	sessionMetaFile      = "session.json"
-	messagesFile         = "messages.json"
+	messagesFile         = MessagesFileName
 	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
 	todosDirName         = "todos"
@@ -144,10 +148,12 @@ type SessionMeta struct {
 	SelectedModelID   string `json:"selectedModelId,omitempty"`
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
-	Title             string `json:"title,omitempty"`
-	TitlePinned       string `json:"titlePinned,omitempty"`
-	TitleAuto         string `json:"titleAuto,omitempty"`
-	UpdatedAt         string `json:"updatedAt,omitempty"`
+	// HookContext is what SessionStart hooks handed to the session.
+	HookContext string `json:"hookContext,omitempty"`
+	Title       string `json:"title,omitempty"`
+	TitlePinned string `json:"titlePinned,omitempty"`
+	TitleAuto   string `json:"titleAuto,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
@@ -485,6 +491,7 @@ func (f *FileStore) Save(state *State) error {
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),
+		HookContext:       state.GetHookContext(),
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
@@ -637,7 +644,7 @@ func stripXMLBlock(s, tag string) string {
 		if start < 0 {
 			break
 		}
-		end := strings.Index(lower[start:], lowerClose)
+		end := closeTagOutsideCDATA(lower[start:], lowerOpen, lowerClose)
 		if end < 0 {
 			s = s[:start]
 			break
@@ -645,6 +652,30 @@ func stripXMLBlock(s, tag string) string {
 		s = s[:start] + s[start+end+len(close):]
 	}
 	return s
+}
+
+// closeTagOutsideCDATA finds the close tag that ends the block opening at the
+// start of s, skipping over CDATA sections. A hydrated attachment carries the
+// file body inside CDATA (internal/agent wrapXMLCDATA splits an embedded "]]>"
+// across two sections), so a file that itself contains the close tag must not
+// cut the scan short. Returns -1 when the block is unterminated.
+func closeTagOutsideCDATA(s, lowerOpen, lowerClose string) int {
+	const cdataOpen, cdataClose = "<![cdata[", "]]>"
+	for pos := len(lowerOpen); pos < len(s); {
+		if strings.HasPrefix(s[pos:], cdataOpen) {
+			n := strings.Index(s[pos+len(cdataOpen):], cdataClose)
+			if n < 0 {
+				return -1
+			}
+			pos += len(cdataOpen) + n + len(cdataClose)
+			continue
+		}
+		if strings.HasPrefix(s[pos:], lowerClose) {
+			return pos
+		}
+		pos++
+	}
+	return -1
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.

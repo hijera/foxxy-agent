@@ -195,9 +195,11 @@ prompts:
     enabled: true
 
 skills:
-  # dirs is the list of directories scanned for skills and rules.
-  # Searched in order. When empty, defaults are
-  # ${FOXXYCODE_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
+  # dirs is the list of directories scanned for skills. Searched in order,
+  # later entries win on name conflicts. When empty, defaults are
+  # ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills.
+  # ${CWD} is the session workspace, resolved when a session loads its
+  # skills, so it is safe to write here even for a shared foxxycode http server.
   dirs: []
   # sources are remote skill sources installed on demand (foxxycode skills sync / /plugin /
   # Settings → Skills, never automatically): owner/repo[@ref], a git URL, or an http(s)
@@ -329,6 +331,26 @@ tools:
 #   max_depth: 1                    # 1 = children cannot spawn further; 0 = nobody spawns
 #   default_timeout_seconds: 1800   # hard limit when the definition and the call give none
 #   max_turns: 0                    # 0 follows agent.max_turns
+
+# Hooks: your own commands run at lifecycle points of a session: before and after a tool
+# call, and on prompt, stop, session-start, compaction and subagent events. A hook reads
+# one JSON document on stdin and answers with an exit code plus optional JSON on stdout: it can
+# deny a call, approve it past the permission prompt, rewrite its arguments or add context.
+# Definitions use Claude Code's file shape. Files inside the workspace travel with the checkout,
+# so "ask" lists them but runs nothing until you approve that file for that workspace on the
+# machine running foxxycode (`foxxycode hooks trust <file>` there, or `POST /foxxycode/hooks/trust`).
+# See docs/hooks.md.
+# hooks:
+#   enabled: true
+#   files:
+#     - "${FOXXYCODE_HOME}/hooks.json"            # your own file (user scope)
+#     - "${CWD}/.claude/settings.json"            # project scope, Claude Code compatible (hooks key only)
+#     - "${CWD}/.claude/settings.local.json"      # project scope, same
+#     - "${CWD}/.foxxycode/hooks.json"            # project scope
+#   project_trust: ask              # ask | allow | deny
+#   default_timeout_seconds: 60     # per hook process when the definition gives no timeout
+#   stop_loop_limit: 5              # how many times per turn a Stop hook may keep the agent working
+#   max_output_chars: 10000         # cap on the context, messages and reasons one hook hands over
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # Optional bearer auth + CORS + remote environment selector: see docs/remote-control.md.

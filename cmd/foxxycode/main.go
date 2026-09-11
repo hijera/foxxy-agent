@@ -154,6 +154,8 @@ func main() {
 		err = runRules(args[1:])
 	case "agents":
 		err = runAgents(args[1:])
+	case "hooks":
+		err = runHooks(args[1:])
 	case "mcp":
 		err = runMCP(args[1:])
 	case "update":
@@ -198,6 +200,9 @@ func printUsage(w *os.File) {
   %[1]s agents list [--cwd DIR]
   %[1]s agents trust <name> [--cwd DIR]
   %[1]s agents untrust <name> [--cwd DIR]
+  %[1]s hooks list [--cwd DIR]
+  %[1]s hooks trust <file> [--cwd DIR]
+  %[1]s hooks untrust <file> [--cwd DIR]
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]

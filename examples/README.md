@@ -16,11 +16,13 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`e2e_compact`** | **`httpserver/http_e2e_compact.py`** (`/compact` prompt + REST endpoint; a manual trigger folds even a one-turn session) | **`acp/acp_e2e_compact.py`** (also auto threshold via tiny-window config) |
 | **`e2e_skills_slash`** | **`httpserver/http_e2e_skills_slash.py`** | **`acp/acp_e2e_skills_slash.py`** |
 | **`e2e_rules`** | **`httpserver/http_e2e_rules.py`** | **`acp/acp_e2e_rules.py`** |
+| **`e2e_mentions`** | **`httpserver/http_e2e_mentions.py`** (`GET /foxxycode/workspace/file`, `attachments[].source.startLine`/`endLine`, the typed `@file:N-M` grammar, `400` for lines past the end) | **`acp/acp_e2e_mentions.py`** (typed `@file:N-M`, a `resource` with a `#L5-5` URI fragment, refused range past the end) |
 | **`e2e_scheduler_api`** | **`httpserver/http_e2e_scheduler_api.py`** | (REST is HTTP-only) |
 | **`e2e_scheduler_agent`** | **`httpserver/http_e2e_scheduler_agent.py`** | **`acp/acp_e2e_scheduler_agent.py`** |
 | **`e2e_plan_files`** | **`httpserver/http_e2e_plan_files.py`** | **`acp/acp_e2e_plan_files.py`** |
 | **`e2e_ask_mode`** | **`httpserver/http_e2e_ask_mode.py`** (ask profile reads, never writes; agent on the same session writes) | **`acp/acp_e2e_ask_mode.py`** (`session/set_mode` ask, then agent) |
 | **`e2e_subagents`** | **`httpserver/http_e2e_subagents.py`** (trust route, `spawn_agent` run as an `agent` task, read-only child transcript, `include_subagents`, catalog) | **`acp/acp_e2e_subagents.py`** (`foxxycode agents trust`, persisted `agent` task plus `sub_*` child bundle with the parent link) |
+| **`e2e_hooks`** | **`httpserver/http_e2e_hooks.py`** (catalog with the held project file, the notice row in the transcript, `POST /foxxycode/hooks/trust` then a turn that runs the approved hook, `untrust`) | **`acp/acp_e2e_hooks.py`** (user-scope `PreToolUse` / `PostToolUse` recorder hooks see a real `run_command`, the project-scope hook stays held until `foxxycode hooks trust .foxxycode/hooks.json`, then runs on the next turn) |
 | **`e2e_config`** | **`httpserver/http_e2e_config.py`** (stage, confirm-commit, rollback; server config ends unchanged) | **`acp/acp_e2e_config.py`** (temp config copy; staged file, commit snapshot, rollback) |
 
 ## Layout

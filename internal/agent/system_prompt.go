@@ -102,6 +102,9 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	full = prompts.WithIdentity(languageDirective(a.cfg.UI.Locale) + "\n\n" + full)
 	// Appended outside the configurable template so custom prompts cannot drop IDE metadata or platform facts.
 	full = joinNonEmptyPromptBlocks(full, intellijContextMD, a.environment.PromptContext())
+	// Context handed over by SessionStart and UserPromptSubmit hooks; appended
+	// like the environment block so a custom template carries it too.
+	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
 	if _, ok := a.state.(rulesState); ok {
 		// The Conversation estimate mirrors what buildMessages sends: only the window the active
 		// compaction engine still replays.

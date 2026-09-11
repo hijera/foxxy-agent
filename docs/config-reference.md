@@ -10,7 +10,7 @@ A machine-readable [JSON Schema](config.schema.json) accompanies this reference.
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [config.md](config.md#environment-variable-references)).
 
 ## Agent self-configuration
 
@@ -54,6 +54,7 @@ The bundled `/configure-foxxycode` skill teaches the agent this syntax, the conf
 | [`mcp`](#mcp) | object | Trust policy for project-local MCP discovery | — |
 | [`subagents`](#subagents) | object | Subagent definitions, trust policy and pool bounds | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
+| [`hooks`](#hooks) | object | Lifecycle hook definition files, trust policy and runner bounds | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
 | [`memory`](#memory) | object | Long-term memory copilot | `memory` |
@@ -209,8 +210,8 @@ Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, and nested `**/AGENTS.md` under the session CWD. |
-| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `cursor`, `claude`, `codex`, `agents`. |
+| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `**/AGENTS.md` under the session CWD. `.mdc` files are read as Cursor rules, `.md` files as Claude Code rules. |
+| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `agents-dir` (`.agents/rules`), `cursor`, `claude`, `codex`, `agents` (nested `AGENTS.md`). |
 
 ## `mcp_servers`
 
@@ -220,11 +221,11 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 |---|---|---|---|---|
 | `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
-| `command` | string | stdio only | — | Executable for stdio transport. |
+| `command` | string | stdio only | — | Executable for stdio transport. `${CWD}` expands to the session cwd. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
-| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
+| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. `${CWD}` in a value expands to the session cwd. |
 | `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
-| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). `${CWD}` in a value expands to the session cwd. |
 | `insecure_skip_verify` | bool | no | `false` | Accept this http/sse server's TLS certificate without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks. Setting it changes the declaration digest, so a project-local entry needs approving again. |
 | `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
 | `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
@@ -315,6 +316,21 @@ Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the
 | `max_turns` | int | no | `agent.max_turns` | ReAct rounds a child may take. |
 
 Approvals for project-scope definitions are recorded in `~/.foxxycode/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
+
+## `hooks`
+
+Hooks (`config.Hooks`, `internal/config/hooks.go`): operator commands run at lifecycle points of a session. A hook reads one JSON document on stdin and answers with an exit code plus optional JSON on stdout; a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, force the prompt, rewrite its arguments or add context, and a `PostToolUse` / `PostToolUseFailure` hook can add feedback. Definitions are JSON files in Claude Code's shape. `0` on every integer key means "use the default". See `docs/hooks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Load and run hooks at all. |
+| `files` | string list | no | `["${FOXXYCODE_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.foxxycode/hooks.json"]` | Definition files, lowest priority first; every matching hook runs, priority orders the catalog and the run order. `${FOXXYCODE_HOME}` expands at load time, `${CWD}` per session; a relative entry resolves against the session cwd. A file at or under the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. Only the `hooks` key of a Claude Code settings file is read. |
+| `project_trust` | string | no | `ask` | Policy for project-scope files, which travel with the checkout. `ask` — parse and list them, but run none of their hooks until the operator approved that exact file for that workspace on the machine running foxxycode (`foxxycode hooks trust <file>` there, or `POST /foxxycode/hooks/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own file; `deny` — never read them. |
+| `default_timeout_seconds` | int | no | `60` | Hard limit for one hook process whose definition gives no `timeout`; the whole process group is terminated past it. |
+| `stop_loop_limit` | int | no | `5` | How many times per turn a `Stop` hook may send the agent back to work. |
+| `max_output_chars` | int | no | `10000` | Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. |
+
+Approvals for project-scope files are recorded in `~/.foxxycode/hooks-trust.json`, keyed by the canonical workspace path, the workspace-relative file path and a digest of the file, so editing an approved file asks again.
 
 ## `logger`
 

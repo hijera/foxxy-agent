@@ -64,6 +64,9 @@ Top to bottom:
   content shows `─── ↑ N more ───` borders. Autocomplete: `/` commands on the
   first line, `@` file mentions (workspace walk capped at 50k entries;
   hidden directories, `node_modules`, and `.foxxycode` are skipped), `tab` forces file completion.
+  A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
+  the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
+  those lines reach the model (see `docs/ui.md`, **Line ranges**).
 - **Footer**: dim `cwd (git-branch) • title [• plan]`, then
   `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
 
@@ -258,6 +261,34 @@ still alive, opens the usual modal in the parent chat with the title prefixed
 `[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
 `-c` never picks one, and a prompt sent to one is refused with a message naming
 the parent session.
+
+## Hook definition files (`foxxycode hooks`)
+
+Three subcommands manage the hook definition files a session would load
+(`docs/hooks.md`). They need no build tag, like `foxxycode agents`:
+
+```
+foxxycode hooks list [--cwd DIR]
+foxxycode hooks trust <file> [--cwd DIR]
+foxxycode hooks untrust <file> [--cwd DIR]
+```
+
+`list` prints the workspace and the effective `hooks.project_trust`, then a
+table with `FILE` (the name receipts use: the workspace-relative path for a
+project file, the absolute path for the operator's own), `SCOPE` (`user`,
+`project`), `TRUST` (`trusted` or `needs_approval`) and `HOOKS` (a summary such
+as `PreToolUse(run_command); PostToolUse(*)`, or `invalid: <error>` for a file
+that does not parse), a `(total N)` line, and a hint when project files await
+approval. `trust` prints the hooks it is about to approve (event, matcher,
+command) and records a receipt for the file as it is on disk right now, keyed
+by the canonical workspace, the file and its digest, in
+`<home>/hooks-trust.json`; a user-scope file needs no approval and the command
+says so, and an invalid file is refused. `untrust` withdraws a receipt. `--cwd`
+defaults to the process working directory, resolved like `foxxycode mcp`. Under
+`hooks.project_trust: deny` project files are not listed at all, and under
+`allow` they need no receipt. A remote console (`--remote`) approves through
+`POST /foxxycode/hooks/trust` on the server instead, because the receipt must live
+on the machine running the hooks.
 
 ## Security
 

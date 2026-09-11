@@ -70,6 +70,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Five operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), `ask` (read-only answers and investigation), and `debug` (systematic root-cause diagnosis before a fix)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
+- **Hooks** - your own commands at lifecycle points of a session: a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, rewrite its arguments or add context; `PostToolUse` / `PostToolUseFailure` see the result; `UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact` / `PostCompact`, `SubagentStart` / `SubagentStop` and `Notification` cover the rest of the turn. Definitions are JSON files in Claude Code's shape (**`~/.foxxycode/hooks.json`**, the workspace's **`.foxxycode/hooks.json`** and **`.claude/settings*.json`**); a file found inside the workspace runs nothing until it is approved there (**`foxxycode hooks trust <file>`**) - see [Hooks](docs/hooks.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
@@ -383,15 +384,26 @@ Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Rules
 
-Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/) convention; the root `AGENTS.md` is injected separately as a project docs preamble) when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
+Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, the tool-neutral **`.agents/rules`** (the rules sibling of `.agents/skills`), **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`**.
 
-Rule files often use Cursor-style frontmatter, for example:
+The file extension selects the dialect, so one folder can hold both kinds. A **`.mdc`** file is a Cursor rule (`description`, comma-separated `globs`, `alwaysApply`, manual unless one of them says otherwise); a **`.md`** file is a Claude Code rule (`paths`, and unconditional without them):
 
 ```markdown
 ---
-description: "Go coding standards"
-globs: ["**/*.go"]
+description: Go coding standards
+globs: **/*.go
 alwaysApply: false
+---
+
+Write all comments in English.
+Use fmt.Errorf("context: %w", err) for error wrapping.
+```
+
+```markdown
+---
+description: Go coding standards
+paths:
+  - "**/*.go"
 ---
 
 Write all comments in English.
@@ -581,6 +593,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
 - [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and the whole-program grant
 - [Subagents](docs/subagents.md) - definition files, project trust receipts, the **`spawn_agent`** tool, capability narrowing, child sessions
+- [Hooks](docs/hooks.md) - the event table, the JSON contract on stdin and stdout, project trust receipts, and the CLI and HTTP approval surfaces
 - [Custom tools](docs/custom-tools.md) - how to add a tool of your own to the agent
 - [IntelliJ embedding](docs/intellij-embedding.md) - how the plugin hosts the SPA and the bundled binary
 - [Remote control](docs/remote-control.md) - driving a remote `foxxycode http` from the CLI or ACP

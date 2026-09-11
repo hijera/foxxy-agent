@@ -189,12 +189,13 @@ skills:
     - "${CWD}/.foxxycode/skills"
 
 # Project rules (Go: config.Rules, internal/config/rules.go)
-# Discovered from .foxxycode/rules, .cursor/rules, .claude/rules, .codex/rules,
-# and nested **/AGENTS.md under session CWD.
+# Discovered from .foxxycode/rules, the shared .agents/rules, .cursor/rules,
+# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
+# .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: foxxycode, cursor, claude, codex, agents
+  systems: []   # optional: foxxycode, agents-dir, cursor, claude, codex, agents
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
@@ -237,6 +238,16 @@ tools:
 #   max_depth: 1                  # 1 = children cannot spawn further; 0 = nobody spawns
 #   default_timeout_seconds: 1800 # hard limit when the definition and the call give none
 #   max_turns: 0                  # 0 follows agent.max_turns
+
+# Hooks (Go: config.Hooks, internal/config/hooks.go). Your own commands at lifecycle points of a session,
+# defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/hooks.md.
+# hooks:
+#   enabled: true
+#   files: ["${FOXXYCODE_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.foxxycode/hooks.json"]
+#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   default_timeout_seconds: 60   # per hook process when the definition gives no timeout
+#   stop_loop_limit: 5            # Stop-hook continuations per turn
+#   max_output_chars: 10000       # cap on what one hook hands to the model or the user
 
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
@@ -451,12 +462,12 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 **not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
 write `$$` by hand.
 
-Special variables in YAML (before parse) and in path strings:
+Two placeholders are not environment variables:
 
-- **`${FOXXYCODE_HOME}`** - resolved `FOXXYCODE_HOME` directory
-- **`${CWD}`** in **`skills.dirs`** is resolved at skill load time using the **session** working directory (ACP `session/new` cwd)
+- **`${FOXXYCODE_HOME}`** - the resolved `FOXXYCODE_HOME` directory, substituted when the file is read.
+- **`${CWD}`** - the **session** working directory. It is **not** substituted when the file is read: it stays in the loaded value and whatever uses the path expands it against the session that asks - skill loading, subagent and hook discovery, prompt templates (**`prompts.dir`**), MCP server arguments and URLs. One **`foxxycode http`** process therefore serves many workspaces, and a session rooted in a project sees that project's **`${CWD}/.foxxycode/skills`** (or any entry you write, such as **`${CWD}/.agents/skills`**) regardless of the directory the server was started from. Only the process-scoped locations (**`sessions.dir`**, **`scheduler.dir`**, **`memory.dir`**, **`logger.file`**) expand **`${CWD}`** against the default working directory (**`FOXXYCODE_CWD`**) at load time, since no session owns them.
 
-Inside the raw config file body, **`${CWD}`** and **`${FOXXYCODE_HOME}`** are expanded using the process **`FOXXYCODE_CWD`** and **`FOXXYCODE_HOME`** when the file is read. For paths that must follow the session cwd, leave **`${CWD}`** in **`skills.dirs`** so it is not baked in at parse time (defaults do this when **`dirs`** is empty).
+An environment variable named **`CWD`** does not replace the placeholder (a bare **`$CWD`** without braces is still an ordinary environment reference, as before), and **`GET /foxxycode/config`**, the Settings UI, and **`config_get`** report the entry exactly as written. The placeholder is honoured only in the fields listed above; in any other string value it stays as written (prompt templates use **`{{.CWD}}`** instead).
 
 ## Model Provider Reference
 

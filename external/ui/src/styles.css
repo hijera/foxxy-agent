@@ -4380,6 +4380,90 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   cursor: default;
 }
 
+/* Line-range picker: the panel that replaces the @ file picker once a ":" is
+   typed. Rows are one logical line each (no wrapping), so the gutter numbers
+   line up with the code and long lines scroll sideways inside the panel. */
+.at-range-title-path {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.at-range-title-range {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.at-range-hint,
+.at-range-menu-hint {
+  padding-top: 0;
+  padding-bottom: 6px;
+}
+
+.at-range-menu-hint {
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.at-range-lines {
+  overflow-x: auto;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.at-range-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: max-content;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+}
+
+/* Desktop rows are buttons; mobile shells render plain rows with no pointer
+   affordance, since a range there is typed rather than dragged. */
+button.at-range-line {
+  cursor: pointer;
+}
+
+button.at-range-line:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+.at-range-line--sel,
+button.at-range-line--sel:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--foxxycode-blend-base));
+}
+
+.at-range-line-no {
+  flex: 0 0 auto;
+  min-width: 3ch;
+  text-align: right;
+  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.at-range-line-code {
+  flex: 1 1 auto;
+  white-space: pre;
+}
+
 .md .foxxycode-skill-chip {
   display: inline-flex;
   align-items: baseline;
@@ -10938,4 +11022,90 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   .bgtask-chip {
     min-height: 36px;
   }
+}
+
+.spawn-agent-card {
+  min-width: 0;
+  padding: 6px 0;
+  color: var(--foxxycode-surface-code-fg);
+}
+
+.spawn-agent-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.spawn-agent-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.spawn-agent-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.spawn-agent-identity {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.spawn-agent-name {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.spawn-agent-description {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.spawn-agent-timeout {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.spawn-agent-timeout svg {
+  width: 14px;
+  height: 14px;
+}
+
+.spawn-agent-prompt {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.foxxycode-tool-call-body .spawn-agent-card + .tool-result {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
 }

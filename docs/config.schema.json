@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json",
   "title": "FoxxyCode config.yaml",
-  "description": "Configuration file for the FoxxyCode agent (default location: ~/.foxxycode/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}; ${FOXXYCODE_HOME} and ${CWD} are expanded by the loader.",
+  "description": "Configuration file for the FoxxyCode agent (default location: ~/.foxxycode/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}. ${FOXXYCODE_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -369,7 +369,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from .foxxycode/rules, .cursor/rules, .claude/rules, .codex/rules, and nested **/AGENTS.md under the session CWD. See docs/rules.md.",
+      "description": "Discovery of rule files from .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested **/AGENTS.md under the session CWD; .mdc files are read as Cursor rules and .md files as Claude Code rules. See docs/rules.md.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -379,7 +379,7 @@
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: foxxycode, cursor, claude, codex, agents. Empty means all.",
+          "description": "Restrict which rule systems are loaded: foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all.",
           "default": [],
           "items": { "type": "string" }
         }
@@ -409,7 +409,7 @@
           },
           "command": {
             "type": "string",
-            "description": "Executable for stdio transport (leave empty when using an http url)."
+            "description": "Executable for stdio transport (leave empty when using an http url). ${CWD} expands to the session cwd."
           },
           "args": {
             "type": "array",
@@ -431,11 +431,11 @@
           },
           "url": {
             "type": "string",
-            "description": "HTTP(S) endpoint when type is \"http\"."
+            "description": "HTTP(S) endpoint when type is \"http\". ${CWD} expands to the session cwd."
           },
           "headers": {
             "type": "array",
-            "description": "Optional headers sent with MCP HTTP requests.",
+            "description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -619,6 +619,57 @@
           "type": "integer",
           "description": "ReAct rounds a child may take. 0 follows agent.max_turns.",
           "default": 0
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "title": "Hooks",
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.foxxycode/hooks.json, .foxxycode/hooks.json, .claude/settings*.json). See docs/hooks.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Load and run hooks at all.",
+          "default": true
+        },
+        "files": {
+          "type": "array",
+          "description": "Definition files, lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand; a relative entry resolves against the session cwd. Files inside the workspace are project scope and follow project_trust; only the hooks key of a Claude Code settings file is read.",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${FOXXYCODE_HOME}/hooks.json",
+            "${CWD}/.claude/settings.json",
+            "${CWD}/.claude/settings.local.json",
+            "${CWD}/.foxxycode/hooks.json"
+          ]
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for hook files found inside the workspace, which travel with the checkout: \"ask\" lists them but runs nothing until the operator approved that exact file for that workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust with the session workspace as cwd); \"allow\" treats them like the operator's own file; \"deny\" never reads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit for one hook process whose definition gives no timeout. 0 uses the default.",
+          "default": 60
+        },
+        "stop_loop_limit": {
+          "type": "integer",
+          "description": "How many times per turn a Stop hook may send the agent back to work. 0 uses the default.",
+          "default": 5
+        },
+        "max_output_chars": {
+          "type": "integer",
+          "description": "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. 0 uses the default.",
+          "default": 10000
         }
       }
     },
