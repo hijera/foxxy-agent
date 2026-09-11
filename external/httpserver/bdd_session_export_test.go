@@ -37,6 +37,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/export"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -475,21 +476,23 @@ func (s *sessionExportFeatureState) attachmentOfType(expected string) error {
 }
 
 func (s *sessionExportFeatureState) jsonContainsQA() error {
-	var doc exportDocument
+	// The download renders the same document /export writes, so the JSON is
+	// internal/export's shape: a session block plus transcript entries.
+	var doc export.ExportDocument
 	if err := json.Unmarshal(s.respBody, &doc); err != nil {
 		return fmt.Errorf("invalid JSON: %w", err)
 	}
 	var hasUser, hasAssistant bool
-	for _, m := range doc.Messages {
-		if m.Role == "user" && strings.Contains(m.Content, exportUserQuestion) {
+	for _, e := range doc.Entries {
+		if e.Type == export.ExportEntryUser && strings.Contains(e.Text, exportUserQuestion) {
 			hasUser = true
 		}
-		if m.Role == "assistant" && strings.Contains(m.Content, exportAssistantAnswer) {
+		if e.Type == export.ExportEntryAssistant && strings.Contains(e.Text, exportAssistantAnswer) {
 			hasAssistant = true
 		}
 	}
 	if !hasUser || !hasAssistant {
-		return fmt.Errorf("JSON missing Q/A: %+v", doc.Messages)
+		return fmt.Errorf("JSON missing Q/A: %+v", doc.Entries)
 	}
 	return nil
 }

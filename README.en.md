@@ -71,6 +71,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **Hooks** - your own commands at lifecycle points of a session: a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, rewrite its arguments or add context; `PostToolUse` / `PostToolUseFailure` see the result; `UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact` / `PostCompact`, `SubagentStart` / `SubagentStop` and `Notification` cover the rest of the turn. Definitions are JSON files in Claude Code's shape (**`~/.foxxycode/hooks.json`**, the workspace's **`.foxxycode/hooks.json`** and **`.claude/settings*.json`**); a file found inside the workspace runs nothing until it is approved there (**`foxxycode hooks trust <file>`**) - see [Hooks](docs/hooks.md)
+- **Session export** - the built-in `/export [md|html|json|jsonl|pdf|docx] [path]` writes the conversation to a file in the workspace, and the panel's download button renders the same document; `--no-tools` / `--no-thinking` trim it (the panel exports the conversation alone by default, the command keeps the tool calls) - see [Session export](docs/session-export.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
@@ -594,6 +595,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and the whole-program grant
 - [Subagents](docs/subagents.md) - definition files, project trust receipts, the **`spawn_agent`** tool, capability narrowing, child sessions
 - [Hooks](docs/hooks.md) - the event table, the JSON contract on stdin and stdout, project trust receipts, and the CLI and HTTP approval surfaces
+- [Session export](docs/session-export.md) - the `/export` command, the `foxxycode sessions export` twin, the formats and what the document holds
 - [Custom tools](docs/custom-tools.md) - how to add a tool of your own to the agent
 - [IntelliJ embedding](docs/intellij-embedding.md) - how the plugin hosts the SPA and the bundled binary
 - [Remote control](docs/remote-control.md) - driving a remote `foxxycode http` from the CLI or ACP

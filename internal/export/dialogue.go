@@ -1,6 +1,4 @@
-//go:build http
-
-package httpserver
+package export
 
 import (
 	"encoding/json"
@@ -25,16 +23,6 @@ import (
 // The dialogue surface is the user/assistant turns plus any assistant reasoning
 // blocks; tool/system rows are skipped so the exported document reads as a
 // conversation.
-
-// exportFormat is one of the supported render targets.
-type exportFormat string
-
-const (
-	exportJSON exportFormat = "json"
-	exportHTML exportFormat = "html"
-	exportPDF  exportFormat = "pdf"
-	exportDOCX exportFormat = "docx"
-)
 
 // exportAttachment is one file the user uploaded on a turn, recovered from the
 // <foxxycode_session_assets> wrapper the agent appends to the message.

@@ -1,6 +1,4 @@
-//go:build http
-
-package httpserver
+package export
 
 import (
 	"archive/zip"
@@ -122,7 +120,7 @@ func TestReadableExportDocumentDropsTurnsLeftEmpty(t *testing.T) {
 func TestRenderExportKeepsAmbientContextInJSONOnly(t *testing.T) {
 	doc := ambientDoc()
 
-	jsonBody, _, _, err := renderExport(doc, exportJSON)
+	jsonBody, err := renderJSONExport(doc)
 	if err != nil {
 		t.Fatalf("json: %v", err)
 	}
@@ -130,17 +128,23 @@ func TestRenderExportKeepsAmbientContextInJSONOnly(t *testing.T) {
 		t.Error("the JSON export dropped the injected context")
 	}
 
-	for _, format := range []exportFormat{exportHTML, exportPDF, exportDOCX} {
-		body, _, _, err := renderExport(doc, format)
+	readable := readableExportDocument(doc)
+	renderers := map[string]func(exportDocument) ([]byte, error){
+		"html": renderHTMLExport,
+		"docx": renderDOCXExport,
+	}
+	for name, render := range renderers {
+		body, err := render(readable)
 		if err != nil {
-			t.Fatalf("%s: %v", format, err)
-		}
-		if format == exportPDF {
-			continue // PDF text is glyph-encoded; the feature suite reads it back
+			t.Fatalf("%s: %v", name, err)
 		}
 		if bytes.Contains(body, []byte("Active File")) {
-			t.Errorf("the %s export still shows the ambient IDE context", format)
+			t.Errorf("the %s export still shows the ambient IDE context", name)
 		}
+	}
+	// PDF text is glyph-encoded, so the feature suite reads it back instead.
+	if _, err := renderPDFExport(readable); err != nil {
+		t.Fatalf("pdf: %v", err)
 	}
 }
 
@@ -299,97 +303,6 @@ func TestMarkdownToBlocksCodeContent(t *testing.T) {
 	}
 }
 
-func TestHasExportableAssistantAnswer(t *testing.T) {
-	if hasExportableAssistantAnswer([]llm.Message{{Role: llm.RoleUser, Content: "hi"}}) {
-		t.Fatal("should be false with no assistant message")
-	}
-	if !hasExportableAssistantAnswer([]llm.Message{{Role: llm.RoleAssistant, Content: "answer"}}) {
-		t.Fatal("should be true with assistant content")
-	}
-	if hasExportableAssistantAnswer([]llm.Message{{Role: llm.RoleAssistant, Content: "   "}}) {
-		t.Fatal("should be false with whitespace-only assistant content")
-	}
-}
-
-func TestExportBaseName(t *testing.T) {
-	cases := map[string]string{
-		"My Chat": "My_Chat",
-		"a/b:c":   "abc",
-		"":        "sess_x",
-		`x"y|z`:   "xyz",
-		"Привет":  "Привет",
-	}
-	for in, want := range cases {
-		if got := exportBaseName(in, "sess_x"); got != want {
-			t.Errorf("exportBaseName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// TestExportContentDisposition pins the RFC 6266 shape: an ASCII-only plain
-// filename any client can read, plus an RFC 8187 filename* carrying the real
-// (possibly non-Latin) title. A title made only of non-ASCII characters has no
-// meaningful ASCII form, so the fallback degrades to the session id.
-func TestExportContentDisposition(t *testing.T) {
-	cases := []struct {
-		title      string
-		wantPlain  string
-		wantEncSub string
-	}{
-		{"My Chat", `filename="My_Chat.pdf"`, "filename*=UTF-8''My_Chat.pdf"},
-		{"", `filename="sess_x.pdf"`, "filename*=UTF-8''sess_x.pdf"},
-		{"Отчёт по задаче", `filename="sess_x.pdf"`, "filename*=UTF-8''%D0%9E%D1%82%D1%87%D1%91%D1%82_%D0%BF%D0%BE_%D0%B7%D0%B0%D0%B4%D0%B0%D1%87%D0%B5.pdf"},
-		{"Sprint 3 — обзор", `filename="Sprint_3.pdf"`, ""},
-	}
-	for _, tc := range cases {
-		got := exportContentDisposition(tc.title, "sess_x", "pdf")
-		if !strings.HasPrefix(got, "attachment; ") {
-			t.Errorf("exportContentDisposition(%q) = %q, missing attachment prefix", tc.title, got)
-		}
-		if !strings.Contains(got, tc.wantPlain) {
-			t.Errorf("exportContentDisposition(%q) = %q, want plain %s", tc.title, got, tc.wantPlain)
-		}
-		if tc.wantEncSub != "" && !strings.Contains(got, tc.wantEncSub) {
-			t.Errorf("exportContentDisposition(%q) = %q, want %s", tc.title, got, tc.wantEncSub)
-		}
-	}
-}
-
-// TestExportContentDispositionCannotBreakTheHeader guards the encoding: a title
-// carrying header separators must not introduce new parameters, and control
-// characters must never reach the wire.
-func TestExportContentDispositionCannotBreakTheHeader(t *testing.T) {
-	got := exportContentDisposition("evil; name=oops\r\nX-Injected: 1", "sess_x", "json")
-	if strings.Contains(got, "\r") || strings.Contains(got, "\n") {
-		t.Fatalf("header value carries a line break: %q", got)
-	}
-	if strings.Count(got, ";") != 2 {
-		t.Fatalf("header gained extra parameters: %q", got)
-	}
-	marker := "filename*=UTF-8''"
-	encoded := got[strings.Index(got, marker)+len(marker):]
-	if strings.ContainsAny(encoded, `;,="' `) {
-		t.Fatalf("filename* carries raw header separators: %q", encoded)
-	}
-}
-
-// TestExportContentDispositionFoldsTheIDFallback covers the path where the title
-// has no ASCII form and the session id supplies the plain filename: the id comes
-// off the request path, so it must be folded rather than trusted.
-func TestExportContentDispositionFoldsTheIDFallback(t *testing.T) {
-	got := exportContentDisposition("Отчёт", `sess"; evil=1`, "json")
-	m := regexp.MustCompile(`filename="([^"]*)"`).FindStringSubmatch(got)
-	if m == nil {
-		t.Fatalf("no plain filename in %q", got)
-	}
-	if strings.ContainsAny(m[1], `";=`) {
-		t.Fatalf("session id reached the header unchecked: %q", m[1])
-	}
-	if strings.Count(got, ";") != 2 {
-		t.Fatalf("header gained extra parameters: %q", got)
-	}
-}
-
 // TestSanitizeXMLText covers the characters that make a DOCX unopenable: the
 // C0 control range (ANSI escapes, NUL) has to go, while the three whitespace
 // controls XML does allow must survive.
@@ -529,19 +442,6 @@ func pdfBlockHeight(t *testing.T, md string) float64 {
 		t.Fatalf("fpdf error: %v", err)
 	}
 	return pdf.GetY() - before
-}
-
-func TestIsValidExportFormat(t *testing.T) {
-	for _, ok := range []exportFormat{exportJSON, exportHTML, exportPDF, exportDOCX} {
-		if !isValidExportFormat(ok) {
-			t.Errorf("%q should be valid", ok)
-		}
-	}
-	for _, bad := range []exportFormat{"rtf", "", "csv"} {
-		if isValidExportFormat(bad) {
-			t.Errorf("%q should be invalid", bad)
-		}
-	}
 }
 
 // docxPlainText concatenates the text nodes of a WordprocessingML fragment, so a
