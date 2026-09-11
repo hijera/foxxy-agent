@@ -168,8 +168,8 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 			warnings, err := mgr.ReloadConfigForSession(ctx, st)
 			if err == nil && s != nil {
+				// ReplaceConfig also drops the slash cache and announces the reload.
 				s.ReplaceConfig(mgr.Cfg())
-				s.invalidateSlashCache()
 			}
 			return warnings, err
 		})

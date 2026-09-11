@@ -101,7 +101,7 @@ FoxxyCode работает как **ACP-сервер** (`foxxycode acp`). **Obsi
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install   # копирует build/foxxycode в ~/.local/bin или /usr/local/bin
 ```
 
@@ -182,7 +182,7 @@ make build-desktop
 
 ### Теги сборки
 
-В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory cli browser"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory`**).
+В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory`**).
 
 | Тег | Что включает | Документация |
 |-----|--------------|--------------|
@@ -201,7 +201,7 @@ make build-desktop
 
 ### Docker
 
-Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`** и **`browser`** — тот же набор функций, что и **`make build TAGS="http ui scheduler memory cli browser"`**. Тег **`gateway`** в него, в отличие от релизных архивов, не входит: для шлюза мессенджеров соберите свой образ (**`docker-compose.dev.yml`** или свой **`BUILD_TAGS`**), см. **[docs/docker.md](docs/docker.md)**.
+Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с тем же набором, что и **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** — включая **`gateway`** и **`swarm`**, так что команда по умолчанию (**`serve`**) поднимает те подсистемы, которые включены в примонтированном **`config.yaml`**, см. **[docs/docker.md](docs/docker.md)**.
 
 **1. Конфигурация и рабочий каталог** (из корня репозитория или другого каталога, в котором хранится **`config.yaml`**):
 
@@ -252,7 +252,7 @@ mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 
 **Провайдеры и модели**
 
-- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode providers login codex`** в терминале (старая форма **`foxxycode codex login`** осталась псевдонимом и печатает предупреждение); `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** открывает браузер (loopback-callback; **`--device`** для машин без браузера), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
+- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode providers login codex`** в терминале (старая форма **`foxxycode codex login`** осталась псевдонимом и печатает предупреждение); `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Вход из терминала также добавляет провайдера, модели подписки и **`agent.model`** в **`config.yaml`**, если их там нет (**`--no-config`** это пропускает). Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** печатает короткий код и страницу хаба для подтверждения (device flow, RFC 8628: браузер может быть на любой машине — именно это нужно серверу по SSH; **`--browser`** просит loopback-callback, который завершается только в браузере на этой машине; **`--api-base`** выбирает эндпоинт и переносит на него существующую строку), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
 - **`models`** — доступные для выбора модели. Строка **`model`** имеет вид **`<provider_name>/<api_model_id>`**, где **`provider_name`** совпадает с `providers[].name`. Доступные параметры: **`max_tokens`**, **`temperature`** и опциональный **`max_context_tokens`**.
 - **`agent`** — поле **`model`** выбирает стандартную модель ReAct и должно совпадать с одной из записей **`models[].model`**. Параметры **`max_turns`** и **`max_tokens_per_turn`** ограничивают один пользовательский запрос. Поверх этих ограничений работает защита от зацикливания **`loop_guard`** (по умолчанию **`true`**): поток ответа, выродившийся в повтор одного и того же фрагмента, обрывается (**`loop_stream_repeat_cycles`**), инструмент, который запрашивают снова и снова с теми же аргументами, перестаёт выполняться (**`loop_tool_repeat_limit`**), а целая последовательность вызовов, которую модель крутит по кругу, — тоже (**`loop_tool_cycle_repeats`**: именно это ловит ротацию вроде «читаю A, читаю B, читаю A…», которую счётчик подряд идущих повторов не видит). Сначала модель подталкивают вернуться к задаче; что делать с циклом, пережившим **`loop_nudge_max`** подсказок, решает **`loop_stuck_action`**: по умолчанию **`quarantine`** — зациклившиеся вызовы перестают исполняться до конца хода, а сам ход продолжается и доходит до ответа (если кроме цикла ничего не осталось, у модели забирают инструменты и просят ответить тем, что уже собрано); **`stop`** возвращает прежнее поведение и завершает ход уведомлением.
 
@@ -285,7 +285,7 @@ export OPENAI_API_KEY="sk-..."
 
 ## Обновление
 
-Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory cli browser"`**.
+Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
 
 Команда **`foxxycode update`** загружает архив для текущей ОС и архитектуры и заменяет запущенный исполняемый файл с разрешением символических ссылок. Обычно так обновляют установку после **`make install`** (**`~/.local/bin/foxxycode`**) или локальный артефакт командой **`./build/foxxycode update`**.
 
@@ -657,7 +657,7 @@ make test
 # ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Полнофункциональная локальная сборка (HTTP + UI + планировщик), как в Docker
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 
 ./build/foxxycode -v    # то же, что --version
 

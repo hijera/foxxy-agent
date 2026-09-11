@@ -148,7 +148,9 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fmt.Errorf("%w: %s", errFoxxyCodeConfigParse, err.Error())
 		}
-		yb, err := config.MarshalConfigYAML(newCfg)
+		// Rendered over the file that is there, so the operator's comments and the
+		// editor schema modeline survive a save from the settings screen.
+		yb, err := config.MarshalConfigYAMLForFile(newCfg, cfgPath)
 		if err != nil {
 			return errFoxxyCodeConfigSerialize
 		}
@@ -170,7 +172,9 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 			}
 			return err
 		}
-		s.ReplaceConfig(reloaded)
+		// ReplaceConfig on the manager reaches this server through the config
+		// observer registered in New, which is also how a reload from the agent's
+		// own config_commit tool or from the console gets here.
 		s.mgr.ReplaceConfig(reloaded)
 		return nil
 	})
