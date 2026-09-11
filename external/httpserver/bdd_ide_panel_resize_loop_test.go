@@ -292,13 +292,15 @@ func (s *panelLoopState) userDraftsFiveLines() error {
 	}
 	// A few frames for the resize observation and the deferred reserve write.
 	//
-	// Left where it shipped, on purpose. This scenario catches a real one: a
+	// This scenario earned its keep here: at this window it used to fail about
+	// four runs in six, and more often when the window was widened, with a
 	// reserve write of 206px -> 181px - the composer shrinking back - landing in
-	// the frame that measured it. Measured here, it fails about four runs in six
-	// at this window and more often at three seconds; it reproduces on main at
-	// both, so it is neither this branch's nor an artefact of waiting longer.
-	// Widening or narrowing the window only moves how often it is seen, so the
-	// window stays as it was and the finding is reported instead of tuned away.
+	// the frame that measured it. The cause was in ChatScreen, not in the test:
+	// the reserve went through React state, so the DOM write happened whenever
+	// React committed rather than in the frame that scheduled it, and a commit
+	// after the frame's resize observations is a write inside the delivery loop
+	// again. It is written to the element directly now, and the scenario passes
+	// ten runs in ten here and eight in eight at three seconds.
 	return chromedp.Run(s.tab, chromedp.Sleep(panelLoopReserveSettle))
 }
 
