@@ -140,6 +140,8 @@ func main() {
 		err = runDesktop(args[1:])
 	case "gateway":
 		err = runGateway(args[1:])
+	case "serve":
+		err = runServe(args[1:])
 	case "sessions":
 		err = runSessions(args[1:])
 	case "skills":
@@ -195,8 +197,8 @@ func printUsage(w *os.File) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
-  %[1]s codex login | status | logout [--provider NAME] [--home DIR]
   %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
+  %[1]s codex login | status | logout [--provider NAME] [--no-config] [--home DIR]  (deprecated: providers login codex)
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
   %[1]s agents trust <name> [--cwd DIR]
@@ -204,6 +206,7 @@ func printUsage(w *os.File) {
   %[1]s hooks list [--cwd DIR]
   %[1]s hooks trust <file> [--cwd DIR]
   %[1]s hooks untrust <file> [--cwd DIR]
+  %[1]s serve [flags]                  # every enabled subsystem in one process
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]

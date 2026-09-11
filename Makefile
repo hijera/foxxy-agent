@@ -1,9 +1,9 @@
-.PHONY: build build-acp build-desktop icon test test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
+.PHONY: build build-acp build-desktop icon test test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
 #     Recommended full binary (FULL_TAGS below; what the release CLI archives ship):
-#       make build TAGS="http ui scheduler memory cli browser gateway"
+#       make build TAGS="http ui scheduler memory cli browser gateway swarm"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -11,6 +11,7 @@
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #     cli      interactive console TUI (bare `foxxycode` on a terminal; see external/cli/)
+#     swarm           stateless relay that aggregates nodes (`foxxycode serve`; see external/swarm/)
 #     desktop         Windows WebView2 desktop shell (foxxycode desktop; combine with http ui)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
@@ -19,6 +20,7 @@
 #             make build TAGS=cli
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory gateway"
+#             make build TAGS="http ui scheduler memory cli browser gateway swarm"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
@@ -37,7 +39,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli browser gateway
+FULL_TAGS := http ui scheduler memory cli browser gateway swarm
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -98,10 +100,13 @@ print-version:
 
 # Install binary: /usr/local/bin for root, ~/.local/bin for regular users.
 INSTALL_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/bin,$(HOME)/.local/bin)
+MAN_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/share/man/man1,$(HOME)/.local/share/man/man1)
 
 # Install build/foxxycode onto PATH. Reuses an existing binary; builds FULL_TAGS only when missing.
+# The man page goes with it, so `man foxxycode` works for a from-source install
+# too; `make deb` / `make rpm` ship the same page, compressed, inside the package.
 install:
-	@mkdir -p $(INSTALL_DIR)
+	@mkdir -p $(INSTALL_DIR) $(MAN_DIR)
 	@if [ ! -f $(BINARY) ]; then \
 		echo "No $(BINARY); building with TAGS=\"$(FULL_TAGS)\""; \
 		$(MAKE) build TAGS="$(FULL_TAGS)"; \
@@ -109,7 +114,50 @@ install:
 		echo "Installing existing $(BINARY)"; \
 	fi
 	cp $(BINARY) $(INSTALL_DIR)/foxxycode
-	@echo "Installed to $(INSTALL_DIR)/foxxycode"
+	cp packaging/man/foxxycode.1 $(MAN_DIR)/foxxycode.1
+	@echo "Installed to $(INSTALL_DIR)/foxxycode and $(MAN_DIR)/foxxycode.1"
+
+# ---- Distribution packages ----
+#   PKG_ARCHS  architectures to package, space or comma separated (default: host)
+#   PKG_TAGS   go build tags for the packaged binary (default: the release set)
+#   DIST_DIR   where the packages land (default: dist)
+#
+# `deb` and `rpm` build Linux packages from packaging/nfpm.yaml through
+# scripts/build-packages.sh; the release workflow calls the same script with the
+# binaries it has already cross-compiled. nfpm is fetched on demand.
+#
+# `brew` renders the Homebrew cask (packaging/homebrew/foxxycode.rb.tmpl) for the
+# macOS archives of a release. It needs those archives, so pass the version of a
+# published release: make brew VERSION=X.Y.Z
+#
+# `brew-formula` renders the Homebrew formula (packaging/homebrew/foxxycode-formula.rb.tmpl)
+# for the source archive of a release - that is the artefact homebrew/core takes,
+# because Homebrew wants open-source command-line software built from source.
+# `brew-check` is the preflight for that submission. See docs/homebrew.md.
+PKG_ARCHS ?= $(shell go env GOARCH)
+PKG_TAGS ?= $(FULL_TAGS)
+DIST_DIR ?= dist
+
+# Same rule as `build`: embedded assets must exist before a binary claims to
+# carry them.
+ifneq ($(and $(findstring http,$(PKG_TAGS)),$(findstring ui,$(PKG_TAGS))),)
+deb rpm: ui-build
+endif
+
+deb:
+	TAGS="$(PKG_TAGS)" scripts/build-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats deb
+
+rpm:
+	TAGS="$(PKG_TAGS)" scripts/build-packages.sh --version "$(VERSION)" --arch "$(PKG_ARCHS)" --out "$(DIST_DIR)" --formats rpm
+
+brew:
+	scripts/build-homebrew-cask.sh --version "$(VERSION)" --out "$(DIST_DIR)"
+
+brew-formula:
+	scripts/build-homebrew-formula.sh --version "$(VERSION)" --out "$(DIST_DIR)/formula"
+
+brew-check:
+	scripts/check-homebrew-submission.sh --version "$(VERSION)"
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:
@@ -128,6 +176,8 @@ test: test-opencode-rules
 	go test -tags=scheduler ./...
 	go test -tags=scheduler,memory ./...
 	go test -tags=gateway ./...
+	go test -tags=swarm ./...
+	go test -tags=http,swarm ./...
 	go test -tags=http,gateway,scheduler,memory ./...
 	$(MAKE) ui-build
 	$(MAKE) ui-test
@@ -137,6 +187,7 @@ test: test-opencode-rules
 	go test -tags=http,scheduler,memory ./...
 	go test -tags=http,scheduler,ui ./...
 	go test -tags=http,scheduler,ui,memory ./...
+	go test -tags=http,ui,scheduler,memory,cli,browser,gateway,swarm ./...
 
 # Type-check the Windows build without a Windows machine.
 #
@@ -166,6 +217,8 @@ check-windows:
 	GOOS=windows go vet -tags=http,scheduler ./...
 	GOOS=windows go vet -tags=http,scheduler,memory ./...
 	GOOS=windows go vet -tags=gateway ./...
+	GOOS=windows go vet -tags=swarm ./...
+	GOOS=windows go vet -tags=http,swarm ./...
 	GOOS=windows go vet -tags=desktop,http,scheduler,memory ./...
 
 # Clean build artifacts.
@@ -181,10 +234,11 @@ clean:
 # The combinations compile every file at least once rather than enumerating the
 # power set: http,scheduler,memory covers the optional server surfaces together,
 # browser covers the chromedp tool, cli covers the TUI, gateway covers the
-# messenger bots (gateway.telegram is a subset of gateway). The ui tag lives in
+# messenger bots (gateway.telegram is a subset of gateway), swarm covers the
+# relay. The ui tag lives in
 # lint-ui because it embeds a bundle that only exists after ui-build, and
 # desktop lives in lint-windows because it is //go:build desktop && windows.
-LINT_TAG_SETS := cli browser gateway http,scheduler,memory,gateway
+LINT_TAG_SETS := cli browser gateway swarm http,scheduler,memory,gateway,swarm
 
 # Fail on every finding rather than golangci-lint's default caps
 # (max-issues-per-linter=50, max-same-issues=3), which silently hid most of a

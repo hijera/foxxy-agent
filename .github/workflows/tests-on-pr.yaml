@@ -188,6 +188,34 @@ jobs:
           go test -race -count=1 ./internal/agent/... ./internal/session/... ./internal/bgtask/... ./internal/llm/... ./internal/mcp/...
           go test -race -count=1 -tags=http,scheduler,memory ./external/httpserver/... ./external/scheduler/...
 
+  # The packages are only built on a release tag, so without this job a broken
+  # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
+  # this proves the packaging, not the binary, and skipping the npm step keeps
+  # the job short.
+  packages:
+    name: Distribution packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build deb and rpm
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
+
+      # Same reasoning one step further: the Homebrew cask is rendered only by
+      # the release job and the formula only by hand, so a template that stopped
+      # being valid Ruby would surface at the worst moment. Rendering needs a
+      # published tag; parsing does not, and the placeholders sit inside strings.
+      - name: Parse the Homebrew templates
+        run: ruby -c packaging/homebrew/foxxycode.rb.tmpl && ruby -c packaging/homebrew/foxxycode-formula.rb.tmpl
+
   # A build tag hides whole files from the linter, so this job runs the Makefile
   # targets rather than a bare ./... pass: `make lint` walks every tag set
   # (cli, browser, gateway, http+scheduler+memory), `make lint-ui` adds the

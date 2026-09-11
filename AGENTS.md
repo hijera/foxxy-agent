@@ -6,7 +6,7 @@ Short map for automation-friendly contributors.
 
 | Area | Responsibility |
 |------|------------------|
-| `cmd/foxxycode` | CLI entry (bare `foxxycode` console, `cli`, `acp`, `http`, `gateway`, `sessions`, `skills`, `plugin`, `mcp`, `codex login`, `providers login`, `rules list`, `update`). |
+| `cmd/foxxycode` | CLI entry (bare `foxxycode` console, `cli`, `acp`, `http`, `serve`, `gateway`, `sessions`, `skills`, `plugin`, `mcp`, `codex login`, `providers login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.foxxycode/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
 | `internal/textenc` | The one place a file's encoding is decided: prompt attachments and every file tool. Guide: **`docs/architecture.md`**. |
@@ -21,10 +21,15 @@ Short map for automation-friendly contributors.
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |
 | `external/gateway` | Messenger gateway (**`-tags gateway.telegram`** or **`-tags gateway`**): Telegram bot adapter, session store, proxy support. Full guide: **`docs/gateway.md`**, rules: **`.cursor/rules/gateway.mdc`**. |
+| `internal/serve` | **`foxxycode serve`**: one process running whichever subsystems the configuration turns on (**`subsystem.go`**), a **runtime** that restarts just the one whose settings moved (**`runtime.go`**, fed by **`internal/session`** config observers and **`internal/config/watch.go`**), and the background form - a **dispatcher** that respawns a worker process and records it in **`<home>/serve.json`** (**`daemon.go`**, **`supervisor.go`**; **`foxxycode serve status|stop`**). Guide: **`docs/serve.md`**. |
+| `internal/swarm` | Swarm relay internals: the node **registry** and its leases (**`registry.go`**), the reverse **tunnel** a node behind a firewall serves its API over (**`tunnel.go`**), aggregated **sessions** and **topology** across the fleet. **`external/swarm`** (**`-tags swarm`**) is the HTTP surface; **`external/httpserver/swarm_join.go`** is the other half, the registration loop an ordinary agent runs. Guide: **`docs/swarm.md`**. |
+| `internal/netx` / `internal/httpx` | Shared transport plumbing the relay legs need: dialling through an http/socks5 proxy and keeping the bytes a CONNECT reply carried (**`netx`**), and the small HTTP helpers both relay and node reuse (**`httpx`**). |
+| `packaging` | Distribution package sources: the **nfpm** recipe (**`nfpm.yaml`**) for the Linux **`.deb`** and **`.rpm`**, the Homebrew **cask** template (**`homebrew/foxxycode.rb.tmpl`**, prebuilt macOS archives) and **formula** template (**`homebrew/foxxycode-formula.rb.tmpl`**, built from source), the man page (**`man/foxxycode.1`**), bash and zsh completions, and the post-install script. A package installs a binary and its documentation and nothing else - **no service, no system account, no `/etc`** - because FoxxyCode keeps its state in the invoking user's **`~/.foxxycode`**. Built by **`scripts/build-packages.sh`**, **`scripts/build-homebrew-cask.sh`** and **`scripts/build-homebrew-formula.sh`** (**`make deb`**, **`make rpm`**, **`make brew`**, **`make brew-formula`**); **`scripts/check-homebrew-submission.sh`** (**`make brew-check`**) is the preflight for a homebrew/core submission. Everything under `packaging/` is read on a Unix host, so `.gitattributes` keeps it at LF. Guides: **`docs/install.md`**, **`docs/homebrew.md`**, **`docs/build.md`** (Distribution packages), **`docs/update.md`** (installations owned by a package manager). |
 
 ## Builds
 
 Run **`make build TAGS=http`** for the HTTP gateway only (**`foxxycode http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `foxxycode`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli browser"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
+Run **`make deb`** / **`make rpm`** for the Linux packages (**`PKG_ARCHS`**, **`PKG_TAGS`**, **`DIST_DIR`** knobs; nfpm is fetched on demand, nothing to install first) and **`make brew VERSION=X.Y.Z`** to render the Homebrew cask for a published release. CI builds the Linux packages on every pull request, so a broken recipe is not first seen at release time.
 
 Primary conversational surface for bundled UI lives at **`POST /v1/responses`** with **`stream:true`**. Prefer it over **`POST /v1/chat/completions`** when shipping FoxxyCode-hosted experiences.
 

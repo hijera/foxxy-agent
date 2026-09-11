@@ -5,7 +5,7 @@ Field-by-field reference for `~/.foxxycode/config.yaml`. For narrative documenta
 A machine-readable [JSON Schema](config.schema.json) accompanies this reference. Point your editor's YAML language server at it to get autocomplete and typo checking:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
@@ -107,12 +107,21 @@ llama.cpp builds through 2025 report mid-stream failures with a non-standard SSE
 For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or use the terminal flow:
 
 ```bash
-foxxycode codex login    # prints a URL and one-time code, then waits
-foxxycode codex status   # reports credential availability and source
-foxxycode codex logout   # removes only the FoxxyCode-managed credential
+foxxycode providers login codex    # prints a URL and one-time code, then waits
+foxxycode providers list           # reports credential availability, source and account
+foxxycode providers logout codex   # removes only the FoxxyCode-managed credential
 ```
 
-`--provider NAME` targets a particular Codex provider. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
+A login also writes the provider row, one `models[]` entry per model the
+subscription serves and an `agent.model` when none is set; it only ever adds, so a
+repeated login is a no-op and `--no-config` stores just the credential. Models Codex
+hides from its own picker are left out, and the model Codex ranks first is the one
+adopted.
+
+`foxxycode codex login|status|logout` is the older, deprecated form of the same
+sign-in; it prints a warning naming the command above and then does the same thing.
+Its `--provider NAME` still reaches a Codex provider that `config.yaml` does not list
+yet, which `providers login` synthesizes only for the conventional name `codex`. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
 
 Codex is only a model backend: FoxxyCode keeps its own system prompt, tools, permissions, and ReAct loop. Access tokens are refreshed shortly before expiry and written back to their source file. When a Codex provider is configured, `foxxycode acp` and `foxxycode http` log a non-secret credential status line at startup.
 
@@ -342,12 +351,31 @@ Logging (`config.Logger`, `internal/config/logger.go`). ACP flags `--log-level`,
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `level` | string | no | `info` | `debug`, `info`, `warn`, `error` (`warning` accepted as alias of `warn`). |
+| `level` | string | no | `info` | `debug`, `info`, `warn`, `error` (`warning` accepted as alias of `warn`). Applies to records that carry no component. |
+| `levels[].component` | string | **yes** (within an entry) | — | Dotted component name: `gateway`, `gateway.telegram`, `session`, `agent`, `scheduler`. Matched case-insensitively after trimming. |
+| `levels[].level` | string | **yes** (within an entry) | — | Minimum severity for that component; same values as `level`. |
 | `outputs` | string list | no | `["stderr"]` | Any combination of `stdout`, `stderr`, `file`. |
 | `file` | string | required when `outputs` includes `file` | `""` | Path for the file sink. Supports `${FOXXYCODE_HOME}`. |
 | `format` | string | no | `text` | `text` or `json`. |
 | `rotation.max_size_mb` | int | no | `0` | Rotate after this size in MB; `0` disables size-based rotation. |
 | `rotation.max_files` | int | no | `0` | Rotated backups to keep when `max_size_mb > 0`. |
+
+`levels` raises or lowers verbosity one subsystem at a time, so chasing a Telegram command that does not work no longer means turning the whole process to `debug` and reading it out of everything else:
+
+```yaml
+logger:
+  level: "info"
+  levels:
+    - component: "gateway.telegram"
+      level: "debug"
+```
+A component is the dotted name a subsystem tags its logger with, and it stays on every record that subsystem writes, so a file can also be filtered by subsystem after the fact. A parent name covers everything nested under it and the longest configured prefix wins: `gateway` reaches `gateway.telegram` unless that name carries its own entry. A record from an untagged part of the process has no component and follows `level`. Configuring one component twice is an error rather than a silent winner.
+
+`--log-level` accepts the same spec as a comma-separated list, which is how an operator running under systemd raises one subsystem for a single restart without editing the file:
+
+```bash
+foxxycode serve --log-level "info,gateway.telegram=debug"
+```
 
 ## `debug`
 
@@ -457,8 +485,9 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `host` | string | no | `""` → `0.0.0.0` | Default bind address when `foxxycode http` does not pass `-H/--host`. |
-| `port` | int | no | `0` → `12345` | Default listen port when `foxxycode http` does not pass `-P/--port`. Range 0–65535. |
+| `enabled` | bool | no | `true` | Serve the HTTP API (and the embedded SPA) in this `foxxycode serve` process. Set `false` on a node that should only poll a messenger or relay a swarm. Overridable per run with `--http` / `--http=false`. Ignored by `foxxycode http`, which is the API and nothing else. |
+| `host` | string | no | `""` → `0.0.0.0` for `foxxycode http`, `127.0.0.1` for `foxxycode serve` | Default bind address when the command does not pass `-H/--host`. The two fallbacks differ on purpose: `http` exists to serve the API, while one `serve` process starts every enabled subsystem, so asking for a Telegram bot there must not open the agent API to the network as a side effect. |
+| `port` | int | no | `0` → `12345` | Default listen port when the command does not pass `-P/--port`. Range 0–65535. |
 | `auth_token` | string | no | `""` | Optional bearer credential for the HTTP API. Empty = no auth. `${ENV}` expanded at load; prefer `--auth-token` / `FOXXYCODE_HTTP_TOKEN`. Redacted from `GET /foxxycode/config`. See [remote-control.md](remote-control.md). |
 | `public_docs` | bool | no | `false` | Keep `/docs` and `/openapi.*` reachable without a token when auth is enabled. |
 | `stream_tickets_only` | bool | no | `false` | Refuse the durable auth token in `?access_token=` on the SSE routes, so an EventSource must first mint a single-use ticket via `POST /foxxycode/stream-tickets`. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL. |
@@ -467,6 +496,42 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 | `cors.allowed_origins` | []string | no | `[]` | Exact origins permitted to call the API. A single `"*"` allows any origin (bearer auth still applies). |
 | `remotes[].name` | string | no | — | Display name of a remote server in the UI environment selector. |
 | `remotes[].url` | string | no | — | Base URL of the remote `foxxycode http` server. Tokens are not stored here; the UI keeps them client-side. |
+
+## `swarm`
+
+Stateless relay that nodes register into and that chains into other relays (`config.SwarmConfig`, `internal/config/swarm.go`; `swarm` build tag for the server side, though `swarm.join` is honoured by every `foxxycode serve` process). See [swarm.md](swarm.md).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `false` | Run the relay in this `foxxycode serve` process. Independent of `swarm.join`: joining a parent relay is what an agent node does, running a relay is what a hub does, and one process may do both. Overridable per run with `--swarm` / `--swarm=false`. |
+| `host` | string | no | `""` → `0.0.0.0` | Bind address for the relay when the CLI does not pass `--swarm-host`. |
+| `port` | int | no | `0` → `12346` | Relay listen port when the CLI does not pass `--swarm-port`. Range 0–65535. It sits next to the API's 12345 so one process can serve both. |
+| `name` | string | no | `""` | Label for this relay in topology views and in a child's node path. |
+| `auth_token` | string | no | `""` | Bearer credential clients present. A relay reaches every node with that node's own credential, so binding off loopback without one refuses to start unless `allow_insecure` is set. Never returned by config reads. |
+| `pairing_tokens` | []string | no | `[]` | Credentials a node must present to register. Empty closes registration unless `insecure_open_registration`. Never returned by config reads. |
+| `allow_insecure` | bool | no | `false` | Permit binding off loopback without a client token. |
+| `insecure_open_registration` | bool | no | `false` | Let any caller register a node without a pairing token. Development only. |
+| `allow_private_upstreams` | []string | no | `[]` | Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network. |
+| `cors.enabled` | bool | no | `false` | Handle CORS preflight. The SPA is cross-origin to a relay by construction, so this usually has to be on. |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the relay. `*` allows any; bearer auth still applies. |
+| `tls.cert_file` | string | no | `""` | PEM certificate chain. Set with `key_file` or neither. Minimum TLS 1.2; rotating certificates needs a restart. |
+| `tls.key_file` | string | no | `""` | PEM private key. |
+| `lease_ttl_seconds` | int | no | `0` → `90` | How long a registration survives without a heartbeat. Nodes refresh at a third of it. |
+| `fanout_timeout_seconds` | int | no | `0` → `3` | Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. |
+| `upstreams[].name` | string | yes* | - | Node name for a node configured by hand (*required per entry). Becomes a URL path segment: letters, digits, underscore and hyphen only. |
+| `upstreams[].url` | string | yes* | - | Origin the relay dials to reach it. |
+| `upstreams[].kind` | string | no | `agent` | `agent` or `relay`. |
+| `upstreams[].token` | string | no | `""` | Credential the relay presents to this node. Never returned by config reads. |
+| `upstreams[].dial.proxy` | string | no | `""` | Route the connection through `http`, `https`, `socks5` or `socks5h`. Empty falls back to the standard environment variables. |
+| `upstreams[].dial.ca_file` | string | no | `""` | Authority for a peer whose certificate is signed privately. |
+| `upstreams[].dial.insecure_skip_verify` | bool | no | `false` | Accept any certificate. For a lab only; every use is logged. |
+| `join[].url` | string | yes* | - | Parent relay this process registers into (*required per entry). |
+| `join[].name` | string | no | host name | Name to claim in that relay. |
+| `join[].pairing_token` | string | no | `""` | Credential authorising the registration. Never returned by config reads. |
+| `join[].advertise_url` | string | no | `""` | Where the relay can reach this process. **Leave empty to dial out instead**, which is the only way in when the network accepts no inbound connections. |
+| `join[].token` | string | no | `""` | This process's own credential, handed to the relay so it can authenticate when it proxies. Prefer one minted for the relay alone. Never returned by config reads. |
+| `join[].labels` | map | no | `{}` | Free-form tags shown in topology views. |
+| `join[].dial.*` | object | no | - | Proxy and TLS settings for reaching the parent, same shape as `upstreams[].dial`. |
 
 ## `scheduler`
 

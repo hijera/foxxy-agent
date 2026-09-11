@@ -108,7 +108,20 @@ make install   # копирует build/foxxycode в ~/.local/bin или /usr/lo
 В **Windows** (или без GNU Make) используйте интерактивный мастер:
 **`python scripts/build.py`** — русскоязычное консольное меню для сборки CLI, плагина IntelliJ, VS Code VSIX, выбора тегов и целевых платформ. Подробнее в **[`docs/build.md`](docs/build.md#interactive-build-wizard)**.
 
-Можно также скачать архив для своей платформы из **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** и добавить исполняемый файл **`foxxycode`** в **`PATH`**.
+**Linux** — каждый релиз публикует **`.deb`** и **`.rpm`** для x86_64 и arm64, так что FoxxyCode ставится и удаляется как остальная система, вместе со страницей `man` и дополнением командной строки:
+
+```bash
+curl -fsSLO https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode_0.2.63_linux_amd64.deb
+sudo apt-get install ./foxxycode_0.2.63_linux_amd64.deb   # или: sudo dnf install ./...rpm
+```
+
+**macOS** — Homebrew-каск из того же релиза:
+
+```bash
+brew install --cask https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode.rb
+```
+
+Можно также скачать архив для своей платформы из **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** и добавить исполняемый файл **`foxxycode`** в **`PATH`**. Подробнее обо всех способах — **[`docs/install.md`](docs/install.md)**.
 
 Создайте начальную конфигурацию: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
 
@@ -181,6 +194,7 @@ make build-desktop
 | **`cli`** | Интерактивная консоль-TUI — голый **`foxxycode`** в терминале (или **`foxxycode cli`**): чат с потоковым выводом, карточки инструментов, диалоги разрешений, **`!!<команда>`** выполняет команду локально, и агент её не видит; **`foxxycode -c`** продолжает последнюю сессию, **`foxxycode -p "..."`** выполняет один промпт неинтерактивно, **`--remote <имя|host:port|url>`** (плюс `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) работает против удалённого `foxxycode http` — те же флаги принимает `foxxycode acp`. Визуальное оформление вдохновлено TUI [pi coding agent](https://github.com/badlogic/pi-mono) (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
 | **`gateway.telegram`** | Адаптер Telegram-бота — подкоманда **`foxxycode gateway`**, отдельные сессии пользователей и контроль доступа | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | Все адаптеры мессенджеров (надмножество `gateway.telegram`; позволяет добавлять Discord и Slack без изменений ядра) | [`docs/gateway.md`](docs/gateway.md) |
+| **`swarm`** | Реле роя: узлы регистрируются в нём, а сами реле сцепляются друг с другом. Поднимается командой **`foxxycode serve`** при **`swarm.enabled: true`**; список **`swarm.join`** работает в любой сборке и делает обычного агента достижимым через реле | [`docs/swarm.md`](docs/swarm.md) |
 | **`desktop`** | Настольное приложение Windows на WebView2 (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; требует **`http`**, **`ui`** и Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
 
 Расширенное описание и соответствие Docker-сборке: **[docs/build.md](docs/build.md)**.
@@ -238,7 +252,7 @@ mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml
 
 **Провайдеры и модели**
 
-- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode codex login`** в терминале; `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** открывает браузер (loopback-callback; **`--device`** для машин без браузера), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
+- **`providers`** — именованные бэкенды (**`type`**: **`openai`** для OpenAI и OpenAI-совместимых HTTP API, **`anthropic`** для Anthropic, **`neuraldeep`** для NeuralDeep на любом из двух официальных эндпоинтов (выбирается через **`api_base`**), **`codex`** для ChatGPT OAuth через официальный Codex backend). Поле **`name`** должно состоять из ASCII-букв, цифр, дефиса или подчёркивания и начинаться с буквы: оно становится префиксом идентификатора модели. Провайдеры с API-ключом принимают **`api_key`** (строка, выражение **`${ENV}`** или пустое значение для чтения **`NAME_API_KEY`**) и опциональный **`api_base`**. Для **`codex`** войдите через **Sign In with ChatGPT** во встроенном UI или выполните **`foxxycode providers login codex`** в терминале (старая форма **`foxxycode codex login`** осталась псевдонимом и печатает предупреждение); `api_key` и `api_base` игнорируются, а токены хранятся в **`$FOXXYCODE_HOME/providers/<name>/`**. Codex используется только как модельный backend: системный prompt, инструменты и разрешения остаются FoxxyCode. При отсутствии управляемого токена поддерживается fallback на **`~/.codex/auth.json`** от Codex CLI. Для **`neuraldeep`** вместо вставки ключа войдите под учёткой хаба: **`foxxycode providers login neuraldeep`** открывает браузер (loopback-callback; **`--device`** для машин без браузера), сохраняет выданный хабом ключ в **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`** и добавляет модели тарифа в **`config.yaml`** (**`--no-config`** это пропускает); во встроенном UI на строке провайдера есть кнопка **Войти через NeuralDeep**. Явные **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** имеют приоритет над сохранённым входом. **`foxxycode providers list`** показывает провайдеров вместе с источником учётных данных, а **`foxxycode providers logout <name>`** отзывает ключ на хабе (best-effort) и забывает его локально.
 - **`models`** — доступные для выбора модели. Строка **`model`** имеет вид **`<provider_name>/<api_model_id>`**, где **`provider_name`** совпадает с `providers[].name`. Доступные параметры: **`max_tokens`**, **`temperature`** и опциональный **`max_context_tokens`**.
 - **`agent`** — поле **`model`** выбирает стандартную модель ReAct и должно совпадать с одной из записей **`models[].model`**. Параметры **`max_turns`** и **`max_tokens_per_turn`** ограничивают один пользовательский запрос. Поверх этих ограничений работает защита от зацикливания **`loop_guard`** (по умолчанию **`true`**): поток ответа, выродившийся в повтор одного и того же фрагмента, обрывается (**`loop_stream_repeat_cycles`**), инструмент, который запрашивают снова и снова с теми же аргументами, перестаёт выполняться (**`loop_tool_repeat_limit`**), а целая последовательность вызовов, которую модель крутит по кругу, — тоже (**`loop_tool_cycle_repeats`**: именно это ловит ротацию вроде «читаю A, читаю B, читаю A…», которую счётчик подряд идущих повторов не видит). Сначала модель подталкивают вернуться к задаче; что делать с циклом, пережившим **`loop_nudge_max`** подсказок, решает **`loop_stuck_action`**: по умолчанию **`quarantine`** — зациклившиеся вызовы перестают исполняться до конца хода, а сам ход продолжается и доходит до ответа (если кроме цикла ничего не осталось, у модели забирают инструменты и просят ответить тем, что уже собрано); **`stop`** возвращает прежнее поведение и завершает ход уведомлением.
 
@@ -610,6 +624,8 @@ LLM  Инструменты Навыки  MCP
 - [Встраивание в IntelliJ](docs/intellij-embedding.md) — как плагин размещает у себя SPA и бинарник
 - [Удалённое управление](docs/remote-control.md) — работа против удалённого `foxxycode http`
 - [Диагностика](docs/debugging.md) — включаемый слой `debug:`: захват сырых LLM-запросов, трассировка хода, `GET /foxxycode/sessions/{id}/debug`, переключение без перезапуска
+- [Демон `serve`](docs/serve.md) — один процесс на все включённые подсистемы: передний план, фоновый диспетчер (`--daemon`), `serve status|stop|restart`
+- [Рой (swarm)](docs/swarm.md) — реле, в которое регистрируются узлы: `foxxycode serve`, сцепление реле, обратный туннель для узла за файрволом и экран топологии в интерфейсе
 - [Шлюз мессенджеров](docs/gateway.md) — адаптер Telegram-бота, изоляция сессий, ACL и создание новых адаптеров
 
 ## Примеры (ACP через stdio)
