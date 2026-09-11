@@ -43,7 +43,8 @@ import (
 )
 
 const (
-	panelLoopBrowserTimeout = 60 * time.Second
+	panelLoopBrowserTimeout = 2 * time.Minute
+	panelLoopWSURLTimeout   = 60 * time.Second
 	panelLoopSessionID      = "sess_panel_loop_long_transcript"
 )
 
@@ -210,6 +211,12 @@ func (s *panelLoopState) openTab(width, height int, probe bool) error {
 		chromedp.WindowSize(width, height),
 		chromedp.UserDataDir(userData),
 		chromedp.CombinedOutput(&s.browserLog),
+		// chromedp gives Chrome 20 s to publish its DevTools websocket URL, and a
+		// two-core runner starting several browsers at once does not always make
+		// it. Past that the failure reads "websocket url timeout reached", which
+		// looks like a hang rather than a slow start. external/ui sets the same
+		// bound for the same reason; keep the two in step.
+		chromedp.WSURLReadTimeout(panelLoopWSURLTimeout),
 	)
 	if executable := strings.TrimSpace(os.Getenv("FOXXYCODE_UI_BROWSER")); executable != "" {
 		opts = append(opts, chromedp.ExecPath(executable))
