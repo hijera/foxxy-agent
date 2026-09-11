@@ -1266,7 +1266,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
+					"description": "Set **title** (pinned title), **mode** (session profile: **`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**; **400** for anything else), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **mode** persists the profile without sending a turn, so a client that switches Mode and reloads gets it back; a turn sets it too, through the top-level **`model`** of **POST /v1/responses**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -1282,6 +1282,7 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"title":             map[string]string{"type": "string"},
+										"mode":              map[string]string{"type": "string"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
@@ -1526,7 +1527,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** is the stored session profile (**`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**), so a client restores the composer's Mode on load instead of dropping every reopened session back to **agent**. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +

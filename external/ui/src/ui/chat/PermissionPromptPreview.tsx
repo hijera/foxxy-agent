@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import { BrowserAction, BrowserIcon } from "../messages/BrowserAction";
+import { SvnAction, SvnIcon } from "../messages/SvnAction";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import type { PermissionToolPreview as Preview } from "./permissionToolPreview";
 
@@ -258,6 +259,24 @@ export function PermissionToolPreview({
           resultText=""
           status="pending"
           sessionId=""
+        />
+      </div>
+    );
+  }
+
+  if (preview.kind === "svn") {
+    return (
+      <div className="permission-preview svn-permission-preview">
+        <div className="permission-preview-bar">
+          <SvnIcon />
+          <span>{preview.header}</span>
+        </div>
+        <SvnAction
+          name={preview.toolName}
+          argsText={preview.argsText}
+          resultText=""
+          status="pending"
+          permissionWaiting
         />
       </div>
     );
