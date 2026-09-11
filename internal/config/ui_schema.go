@@ -237,6 +237,12 @@ func UISchemaMap() map[string]interface{} {
 			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
 		"proxy": strProp("HTTP or SOCKS proxy",
 			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or connect directly when there is none."),
+		// Defaults to true when the key is absent, like models[].stream: the
+		// form seeds new rows from schema defaults and renders an unset switch
+		// from them.
+		"usage_limits_panel": boolPropDefault("Usage limits panel",
+			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+			true),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
@@ -377,7 +383,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms"},
+				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -433,12 +439,17 @@ func UISchemaMap() map[string]interface{} {
 				},
 				"loop_nudge_max": intProp("Loop nudge max",
 					"How many times one turn may be nudged back on track before the loop guard stops it."),
+				"wait_for_limit_reset": boolProp("Wait for limit reset",
+					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
+				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
+					"Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits."),
 			},
 			[]string{
 				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
 				"llm_first_token_timeout_ms", "llm_stall_timeout_ms", "llm_stall_retry", "llm_stall_retry_delays_ms",
 				"llm_stall_retry_max_wait_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles",
 				"loop_tool_cycle_repeats", "loop_stuck_action", "loop_nudge_max",
+				"wait_for_limit_reset", "wait_for_limit_reset_max_ms",
 			},
 			nil),
 		"autocomplete": objectSchema("Autocomplete",

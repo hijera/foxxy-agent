@@ -2264,6 +2264,26 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/providers/{name}/usage": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get provider account usage",
+					"description": "Account usage behind a provider row, for the status bar of every surface. Today only `neuraldeep` rows have a source: the hub's read-only `GET /v1/limits`, read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows); `{ok:false, unsupported:true}` for a provider type without a source; `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server.",
+					"operationId": "getProviderUsage",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "`1` asks for a fresh read instead of the cached snapshot, subject to the pacing floor.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Account usage answer.", "#/components/schemas/ProviderUsageAnswer"),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/providers/{name}/neuraldeep-auth/device/{loginID}": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Poll NeuralDeep device authorization",

@@ -63,6 +63,10 @@ providers:
   #   type: neuraldeep
   #   # api_base: "https://api.neuraldeep.tech/v1"  # outside Russia
   #   api_key: "${NEURALDEEP_API_KEY}"
+  #   # The account usage panel (the console footer line and /usage, the usage
+  #   # section and banner in the web UI) is on by default and reads the hub's
+  #   # GET /v1/limits. false hides it and stops those reads for this row.
+  #   # usage_limits_panel: false
 
   # Codex ChatGPT OAuth. In the bundled web UI, add/select this provider and use
   # Sign In with ChatGPT. FoxxyCode stores tokens under
@@ -143,6 +147,16 @@ agent:
   # loop_stream_repeat_cycles: 5  # identical output cycles in one stream before it is cut (0 disables)
   # loop_tool_cycle_repeats: 3    # repeats of the same sequence of calls before intervening (0 disables)
   # loop_nudge_max: 2             # nudges before the guard acts on a loop
+  # wait_for_limit_reset: when the provider names the moment a hit usage limit
+  # lifts (a Retry-After header or a "limit resets at" body), the turn instead
+  # waits for the reset, tells its client "Usage limit reached / resuming at
+  # 20:59" every 20 s, and then re-issues the same call. The turn lock and the
+  # client stream stay open meanwhile, hence off by default. It is unrelated to
+  # llm_stall_retry, which re-issues a call that produced no output at all: a
+  # 429 the retry wrapper has exhausted reaches that guard too, so with the wait
+  # off the stall guard is what decides how long such a call is retried.
+  # wait_for_limit_reset: false
+  # wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h); a longer pause ends the turn; 0 never waits
   # loop_stuck_action: quarantine # then "quarantine" the looping calls, or "stop" the turn
 
 # Inline code autocomplete: the greyed suggestion the editor plugins draw ahead of

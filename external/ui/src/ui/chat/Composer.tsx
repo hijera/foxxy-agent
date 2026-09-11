@@ -16,6 +16,7 @@ import {
   type ContextBreakdown,
 } from "./ContextBreakdownPopover";
 import { ContextUsageRing } from "./ContextUsageRing";
+import type { ProviderUsage } from "./providerUsage";
 import {
   draftExtendsFailedAtPrefix,
   atMenuDraftAtCaret,
@@ -279,6 +280,8 @@ export function Composer(props: {
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
+  /** Account usage behind the selected model's provider (the usage section of the context popover). */
+  providerUsage?: ProviderUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
@@ -2550,6 +2553,8 @@ export function Composer(props: {
           contextPct={pct}
           maxContextTokens={maxCtx}
           breakdown={props.contextBreakdown}
+          usage={props.providerUsage ?? null}
+          modelId={llmVal || ""}
         />
       ) : null}
       {menuOpen && (menuUseSheet || menuAnchorRect)

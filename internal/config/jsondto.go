@@ -113,6 +113,9 @@ type ProviderJSON struct {
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
 	TimeoutMS     int    `json:"timeout_ms,omitempty"`
+	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
+	// true, false. omitempty leaves an unset switch out of the document.
+	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
 }
 
 // ModelJSON mirrors ModelEntry for JSON APIs.
@@ -155,6 +158,8 @@ type AgentJSON struct {
 	LoopToolCycleRepeats   *int   `json:"loop_tool_cycle_repeats,omitempty"`
 	LoopStuckAction        string `json:"loop_stuck_action,omitempty"`
 	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
+	WaitForLimitReset      bool   `json:"wait_for_limit_reset,omitempty"`
+	WaitForLimitResetMaxMS *int   `json:"wait_for_limit_reset_max_ms,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -390,7 +395,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out := &ConfigJSON{}
 	for _, p := range c.Providers {
-		out.Providers = append(out.Providers, ProviderJSON(p))
+		pj := ProviderJSON(p)
+		// Hand the DTO its own copy of the pointer field, as the models do.
+		pj.UsageLimitsPanel = cloneBoolPtr(p.UsageLimitsPanel)
+		out.Providers = append(out.Providers, pj)
 	}
 	for _, m := range c.Models {
 		mj := ModelJSON(m)
@@ -419,6 +427,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		LoopToolCycleRepeats:   c.Agent.LoopToolCycleRepeats,
 		LoopStuckAction:        c.Agent.LoopStuckAction,
 		LoopNudgeMax:           c.Agent.LoopNudgeMax,
+		WaitForLimitReset:      c.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS: cloneIntPtr(c.Agent.WaitForLimitResetMaxMS),
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
@@ -615,7 +625,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		return cfg
 	}
 	for _, p := range j.Providers {
-		cfg.Providers = append(cfg.Providers, ProviderConfig(p))
+		pc := ProviderConfig(p)
+		pc.UsageLimitsPanel = cloneBoolPtr(p.UsageLimitsPanel)
+		cfg.Providers = append(cfg.Providers, pc)
 	}
 	for _, m := range j.Models {
 		me := ModelEntry(m)
@@ -641,6 +653,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		LoopToolCycleRepeats:   j.Agent.LoopToolCycleRepeats,
 		LoopStuckAction:        j.Agent.LoopStuckAction,
 		LoopNudgeMax:           j.Agent.LoopNudgeMax,
+		WaitForLimitReset:      j.Agent.WaitForLimitReset,
+		WaitForLimitResetMaxMS: cloneIntPtr(j.Agent.WaitForLimitResetMaxMS),
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,

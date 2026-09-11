@@ -6,6 +6,7 @@ import {
 } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
+import type { ProviderUsage } from "./providerUsage";
 import { t } from "../i18n/i18n";
 import type { TokenUsage, TranscriptItem } from "./types";
 
@@ -166,6 +167,8 @@ export type ConsumeComposerSseParams = {
    * nothing at all.
    */
   onLlmRetrying?: (retrying: boolean) => void;
+  /** FoxxyCode extension. The provider account snapshot when the turn stream carries one (`event: provider_usage`). */
+  onProviderUsage?: (usage: ProviderUsage) => void;
   /**
    * FoxxyCode extension. Fired when the backend switched the session profile on
    * its own — a plan run, or the model calling `plan_exit`. Without it the
@@ -260,6 +263,7 @@ export async function consumeComposerSseReader(
     onMcpConnecting,
     onLlmRetrying,
     onDesignPlan,
+    onProviderUsage,
     onModeChanged,
   } = p;
 
@@ -665,6 +669,20 @@ export async function consumeComposerSseReader(
                 payload.phase === "continuing"
               ) {
                 onLlmRetrying?.(true);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "provider_usage") {
+            // Reserved on this stream today (the events stream carries the
+            // snapshot between turns); a frame that does arrive is applied.
+            try {
+              const raw = JSON.parse(ev.data) as ProviderUsage;
+              if (raw && typeof raw.provider === "string") {
+                onProviderUsage?.(raw);
               }
             } catch {
               // ignore

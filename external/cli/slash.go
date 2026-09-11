@@ -49,6 +49,9 @@ func (a *App) dispatchSlash(text string) bool {
 	case "hotkeys":
 		a.showHotkeys()
 		return true
+	case "usage":
+		a.showUsage()
+		return true
 	case "quit", "exit":
 		a.requestQuit(nil)
 		return true
@@ -147,7 +150,12 @@ func (a *App) switchTheme(name string) {
 	a.header = newHeader(a.theme)
 	a.header.SetExpanded(a.expanded)
 	a.populateHeader()
+	previous := a.foot
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
+	if previous != nil {
+		// The usage line is state, not chrome: it survives the theme.
+		a.foot.usages, a.foot.now = previous.usages, previous.now
+	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
@@ -201,6 +209,7 @@ func (a *App) showHotkeys() {
 		"shift+tab cycle reasoning · ctrl+t thinking · ctrl+o expand",
 		"up/down prompt history · / commands · @ file mention",
 		"!!<command> run it here, hidden from the agent",
+		"/usage provider quota, resets and wallet",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
 }

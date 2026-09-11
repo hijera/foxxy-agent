@@ -77,6 +77,7 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). For `type: neuraldeep`, when the key is empty from all three sources the key stored by `foxxycode providers login <name>` (`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`) is used - an explicit key always wins over the stored login. |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | environment proxy | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Overrides a proxy inherited from the environment (`HTTP_PROXY`/`HTTPS_PROXY` — the IDE plugin forwards the editor's proxy this way); `NO_PROXY` is still honored and local addresses always connect directly. When empty, the environment proxy is used, or a direct connection when there is none. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
+| `usage_limits_panel` | bool | no | `true` | — | Shows the row's account usage panel (the console footer line and `/usage`, the usage section and banner in the web UI) and enables the reads behind it (the hub's `GET /v1/limits` for `type: neuraldeep`). `false` hides the panel on every surface and stops those reads for this row: `GET /foxxycode/providers/{name}/usage` answers `unsupported` with `disabled: true`, and nothing is published at session start or after a turn. Omitted means on. Only rows whose type has a usage source are affected; the key is accepted on any row. Settings → LLM Providers shows it as the **Usage limits panel** switch. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -89,6 +90,7 @@ providers:
     type: openai
     api_base: "http://localhost:11434/v1"
     api_key: "~"
+    # usage_limits_panel: false  # hide the account usage panel for this row
   - name: codex
     type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
@@ -171,6 +173,8 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
 | `loop_tool_cycle_repeats` | int | no | `3` | Repetitions of the same *sequence* of tool calls before the guard steps in — what catches a model rotating through several calls instead of repeating one; `0` disables the check. Sequences of 2 to 8 calls are searched for, and because a lap is allowed to vary, a longer rotation is usually caught earlier through a shorter sub-pattern inside it. |
 | `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it acts on a loop. |
+| `wait_for_limit_reset` | bool | no | `false` | Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error. The turn lock and the client stream stay open while it waits, and the client is told "Usage limit reached" with the reset time every 20 s. Unrelated to `llm_stall_retry`, which re-issues a call that produced no output at all. |
+| `wait_for_limit_reset_max_ms` | int | no | `14400000` (4 h) | Longest time one turn spends waiting for limits in total, the retry wrapper's own sleeps on a limit included; a pause beyond it ends the turn at once, and an explicit `0` never sleeps on a limit. |
 | `loop_stuck_action` | string | no | `quarantine` | What the guard does once a tool loop has survived every nudge. `quarantine` takes the looping calls away for the rest of the turn and lets it run on to a real answer, asking for that answer with the tools withheld if nothing else is left; `stop` ends the turn with a notice. A degenerate output stream always stops the turn regardless. |
 
 ## `prompts`

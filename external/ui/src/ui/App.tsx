@@ -101,6 +101,8 @@ import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
+import type { ProviderUsage } from "./chat/providerUsage";
+import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import {
   injectBranchNavItems,
@@ -908,7 +910,8 @@ export function App() {
   const serverEventHandlersRef = useRef<{
     turnStarted: (sid: string) => void;
     turnEnded: (sid: string) => void;
-  }>({ turnStarted: () => {}, turnEnded: () => {} });
+    providerUsage: (usage: ProviderUsage) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {}, providerUsage: () => {} });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -1163,6 +1166,20 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  // Provider account usage for the composer's usage section and banner: read
+  // over REST at session open, model change and after each viewed turn, pushed
+  // by the events stream in between (chat/useProviderUsage.ts).
+  const [providerUsageTurnEpoch, setProviderUsageTurnEpoch] = useState(0);
+  const noteUsageTurnEnded = useCallback((sid: string) => {
+    if (viewedSessionIdRef.current.trim() === sid.trim()) {
+      setProviderUsageTurnEpoch((n) => n + 1);
+    }
+  }, []);
+  const providerUsageState = useProviderUsage({
+    sessionId,
+    llmModel,
+    turnEpoch: providerUsageTurnEpoch,
+  });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
    * Raw mode/model/reasoning stored on the opened session. Held until the
@@ -3815,6 +3832,7 @@ export function App() {
       void loadMessages(key, { preserveOnError: true });
       void refreshSessionStats(key);
     },
+    providerUsage: providerUsageState.applyPushed,
   };
 
   useEffect(() => {
@@ -3822,6 +3840,8 @@ export function App() {
     void subscribeServerEvents({
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onProviderUsage: (_sid, usage) =>
+        serverEventHandlersRef.current.providerUsage(usage),
       onConnectedChange: setServerEventsConnected,
       signal: ctl.signal,
     });
@@ -4014,6 +4034,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
@@ -4154,6 +4175,10 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      // A relay this client cut short (its own POST or a newer relay took
+      // over) did not end the turn; only a stream that ran to its end
+      // spent quota.
+      if (!fetchCtl.signal.aborted) noteUsageTurnEnded(key);
       // The session is no longer pinned; bound the cache now rather than
       // only after the reconciliation below succeeds.
       evictStaleSessionCaches(viewedSessionIdRef.current);
@@ -4472,6 +4497,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
         onCompaction: () =>
           debouncedRefreshSessionStats(viewedSessionIdRef.current.trim()),
         onMcpConnecting: (connecting: boolean) =>
@@ -5290,6 +5316,9 @@ export function App() {
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}
+          providerUsage={providerUsageState.usage}
+          usageBannerDismissedKey={providerUsageState.dismissedKey}
+          onUsageBannerDismiss={providerUsageState.dismissBanner}
           contextPct={contextPct}
           maxContextTokens={maxContextTokens}
           contextBreakdown={contextBreakdown}

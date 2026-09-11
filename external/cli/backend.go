@@ -11,7 +11,7 @@ import (
 
 // backend is the session surface the console runs against: the in-process
 // *session.Manager, or *remote.Handler when --remote points the console at a
-// remote foxxycode http server. Both expose the same handler methods, so every
+// remote foxxycode serve server. Both expose the same handler methods, so every
 // console feature works identically in either mode; remote-specific
 // degradations are encoded in the nil returns (SessionByID, FileStore).
 type backend interface {
@@ -32,6 +32,12 @@ type backend interface {
 	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
 	HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
+	// ProviderUsageForSession reads the account usage behind a provider row
+	// (the status bar's third line); refresh asks for a fresh read, and a
+	// read the backend defers reports its result to sessionID through the
+	// sender when it lands. A provider type without a usage source answers
+	// Unsupported.
+	ProviderUsageForSession(ctx context.Context, sessionID, name string, refresh bool) (*acp.ProviderUsageUpdate, error)
 }
 
 // Interface conformance is pinned where the concrete types are visible:
