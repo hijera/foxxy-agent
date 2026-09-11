@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 # Full field reference: docs/config-reference.md
 
 # .env file support

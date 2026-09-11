@@ -111,7 +111,20 @@ On **Windows** (or without GNU Make), use the interactive wizard instead:
 **`python scripts/build.py`** — Russian console menus for CLI binary, IntelliJ plugin, VS Code VSIX,
 build tags, and cross-platform targets. See **[`docs/build.md`](docs/build.md#interactive-build-wizard)**.
 
-Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**.
+**Linux** - every release publishes a **`.deb`** and an **`.rpm`** for x86_64 and arm64, so FoxxyCode installs and removes the way the rest of the system does, man page and shell completions included:
+
+```bash
+curl -fsSLO https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode_0.2.63_linux_amd64.deb
+sudo apt-get install ./foxxycode_0.2.63_linux_amd64.deb   # or: sudo dnf install ./...rpm
+```
+
+**macOS** - the Homebrew cask from the same release:
+
+```bash
+brew install --cask https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode.rb
+```
+
+Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**. Every method is in **[`docs/install.md`](docs/install.md)**.
 
 Bootstrap the config: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
 

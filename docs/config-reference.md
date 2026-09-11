@@ -5,7 +5,7 @@ Field-by-field reference for `~/.foxxycode/config.yaml`. For narrative documenta
 A machine-readable [JSON Schema](config.schema.json) accompanies this reference. Point your editor's YAML language server at it to get autocomplete and typo checking:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
@@ -107,12 +107,21 @@ llama.cpp builds through 2025 report mid-stream failures with a non-standard SSE
 For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or use the terminal flow:
 
 ```bash
-foxxycode codex login    # prints a URL and one-time code, then waits
-foxxycode codex status   # reports credential availability and source
-foxxycode codex logout   # removes only the FoxxyCode-managed credential
+foxxycode providers login codex    # prints a URL and one-time code, then waits
+foxxycode providers list           # reports credential availability, source and account
+foxxycode providers logout codex   # removes only the FoxxyCode-managed credential
 ```
 
-`--provider NAME` targets a particular Codex provider. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
+A login also writes the provider row, one `models[]` entry per model the
+subscription serves and an `agent.model` when none is set; it only ever adds, so a
+repeated login is a no-op and `--no-config` stores just the credential. Models Codex
+hides from its own picker are left out, and the model Codex ranks first is the one
+adopted.
+
+`foxxycode codex login|status|logout` is the older, deprecated form of the same
+sign-in; it prints a warning naming the command above and then does the same thing.
+Its `--provider NAME` still reaches a Codex provider that `config.yaml` does not list
+yet, which `providers login` synthesizes only for the conventional name `codex`. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
 
 Codex is only a model backend: FoxxyCode keeps its own system prompt, tools, permissions, and ReAct loop. Access tokens are refreshed shortly before expiry and written back to their source file. When a Codex provider is configured, `foxxycode acp` and `foxxycode http` log a non-secret credential status line at startup.
 

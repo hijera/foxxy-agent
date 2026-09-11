@@ -197,8 +197,8 @@ func printUsage(w *os.File) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
-  %[1]s codex login | status | logout [--provider NAME] [--home DIR]
   %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
+  %[1]s codex login | status | logout [--provider NAME] [--no-config] [--home DIR]  (deprecated: providers login codex)
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]
   %[1]s agents trust <name> [--cwd DIR]

@@ -77,7 +77,7 @@ func providersUsageErr() error {
 // resolveLoginProvider picks the provider entry for login/logout. A name
 // present in config.yaml wins; otherwise the conventional names "neuraldeep"
 // and "codex" synthesize a probe entry of that type, so a fresh install can
-// sign in before editing config.yaml (same convention as `foxxycode codex login`).
+// sign in before editing config.yaml.
 func resolveLoginProvider(cfg *config.Config, name string) (*config.ProviderConfig, error) {
 	if prov := cfg.FindProvider(name); prov != nil {
 		return prov, nil
@@ -101,7 +101,7 @@ func providersLogin(cfg *config.Config, name string, device, noConfig bool, apiB
 	switch prov.Type {
 	case "codex":
 		authPath := config.CodexAuthPath(cfg.Paths.Home, prov.Name)
-		return codexLogin(prov, prov.Name, authPath)
+		return codexLogin(cfg, prov, prov.Name, authPath, noConfig)
 	case "neuraldeep":
 		return neuralDeepLogin(cfg, prov, device, noConfig, apiBase)
 	default:
@@ -287,7 +287,18 @@ func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) 
 		if err != nil || !st.Connected {
 			return "not connected; run `" + os.Args[0] + " providers login " + prov.Name + "`"
 		}
-		return "connected via ChatGPT (" + st.Source + ")"
+		// `foxxycode codex status` is deprecated, so this line has to carry what
+		// it reported: the file the token actually comes from and the account
+		// behind it.
+		source := "FoxxyCode-managed credential"
+		if st.Source == "codex_cli" {
+			source = "Codex CLI login " + llm.CodexCLIAuthPath()
+		}
+		account := st.AccountID
+		if account == "" {
+			account = "unknown"
+		}
+		return "connected via ChatGPT (" + source + "), account " + account
 	case "neuraldeep":
 		st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(cfg.Paths.Home, prov.Name))
 		explicit := explicitKeySource(prov)

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json",
+  "$id": "https://hijera.github.io/foxxy-agent/config.schema.json",
   "title": "FoxxyCode config.yaml",
   "description": "Configuration file for the FoxxyCode agent (default location: ~/.foxxycode/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}. ${FOXXYCODE_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
   "type": "object",
