@@ -1,4 +1,5 @@
 import { t, tp } from "../i18n/i18n";
+import { svnOperation } from "../messages/svnActionDisplay";
 import {
   browserActionLabel,
   isBrowserToolName,
@@ -30,6 +31,7 @@ type PermissionPreviewBase = {
 };
 
 export type PermissionToolPreview =
+  | (PermissionPreviewBase & { kind: "svn"; argsText: string })
   | (PermissionPreviewBase & { kind: "browser"; argsText: string })
   | (PermissionPreviewBase & { kind: "code"; text: string })
   | (PermissionPreviewBase & { kind: "path" })
@@ -262,8 +264,24 @@ export function buildToolCallPreview(
     normalizedToolName(context.kind) ||
     "tool";
   const normalized = toolName.toLowerCase();
-  const args = parseArgsText(context.argsText || "") || {};
+  const parsedArgs = parseArgsText(context.argsText || "");
+  const args = parsedArgs || {};
   const title = questionForTool(normalized, args);
+  const svnOp = svnOperation(normalized);
+  if (svnOp) {
+    const argsText = parsedArgs
+      ? JSON.stringify(parsedArgs)
+      : context.argsText || fallback;
+    return {
+      toolName,
+      title,
+      header: t(`messages.svn.operation.${svnOp}`),
+      meta: [],
+      copyText: argsText,
+      kind: "svn",
+      argsText,
+    };
+  }
   if (isBrowserToolName(normalized)) {
     const argsText = Object.keys(args).length
       ? JSON.stringify(args)
@@ -317,7 +335,8 @@ export function buildToolCallPreview(
           : {
               ...entry,
               content: t("todoPreview.item.fallback", {
-                position: todoPreview.variant === "item" ? todoPreview.position : 0,
+                position:
+                  todoPreview.variant === "item" ? todoPreview.position : 0,
               }),
             },
       ),

@@ -263,6 +263,49 @@ messages: [
    - Send session/prompt response with stopReason
 ```
 
+## Endings that must never be silent
+
+Two endings reach the caller as an ordinary success, so neither is visible unless the
+turn says something:
+
+- **The output cap.** A model that reaches **`models[].max_tokens`** stops mid-sentence
+  while the stream still closes cleanly (**`finish_reason: length`** followed by
+  **`[DONE]`**). The turn ends with **`stopReason: max_tokens`** - which no UI surface
+  renders - so it appends a notice to the transcript naming the cap, the tokens spent and
+  the setting to raise (**`maxTokensNotice`**, `internal/agent/max_tokens_notice.go`).
+  Unlike a stall there is nothing to wait out: the model did not fail, it ran out of the
+  budget the configuration gave it. This matters most on reasoning models - hidden
+  thinking is billed against the same budget as the visible answer, so the text can run
+  out well before the number suggests. Measured on `kimi-k2.6` at `max_tokens: 8192`,
+  roughly half the budget went to reasoning the user never saw.
+- **A stream abandoned mid-answer.** Bounded by **`agent.llm_stall_timeout_ms`** and the
+  **`agent.llm_stall_retry`** family, which keep the partial answer and ask the model to
+  carry on rather than ending the turn. See `docs/config-reference.md` for the keys.
+
+### Tracing the stream
+
+**`FOXXYCODE_LLM_TRACE`** writes frame-level traces of the OpenAI-compatible SSE path:
+**`1`** (or **`stderr`**) to standard error, any other value as a file path. Each streamed
+call logs its request shape, then a line per *decisive* frame - one carrying a
+`finish_reason`, starting a tool call, or preceded by a gap over a second - and a terminal
+line whose **`verdict`** names how the stream ended:
+
+| verdict | meaning |
+| --- | --- |
+| `complete` | terminal marker and a finish_reason both arrived |
+| `truncated-by-max-tokens` | the output cap was reached |
+| `cut-before-terminal-marker` | closed with neither `[DONE]` nor a finish_reason |
+| `finish-reason-without-done` | finish_reason but no `[DONE]` (still a complete response) |
+| `done-without-finish-reason` | `[DONE]` but no finish_reason |
+| `error` | transport failure or a server error frame |
+| `request-failed` | the call never produced a response |
+
+The terminal line also reports the content/reasoning character split, the tool-call frame
+count and the largest inter-frame gap - the numbers that separate "the model is writing a
+long tool call" from "the connection is open and dead". Argument frames are deliberately
+*not* logged individually: one real turn produced 1105 frame lines out of 1143 before that
+rule, burying everything that mattered.
+
 ## Mode-Specific Behavior
 
 ### Agent Mode
