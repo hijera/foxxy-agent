@@ -44,10 +44,22 @@ const (
 	// EnvNeuralDeepBaseURL overrides the pinned NeuralDeep API base for stands
 	// and tests (mirrors FOXXYCODE_CODEX_BASE_URL).
 	EnvNeuralDeepBaseURL = "FOXXYCODE_NEURALDEEP_BASE_URL"
-	// NeuralDeepClientID names the key the hub mints for FoxxyCode. It is in the
-	// hub's client allowlist; a hub that predates it silently falls back to
-	// the "foxxycode-cli" key name in the browser flow.
-	NeuralDeepClientID = "foxxycode"
+	// NeuralDeepClientID is the client this agent presents to the NeuralDeep hub.
+	//
+	// It is the hub's identifier, not this fork's name, and it must not be
+	// rebranded: the value lives in the hub's client allowlist, which is a
+	// server this repository does not own. The rebrand did rename it once, and
+	// the browser flow tolerated that - the hub only labels the key with it -
+	// while the device flow answers POST /api/cli/device/start with
+	// {"detail":"unknown client"} and no sign-in is possible at all. Asked
+	// directly, the hub accepts "coddy" and refuses "foxxycode".
+	//
+	// What the user sees in their account is NeuralDeepKeyLabel and, for the
+	// device flow, a label naming this host - both of which are ours to brand.
+	NeuralDeepClientID = "coddy"
+	// NeuralDeepKeyLabel names the stored key in the user's hub account when the
+	// browser flow does not supply a label of its own.
+	NeuralDeepKeyLabel = "foxxycode"
 )
 
 // neuralDeepLoginTimeout bounds a sign-in wait. A variable, not a constant, so
@@ -390,7 +402,7 @@ func NeuralDeepSignIn(ctx context.Context, hub string, hc *http.Client, authPath
 			_, _ = io.WriteString(w, neuralDeepPage("Ключ не получен", "Хаб не передал ключ. Попробуйте войти заново."))
 			return
 		}
-		if err := SaveNeuralDeepAuth(authPath, key, hub, NeuralDeepClientID, NeuralDeepClientID); err != nil {
+		if err := SaveNeuralDeepAuth(authPath, key, hub, NeuralDeepClientID, NeuralDeepKeyLabel); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, neuralDeepPage("Не удалось сохранить ключ", html.EscapeString(redactNeuralDeepSecrets(err.Error()))))
 			deliver(outcome{err: err})
