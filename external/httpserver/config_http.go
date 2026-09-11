@@ -172,7 +172,9 @@ func (s *Server) foxxycodeConfigPut(w http.ResponseWriter, r *http.Request) {
 			}
 			return err
 		}
-		s.ReplaceConfig(reloaded)
+		// ReplaceConfig on the manager reaches this server through the config
+		// observer registered in New, which is also how a reload from the agent's
+		// own config_commit tool or from the console gets here.
 		s.mgr.ReplaceConfig(reloaded)
 		return nil
 	})

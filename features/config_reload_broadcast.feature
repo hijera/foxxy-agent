@@ -1,0 +1,37 @@
+Feature: A configuration reload reaches the clients that are already open
+  FoxxyCode hot-reloads its own configuration: the settings form saves it, the agent's
+  config_commit and config_rollback tools apply it mid-turn, installing a skill
+  rewrites it. Every one of those swaps changes what the server answers - a model
+  added to models[] is in GET /v1/models the moment the swap lands.
+
+  A client that is already open learned that list once, at boot, so without a signal
+  it keeps offering the previous one until someone reloads the page. GET /foxxycode/events
+  carries the signal: every swap of the live configuration publishes one
+  config_reloaded event, and a client re-reads whichever config-derived list it
+  renders. The event names nothing itself - what changed is already behind
+  GET /v1/models and GET /foxxycode/slash-commands, and a payload carrying it would only
+  be another copy to keep in step.
+
+  Not every writer of config.yaml is this process. `foxxycode providers login` adds a
+  provider and its models from another terminal, an operator edits the file by hand,
+  a deployment drops a new one in. The daemon watches the file it loaded, so a
+  refresh made outside it lands on the same swap and reaches the same clients.
+
+  Background:
+    Given a foxxycode server with a saved configuration
+    And a browser is subscribed to the server event stream
+
+  Scenario: A model added to the configuration reaches an open model picker
+    When the configuration is saved with the model "rpa/qwen3.6-35b-a3b" added
+    Then the browser is told the configuration reloaded
+    And the model list the browser reads after that event carries "rpa/qwen3.6-35b-a3b"
+
+  Scenario: Every open client hears the same reload
+    Given a second browser is subscribed to the server event stream
+    When the configuration is saved with the model "rpa/qwen3.6-35b-a3b" added
+    Then both browsers are told the configuration reloaded
+
+  Scenario: A model another process writes into config.yaml reaches an open model picker
+    When another process adds the model "rpa/qwen3.6-35b-a3b" to config.yaml
+    Then the browser is told the configuration reloaded
+    And the model list the browser reads after that event carries "rpa/qwen3.6-35b-a3b"
