@@ -123,7 +123,10 @@ export function ChatScreen(props: {
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
-  const [composerReserve, setComposerReserve] = useState(200);
+  // The scroll-tail reserve is written straight to this element, never held as
+  // state: see the effect below for why React must stay out of this loop.
+  const chatStackRef = useRef<HTMLDivElement | null>(null);
+  const composerReserveRef = useRef(0);
   const mobileDocScroll = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -136,21 +139,35 @@ export function ChatScreen(props: {
     if (!host) return;
     const extra = 10;
     const measure = () => Math.max(140, Math.ceil(host.getBoundingClientRect().height) + extra);
-    setComposerReserve(measure());
     // The reserve is the height of `.chat-scroll-tail` inside the scroll
     // container. Writing it from inside the ResizeObserver callback relayouts
     // the transcript in the same delivery loop, and with content-visibility
     // rows that resizes the observed host again before the loop settles:
     // JCEF (Chromium 104) then raises "ResizeObserver loop limit exceeded"
-    // on every transcript open. Defer the write to the next frame and skip
-    // unchanged values so the loop can never feed itself.
+    // on every transcript open. So the write waits for the next frame and an
+    // unchanged value is skipped, and the loop cannot feed itself.
+    //
+    // It is written to the element rather than held as state, which is the
+    // other half of the same problem. A setState here does not write the DOM
+    // where it is called: React commits it on its own schedule, and that commit
+    // can land after the frame's resize observations have already been
+    // delivered - a write inside the delivery loop again, one frame along, which
+    // is what the panel resize scenario catches as a reserve write landing in
+    // the frame that measured it. A direct write happens exactly where it is
+    // scheduled, and re-renders nothing, so nothing cascades from it.
+    const write = (next: number) => {
+      const stack = chatStackRef.current;
+      if (!stack || composerReserveRef.current === next) return;
+      composerReserveRef.current = next;
+      stack.style.setProperty("--chat-composer-reserve", `${next}px`);
+    };
+    write(measure());
     let frame = 0;
     const onResize = () => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        const next = measure();
-        setComposerReserve((prev) => (prev === next ? prev : next));
+        write(measure());
       });
     };
     const ro =
@@ -160,7 +177,15 @@ export function ChatScreen(props: {
       if (frame) cancelAnimationFrame(frame);
       ro?.disconnect();
     };
-  }, [isEmpty, props.tokenUsage]);
+    // Only isEmpty. tokenUsage was a dependency back when the observer callback
+    // wrote the reserve synchronously and restarting the effect was how a
+    // changed token line got re-measured; with the write deferred above, it is
+    // the one synchronous writer left. A turn updates tokenUsage repeatedly, so
+    // React re-ran this effect mid-turn and it measured and wrote before paint -
+    // landing in the same frame as an observation, which is the reserve write
+    // the panel resize scenario catches. The observer sees every height change
+    // the token line can cause, so there is nothing to restart for.
+  }, [isEmpty]);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -368,14 +393,7 @@ export function ChatScreen(props: {
           </div>
         </div>
       ) : (
-        <div
-          className="chat-stack"
-          style={
-            {
-              "--chat-composer-reserve": `${composerReserve}px`,
-            } as CSSProperties
-          }
-        >
+        <div className="chat-stack" ref={chatStackRef}>
           <div
             id="messages"
             className="chat-scroll"

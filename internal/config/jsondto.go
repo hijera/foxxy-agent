@@ -218,9 +218,10 @@ type MCPJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode   string   `json:"permission_mode,omitempty"`
-	CommandAllowlist []string `json:"command_allowlist,omitempty"`
-	PlanNoSelfRun    *bool    `json:"plan_no_self_run,omitempty"`
+	PermissionMode           string   `json:"permission_mode,omitempty"`
+	CommandAllowlist         []string `json:"command_allowlist,omitempty"`
+	PermissionTimeoutSeconds int      `json:"permission_timeout_seconds,omitempty"`
+	PlanNoSelfRun            *bool    `json:"plan_no_self_run,omitempty"`
 	// omitempty does not apply to structs; all-nil limits serialize as {}.
 	OutputLimits ToolOutputLimitsJSON `json:"output_limits"`
 	Background   ToolBackgroundJSON   `json:"background"`
@@ -520,9 +521,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust()}
 	out.Tools = ToolsJSON{
-		PermissionMode:   c.Tools.ResolvedPermMode(),
-		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
-		PlanNoSelfRun:    c.Tools.PlanNoSelfRun,
+		PermissionMode:           c.Tools.ResolvedPermMode(),
+		CommandAllowlist:         append([]string(nil), c.Tools.CommandAllowlist...),
+		PermissionTimeoutSeconds: c.Tools.PermissionTimeoutSeconds,
+		PlanNoSelfRun:            c.Tools.PlanNoSelfRun,
 		OutputLimits: ToolOutputLimitsJSON{
 			Read: c.Tools.OutputLimits.Read, Grep: c.Tools.OutputLimits.Grep,
 			Glob: c.Tools.OutputLimits.Glob, PrintTree: c.Tools.OutputLimits.PrintTree,
@@ -778,9 +780,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust}
 	cfg.Tools = Tools{
-		PermissionMode:   j.Tools.PermissionMode,
-		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),
-		PlanNoSelfRun:    j.Tools.PlanNoSelfRun,
+		PermissionMode:           j.Tools.PermissionMode,
+		CommandAllowlist:         append([]string(nil), j.Tools.CommandAllowlist...),
+		PermissionTimeoutSeconds: j.Tools.PermissionTimeoutSeconds,
+		PlanNoSelfRun:            j.Tools.PlanNoSelfRun,
 		OutputLimits: ToolOutputLimits{
 			Read: j.Tools.OutputLimits.Read, Grep: j.Tools.OutputLimits.Grep,
 			Glob: j.Tools.OutputLimits.Glob, PrintTree: j.Tools.OutputLimits.PrintTree,

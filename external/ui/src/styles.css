@@ -604,6 +604,187 @@
   --rail-pill-pad-inline: 10px;
 }
 
+/* SVN cards share the transcript's disclosure, theme tokens and bounded result viewport. */
+.svn-tool-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--muted);
+}
+.svn-action {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 10px;
+  background: var(--foxxycode-surface-raised);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.svn-action-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.svn-command {
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-state--failed,
+.svn-summary-error {
+  color: var(--text);
+  background: var(--diff-del-bg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.svn-summary-error {
+  font-size: 11px;
+}
+.svn-state--completed {
+  color: var(--text);
+  background: var(--diff-add-bg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.svn-action--failed {
+  border-left: 3px solid var(--diff-del-no);
+}
+.svn-arguments {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+.svn-scope {
+  color: var(--muted);
+}
+.svn-field {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: baseline;
+}
+.svn-field-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-field-value {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.svn-action .svn-path {
+  display: block;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.svn-field--message .svn-field-value {
+  border-left: 2px solid var(--foxxycode-glass-panel-border);
+  padding-left: 10px;
+  font-family: inherit;
+}
+.svn-action .svn-result {
+  border: 0;
+  border-top: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+}
+.svn-action .svn-info,
+.svn-action .svn-status-list {
+  padding: 12px;
+}
+.svn-info {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.svn-status-row {
+  display: grid;
+  grid-template-columns: 7ch minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.svn-status-row:last-child {
+  border-bottom: 0;
+}
+.svn-status-code {
+  white-space: pre;
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-status-path {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.svn-status-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-status-row--conflict {
+  background: var(--diff-del-bg);
+  border-radius: 4px;
+}
+.svn-status-row--conflict .svn-status-label {
+  color: var(--text);
+}
+.svn-diff-line {
+  display: inline;
+}
+.svn-diff-line--add {
+  background: var(--diff-add-bg);
+}
+.svn-diff-line--del {
+  background: var(--diff-del-bg);
+}
+.svn-diff-line--header {
+  color: var(--muted);
+}
+.svn-action .svn-diff {
+  white-space: pre;
+  width: max-content;
+  min-width: 100%;
+}
+.svn-truncated {
+  padding: 8px 12px;
+  border-top: 1px solid var(--foxxycode-glass-panel-border);
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-permission-preview .svn-action {
+  border: 0;
+  border-radius: 0;
+}
+@media (max-width: 600px) {
+  .svn-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .svn-status-row {
+    grid-template-columns: 7ch minmax(0, 1fr);
+    gap: 2px 8px;
+  }
+  .svn-status-label {
+    grid-column: 2;
+  }
+}
+
 @media (min-width: 761px) {
   :root {
     --rail-pill-track: 76px;
