@@ -2057,18 +2057,63 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	return b.String()
 }
 
-// extractContextFiles returns file paths referenced in content blocks.
+// extractContextFiles returns the files a turn is about: what a path-scoped
+// rule or skill is matched against.
 func extractContextFiles(blocks []acp.ContentBlock) []string {
 	var files []string
 	for _, b := range blocks {
-		if b.Type == "resource" && b.Resource != nil {
-			uri := b.Resource.URI
-			if strings.HasPrefix(uri, "file://") {
-				files = append(files, fileURIPath(uri))
-			}
+		if b.Type != "resource" || b.Resource == nil {
+			continue
+		}
+		if p := contextFilePath(b.Resource.URI); p != "" {
+			files = append(files, p)
 		}
 	}
 	return files
+}
+
+// contextFilePath turns one resource URI into a filesystem path, or "" when it
+// names no file on disk.
+//
+// The two surfaces spell the same mention differently: an editor over ACP sends
+// file:///C:/proj/src/sample.go, while the HTTP surface sends the
+// workspace-relative path the user typed, "src/sample.go". Reading only the
+// file:// form left every path-scoped rule and skill inactive off ACP. A URI
+// carrying any other scheme (http://, data:) is not a path and is dropped.
+func contextFilePath(uri string) string {
+	uri = strings.TrimSpace(uri)
+	switch {
+	case uri == "":
+		return ""
+	case strings.HasPrefix(uri, "file://"):
+		return fileURIPath(uri)
+	case hasURIScheme(uri):
+		return ""
+	}
+	return uri
+}
+
+// hasURIScheme reports whether s opens with a URI scheme. A Windows drive
+// letter is deliberately not one: "C:/proj/x.go" is a path, and a scheme needs
+// more than a single letter before the colon.
+func hasURIScheme(s string) bool {
+	colon := strings.IndexByte(s, ':')
+	if colon < 2 {
+		return false
+	}
+	for i := 0; i < colon; i++ {
+		c := s[i]
+		switch {
+		case isASCIILetter(c):
+		case c >= '0' && c <= '9', c == '+', c == '-', c == '.':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // fileURIPath turns a file:// URI into a filesystem path. On Windows the
