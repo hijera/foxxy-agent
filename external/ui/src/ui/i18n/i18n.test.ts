@@ -5,6 +5,7 @@ import {
   pluralCategories,
   setLocale,
   t,
+  themeLabel,
   translatePlural,
 } from "./i18n";
 import { FOXXYCODE_UI_LANG_COOKIE } from "./localeCookie";
@@ -74,6 +75,20 @@ describe("i18n translate", () => {
     expect(translatePlural("prompts.permissionMeta.lines", 11)).toBe("11 строк");
     expect(translatePlural("prompts.permissionMeta.lines", 21)).toBe("21 строка");
     expect(translatePlural("tasks.chip.total", 2)).toBe("2 фоновые задачи");
+  });
+
+  it("themeLabel keeps the theme names English in every locale", () => {
+    // The seven themes are product names, written the same way wherever they
+    // appear - Solarized Dark, Monokai, Nord - so a locale switch must not
+    // rename three of them and leave four alone.
+    setLocale("en");
+    expect(themeLabel("dark")).toBe("Dark");
+    expect(themeLabel("rose-pine")).toBe("Rosé Pine");
+    setLocale("ru");
+    expect(themeLabel("dark")).toBe("Dark");
+    expect(themeLabel("light")).toBe("Light");
+    expect(themeLabel("midnight")).toBe("Midnight");
+    expect(themeLabel("rose-pine")).toBe("Rosé Pine");
   });
 
   it("translatePlural falls back to english, then to the key", () => {
