@@ -2,6 +2,12 @@
 
 This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract.
 
+## SVN tool cards
+
+Subversion calls have localized operation headings, an explicit execution state and labeled arguments in both transcript and permission previews. Status lists retain SVN's seven columns, including property and tree conflicts; diffs highlight added/deleted lines without removing binary or property output; working copy info uses label/value rows. Commit previews show the message and affected scope before approval. Logs and other command output stay verbatim and copyable.
+
+An `error:` result is presented as failed even when the transport completed. Cancelled calls keep their partial output. Truncated argument previews recover through the existing full-call fetch, and truncated results carry a partial-output note and the existing load-more control. Long output has a bounded viewport; narrow screens wrap paths and stack field labels. The implementation uses the existing permission flow and does not change SVN tools or HTTP contracts.
+
 ## Constraints
 
 - UI ships as static assets embedded into the `foxxycode` binary (build tag `http`).
