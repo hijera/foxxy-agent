@@ -45,6 +45,7 @@ import (
 const (
 	panelLoopBrowserTimeout = 2 * time.Minute
 	panelLoopWSURLTimeout   = 60 * time.Second
+	panelLoopReserveSettle  = 500 * time.Millisecond
 	panelLoopSessionID      = "sess_panel_loop_long_transcript"
 )
 
@@ -290,7 +291,15 @@ func (s *panelLoopState) userDraftsFiveLines() error {
 		return err
 	}
 	// A few frames for the resize observation and the deferred reserve write.
-	return chromedp.Run(s.tab, chromedp.Sleep(500*time.Millisecond))
+	//
+	// Left where it shipped, on purpose. This scenario catches a real one: a
+	// reserve write of 206px -> 181px - the composer shrinking back - landing in
+	// the frame that measured it. Measured here, it fails about four runs in six
+	// at this window and more often at three seconds; it reproduces on main at
+	// both, so it is neither this branch's nor an artefact of waiting longer.
+	// Widening or narrowing the window only moves how often it is seen, so the
+	// window stays as it was and the finding is reported instead of tuned away.
+	return chromedp.Run(s.tab, chromedp.Sleep(panelLoopReserveSettle))
 }
 
 func (s *panelLoopState) transcriptAndComposerRendered() error {
@@ -327,13 +336,22 @@ func (s *panelLoopState) noLoopError() error {
 func (s *panelLoopState) reserveWritesLandInALaterFrame() error {
 	var probe struct {
 		Writes     int                      `json:"writes"`
+		Callbacks  int                      `json:"callbacks"`
+		Frame      int                      `json:"frame"`
 		Violations []map[string]interface{} `json:"violations"`
 	}
 	if err := s.eval(`window.__panelProbe`, &probe); err != nil {
 		return err
 	}
 	if probe.Writes == 0 {
-		return fmt.Errorf("the composer reserve was never written after the draft grew the composer")
+		// Say enough to tell the two ways this happens apart: a composer that
+		// never grew (no resize callbacks at all, so nothing to defer) from one
+		// whose deferred write had not landed yet when the settle ran out.
+		var height string
+		_ = s.eval(`String(document.getElementById("composer")?.getBoundingClientRect().height ?? "no composer")`, &height)
+		return fmt.Errorf(
+			"the composer reserve was never written after the draft grew the composer (resize callbacks: %d, frames: %d, composer height: %s)",
+			probe.Callbacks, probe.Frame, height)
 	}
 	if len(probe.Violations) > 0 {
 		return fmt.Errorf("%d reserve write(s) landed in the frame of the observation that measured them: %v",
