@@ -46,7 +46,13 @@ const (
 	panelLoopBrowserTimeout = 2 * time.Minute
 	panelLoopWSURLTimeout   = 60 * time.Second
 	panelLoopReserveSettle  = 500 * time.Millisecond
-	panelLoopSessionID      = "sess_panel_loop_long_transcript"
+	panelLoopDraftTimeout   = 10 * time.Second
+	// A realistic draft: more than the textarea shows at once, so it scrolls.
+	panelLoopDraftLines = 12
+	// The panel opens at 360px; this is the width it is dragged to.
+	panelLoopNarrowedWidth = 300
+	panelLoopPanelHeight   = 700
+	panelLoopSessionID     = "sess_panel_loop_long_transcript"
 )
 
 // panelProbeScript runs at document start in the embedded panel's page. It
@@ -279,28 +285,58 @@ func (s *panelLoopState) panelOpensTranscript(width int) error {
 	return s.waitUntil(`document.querySelectorAll("#messages details").length >= 10`, 20*time.Second)
 }
 
-func (s *panelLoopState) userDraftsFiveLines() error {
-	if err := chromedp.Run(s.tab, chromedp.Focus("#composer", chromedp.ByQuery)); err != nil {
+func (s *panelLoopState) userDraftsAndNarrowsThePanel() error {
+	lines := make([]string, panelLoopDraftLines)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("draft line %d", i+1)
+	}
+	draft := strings.Join(lines, "\n")
+	// Inserted as text (the way a paste arrives), so the newlines stay in the
+	// textarea instead of submitting the draft. Focus can lose the race with a
+	// re-render right after the transcript lands and the text then goes nowhere,
+	// so the insert is attempted twice before giving up.
+	insert := func() error {
+		if err := chromedp.Run(s.tab, chromedp.Focus("#composer", chromedp.ByQuery)); err != nil {
+			return err
+		}
+		return chromedp.Run(s.tab, chromedp.ActionFunc(func(ctx context.Context) error {
+			return input.InsertText(draft).Do(ctx)
+		}))
+	}
+	landed := `(document.getElementById("composer") || {}).value ? true : false`
+	if err := insert(); err != nil {
 		return err
 	}
-	// Inserted as text (the way a paste arrives), so the newlines grow the
-	// textarea instead of submitting the draft.
-	if err := chromedp.Run(s.tab, chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.InsertText("first line\nsecond line\nthird line\nfourth line\nfifth line").Do(ctx)
-	})); err != nil {
+	if err := s.waitUntil(landed, panelLoopDraftTimeout); err != nil {
+		if err := insert(); err != nil {
+			return err
+		}
+		if err := s.waitUntil(landed, panelLoopDraftTimeout); err != nil {
+			return fmt.Errorf("the draft never reached the composer: %w", err)
+		}
+	}
+	// Then narrow the panel, which is what actually moves the reserve.
+	//
+	// The draft does not: the textarea is fixed between a 76px minimum and a
+	// 180px cap and scrolls its content, so no amount of text changes the
+	// composer's height. Locally the reserve still moved, because the rest of
+	// the panel settled after the transcript landed - but that is font metrics,
+	// not behaviour, and a CI runner reported "the composer reserve was never
+	// written" for a scenario that had simply never had anything to write.
+	// A narrower panel rewraps the composer's own rows, which changes the host's
+	// height everywhere and leaves exactly one write for the next step to check.
+	if err := chromedp.Run(s.tab, chromedp.EmulateViewport(panelLoopNarrowedWidth, panelLoopPanelHeight)); err != nil {
 		return err
 	}
 	// A few frames for the resize observation and the deferred reserve write.
 	//
-	// This scenario earned its keep here: at this window it used to fail about
-	// four runs in six, and more often when the window was widened, with a
-	// reserve write of 206px -> 181px - the composer shrinking back - landing in
-	// the frame that measured it. The cause was in ChatScreen, not in the test:
-	// the reserve went through React state, so the DOM write happened whenever
-	// React committed rather than in the frame that scheduled it, and a commit
-	// after the frame's resize observations is a write inside the delivery loop
-	// again. It is written to the element directly now, and the scenario passes
-	// ten runs in ten here and eight in eight at three seconds.
+	// This scenario earned its keep: it used to fail about four runs in six with
+	// a reserve write landing in the frame that measured it. The cause was in
+	// ChatScreen, not here - the reserve went through React state, so the DOM
+	// write happened whenever React committed rather than in the frame that
+	// scheduled it, and a commit after that frame's resize observations is a
+	// write inside the delivery loop again. It is written to the element
+	// directly now.
 	return chromedp.Run(s.tab, chromedp.Sleep(panelLoopReserveSettle))
 }
 
@@ -443,7 +479,7 @@ func TestIDEPanelResizeLoopFeature(t *testing.T) {
 			})
 			sc.Step(`^a foxxycode HTTP server with a transcript of (\d+) tool-call exchanges$`, s.serverWithTranscript)
 			sc.Step(`^the embedded panel opens that transcript at (\d+) pixels wide$`, s.panelOpensTranscript)
-			sc.Step(`^the user drafts a five-line message in the composer$`, s.userDraftsFiveLines)
+			sc.Step(`^the user drafts a message and the panel is narrowed further$`, s.userDraftsAndNarrowsThePanel)
 			sc.Step(`^the transcript and the composer are rendered$`, s.transcriptAndComposerRendered)
 			sc.Step(`^no ResizeObserver loop error was raised$`, s.noLoopError)
 			sc.Step(`^every composer reserve write landed in a later frame than the resize observation that measured it$`, s.reserveWritesLandInALaterFrame)

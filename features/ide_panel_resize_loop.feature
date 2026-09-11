@@ -20,7 +20,7 @@ Feature: Embedded IDE panel opens a transcript without a ResizeObserver loop
 
   Scenario: An old transcript opens in the embedded panel at a narrow width
     When the embedded panel opens that transcript at 360 pixels wide
-    And the user drafts a five-line message in the composer
+    And the user drafts a message and the panel is narrowed further
     Then the transcript and the composer are rendered
     And no ResizeObserver loop error was raised
     And every composer reserve write landed in a later frame than the resize observation that measured it
