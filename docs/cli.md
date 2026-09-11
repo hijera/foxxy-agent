@@ -112,6 +112,13 @@ comes from the agent's `permission.Options`), the question tool (single or
 multi-select via space, custom free-text answers), model/mode/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
+The question modal spends every row on its option label and prints the
+description of the highlighted option under the list, word-wrapped over the
+whole width, so a sentence-long answer stays readable instead of being cut at
+a column boundary. When the question is answered, its tool block shows the
+questions with the chosen answers (`→ answer`, `→ (no answer)` for a dismissed
+one) rather than the JSON the tool hands the model.
+
 ## Local shell (`!!`)
 
 A submitted line that starts with `!!` is not a prompt. FoxxyCode runs the rest of
@@ -156,11 +163,6 @@ half, `!`, which feeds the output back to the model, is still deferred.
 The block belongs to the running console only. Reopening the session with
 `-c`, `--session-id`, or `/resume` does not replay it, because nothing about a
 `!!` command is written to disk.
-
-Modals replace the editor while open: permission requests (the option list
-comes from the agent's `permission.Options`), the question tool (single or
-multi-select via space, custom free-text answers), model/mode/theme/session
-selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
 ## Flags
 
