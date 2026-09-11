@@ -331,8 +331,14 @@ func (s *panelLoopState) userDraftsAndGrowsTheComposer() error {
 		`(function () {
       var host = document.querySelector(".chat-bottom-inner");
       if (!host) return false;
-      window.__panelHostBefore = host.getBoundingClientRect().height;
-      host.style.paddingBottom = "`+fmt.Sprint(panelLoopHostGrowthPx)+`px";
+      var before = host.getBoundingClientRect().height;
+      window.__panelHostBefore = before;
+      // min-height, not padding: a ResizeObserver watches the content box by
+      // default, and padding grows only the border box - the host got 60px
+      // taller on a CI runner and the SPA's observer was never told, which is
+      // how this read there as a reserve that stayed at 181px after three
+      // resize callbacks that were only the page loading.
+      host.style.minHeight = (before + `+fmt.Sprint(panelLoopHostGrowthPx)+`) + "px";
       return true;
     })()`, &grew)); err != nil {
 		return err
