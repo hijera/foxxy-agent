@@ -320,13 +320,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			}
 			return session.WritePlanArchivedMarkdown(sd, md)
 		},
-		Sender:  a.server,
-		GetPlan: a.state.GetPlan,
-		SetPlan: a.state.SetPlan,
-		SetSessionMode: func(mode string) error {
-			a.state.SetMode(strings.TrimSpace(mode))
-			return nil
-		},
+		Sender:         a.server,
+		GetPlan:        a.state.GetPlan,
+		SetPlan:        a.state.SetPlan,
+		SetSessionMode: a.setSessionModeAnnounced,
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
@@ -365,6 +362,25 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.applySubagentEnv(toolEnv, mode)
 
 	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns, true)
+}
+
+// setSessionModeAnnounced switches the session profile and tells the client it
+// happened, the way session.RunPlan does. plan_exit is the model's own way out
+// of plan mode, so a client that never hears about it keeps posting "plan" and
+// the next turn writes that back onto the session.
+func (a *Agent) setSessionModeAnnounced(mode string) error {
+	m := strings.TrimSpace(mode)
+	a.state.SetMode(m)
+	if a.server == nil {
+		return nil
+	}
+	if err := a.server.SendSessionUpdate(a.state.GetID(), acp.ModeUpdate{
+		SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
+		CurrentModeID: m,
+	}); err != nil {
+		a.log.Warn("failed to send mode update", "error", err)
+	}
+	return nil
 }
 
 // wireFileEditHook connects Env.OnFileEdit to the update sender so filesystem writes are
@@ -425,6 +441,12 @@ const (
 	toolCycleNudge = "This call repeats a sequence of tool calls you have already run in this turn with the same arguments, so it was not executed again. Running it again will not return anything new. Note that an \"[evicted: ...]\" placeholder only means the text was dropped from your context to save room - the file has not changed, and re-reading it will produce the same content you already reasoned about. Work from what you have and take a genuinely different step, or tell the user what you cannot determine; do not repeat the sequence."
 
 	toolCycleSkippedResult = "not executed: the loop guard stopped this turn after a repeating sequence of tool calls"
+
+	// permissionTimeoutReason explains a gate that tools.permission_timeout_seconds
+	// closed. It travels as a PermissionResult.Reason so permissionDeniedResult
+	// renders it behind permissionNotGrantedPrefix: nobody refused the call, and
+	// the model must not tell the operator they rejected a prompt they never saw.
+	permissionTimeoutReason = "the permission request timed out with no answer from the operator"
 
 	// toolCycleStopNotice is the notice surfaced when a turn keeps cycling through
 	// the same sequence after every nudge. Unlike the identical-call notice it
@@ -1122,6 +1144,9 @@ func (a *Agent) runReActLoop(
 				continue
 			}
 			if response.StopReason == "max_tokens" {
+				// Nothing on screen separates this from a finished turn, so say it:
+				// the cap is a setting the user can raise, but only once told it was hit.
+				a.persistTruncationNotice(maxTokensNotice(a.effectiveMaxTokens(), response.OutputTokens))
 				return string(acp.StopReasonMaxTokens), nil
 			}
 			// A Stop hook may send the agent back to work with a follow-up that
@@ -1522,57 +1547,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
-	requiresPerm := ok && tool.RequiresPermission
-
 	var sessCmdGrants, sessWriteGrants []string
 	if st := sessionStatePtr(a.state); st != nil {
 		sessCmdGrants = st.GetPermissionCommandGrants()
 		sessWriteGrants = st.GetPermissionWriteGrants()
 	}
-
-	if tc.Name == "run_command" {
-		switch env.PermissionMode {
-		case config.PermModeBypass:
-			requiresPerm = false
-		case config.PermModeAcceptEdits:
-			cmd := permission.ExtractRunCommand(tc.InputJSON)
-			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		default: // ask
-			cmd := permission.ExtractRunCommand(tc.InputJSON)
-			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		}
-	} else if configWriteTool(tc.Name) {
-		// Committing or rolling back the agent's own configuration can start
-		// new MCP processes and change the permission policy itself, so
-		// accept_edits does NOT auto-approve it the way it approves project
-		// file writes. Only the explicit bypass mode skips the prompt.
-		requiresPerm = env.PermissionMode != config.PermModeBypass
-	} else if filesystemWriteTool(tc.Name) {
-		switch env.PermissionMode {
-		case config.PermModeBypass, config.PermModeAcceptEdits:
-			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
-			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
-				requiresPerm = false
-			} else {
-				requiresPerm = false // auto-approve
-			}
-		default: // ask
-			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
-			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
-				requiresPerm = false
-			} else {
-				requiresPerm = true
-			}
-		}
-	}
+	requiresPerm := permissionRequired(ok && tool.RequiresPermission, tc, env, sessCmdGrants, sessWriteGrants)
 
 	// A hook's allow skips the prompt; its ask forces one even in a mode that
 	// would auto-approve.
@@ -1605,7 +1585,16 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		// Notification hooks learn that a prompt is about to wait for the
 		// operator (a chat ping, a desktop notification); they cannot answer it.
 		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
-		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
+		// tools.permission_timeout_seconds bounds the wait so a connected but
+		// unresponsive client cannot hold the session turn lock forever; the
+		// default (0) keeps waiting, which is the interactive contract. The
+		// notification above goes out first: it announces the wait this bounds.
+		permCtx := ctx
+		var cancelPerm context.CancelFunc
+		if d := a.cfg.Tools.ResolvedPermissionTimeout(); d > 0 {
+			permCtx, cancelPerm = context.WithTimeout(ctx, d)
+		}
+		permResult, err := a.server.RequestPermission(permCtx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
 				ToolCallID: tc.ID,
@@ -1618,6 +1607,18 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			},
 			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
+		timedOut := permCtx.Err() == context.DeadlineExceeded
+		if cancelPerm != nil {
+			cancelPerm()
+		}
+		if timedOut {
+			a.log.Warn("permission prompt timed out; cancelling tool call",
+				"tool", tc.Name, "session", sessionID, "timeout", a.cfg.Tools.ResolvedPermissionTimeout())
+			if permResult == nil {
+				permResult = &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}
+			}
+			permResult.Reason = permissionTimeoutReason
+		}
 
 		if err != nil || !permission.Approved(permResult) {
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
@@ -2067,18 +2068,63 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	return b.String()
 }
 
-// extractContextFiles returns file paths referenced in content blocks.
+// extractContextFiles returns the files a turn is about: what a path-scoped
+// rule or skill is matched against.
 func extractContextFiles(blocks []acp.ContentBlock) []string {
 	var files []string
 	for _, b := range blocks {
-		if b.Type == "resource" && b.Resource != nil {
-			uri := b.Resource.URI
-			if strings.HasPrefix(uri, "file://") {
-				files = append(files, fileURIPath(uri))
-			}
+		if b.Type != "resource" || b.Resource == nil {
+			continue
+		}
+		if p := contextFilePath(b.Resource.URI); p != "" {
+			files = append(files, p)
 		}
 	}
 	return files
+}
+
+// contextFilePath turns one resource URI into a filesystem path, or "" when it
+// names no file on disk.
+//
+// The two surfaces spell the same mention differently: an editor over ACP sends
+// file:///C:/proj/src/sample.go, while the HTTP surface sends the
+// workspace-relative path the user typed, "src/sample.go". Reading only the
+// file:// form left every path-scoped rule and skill inactive off ACP. A URI
+// carrying any other scheme (http://, data:) is not a path and is dropped.
+func contextFilePath(uri string) string {
+	uri = strings.TrimSpace(uri)
+	switch {
+	case uri == "":
+		return ""
+	case strings.HasPrefix(uri, "file://"):
+		return fileURIPath(uri)
+	case hasURIScheme(uri):
+		return ""
+	}
+	return uri
+}
+
+// hasURIScheme reports whether s opens with a URI scheme. A Windows drive
+// letter is deliberately not one: "C:/proj/x.go" is a path, and a scheme needs
+// more than a single letter before the colon.
+func hasURIScheme(s string) bool {
+	colon := strings.IndexByte(s, ':')
+	if colon < 2 {
+		return false
+	}
+	for i := 0; i < colon; i++ {
+		c := s[i]
+		switch {
+		case isASCIILetter(c):
+		case c >= '0' && c <= '9', c == '+', c == '-', c == '.':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // fileURIPath turns a file:// URI into a filesystem path. On Windows the
