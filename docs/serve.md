@@ -110,7 +110,7 @@ What happens next depends on what moved:
 |--------|--------|
 | models, providers, skills, permissions, most settings | the live configuration is swapped; `GET /foxxycode/events` carries `config_reloaded` and open clients re-read (see [the SPA notes](ui.md)) |
 | the Telegram token, the scheduler's directory or timeout | that subsystem alone is rebuilt in place |
-| a subsystem's `enable` | it is started or stopped |
+| a subsystem's `enabled` | it is started or stopped |
 | a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart |
 
 Everything else a surface reads once when it is constructed - the relay's own
