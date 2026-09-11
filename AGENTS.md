@@ -28,7 +28,7 @@ Short map for automation-friendly contributors.
 
 ## Builds
 
-Run **`make build TAGS=http`** for the HTTP gateway only (**`foxxycode http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `foxxycode`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli browser"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
+Run **`make build TAGS=http`** for the HTTP gateway only (**`foxxycode http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `foxxycode`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
 Run **`make deb`** / **`make rpm`** for the Linux packages (**`PKG_ARCHS`**, **`PKG_TAGS`**, **`DIST_DIR`** knobs; nfpm is fetched on demand, nothing to install first) and **`make brew VERSION=X.Y.Z`** to render the Homebrew cask for a published release. CI builds the Linux packages on every pull request, so a broken recipe is not first seen at release time.
 
 Primary conversational surface for bundled UI lives at **`POST /v1/responses`** with **`stream:true`**. Prefer it over **`POST /v1/chat/completions`** when shipping FoxxyCode-hosted experiences.

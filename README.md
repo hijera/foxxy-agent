@@ -101,7 +101,7 @@ FoxxyCode работает как **ACP-сервер** (`foxxycode acp`). **Obsi
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install   # копирует build/foxxycode в ~/.local/bin или /usr/local/bin
 ```
 
@@ -182,7 +182,7 @@ make build-desktop
 
 ### Теги сборки
 
-В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory cli browser"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory`**).
+В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory`**).
 
 | Тег | Что включает | Документация |
 |-----|--------------|--------------|
@@ -201,7 +201,7 @@ make build-desktop
 
 ### Docker
 
-Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`** и **`browser`** — тот же набор функций, что и **`make build TAGS="http ui scheduler memory cli browser"`**. Тег **`gateway`** в него, в отличие от релизных архивов, не входит: для шлюза мессенджеров соберите свой образ (**`docker-compose.dev.yml`** или свой **`BUILD_TAGS`**), см. **[docs/docker.md](docs/docker.md)**.
+Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с тем же набором, что и **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** — включая **`gateway`** и **`swarm`**, так что команда по умолчанию (**`serve`**) поднимает те подсистемы, которые включены в примонтированном **`config.yaml`**, см. **[docs/docker.md](docs/docker.md)**.
 
 **1. Конфигурация и рабочий каталог** (из корня репозитория или другого каталога, в котором хранится **`config.yaml`**):
 
@@ -285,7 +285,7 @@ export OPENAI_API_KEY="sk-..."
 
 ## Обновление
 
-Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory cli browser"`**.
+Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
 
 Команда **`foxxycode update`** загружает архив для текущей ОС и архитектуры и заменяет запущенный исполняемый файл с разрешением символических ссылок. Обычно так обновляют установку после **`make install`** (**`~/.local/bin/foxxycode`**) или локальный артефакт командой **`./build/foxxycode update`**.
 
@@ -657,7 +657,7 @@ make test
 # ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Полнофункциональная локальная сборка (HTTP + UI + планировщик), как в Docker
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 
 ./build/foxxycode -v    # то же, что --version
 

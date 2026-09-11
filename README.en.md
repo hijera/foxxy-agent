@@ -103,7 +103,7 @@ Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install   # copies build/foxxycode to ~/.local/bin or /usr/local/bin
 ```
 
@@ -185,7 +185,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 ### Build tags
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli browser"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
 
 | Tag | Enables | Docs |
 |-----|---------|------|
@@ -204,7 +204,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`browser`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser"`**. Unlike the release archives, it does **not** carry the **`gateway`** tag: build your own image for the messenger gateway (**`docker-compose.dev.yml`** or a custom **`BUILD_TAGS`**), see **[docs/docker.md](docs/docker.md)**.
+Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`browser`**, **`gateway`** and **`swarm`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**, so the default command (**`serve`**) runs whichever subsystems the mounted **`config.yaml`** enables, see **[docs/docker.md](docs/docker.md)**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -287,7 +287,7 @@ Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based def
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
 
 **`foxxycode update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/foxxycode`**) or when you run **`./build/foxxycode update`** to refresh a local build artifact.
 
@@ -650,7 +650,7 @@ make test
 # Example harnesses (see examples/README.md): ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 
 ./build/foxxycode -v    # same as --version
 
