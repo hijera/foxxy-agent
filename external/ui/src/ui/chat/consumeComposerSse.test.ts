@@ -133,3 +133,60 @@ describe("design plan SSE event", () => {
     expect(slugs).toEqual(["my-plan"]);
   });
 });
+
+describe("consumeComposerSseReader llm_retry", () => {
+  const park = (phase: string) =>
+    `event: llm_retry\ndata: {"phase":"${phase}"}\n\n`;
+  const done = "data: [DONE]\n\n";
+
+  // A stream cut mid-answer leaves the bubble on screen looking live. The park is
+  // the only thing that tells the status line otherwise.
+  it("reports a turn parked behind a partial answer", async () => {
+    const seen: boolean[] = [];
+    const p = {
+      ...baseParams(readerFromChunks([park("continuing"), done])),
+      onLlmRetrying: (v: boolean) => seen.push(v),
+    };
+    await consumeComposerSseReader(p);
+    expect(seen).toEqual([true]);
+  });
+
+  it("reports a pause before replaying a silent call", async () => {
+    const seen: boolean[] = [];
+    const p = {
+      ...baseParams(readerFromChunks([park("waiting"), done])),
+      onLlmRetrying: (v: boolean) => seen.push(v),
+    };
+    await consumeComposerSseReader(p);
+    expect(seen).toEqual([true]);
+  });
+
+  // ...and takes it back the moment the provider delivers again, or the label
+  // outlives the wait and sits over an answer that is arriving fine.
+  it("clears the park when output resumes", async () => {
+    const seen: boolean[] = [];
+    const p = {
+      ...baseParams(
+        readerFromChunks([park("continuing"), park("resumed"), done]),
+      ),
+      onLlmRetrying: (v: boolean) => seen.push(v),
+    };
+    await consumeComposerSseReader(p);
+    expect(seen).toEqual([true, false]);
+  });
+
+  // A retry that was merely issued is not output. The silent-call path emits this
+  // between its own attempts, and clearing on it blinked the label out while the
+  // turn was still parked.
+  it("keeps the park while an attempt is only issued", async () => {
+    const seen: boolean[] = [];
+    const p = {
+      ...baseParams(
+        readerFromChunks([park("continuing"), park("retrying"), done]),
+      ),
+      onLlmRetrying: (v: boolean) => seen.push(v),
+    };
+    await consumeComposerSseReader(p);
+    expect(seen).toEqual([true]);
+  });
+});

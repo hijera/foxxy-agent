@@ -21,6 +21,10 @@
   "cmd.showLogs.title.ru": "Показать логи",
   "cmd.showWelcome.title": "Show Welcome",
   "cmd.showWelcome.title.ru": "Показать приветствие",
+  "cmd.addToChat.title": "Add to FoxxyCode",
+  "cmd.addToChat.title.ru": "Добавить в FoxxyCode",
+  "cmd.verifyBinary.title": "Verify Binary",
+  "cmd.verifyBinary.title.ru": "Проверить бинарник",
 
   "walkthrough.welcome.title": "Начало работы с FoxxyCode",
   "walkthrough.welcome.description": "Запуск полного агента foxxycode в VS Code — чат, plan mode, планировщик, навыки и нативные inline-диффы.",
@@ -36,7 +40,7 @@
   "walkthrough.step.toolbar.description": "На title bar webview: **Restart** (перезапуск сервера), **Reload** (обновить UI), **Open in Browser**, **Open DevTools** и **Settings**. Повторно открыть тур: **FoxxyCode: Show Welcome**.",
 
   "cfg.title": "FoxxyCode",
-  "cfg.binaryPath.description": "Переопределить встроенный foxxycode путём к полной сборке.",
+  "cfg.binaryPath.description": "Переопределить встроенный foxxycode путём к полной сборке. [Проверить бинарник](command:foxxycode.verifyBinary)",
   "cfg.host.description": "Хост, на котором слушает сервер foxxycode http.",
   "cfg.port.description": "Порт foxxycode http (0 = выбрать свободный порт автоматически).",
   "cfg.home.description": "Каталог состояния для сессий и конфига (foxxycode --home; по умолчанию ~/.foxxycode).",
@@ -46,5 +50,6 @@
   "cfg.autoApproveEdits.description": "Применять правки без запроса (дифф всё равно показывается, с возможностью отката).",
   "cfg.trackOpenFiles.description": "Сообщать агенту, какие файлы у вас открыты (вкладки + активный файл), чтобы он учитывал это в каждом ходе.",
   "cfg.trackTerminals.description": "Сообщать агенту об открытых терминалах и их последнем выводе, чтобы он учитывал это в каждом ходе и мог обрабатывать упоминания @terminal.",
+  "cfg.terminalClipboardCapture.description": "Дополнительно снимать видимый вывод активного терминала через буфер обмена (выделить всё → скопировать → восстановить), когда у shell integration для него ничего нет, чтобы агент видел терминалы, открытые до запуска FoxxyCode. Буфер обмена восстанавливается сразу после снимка; менеджеры истории буфера всё равно его запишут. По умолчанию выключено.",
   "cfg.planNoSelfRun.description": "Запретить модели самой начать выполнять план: в режиме плана plan_exit скрыт, а инструменты вне списка плана отклоняются — реализацию запускает только кнопка «Запустить план»."
 }

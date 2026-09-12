@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
@@ -51,15 +52,19 @@ func (s *sender) SendSessionUpdate(sessionID string, update interface{}) error {
 // permission override wins over the YAML default, mirroring the agent's own
 // effective-mode resolution.
 func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	mode := ""
-	if st := s.app.mgr.SessionByID(params.SessionID); st != nil {
-		mode = st.GetPermissionMode()
+	// A subagent's request arrives under the parent's session id with the
+	// child's own mode stamped on it; that mode decides, not the parent's.
+	mode := strings.TrimSpace(params.EffectivePermissionMode)
+	if mode == "" {
+		if st := s.app.mgr.SessionByID(params.SessionID); st != nil {
+			mode = st.GetPermissionMode()
+		}
 	}
 	if mode == "" && s.app.remoteURL == "" {
 		// Local fallback only: a remote server sends a permission event
 		// precisely because ITS policy wants a human answer, so the local
 		// bypass setting must never auto-approve it.
-		if cfg := s.app.cfg; cfg != nil {
+		if cfg := s.app.config(); cfg != nil {
 			mode = cfg.Tools.ResolvedPermMode()
 		}
 	}

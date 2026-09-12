@@ -7,16 +7,25 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 )
 
-// newHandler builds the slog.Handler matching cfg.Format. The level comes from lv,
-// a shared *slog.LevelVar, so the caller can change verbosity at runtime via lv.Set
-// (used by the debug.enabled toggle through PUT /foxxycode/config) without
+// newHandler builds the slog.Handler matching cfg.Format. The level comes from
+// lv, a shared *slog.LevelVar, so the caller can change verbosity at runtime
+// via lv.Set (the debug.enabled toggle through PUT /foxxycode/config) without
 // rebuilding the handler or the logger.
+//
+// Per-component overrides (cfg.Levels) need the format handler open at the
+// lowest level any component asks for, because slog decides whether to build a
+// record before it can see which component is logging; componentHandler then
+// drops what that component did not ask for. The caller seeds lv with that
+// floor, so without overrides the LevelVar alone is the whole story.
 func newHandler(w io.Writer, cfg config.Logger, lv *slog.LevelVar) slog.Handler {
 	opts := &slog.HandlerOptions{Level: lv}
+	var h slog.Handler
 	if cfg.Format == config.LogFormatJSON {
-		return slog.NewJSONHandler(w, opts)
+		h = slog.NewJSONHandler(w, opts)
+	} else {
+		h = slog.NewTextHandler(w, opts)
 	}
-	return slog.NewTextHandler(w, opts)
+	return newComponentHandler(h, cfg)
 }
 
 func levelOf(name string) slog.Level {

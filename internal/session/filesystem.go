@@ -16,9 +16,13 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/tools/todo"
 )
 
+// MessagesFileName is the transcript file inside a session bundle; hooks
+// receive its path as transcript_path.
+const MessagesFileName = "messages.json"
+
 const (
 	sessionMetaFile      = "session.json"
-	messagesFile         = "messages.json"
+	messagesFile         = MessagesFileName
 	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
 	todosDirName         = "todos"
@@ -73,6 +77,51 @@ func (f *FileStore) HasPersistedSnapshot(sessionID string) bool {
 	meta := filepath.Join(f.SessionPath(sessionID), sessionMetaFile)
 	fi, err := os.Stat(meta)
 	return err == nil && !fi.IsDir()
+}
+
+// ResolveSessionID returns the stored session whose folder id is idOrPrefix,
+// or the single stored session whose id starts with it. Folders without a
+// session.json are not sessions.
+func (f *FileStore) ResolveSessionID(idOrPrefix string) (string, error) {
+	q := strings.TrimSpace(idOrPrefix)
+	if q == "" {
+		return "", fmt.Errorf("session id is empty")
+	}
+	if f == nil || f.Root == "" {
+		return "", fmt.Errorf("session store not available")
+	}
+	if err := ValidateFolderSessionID(q); err != nil {
+		return "", err
+	}
+	if f.HasPersistedSnapshot(q) {
+		return q, nil
+	}
+	de, err := os.ReadDir(f.Root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("session not found: %s", q)
+		}
+		return "", err
+	}
+	var matches []string
+	for _, ent := range de {
+		if !ent.IsDir() || !strings.HasPrefix(ent.Name(), q) || !f.HasPersistedSnapshot(ent.Name()) {
+			continue
+		}
+		matches = append(matches, ent.Name())
+	}
+	sort.Strings(matches)
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("session not found: %s", q)
+	case 1:
+		return matches[0], nil
+	}
+	shown := matches
+	if len(shown) > 5 {
+		shown = shown[:5]
+	}
+	return "", fmt.Errorf("session id prefix %q is ambiguous (%d matches: %s)", q, len(matches), strings.Join(shown, ", "))
 }
 
 // ActiveTodoPath is the markdown file for the current todo list.
@@ -144,16 +193,26 @@ type SessionMeta struct {
 	SelectedModelID   string `json:"selectedModelId,omitempty"`
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
-	Title             string `json:"title,omitempty"`
-	TitlePinned       string `json:"titlePinned,omitempty"`
-	TitleAuto         string `json:"titleAuto,omitempty"`
-	UpdatedAt         string `json:"updatedAt,omitempty"`
+	// HookContext is what SessionStart hooks handed to the session.
+	HookContext string `json:"hookContext,omitempty"`
+	Title       string `json:"title,omitempty"`
+	TitlePinned string `json:"titlePinned,omitempty"`
+	TitleAuto   string `json:"titleAuto,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
 	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
 	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
+	// Subagent-run bundle: a child session spawned by another session's
+	// spawn_agent call; omitted for normal chats. The pool task that represents
+	// the run lives under ParentSessionID.
+	SubagentRun     bool   `json:"subagentRun,omitempty"`
+	ParentSessionID string `json:"parentSessionId,omitempty"`
+	SubagentName    string `json:"subagentName,omitempty"`
+	SubagentTaskID  string `json:"subagentTaskId,omitempty"`
+	SubagentDepth   int    `json:"subagentDepth,omitempty"`
 	// ActivitySeq increments when an agent turn completes (multi-surface unread indicator).
 	ActivitySeq uint64 `json:"activitySeq,omitempty"`
 	// ReadActivitySeq tracks the last activity generation the user marked as read.
@@ -169,6 +228,16 @@ func (m SessionMeta) ExcludedFromComposerSessionList(sessionFolderName string) b
 	}
 	s := strings.TrimSpace(sessionFolderName)
 	return strings.HasPrefix(s, "sched_")
+}
+
+// IsSubagentRun reports whether this bundle is a child session spawned by
+// another session (by its meta, or by the sub_ folder prefix for a bundle whose
+// meta was never completed).
+func (m SessionMeta) IsSubagentRun(sessionFolderName string) bool {
+	if m.SubagentRun {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(sessionFolderName), subagentSessionPrefix)
 }
 
 type messagesFileData struct {
@@ -296,9 +365,26 @@ type SessionListEntry struct {
 	UpdatedAt string
 }
 
+// ListOptions selects which persisted sessions ListSnapshotsWith returns.
+type ListOptions struct {
+	// CWD keeps only sessions saved with this working directory when non-empty.
+	CWD string
+	// IncludeSchedulerRuns adds bundles created by scheduler runs (sched_ ids).
+	IncludeSchedulerRuns bool
+	// IncludeSubagents adds child sessions spawned by spawn_agent (sub_ ids).
+	IncludeSubagents bool
+}
+
 // ListSnapshots scans Root for persisted sessions (requires session.json).
 // When includeSchedulerRuns is false, sessions marked schedulerRun in session.json (or folder id prefix sched_) are omitted (default composer list).
+// Subagent child sessions are always omitted here; use ListSnapshotsWith to include them.
 func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) ([]SessionListEntry, error) {
+	return f.ListSnapshotsWith(ListOptions{CWD: cwdFilter, IncludeSchedulerRuns: includeSchedulerRuns})
+}
+
+// ListSnapshotsWith scans Root for persisted sessions matching opts.
+func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, error) {
+	cwdFilter := opts.CWD
 	var out []SessionListEntry
 	if f.Root == "" {
 		return out, nil
@@ -321,7 +407,10 @@ func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) (
 		if err != nil {
 			continue
 		}
-		if !includeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
+		if !opts.IncludeSchedulerRuns && meta.ExcludedFromComposerSessionList(id) {
+			continue
+		}
+		if !opts.IncludeSubagents && meta.IsSubagentRun(id) {
 			continue
 		}
 		if cwdFilter != "" && meta.CWD != cwdFilter {
@@ -447,6 +536,7 @@ func (f *FileStore) Save(state *State) error {
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),
+		HookContext:       state.GetHookContext(),
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
@@ -459,6 +549,13 @@ func (f *FileStore) Save(state *State) error {
 		meta.SchedulerStartedAt = strings.TrimSpace(state.GetSchedulerStartedAt())
 		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
 		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
+	}
+	if sub := state.Subagent(); sub != nil {
+		meta.SubagentRun = true
+		meta.ParentSessionID = strings.TrimSpace(sub.ParentSessionID)
+		meta.SubagentName = strings.TrimSpace(sub.Name)
+		meta.SubagentTaskID = strings.TrimSpace(sub.TaskID)
+		meta.SubagentDepth = sub.Depth
 	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
@@ -526,6 +623,9 @@ func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := StripInjectedContextBlocks(strings.TrimSpace(msg.Content))
+			// Hydrated @-mention turns also carry <foxxycode_attachment> file bodies;
+			// a title is the user's text, never the attachment XML.
+			text = StripContextBlocks(text, TagAttachment)
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -545,6 +645,9 @@ const (
 	TagIDEContext      = "foxxycode_ide_context"
 	TagTerminalContext = "foxxycode_terminal_context"
 	TagTerminalOutput  = "foxxycode_terminal_output"
+	// TagAttachment wraps a hydrated @-mention file body. Not part of
+	// injectedContextTags — transcripts keep it — but titles strip it.
+	TagAttachment = "foxxycode_attachment"
 )
 
 // injectedContextTags carries every wrapper tag, for callers that want the user's bare text.
@@ -586,7 +689,7 @@ func stripXMLBlock(s, tag string) string {
 		if start < 0 {
 			break
 		}
-		end := strings.Index(lower[start:], lowerClose)
+		end := closeTagOutsideCDATA(lower[start:], lowerOpen, lowerClose)
 		if end < 0 {
 			s = s[:start]
 			break
@@ -594,6 +697,30 @@ func stripXMLBlock(s, tag string) string {
 		s = s[:start] + s[start+end+len(close):]
 	}
 	return s
+}
+
+// closeTagOutsideCDATA finds the close tag that ends the block opening at the
+// start of s, skipping over CDATA sections. A hydrated attachment carries the
+// file body inside CDATA (internal/agent wrapXMLCDATA splits an embedded "]]>"
+// across two sections), so a file that itself contains the close tag must not
+// cut the scan short. Returns -1 when the block is unterminated.
+func closeTagOutsideCDATA(s, lowerOpen, lowerClose string) int {
+	const cdataOpen, cdataClose = "<![cdata[", "]]>"
+	for pos := len(lowerOpen); pos < len(s); {
+		if strings.HasPrefix(s[pos:], cdataOpen) {
+			n := strings.Index(s[pos+len(cdataOpen):], cdataClose)
+			if n < 0 {
+				return -1
+			}
+			pos += len(cdataOpen) + n + len(cdataClose)
+			continue
+		}
+		if strings.HasPrefix(s[pos:], lowerClose) {
+			return pos
+		}
+		pos++
+	}
+	return -1
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.

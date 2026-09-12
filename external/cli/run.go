@@ -52,13 +52,13 @@ func Run(args []string, deps CommandDeps) error {
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
 	modeFlag := fs.String("mode", "", "start in this mode: agent|plan")
 	permMode := fs.String("permission-mode", "", "permission mode: ask|accept_edits|bypass")
-	remoteFlag := fs.String("remote", "", "connect to a remote foxxycode http server (configured remote name, host:port, or http(s) URL)")
+	remoteFlag := fs.String("remote", "", "connect to a remote foxxycode serve server (configured remote name, host:port, or http(s) URL)")
 	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from FOXXYCODE_REMOTE_TOKEN)")
 	themeFlag := fs.String("theme", "auto", "color theme: dark|light|auto")
 	plainFlag := fs.Bool("plain", false, "deterministic rendering for tests: no terminal queries or protocol negotiation")
-	logLevel := fs.String("log-level", "", "debug|info|warn|error (default from config)")
+	logLevel := fs.String("log-level", "", "log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)")
 	logFile := fs.String("log-file", "", "log file path (default <home>/logs/cli.log)")
-	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	fs.Usage = func() {
@@ -167,11 +167,11 @@ func Run(args []string, deps CommandDeps) error {
 			return PrintPrompt(ctx, h, popts)
 		}
 		lateSender := &lateBoundSender{}
+		var mgr *session.Manager
 		runner := func(rctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-			loop := agent.NewAgent(cfg, st, snd, log)
-			return loop.Run(rctx, prompt)
+			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
 		}
-		mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
 		return PrintPrompt(ctx, mgr, popts)
 	}
@@ -223,18 +223,41 @@ func Run(args []string, deps CommandDeps) error {
 
 // buildApp wires the manager triple (store -> manager -> app) with the app's
 // sender registered as the manager's server sender, so replay, mode, config,
-// and slash-catalog updates reach the console.
+// and slash-catalog updates reach the console. The runner only executes
+// inside manager prompt handling, so mgr and app are set by the time it runs.
 func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
 	var app *App
+	var mgr *session.Manager
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
-		return loop.Run(ctx, prompt)
+		return newTurnAgent(mgr, app, st, snd, log).Run(ctx, prompt)
 	}
 	lateSender := &lateBoundSender{}
-	mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
 	return app
+}
+
+// newTurnAgent builds the ReAct agent for one local console turn on the
+// manager's live configuration and wires the staged config flow to the
+// manager's runtime reload, as cmd/foxxycode does for ACP and external/httpserver
+// for HTTP. Without the reloader the agent hides config_set through
+// config_rollback and the model can only read FoxxyCode's configuration. After a
+// successful reload the app (nil in print mode) adopts the new config so its
+// model catalog, footer, and header follow the file.
+func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.UpdateSender, log *slog.Logger) *agent.Agent {
+	loop := agent.NewAgent(mgr.Cfg(), st, snd, log)
+	loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+		warnings, err := mgr.ReloadConfigForSession(ctx, st)
+		if err == nil && app != nil {
+			app.replaceConfig(mgr.Cfg(), st)
+		}
+		return warnings, err
+	})
+	// The manager owns child sessions, so a console turn may spawn subagents
+	// like an ACP or HTTP turn.
+	loop.SetSubagentRuntime(mgr)
+	return loop
 }
 
 // warnInsecureRemote flags a bearer token about to travel over plain http to
@@ -247,7 +270,7 @@ func warnInsecureRemote(ropts *remote.Options, w io.Writer) {
 	_, _ = fmt.Fprintf(w, "warning: sending the bearer token over plain http to %s; prefer https or a trusted network\n", ropts.BaseURL)
 }
 
-// buildRemoteApp wires the console against a remote foxxycode http server: the
+// buildRemoteApp wires the console against a remote foxxycode serve server: the
 // remote handler replaces the manager and streams ACP updates back through
 // the app's sender.
 func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger, term appTerminal, themeName string, plain bool) (*App, error) {
@@ -320,6 +343,16 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		restored = true
 		if app.turnActive && app.sessionID != "" {
 			app.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: app.sessionID})
+			// A remote cancel is a network request; give it a moment to reach
+			// the server before the process disappears.
+			if w, ok := app.mgr.(interface{ WaitCancels(time.Duration) }); ok {
+				w.WaitCancels(5 * time.Second)
+			}
+		}
+		if c, ok := app.mgr.(interface{ Close() }); ok {
+			// A remote backend refuses further usage pulls and drops the ones
+			// in flight: nothing may fire into the closed console.
+			c.Close()
 		}
 		app.Close()
 		app.JoinWorkers(3 * time.Second)

@@ -88,6 +88,7 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 				tm := msgs[i+1]
 				i++
 				display, pmeta := PreviewToolResultForSessionUpdate(tc.Name, tm.Content)
+				pmeta = attachReplayTodoPlan(sessionDir, tm.ToolCallID, pmeta)
 				var content []acp.ToolCallResultItem
 				if display != "" {
 					content = []acp.ToolCallResultItem{
@@ -105,12 +106,15 @@ func (m *Manager) replayConversation(sessionID string, msgs []llm.Message, sessi
 
 		case llm.RoleTool:
 			toolName := ""
+			var planSnapshot []acp.PlanEntry
 			if sd := strings.TrimSpace(sessionDir); sd != "" {
 				if meta, err := ReadToolCallMeta(sd, msg.ToolCallID); err == nil && meta != nil {
 					toolName = meta.Name
+					planSnapshot = meta.PlanSnapshot
 				}
 			}
 			display, pmeta := PreviewToolResultForSessionUpdate(toolName, msg.Content)
+			pmeta = AttachTodoPlanMeta(pmeta, planSnapshot)
 			var content []acp.ToolCallResultItem
 			if display != "" {
 				content = []acp.ToolCallResultItem{
@@ -272,4 +276,19 @@ func replayToolKind(name string) string {
 	default:
 		return "other"
 	}
+}
+
+// attachReplayTodoPlan adds the persisted plan snapshot of a todo tool call to the
+// replayed tool_call_update meta, so a reopened session renders the same card the
+// live turn did.
+func attachReplayTodoPlan(sessionDir, toolCallID string, meta map[string]interface{}) map[string]interface{} {
+	sd := strings.TrimSpace(sessionDir)
+	if sd == "" || strings.TrimSpace(toolCallID) == "" {
+		return meta
+	}
+	tcMeta, err := ReadToolCallMeta(sd, toolCallID)
+	if err != nil || tcMeta == nil {
+		return meta
+	}
+	return AttachTodoPlanMeta(meta, tcMeta.PlanSnapshot)
 }

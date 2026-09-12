@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
-// footer renders the two status lines under the editor (pi FooterComponent):
+// footer renders the status lines under the editor (pi FooterComponent):
 // line 1: dim cwd (git branch) • session title [• plan]
-// line 2: token stats + context percent left, (provider) model • reasoning right.
+// line 2: token stats + context percent left, (provider) model • reasoning right;
+// line 3, only while the active model's provider reports account usage:
+// plan • window percentages with reset times • wallet (usage.go).
 type footer struct {
 	theme *tui.Theme
 
@@ -30,6 +34,12 @@ type footer struct {
 	provider  string
 	model     string
 	reasoning string
+
+	// usages holds the latest usage update per provider row; the active
+	// model's renders. now is the clock of the reset-time wording (tests pin
+	// it).
+	usages map[string]*acp.ProviderUsageUpdate
+	now    func() time.Time
 }
 
 func newFooter(theme *tui.Theme, cwd string) *footer {
@@ -58,6 +68,48 @@ func (f *footer) SetContext(percent float64, maxTokens int) {
 func (f *footer) SetModel(modelID, reasoning string) {
 	f.provider, f.model = splitModelID(modelID)
 	f.reasoning = reasoning
+}
+
+// SetUsage adopts a provider usage update for its provider row.
+func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) {
+	if u == nil || u.Provider == "" {
+		return
+	}
+	if f.usages == nil {
+		f.usages = make(map[string]*acp.ProviderUsageUpdate)
+	}
+	f.usages[u.Provider] = u
+}
+
+// DropUsage forgets the snapshot of a provider row: the backend answered
+// that the row has no usage now (its panel switched off in config, or the
+// row retyped), so the line must not keep the old numbers.
+func (f *footer) DropUsage(provider string) {
+	if f.usages != nil {
+		delete(f.usages, provider)
+	}
+}
+
+// Usage returns the update of the active model's provider, or nil.
+func (f *footer) Usage() *acp.ProviderUsageUpdate {
+	if f.provider == "" || f.usages == nil {
+		return nil
+	}
+	return f.usages[f.provider]
+}
+
+// usageLine renders the third line, or "" when nothing applies.
+func (f *footer) usageLine(width int) string {
+	u := f.Usage()
+	if u == nil {
+		return ""
+	}
+	now := time.Now()
+	if f.now != nil {
+		now = f.now()
+	}
+	modelID := f.provider + "/" + f.model
+	return renderUsageLine(f.theme, usageFooterSegments(u, modelID, now), width)
 }
 
 func splitModelID(id string) (provider, model string) {
@@ -109,10 +161,14 @@ func (f *footer) Render(width int) []string {
 	}
 	line2 := left + strings.Repeat(" ", gap) + right
 
-	return []string{
+	lines := []string{
 		th.Fg(roleDim, tui.TruncateToWidth(line1, width, "...")),
 		th.Fg(roleDim, tui.TruncateToWidth(line2, width, "")),
 	}
+	if usage := f.usageLine(width); usage != "" {
+		lines = append(lines, usage)
+	}
+	return lines
 }
 
 func detectGitBranch(cwd string) string {

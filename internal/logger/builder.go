@@ -43,7 +43,11 @@ func New(cfg config.Logger) (*slog.Logger, *slog.LevelVar, io.Closer, error) {
 		}
 	}
 
-	lv := NewLevelVar(cfg.Level)
+	// Open at the lowest level any component asks for: componentHandler
+	// filters per component afterwards, and without overrides this is just
+	// cfg.Level.
+	lv := new(slog.LevelVar)
+	lv.Set(minLevel(cfg))
 	w := io.MultiWriter(writers...)
 	handler := newHandler(w, cfg, lv)
 	return slog.New(handler), lv, fileCloser, nil

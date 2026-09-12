@@ -12,6 +12,7 @@ import { ConfirmProvider } from "./ui/components/useConfirm";
 import { bootstrapDesktopFlag } from "./ui/desktopShell";
 import { bootstrapEmbedFlag } from "./ui/embedShell";
 import { installEmbedLocaleBridge } from "./ui/embedLocaleBridge";
+import { installEmbedHostBridge } from "./ui/embedHostBridge";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 
@@ -25,6 +26,7 @@ installFoxxyCodeUiApi();
 bootstrapDesktopFlag();
 bootstrapEmbedFlag();
 installEmbedLocaleBridge();
+installEmbedHostBridge();
 startActiveHealthMonitor();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

@@ -17,7 +17,16 @@ import { info } from "../notifications";
  *  The iframe src is run through `vscode.env.asExternalUri` so it works in
  *  Remote SSH / Codespaces / WSL where `127.0.0.1:<port>` is forwarded. */
 
-const EMBED_ID = "intellij"; // SPA CSS only specialises this id today (see docs/intellij-embedding.md).
+// The SPA's flat IDE chrome applies to both `intellij` and `vscode`; only the
+// Chromium-104 (JCEF) workarounds stay keyed on `intellij`. See docs/intellij-embedding.md.
+const EMBED_ID = "vscode";
+
+/** Host → SPA request to insert `@`-mentions into the composer. Frozen; mirrored in
+ *  external/ui/src/ui/embedHostBridge.ts and relayed by the wrapper script below. */
+export const INSERT_FILE_MENTION_MESSAGE_TYPE = "foxxycode:insertFileMention";
+
+/** Cap on mentions queued while the iframe is not yet live (matches the SPA bus cap). */
+export const MAX_PENDING_MENTIONS = 32;
 
 export interface PanelControllerOptions {
   extensionUri: vscode.Uri;
@@ -32,6 +41,8 @@ export interface PanelControllerOptions {
    *  the single app-wide switcher in SPA Settings → General). The SPA already
    *  re-rendered itself; only extension chrome needs to follow — no reload. */
   onSpaLocale?: (locale: "en" | "ru") => void;
+  /** Diagnostic sink (the FoxxyCode output channel). */
+  log?: (line: string) => void;
 }
 
 /** Controller over either a `WebviewPanel` (editor area) or a `WebviewView`
@@ -42,6 +53,10 @@ export class FoxxyCodePanelController {
   private base: string | null = null;
   private currentUrl: string | null = null;
   private readonly disposables: vscode.Disposable[] = [];
+  /** True while the webview shows the iframe wrapper (not a status/error page). */
+  private frameLive = false;
+  /** Mentions requested before the wrapper existed; flushed by `render()`. */
+  private pendingMentions: string[] = [];
 
   constructor(
     private readonly webview: vscode.Webview,
@@ -86,12 +101,47 @@ export class FoxxyCodePanelController {
 
   /** Show a status message while the server is booting (no iframe yet). */
   showStatus(message: string): void {
+    this.frameLive = false;
     this.webview.html = this.messageHtml(escapeHtml(message), false, this.activeHtmlLang());
   }
 
   /** Show an error message with Retry / Open Settings buttons. */
   showError(message: string): void {
+    this.frameLive = false;
     this.webview.html = this.messageHtml(escapeHtml(message), true, this.activeHtmlLang());
+  }
+
+  /** Insert workspace-relative paths into the SPA composer as `@`-mentions.
+   *  Queued until the iframe wrapper is rendered; the wrapper in turn queues
+   *  until the iframe has loaded, and the SPA bus queues until the composer
+   *  mounts, so a request made before the server is up still lands. */
+  insertFileMentions(paths: readonly string[]): void {
+    const clean = paths.map((p) => p.trim()).filter((p) => p !== "");
+    if (clean.length === 0) return;
+    if (!this.base || !this.frameLive) {
+      this.pendingMentions.push(...clean);
+      if (this.pendingMentions.length > MAX_PENDING_MENTIONS) {
+        this.pendingMentions = this.pendingMentions.slice(-MAX_PENDING_MENTIONS);
+      }
+      return;
+    }
+    void this.postInsert(clean);
+  }
+
+  private async postInsert(paths: string[]): Promise<void> {
+    try {
+      const ok = await this.webview.postMessage({ type: INSERT_FILE_MENTION_MESSAGE_TYPE, paths });
+      if (!ok) this.opts.log?.(`[foxxycode] insertFileMention: webview did not accept the message`);
+    } catch (e) {
+      this.opts.log?.(`[foxxycode] insertFileMention failed: ${(e as Error).message ?? String(e)}`);
+    }
+  }
+
+  private flushPendingMentions(): void {
+    if (this.pendingMentions.length === 0) return;
+    const queued = this.pendingMentions;
+    this.pendingMentions = [];
+    void this.postInsert(queued);
   }
 
   /** Point the iframe at a fresh base URL (e.g. after a process restart on a new port).
@@ -153,6 +203,8 @@ export class FoxxyCodePanelController {
     this.currentUrl = src;
     this.opts.onUrl?.(src);
     this.webview.html = this.frameHtml(src, lang);
+    this.frameLive = true;
+    this.flushPendingMentions();
   }
 
   private activeHtmlLang(): "en" | "ru" {
@@ -183,19 +235,41 @@ export class FoxxyCodePanelController {
 <iframe id="foxxy" src="${escapeAttr(src)}" title="FoxxyCode" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
 <script nonce="${this.nonce}">
   (function () {
-    // Forward SPA locale changes (embedLocaleBridge postMessage from the
-    // cross-origin iframe) to the extension host so command titles follow the
-    // single app-wide language switcher without reloading the iframe.
+    // Two relays over the cross-origin iframe boundary:
+    //  - SPA → host: locale changes (embedLocaleBridge postMessage) go to the
+    //    extension host so command titles follow the single app-wide language
+    //    switcher without reloading the iframe.
+    //  - host → SPA: "insert file mention" requests from the extension are
+    //    forwarded into the frame (embedHostBridge listens there). They are
+    //    queued until the frame has loaded, so a request racing the first
+    //    paint is not lost.
     try {
       var vscodeApi = acquireVsCodeApi();
       var frame = document.getElementById("foxxy");
+      var frameOrigin = "*";
+      try { frameOrigin = new URL(frame.src).origin; } catch (e) {}
+      var frameLoaded = false;
+      var queued = [];
+      var forward = function (msg) {
+        try { frame.contentWindow.postMessage(msg, frameOrigin); } catch (e) {}
+      };
+      frame.addEventListener("load", function () {
+        frameLoaded = true;
+        var q = queued; queued = [];
+        for (var i = 0; i < q.length; i++) forward(q[i]);
+      });
       window.addEventListener("message", function (ev) {
-        if (
-          frame && ev.source === frame.contentWindow && ev.data &&
-          ev.data.type === "foxxycode:locale" &&
-          (ev.data.locale === "en" || ev.data.locale === "ru")
-        ) {
-          vscodeApi.postMessage({ type: "foxxycode:locale", locale: ev.data.locale });
+        var d = ev.data;
+        if (!d) return;
+        if (frame && ev.source === frame.contentWindow) {
+          if (d.type === "foxxycode:locale" && (d.locale === "en" || d.locale === "ru")) {
+            vscodeApi.postMessage({ type: "foxxycode:locale", locale: d.locale });
+          }
+          return;
+        }
+        if (d.type === "${INSERT_FILE_MENTION_MESSAGE_TYPE}" && Array.isArray(d.paths)) {
+          var msg = { type: d.type, paths: d.paths };
+          if (frameLoaded) forward(msg); else queued.push(msg);
         }
       });
     } catch (e) {}
@@ -224,17 +298,44 @@ export class FoxxyCodePanelController {
             if (!el) {
               el = document.createElement("div");
               el.id = "foxxycode-err-overlay";
-              el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:45vh;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.45 monospace;padding:10px 12px;white-space:pre-wrap;border-top:2px solid #ef4444";
+              el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:45vh;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.45 monospace;padding:10px 32px 10px 12px;white-space:pre-wrap;border-top:2px solid #ef4444";
+              var btn = document.createElement("button");
+              btn.id = "foxxycode-err-overlay-close";
+              btn.type = "button";
+              btn.textContent = "×";
+              btn.setAttribute("aria-label", "Close");
+              btn.style.cssText = "position:absolute;top:4px;right:6px;background:transparent;border:0;color:#fff;font:16px/1 monospace;cursor:pointer;padding:2px 6px";
+              btn.onclick = function () { if (el.parentNode) el.parentNode.removeChild(el); };
+              el.appendChild(btn);
+              var txt = document.createElement("div");
+              txt.id = "foxxycode-err-overlay-text";
+              el.appendChild(txt);
               (document.body || document.documentElement).appendChild(el);
             }
-            el.textContent = "FoxxyCode UI error — " + title + "\\n" + (detail || "");
+            var out = document.getElementById("foxxycode-err-overlay-text") || el;
+            out.textContent = "FoxxyCode UI error — " + title + "\\n" + (detail || "");
           } catch (e) {}
         };
+        // A ResizeObserver loop notice is the browser deferring an observation to the
+        // next frame, not a failure of the SPA: keep it off the overlay.
+        //
+        // A dropped request to the backend is not a fault of the page either. The SPA
+        // polls 127.0.0.1 several times a second for the whole length of a turn, so one
+        // refused or reset connection is routine, and a real outage is already reported
+        // by the SPA's own offline indicators and by the plugin when the backend exits.
+        // The filter applies to rejections too: it used to guard only the error event,
+        // which is how a single "TypeError: Failed to fetch" from a poll could paint a
+        // permanent bar over the chat.
+        var benign = /^ResizeObserver loop|Failed to fetch|NetworkError when attempting to fetch|Load failed|The user aborted a request|^AbortError/;
         window.addEventListener("error", function (ev) {
+          if (benign.test(ev.message || "")) return;
           show(ev.message || "error", (ev.error && ev.error.stack) ? ev.error.stack : (ev.filename + ":" + ev.lineno));
         });
         window.addEventListener("unhandledrejection", function (ev) {
           var r = ev.reason;
+          var name = (r && r.name) ? String(r.name) : "";
+          var msg = (r && r.message) ? String(r.message) : "";
+          if (benign.test((name ? name + ": " : "") + msg) || benign.test(String(r))) return;
           show("unhandled promise rejection", (r && (r.stack || r.message)) ? (r.stack || r.message) : String(r));
         });
       }

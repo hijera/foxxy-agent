@@ -21,6 +21,10 @@
   "cmd.showLogs.title.ru": "Показать логи",
   "cmd.showWelcome.title": "Show Welcome",
   "cmd.showWelcome.title.ru": "Показать приветствие",
+  "cmd.addToChat.title": "Add to FoxxyCode",
+  "cmd.addToChat.title.ru": "Добавить в FoxxyCode",
+  "cmd.verifyBinary.title": "Verify Binary",
+  "cmd.verifyBinary.title.ru": "Проверить бинарник",
 
   "walkthrough.welcome.title": "Get started with FoxxyCode",
   "walkthrough.welcome.description": "Run the full foxxycode agent inside VS Code — chat, plan mode, scheduler, skills, and native inline diffs.",
@@ -36,7 +40,7 @@
   "walkthrough.step.toolbar.description": "Use the webview title bar: **Restart** (restart server), **Reload** (refresh UI), **Open in Browser**, **Open DevTools**, and **Settings**. Re-open this tour anytime via **FoxxyCode: Show Welcome**.",
 
   "cfg.title": "FoxxyCode",
-  "cfg.binaryPath.description": "Override the bundled foxxycode executable with a path to a full-feature build.",
+  "cfg.binaryPath.description": "Override the bundled foxxycode executable with a path to a full-feature build. [Verify binary](command:foxxycode.verifyBinary)",
   "cfg.host.description": "Host the foxxycode http server binds to.",
   "cfg.port.description": "Port for foxxycode http (0 = pick a free port automatically).",
   "cfg.home.description": "State directory for sessions/config (foxxycode --home; default ~/.foxxycode).",
@@ -46,5 +50,6 @@
   "cfg.autoApproveEdits.description": "Auto-apply edits without asking (still shows the diff, with Revert).",
   "cfg.trackOpenFiles.description": "Tell the agent which files you have open (open tabs + active file) so it has that context each turn.",
   "cfg.trackTerminals.description": "Tell the agent about your open terminals and their recent output so it has that context each turn and can resolve @terminal mentions.",
+  "cfg.terminalClipboardCapture.description": "Also snapshot the active terminal's visible output through the clipboard (select all → copy → restore) when shell integration has nothing for it, so the agent can see terminals that were open before FoxxyCode started. The clipboard is restored right after each snapshot; clipboard-history tools will still record it. Off by default.",
   "cfg.planNoSelfRun.description": "Forbid the model from running the plan itself: in plan mode plan_exit is hidden and tools outside the plan allowlist are refused, so only Run plan starts the implementation."
 }

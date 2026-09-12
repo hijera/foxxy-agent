@@ -150,8 +150,24 @@ messages: [
      stripped from the stored message, so it is never replayed to the model.
    - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
      arguments is not executed; the model gets a result explaining why.
-   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
-     times, then -> DONE (stopReason: agent_refused) with a notice.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
 
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
@@ -224,12 +240,71 @@ messages: [
      stripped from the stored message, so it is never replayed to the model.
    - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
      arguments is not executed; the model gets a result explaining why.
-   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
-     times, then -> DONE (stopReason: agent_refused) with a notice.
+   - A whole *sequence* of calls repeated **`loop_tool_cycle_repeats`** times is not
+     executed either. This is what catches a model rotating through several calls
+     (read A, read B, read A, ...), which resets the consecutive counter above and
+     would otherwise run to max_turns. A lap that varies slightly still counts, and
+     arguments are part of the comparison, so working through a different file each
+     round is progress rather than a cycle.
+   - Any of these first nudges the model to change course, up to **`loop_nudge_max`**
+     times. After that, **`agent.loop_stuck_action`** decides:
+     - **`quarantine`** (default): the looping calls are taken away for the rest of the
+       turn - each one answered with an explanation instead of being executed - and the
+       turn continues with every other tool still available. `read` and `grep` run one
+       last time first and their results are pinned against eviction, because their loop
+       exists precisely because that content kept disappearing. If two rounds in a row
+       consist only of blocked calls, the next request is sent with **no tool
+       definitions** and the model answers from what it has -> DONE (stopReason: end_turn).
+     - **`stop`**: -> DONE (stopReason: agent_refused) with a notice.
+   - A degenerate output stream always ends the turn, in either mode: there is
+     nothing to quarantine when the output itself is the problem.
 
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
 ```
+
+## Endings that must never be silent
+
+Two endings reach the caller as an ordinary success, so neither is visible unless the
+turn says something:
+
+- **The output cap.** A model that reaches **`models[].max_tokens`** stops mid-sentence
+  while the stream still closes cleanly (**`finish_reason: length`** followed by
+  **`[DONE]`**). The turn ends with **`stopReason: max_tokens`** - which no UI surface
+  renders - so it appends a notice to the transcript naming the cap, the tokens spent and
+  the setting to raise (**`maxTokensNotice`**, `internal/agent/max_tokens_notice.go`).
+  Unlike a stall there is nothing to wait out: the model did not fail, it ran out of the
+  budget the configuration gave it. This matters most on reasoning models - hidden
+  thinking is billed against the same budget as the visible answer, so the text can run
+  out well before the number suggests. Measured on `kimi-k2.6` at `max_tokens: 8192`,
+  roughly half the budget went to reasoning the user never saw.
+- **A stream abandoned mid-answer.** Bounded by **`agent.llm_stall_timeout_ms`** and the
+  **`agent.llm_stall_retry`** family, which keep the partial answer and ask the model to
+  carry on rather than ending the turn. See `docs/config-reference.md` for the keys.
+
+### Tracing the stream
+
+**`FOXXYCODE_LLM_TRACE`** writes frame-level traces of the OpenAI-compatible SSE path:
+**`1`** (or **`stderr`**) to standard error, any other value as a file path. Each streamed
+call logs its request shape, then a line per *decisive* frame - one carrying a
+`finish_reason`, starting a tool call, or preceded by a gap over a second - and a terminal
+line whose **`verdict`** names how the stream ended:
+
+| verdict | meaning |
+| --- | --- |
+| `complete` | terminal marker and a finish_reason both arrived |
+| `truncated-by-max-tokens` | the output cap was reached |
+| `cut-before-terminal-marker` | closed with neither `[DONE]` nor a finish_reason |
+| `finish-reason-without-done` | finish_reason but no `[DONE]` (still a complete response) |
+| `done-without-finish-reason` | `[DONE]` but no finish_reason |
+| `error` | transport failure or a server error frame |
+| `request-failed` | the call never produced a response |
+
+The terminal line also reports the content/reasoning character split, the tool-call frame
+count and the largest inter-frame gap - the numbers that separate "the model is writing a
+long tool call" from "the connection is open and dead". Argument frames are deliberately
+*not* logged individually: one real turn produced 1105 frame lines out of 1143 before that
+rule, burying everything that mattered.
 
 ## Mode-Specific Behavior
 
@@ -270,6 +345,10 @@ Representative builtins exposed to the LLM (registry allowlist):
 - `docs_write`, `docs_edit`
 
 Docs mode does not expose **`run_command`** or MCP tools because those surfaces cannot currently guarantee read-only execution. Prompts instruct the user to switch to **`agent`** mode for code or configuration changes.
+
+### Ask Mode
+
+The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/subagents.md`**).
 
 ## Built-in Tools Specification
 

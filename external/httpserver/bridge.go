@@ -40,7 +40,7 @@ type Sender struct {
 	created     int64
 	model       string
 	sessionDir  string
-	cwd        string
+	cwd         string
 	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
 	// stream has gone quiet. Guarded by mu, like every other write to w.
 	lastWrite time.Time
@@ -207,6 +207,8 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("token_usage", u)
 	case acp.UsageUpdate:
 		return s.writeNamedEventJSON("usage_update", u)
+	case acp.ProviderUsageUpdate:
+		return s.writeNamedEventJSON("provider_usage", u)
 	case acp.MemoryPhaseUpdate:
 		return s.writeNamedEventJSON("memory_phase", u)
 	case acp.MemoryMessageChunkUpdate:
@@ -215,10 +217,18 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 		return s.writeNamedEventJSON("compaction", u)
 	case acp.MCPPhaseUpdate:
 		return s.writeNamedEventJSON("mcp_phase", u)
+	case acp.LLMRetryUpdate:
+		return s.writeNamedEventJSON("llm_retry", u)
 	case acp.DebugUpdate:
 		return s.writeNamedEventJSON("debug", u)
 	case acp.AvailableCommandsUpdate:
 		return s.writeNamedEventJSON("available_commands", u)
+	// The session profile changed under the client - a plan run or a plan_exit
+	// call switching back to agent. Without this frame the composer keeps its
+	// old pill and posts a profile the session has already left, which the next
+	// turn writes straight back onto the session.
+	case acp.ModeUpdate:
+		return s.writeNamedEventJSON("mode", u)
 	default:
 		return nil
 	}
@@ -313,7 +323,14 @@ func (s *Sender) SendError(streamErr error) error {
 
 // RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /foxxycode/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+	// A subagent's request carries the child's own effective mode, which
+	// decides the bypass short-circuit instead of the global setting: a child
+	// narrowed to ask is prompted, or denied when nobody can answer.
+	stamped := strings.TrimSpace(params.EffectivePermissionMode)
+	if stamped == config.PermModeBypass {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	}
+	if stamped == "" && s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if !s.interactive || s.w == nil {
@@ -339,7 +356,13 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 			toolName = strings.TrimSpace(after)
 		}
 	}
-	if sd != "" {
+	// A stamped request is a subagent's prompt relayed under the parent's
+	// session: it cannot be resumed later (the child's tool call is not in
+	// the parent transcript, and the child is retired with its turn), so it
+	// is answered live or not at all and never becomes the parent's pending
+	// record, which stays reserved for the parent's own gate.
+	relayed := strings.TrimSpace(params.EffectivePermissionMode) != ""
+	if sd != "" && !relayed {
 		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
 	}
 	s.broadcastEditProposed(sid, tcid, toolName, argsJSON)
@@ -348,16 +371,28 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
 		return nil, err
 	}
+	// The record on disk exists so a prompt can still be answered after the
+	// stream drops or the process restarts. Every way out of this select ends
+	// the gate, so none of them may leave it behind: a stranded record is
+	// matched by tryResumePendingPermission, which reports the late answer as
+	// handled and then fails with "already has a result", and nothing ever
+	// clears it.
+	clearPending := func() {
+		if sd != "" && !relayed {
+			_ = session.ClearPendingPermission(sd)
+		}
+	}
 	select {
 	case res := <-ch:
+		clearPending()
 		if res == nil {
 			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 		}
-		if sd != "" {
-			_ = session.ClearPendingPermission(sd)
-		}
 		return res, nil
 	case <-ctx.Done():
+		// The turn was cancelled, or tools.permission_timeout_seconds expired.
+		// Either way the tool call is already finished with a denial.
+		clearPending()
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 }

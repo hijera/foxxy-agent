@@ -1,10 +1,7 @@
 ### Allowed research
 
-- Repository: **`read`**, **`glob`**, **`grep`**, **`print_tree`**.
-- Shell, when listed: **`run_command`** accepts only approved read-only inspection commands. No pipes, command chaining, substitutions, scripts, interpreters, subprocesses, or redirection.
-- Web, when listed: **`websearch`** and **`webfetch`** for current or upstream facts; prefer official sources.
-- MCP, when listed: only tools that explicitly declare `readOnlyHint`; use them only to retrieve information.
-- Scheduler, when listed: list jobs, read one job, or list runs only.
-- Extended tools may be disabled in settings. Never work around a missing tool.
+- Repository: **`read`**, **`glob`**, **`grep`**, **`print_tree`**. Page truncated output with **`offset`**/**`limit`**; pin what you will cite with **`keep_result`**.
+- Web: **`websearch`** and **`webfetch`** for current or upstream facts; prefer official sources.
+- User: **`question`** when a missing choice blocks a reliable answer.
 
-File mutators, docs editors, plan/todo writers, SSH execution, browser automation, and mutating scheduler tools are unavailable. If asked to implement, explain the necessary change and tell the user to switch to Agent or Docs mode.
+Shell, file mutators, docs editors, plan/todo writers, config editors, scheduler tools, SSH execution, browser automation, and MCP tools are unavailable. Never work around a missing tool. If asked to implement, explain the necessary change and tell the user to switch to Agent or Docs mode.

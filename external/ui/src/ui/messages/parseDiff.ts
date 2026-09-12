@@ -141,19 +141,23 @@ function parseUnifiedDiff(patch: string, fallbackPath: string): ParsedDiff {
 
   for (const raw of rawLines) {
     if (raw.startsWith("---")) {
-      const m = /^---\s+(?:a\/)?(.+)$/.exec(raw);
-      if (m && !filePath) filePath = m[1].trim();
+      const captured = /^---\s+(?:a\/)?(.+)$/.exec(raw)?.[1];
+      if (captured && !filePath) filePath = captured.trim();
       continue;
     }
     if (raw.startsWith("+++")) {
-      const m = /^\+\+\+\s+(?:b\/)?(.+)$/.exec(raw);
-      if (m) filePath = m[1].trim();
+      const captured = /^\+\+\+\s+(?:b\/)?(.+)$/.exec(raw)?.[1];
+      if (captured) filePath = captured.trim();
       continue;
     }
     if (raw.startsWith("@@")) {
       const m = /^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/.exec(raw);
-      oldNo = m ? parseInt(m[1], 10) : 1;
-      newNo = m ? parseInt(m[2], 10) : 1;
+      // A hunk header may legitimately start at 0 ("@@ -0,0 +1,5 @@" for a new
+      // file), so the fallback keys off a missing capture, not a falsy number.
+      const oldStart = m?.[1];
+      const newStart = m?.[2];
+      oldNo = oldStart ? parseInt(oldStart, 10) : 1;
+      newNo = newStart ? parseInt(newStart, 10) : 1;
       currentHunk = { header: raw, lines: [] };
       hunks.push(currentHunk);
       continue;

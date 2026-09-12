@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import {
   formatUtcToLocalFullDetail,
   formatUtcToLocalHM,
@@ -16,7 +18,7 @@ function firstLine(message: string): string {
   );
 }
 
-export function SystemNoticeMessage(props: {
+export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   level: "error" | "info";
   message: string;
   createdAtUtc?: string;
@@ -75,4 +77,4 @@ export function SystemNoticeMessage(props: {
       </div>
     </div>
   );
-}
+});

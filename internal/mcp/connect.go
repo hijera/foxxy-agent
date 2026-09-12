@@ -44,7 +44,7 @@ var connectTimeout = 30 * time.Second
 // its transport type: "stdio" (default) runs a local command, "http" (also
 // accepted: "streamable-http", "streamable_http") speaks streamable HTTP with
 // a legacy-SSE fallback, "sse" forces the legacy HTTP+SSE transport. ${CWD}
-// placeholders in args, env, headers, and url resolve against cwd.
+// placeholders in command, args, env, headers, and url resolve against cwd.
 //
 // The bound applies to the handshake only. A stdio server's *process* is deliberately
 // detached from ctx (see newStdioTransport), and a handshake that times out closes the client,
@@ -60,15 +60,8 @@ func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *s
 		if strings.TrimSpace(srv.Command) == "" {
 			return nil, fmt.Errorf("mcp %s: command is required for stdio transport", srv.Name)
 		}
-		args := make([]string, len(srv.Args))
-		for i, a := range srv.Args {
-			args[i] = config.ExpandCWD(a, cwd)
-		}
-		env := make([]string, len(srv.Env))
-		for i, e := range srv.Env {
-			env[i] = e.Name + "=" + config.ExpandCWD(e.Value, cwd)
-		}
-		return NewStdioClient(ctx, srv.Name, srv.Command, args, env, log)
+		command, args, env := stdioSpec(srv, cwd)
+		return NewStdioClient(ctx, srv.Name, command, args, env, log)
 	case "http", "streamable-http", "streamable_http":
 		return NewHTTPClient(ctx, srv.Name, config.ExpandCWD(srv.URL, cwd), expandHeaders(srv, cwd), srv.InsecureSkipVerify, log)
 	case "sse":
@@ -76,6 +69,22 @@ func Connect(ctx context.Context, srv config.MCPServerConfig, cwd string, log *s
 	default:
 		return nil, fmt.Errorf("unsupported MCP transport: %s", srv.Type)
 	}
+}
+
+// stdioSpec resolves the ${CWD} placeholder (and a leading ~) in the command,
+// its arguments and its environment against the session cwd, so a
+// project-local server binary follows the workspace like its arguments do.
+func stdioSpec(srv config.MCPServerConfig, cwd string) (command string, args, env []string) {
+	command = config.ExpandCWD(srv.Command, cwd)
+	args = make([]string, len(srv.Args))
+	for i, a := range srv.Args {
+		args[i] = config.ExpandCWD(a, cwd)
+	}
+	env = make([]string, len(srv.Env))
+	for i, e := range srv.Env {
+		env[i] = e.Name + "=" + config.ExpandCWD(e.Value, cwd)
+	}
+	return command, args, env
 }
 
 func expandHeaders(srv config.MCPServerConfig, cwd string) map[string]string {

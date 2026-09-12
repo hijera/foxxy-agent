@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hijera/foxxycode-agent/internal/export"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -52,9 +53,9 @@ type exportRendered struct {
 // render the document. It writes the HTTP error itself and reports ok=false
 // when the caller must stop.
 func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id string) (exportRendered, bool) {
-	format := exportFormat(strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format"))))
-	if !isValidExportFormat(format) {
-		http.Error(w, `{"error":{"message":"unsupported format; use one of: json, html, pdf, docx"}}`, http.StatusBadRequest)
+	format, ok := export.ParseExportFormat(r.URL.Query().Get("format"))
+	if !ok {
+		http.Error(w, `{"error":{"message":"unsupported format; use one of: md, html, json, jsonl, pdf, docx"}}`, http.StatusBadRequest)
 		return exportRendered{}, false
 	}
 
@@ -77,53 +78,34 @@ func (s *Server) renderSessionExport(w http.ResponseWriter, r *http.Request, id 
 		http.Error(w, `{"error":{"message":"session has no exportable messages"}}`, http.StatusNotFound)
 		return exportRendered{}, false
 	}
-	doc := buildExportDocument(id, title, msgs)
+	// The panel exports the conversation: tool calls are off unless the request
+	// asks for them, which is the one place this differs from /export.
+	opts := export.ExportOptions{NoTools: !queryFlag(r, "tools"), NoThinking: queryFlag(r, "no_thinking")}
+	doc := export.BuildExportDocument(export.ExportInput{
+		SessionID: id,
+		Title:     title,
+		CWD:       strings.TrimSpace(st.GetCWD()),
+		Model:     strings.TrimSpace(st.EffectiveModelID(s.activeCfg())),
+		Messages:  msgs,
+		Options:   opts,
+	})
 	// The readable formats embed pictures the session stored on disk; a session
 	// that was never persisted simply has none to embed.
 	if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" {
-		doc.assetsDir = session.AssetsPath(sd)
+		doc = doc.WithAssetsDir(session.AssetsPath(sd))
 	}
 
-	body, contentType, ext, err := renderExport(doc, format)
+	body, err := export.RenderExport(doc, format)
 	if err != nil {
 		http.Error(w, `{"error":{"message":"export rendering failed"}}`, http.StatusInternalServerError)
 		return exportRendered{}, false
 	}
-	return exportRendered{body: body, contentType: contentType, ext: ext, title: doc.Title}, true
-}
-
-// isValidExportFormat reports whether the requested format is one we render.
-func isValidExportFormat(f exportFormat) bool {
-	switch f {
-	case exportJSON, exportHTML, exportPDF, exportDOCX:
-		return true
-	}
-	return false
-}
-
-// renderExport dispatches to the format renderer and returns the body plus the
-// response content type and file extension.
-func renderExport(doc exportDocument, format exportFormat) ([]byte, string, string, error) {
-	// Everything but JSON is meant to be read, so it drops the editor's ambient
-	// context; JSON stays verbatim for re-import. See readableExportDocument.
-	if format != exportJSON {
-		doc = readableExportDocument(doc)
-	}
-	switch format {
-	case exportJSON:
-		b, err := renderJSONExport(doc)
-		return b, "application/json; charset=utf-8", "json", err
-	case exportHTML:
-		b, err := renderHTMLExport(doc)
-		return b, "text/html; charset=utf-8", "html", err
-	case exportPDF:
-		b, err := renderPDFExport(doc)
-		return b, "application/pdf", "pdf", err
-	case exportDOCX:
-		b, err := renderDOCXExport(doc)
-		return b, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx", err
-	}
-	return nil, "", "", nil
+	return exportRendered{
+		body:        body,
+		contentType: format.ContentType(),
+		ext:         format.Extension(),
+		title:       doc.Session.Title,
+	}, true
 }
 
 // exportBaseName sanitizes the session title into a safe file name stem and
@@ -246,6 +228,19 @@ func hasExportableAssistantAnswer(msgs []llm.Message) bool {
 		if m.Role == llm.RoleAssistant && strings.TrimSpace(m.Content) != "" {
 			return true
 		}
+	}
+	return false
+}
+
+// queryFlag reads a boolean query parameter; present-but-empty counts as true
+// so `?tools` works like `?tools=1`.
+func queryFlag(r *http.Request, name string) bool {
+	if !r.URL.Query().Has(name) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get(name))) {
+	case "", "1", "true", "yes", "on":
+		return true
 	}
 	return false
 }

@@ -8,6 +8,10 @@ Feature: The browser can be driven without screenshots
   Background:
     Given a browser session on a page that logs an error, throws, requests a URL that fails, and writes to every store
 
+  Scenario: Scroll offsets are relative to the current position
+    When I scroll twice by signed offsets from a nonzero position
+    Then both scroll offsets are applied cumulatively
+
   Scenario: The page outline names the controls and how to reach them
     When I read the page as text
     Then the outline names the heading and the button

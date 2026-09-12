@@ -1,6 +1,6 @@
 import { ChildProcess, spawn } from "child_process";
 import { httpGet } from "../util/http";
-import { pickFreePort } from "./portUtil";
+import { awaitPortAvailable, pickFreePort } from "./portUtil";
 import { resolveExisting } from "../binary/binaryResolver";
 import { FoxxyCodeSettings } from "../settings";
 import { t } from "../i18n/bundle";
@@ -62,78 +62,88 @@ export class ProcessManager {
     return this.start();
   }
 
-  private startAndWait(): Promise<StartResult> {
+  private async startAndWait(): Promise<StartResult> {
     this.stopInternal();
 
     const { settings, extensionPath, workspaceRoot, log } = this.opts;
     const binary = resolveExisting(extensionPath, settings.binaryPath);
-    if (!binary) return Promise.reject(new Error(t("process.error.binaryNotFound")));
+    if (!binary) throw new Error(t("process.error.binaryNotFound"));
 
-    return pickFreePort(settings.port).then((port) => {
-      const host = settings.host && settings.host.trim() !== "" ? settings.host.trim() : "127.0.0.1";
-      log?.(`[foxxycode] launching ${host}:${port}`);
-      this.opts.onLaunching?.(host, port);
+    const port = await pickFreePort(settings.port);
+    const host = settings.host && settings.host.trim() !== "" ? settings.host.trim() : "127.0.0.1";
+    // A fixed port can simply be taken - by another VS Code window (the setting
+    // is user-wide while the process is per workspace) or by the previous
+    // backend that an extension update is still shutting down. Waiting covers
+    // the second case; the first one has to be told to the user, because the
+    // process would otherwise die on bind and surface as the generic "exited
+    // before becoming ready". Mirrors FoxxyCodeProcessManager.kt.
+    if (settings.port >= 1 && settings.port <= 65535 && !(await awaitPortAvailable(port, host))) {
+      log?.(`[foxxycode] fixed port ${host}:${port} is in use`);
+      throw new Error(t("process.error.portInUse", String(port)));
+    }
 
-      const args = ["http", "-H", host, "-P", String(port)];
-      if (workspaceRoot) args.push("--cwd", workspaceRoot);
-      if (settings.home && settings.home.trim() !== "") args.push("--home", settings.home.trim());
-      // Panels default to guarded planning: the model may not leave plan mode itself.
-      args.push(`--plan-no-self-run=${settings.planNoSelfRun ? "true" : "false"}`);
-      if (settings.extraArgs && settings.extraArgs.trim() !== "") {
-        args.push(...splitArgs(settings.extraArgs));
-      }
+    log?.(`[foxxycode] launching ${host}:${port}`);
+    this.opts.onLaunching?.(host, port);
 
-      log?.(`[foxxycode] launching ${binary} ${args.join(" ")}`);
-      const child = spawn(binary, args, {
-        cwd: workspaceRoot ?? undefined,
-        env: withProxyEnv(process.env, this.opts.proxyEnv ?? {}),
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
+    const args = ["http", "-H", host, "-P", String(port)];
+    if (workspaceRoot) args.push("--cwd", workspaceRoot);
+    if (settings.home && settings.home.trim() !== "") args.push("--home", settings.home.trim());
+    // Panels default to guarded planning: the model may not leave plan mode itself.
+    args.push(`--plan-no-self-run=${settings.planNoSelfRun ? "true" : "false"}`);
+    if (settings.extraArgs && settings.extraArgs.trim() !== "") {
+      args.push(...splitArgs(settings.extraArgs));
+    }
+
+    log?.(`[foxxycode] launching ${binary} ${args.join(" ")}`);
+    const child = spawn(binary, args, {
+      cwd: workspaceRoot ?? undefined,
+      env: withProxyEnv(process.env, this.opts.proxyEnv ?? {}),
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    this.child = child;
+
+    const baseUrl = `http://${host}:${port}/`;
+
+    return new Promise<StartResult>((resolve, reject) => {
+      this.startPromiseReject = reject;
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        for (const line of chunk.toString("utf8").split(/\r?\n/)) {
+          if (line.length) log?.(`[foxxycode] ${line}`);
+        }
       });
-      this.child = child;
-
-      const baseUrl = `http://${host}:${port}/`;
-
-      return new Promise<StartResult>((resolve, reject) => {
-        this.startPromiseReject = reject;
-
-        child.stdout.on("data", (chunk: Buffer) => {
-          for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-            if (line.length) log?.(`[foxxycode] ${line}`);
-          }
-        });
-        child.stderr.on("data", (chunk: Buffer) => {
-          for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-            if (line.length) log?.(`[foxxycode] ${line}`);
-          }
-        });
-        child.on("error", (err: Error) => {
-          log?.(`[foxxycode] spawn error: ${err.message}`);
-          this.child = null;
-          this._baseUrl = null;
-          this.rejectStartPromise(
-            new Error(`${t("process.error.exitedBeforeReady")} — ${err.message}`),
-          );
-        });
-        child.on("exit", (code) => {
-          log?.(`[foxxycode] process exited code=${code}`);
-          this.child = null;
-          this._baseUrl = null;
-          if (this.startPromiseReject) {
-            this.rejectStartPromise(new Error(t("process.error.exitedBeforeReady")));
-          }
-        });
-
-        void this.waitForReady(baseUrl)
-          .then(() => {
-            this.startPromiseReject = null;
-            this._baseUrl = baseUrl;
-            resolve({ baseUrl });
-          })
-          .catch((e: Error) => {
-            this.rejectStartPromise(e);
-          });
+      child.stderr.on("data", (chunk: Buffer) => {
+        for (const line of chunk.toString("utf8").split(/\r?\n/)) {
+          if (line.length) log?.(`[foxxycode] ${line}`);
+        }
       });
+      child.on("error", (err: Error) => {
+        log?.(`[foxxycode] spawn error: ${err.message}`);
+        this.child = null;
+        this._baseUrl = null;
+        this.rejectStartPromise(
+          new Error(`${t("process.error.exitedBeforeReady")} — ${err.message}`),
+        );
+      });
+      child.on("exit", (code) => {
+        log?.(`[foxxycode] process exited code=${code}`);
+        this.child = null;
+        this._baseUrl = null;
+        if (this.startPromiseReject) {
+          this.rejectStartPromise(new Error(t("process.error.exitedBeforeReady")));
+        }
+      });
+
+      void this.waitForReady(baseUrl)
+        .then(() => {
+          this.startPromiseReject = null;
+          this._baseUrl = baseUrl;
+          resolve({ baseUrl });
+        })
+        .catch((e: Error) => {
+          this.rejectStartPromise(e);
+        });
     });
   }
 

@@ -1,0 +1,132 @@
+#compdef foxxycode
+#
+# zsh completion for foxxycode
+#
+# Keep the command list in sync with printUsage() in cmd/foxxycode/main.go.
+
+_foxxycode() {
+    local -a commands
+    commands=(
+        'cli:interactive console TUI'
+        'acp:Agent Client Protocol server on stdio'
+        'http:OpenAI-compatible HTTP API with the embedded web UI'
+        'desktop:Windows desktop shell around the web UI'
+        'gateway:messenger gateway (Telegram)'
+        'serve:run every subsystem enabled in config.yaml'
+        'sessions:list or export stored sessions'
+        'skills:manage skills'
+        'plugin:manage plugins and marketplaces'
+        'mcp:list and trust MCP servers'
+        'codex:sign in to Codex (deprecated alias of providers login codex)'
+        'providers:manage provider credentials'
+        'rules:list project rules'
+        'agents:list and trust subagents'
+        'hooks:list and trust lifecycle hooks'
+        'update:install the latest release'
+    )
+
+    _arguments -C \
+        '(-h --help)'{-h,--help}'[print the command list]' \
+        '(-v --version)'{-v,--version}'[print the version]' \
+        '(-c --continue)'{-c,--continue}'[continue the latest session here]' \
+        '(-p --prompt)'{-p,--prompt}'[run one prompt and exit]:prompt:' \
+        '--resume[pick a session to resume]' \
+        '1: :->command' \
+        '*:: :->argument'
+
+    case $state in
+        command)
+            _describe -t commands 'foxxycode command' commands
+            ;;
+        argument)
+            case $words[1] in
+                sessions) _values 'subcommand' list export ;;
+                skills)   _values 'subcommand' list enable disable add sync remove ;;
+                plugin)   _values 'subcommand' marketplace install remove enable disable ;;
+                mcp|agents|hooks) _values 'subcommand' list trust untrust ;;
+                providers)
+                    if (( CURRENT > 3 )); then
+                        _arguments \
+                            '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
+                            '--device[neuraldeep: the device flow, which is the default]' \
+                            '--no-config[login: do not add the provider and its models to config.yaml]' \
+                            '--api-base[neuraldeep: endpoint to sign in against]:url:' \
+                            '--home[override FOXXYCODE_HOME]:dir:_files -/'
+                    else
+                        _values 'subcommand' list login logout
+                    fi
+                    ;;
+                rules)    _values 'subcommand' list ;;
+                update)
+                    _arguments \
+                        '--check[report whether a newer release exists]' \
+                        '(-y --yes)'{-y,--yes}'[install without confirmation]' \
+                        '--version[install a specific release tag]:tag:' \
+                        '--repo[GitHub repository to take releases from]:repo:' \
+                        '--no-restart[Windows only: do not start FoxxyCode again]'
+                    ;;
+                http|desktop)
+                    _arguments \
+                        '--config[path to config.yaml]:file:_files' \
+                        '--home[agent state directory]:directory:_files -/' \
+                        '--cwd[default session working directory]:directory:_files -/' \
+                        '--sessions-dir[sessions root]:directory:_files -/' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
+                        '-H[bind address for HTTP]:host:' \
+                        '-P[listen port for HTTP]:port:' \
+                        '--auth-token[bearer token for the HTTP API]:token:' \
+                        '--scheduler-enabled[run the cron scheduler in this process]'
+                    ;;
+                gateway)
+                    _arguments \
+                        '--config[path to config.yaml]:file:_files' \
+                        '--home[agent state directory]:directory:_files -/' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)'
+                    ;;
+                codex)
+                    if (( CURRENT > 3 )); then
+                        _arguments \
+                            '--provider[provider row to sign in for]:name:' \
+                            '--no-config[store only the credential]' \
+                            '--home[override FOXXYCODE_HOME]:dir:_files -/'
+                    else
+                        _values 'subcommand' login status logout
+                    fi
+                    ;;
+                cli|acp)
+                    _arguments \
+                        '--config[path to config.yaml]:file:_files' \
+                        '--home[agent state directory]:directory:_files -/' \
+                        '--cwd[default session working directory]:directory:_files -/' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
+                        '--remote[drive a remote foxxycode serve server]:remote:' \
+                        '--remote-token[bearer token for --remote]:token:'
+                    ;;
+                serve)
+                    _arguments \
+                        '1: :((status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher"))' \
+                        '(-d --daemon)'{-d,--daemon}'[run in the background under a dispatcher]' \
+                        '--config[path to config.yaml]:file:_files' \
+                        '--home[agent state directory]:directory:_files -/' \
+                        '--cwd[default session working directory]:directory:_files -/' \
+                        '--sessions-dir[sessions root]:directory:_files -/' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
+                        '-H[bind address for the HTTP API]:host:' \
+                        '-P[listen port for the HTTP API]:port:' \
+                        '--auth-token[bearer token for the HTTP API]:token:' \
+                        '--http[run the HTTP API]' \
+                        '--gateway[run the messenger gateway]' \
+                        '--swarm[run the swarm relay]' \
+                        '--scheduler[run the cron scheduler]' \
+                        '--swarm-host[bind address for the relay]:host:' \
+                        '--swarm-port[listen port for the relay]:port:' \
+                        '--swarm-auth-token[bearer token clients present to the relay]:token:' \
+                        '--swarm-pairing-token[credential nodes present to register]:token:' \
+                        '--swarm-allow-insecure[bind the relay off loopback without a token]'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_foxxycode "$@"

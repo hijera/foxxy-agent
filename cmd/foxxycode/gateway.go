@@ -93,6 +93,7 @@ func runGateway(args []string) error {
 		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 			return mgr.ReloadConfigForSession(ctx, st)
 		})
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, nullSender, runner, log, paths.CWD, store)
@@ -116,4 +117,3 @@ func (n *nullUpdateSender) RequestPermission(_ context.Context, _ acp.Permission
 func (n *nullUpdateSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	return &acp.QuestionResult{}, nil
 }
-

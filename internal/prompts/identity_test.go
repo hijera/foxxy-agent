@@ -86,7 +86,7 @@ func TestIdentityConstantCarriesTheMarker(t *testing.T) {
 // the assembled prompt (see internal/agent/system_prompt.go).
 func TestBuiltInTemplatesAreIdentifiedByWithIdentity(t *testing.T) {
 	for _, mode := range []string{"agent", "plan"} {
-		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{
+		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{
 			CWD:    "/home/user/project",
 			UTCNow: fixtureUTC,
 		})
@@ -105,7 +105,7 @@ func TestBuiltInTemplatesAreIdentifiedByWithIdentity(t *testing.T) {
 // that stub has no name of its own and depends on WithIdentity.
 func TestFallbackPromptIsIdentifiedByWithIdentity(t *testing.T) {
 	fallback := prompts.RenderWithFallback("agent", "/nonexistent-prompts-dir",
-		defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, prompts.TemplateData{CWD: "/tmp", UTCNow: fixtureUTC})
+		defaultAgentTplFile, defaultPlanTplFile, defaultDocsTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/tmp", UTCNow: fixtureUTC})
 
 	assertIdentified(t, prompts.WithIdentity(fallback), "render fallback")
 }

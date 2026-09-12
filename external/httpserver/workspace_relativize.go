@@ -36,7 +36,7 @@ func (s *Server) foxxycodeWorkspaceRelativizePost(w http.ResponseWriter, r *http
 		return
 	}
 
-	cwdAbs, ok := s.resolveSlashListCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}

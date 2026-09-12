@@ -10,6 +10,7 @@ const (
 	defaultAgentPromptFile = "agent.md"
 	defaultPlanPromptFile  = "plan.md"
 	defaultDocsPromptFile  = "docs.md"
+	defaultAskPromptFile   = "ask.md"
 )
 
 // Prompts is the YAML prompts section (key prompts).
@@ -18,6 +19,7 @@ type Prompts struct {
 	AgentPrompt string             `yaml:"agent_prompt"`
 	PlanPrompt  string             `yaml:"plan_prompt"`
 	DocsPrompt  string             `yaml:"docs_prompt"`
+	AskPrompt   string             `yaml:"ask_prompt"`
 	PerProvider PerProviderPrompts `yaml:"per_provider" json:"per_provider"`
 }
 
@@ -35,7 +37,7 @@ func (c *Prompts) PerProviderEnabled() bool {
 	return c.PerProvider.Enabled == nil || *c.PerProvider.Enabled
 }
 
-// ApplyDefaults sets agent_prompt and plan_prompt when empty and trims when set.
+// ApplyDefaults sets agent_prompt, plan_prompt, docs_prompt, and ask_prompt when empty and trims when set.
 func (c *Prompts) ApplyDefaults() {
 	if strings.TrimSpace(c.AgentPrompt) == "" {
 		c.AgentPrompt = defaultAgentPromptFile
@@ -51,6 +53,11 @@ func (c *Prompts) ApplyDefaults() {
 		c.DocsPrompt = defaultDocsPromptFile
 	} else {
 		c.DocsPrompt = strings.TrimSpace(c.DocsPrompt)
+	}
+	if strings.TrimSpace(c.AskPrompt) == "" {
+		c.AskPrompt = defaultAskPromptFile
+	} else {
+		c.AskPrompt = strings.TrimSpace(c.AskPrompt)
 	}
 	if c.PerProvider.Enabled == nil {
 		enabled := true
@@ -80,6 +87,14 @@ func (c *Prompts) DocsFile() string {
 		return s
 	}
 	return defaultDocsPromptFile
+}
+
+// AskFile returns the template file name for ask mode (under prompts.dir).
+func (c *Prompts) AskFile() string {
+	if s := strings.TrimSpace(c.AskPrompt); s != "" {
+		return s
+	}
+	return defaultAskPromptFile
 }
 
 // Validate normalises the prompts section in place.

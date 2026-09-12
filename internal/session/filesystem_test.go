@@ -286,6 +286,33 @@ func TestDerivedTitleStripsInjectedContextBlocks(t *testing.T) {
 	}
 }
 
+func TestDerivedTitleStripsAttachmentBlocks(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	id := "sess_derived_title_att"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A hydrated @-mention turn carries a <foxxycode_attachment> block with the file body;
+	// the derived title must show only the user's text.
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "@Dockerfile:21-31 why slow?\n\n<foxxycode_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n<![CDATA[FROM x]]>\n</foxxycode_attachment>"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.Title != "@Dockerfile:21-31 why slow?" {
+		t.Errorf("derived title should strip attachment blocks, got %q", snap.Meta.Title)
+	}
+}
+
 func TestStripInjectedContextBlocks(t *testing.T) {
 	cases := []struct {
 		name string
@@ -571,5 +598,28 @@ func TestConcurrentPatchSessionMetaActivitySync(t *testing.T) {
 	}
 	if snap.Meta.ActivitySeq < 10 {
 		t.Fatalf("activitySeq=%d", snap.Meta.ActivitySeq)
+	}
+}
+
+func TestDeriveSessionTitleStripsAttachmentBlocks(t *testing.T) {
+	st := &State{ID: "sess_title_att", CWD: "/tmp", Mode: ModeAgent}
+	st.AddMessage(llm.Message{
+		Role: llm.RoleUser,
+		Content: "@Dockerfile:21-31 почему медленно?\n\n" +
+			"<foxxycode_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n" +
+			"<![CDATA[RUN go mod download]]>\n</foxxycode_attachment>",
+	})
+	if got := deriveSessionTitle(st); got != "@Dockerfile:21-31 почему медленно?" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A file body may itself contain the closing tag; the CDATA-aware scan must not
+// cut the block short there and leak the rest of the body into the title.
+func TestStripContextBlocksIgnoresTagsInsideCDATA(t *testing.T) {
+	raw := "ask\n\n<foxxycode_attachment path=\"trap.txt\" name=\"trap.txt\">\n" +
+		"<![CDATA[first ]]]]><![CDATA[> then </foxxycode_attachment> SECRET]]>\n</foxxycode_attachment>\ntail"
+	if got := StripContextBlocks(raw, TagAttachment); got != "ask\n\n\ntail" {
+		t.Fatalf("got %q", got)
 	}
 }

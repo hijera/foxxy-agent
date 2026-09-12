@@ -34,7 +34,9 @@ import com.intellij.util.ui.UIUtil
 import dev.foxxycode.intellij.FoxxyCodeBundle
 import dev.foxxycode.intellij.FoxxyCodeLocaleState
 import dev.foxxycode.intellij.FoxxyCodeNotifications
+import dev.foxxycode.intellij.autocomplete.FoxxyCodeAutocompleteService
 import dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService
+import dev.foxxycode.intellij.clipboard.FoxxyCodeCopyBufferService
 import dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService
 import dev.foxxycode.intellij.process.FoxxyCodeProcessManager
 import dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService
@@ -150,6 +152,11 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                 FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
                 // Start reporting open terminals + recent output to the agent.
                 FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                // Start reporting in-IDE copies for the composer's paste-to-chip flow.
+                FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                // Pick up the backend's autocomplete settings; inline suggestions stay off
+                // until config.autocomplete enables them.
+                FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
             },
             onError = { msg -> showError(msg) }
         )
@@ -601,6 +608,8 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                         FoxxyCodeIdeDiffService.getInstance(project).startIfNeeded()
                         FoxxyCodeEditorContextService.getInstance(project).startIfNeeded()
                         FoxxyCodeTerminalContextService.getInstance(project).startIfNeeded()
+                        FoxxyCodeCopyBufferService.getInstance(project).startIfNeeded()
+                        FoxxyCodeAutocompleteService.getInstance(project).startIfNeeded()
                     },
                     onError = { msg -> showError(msg) }
                 )
@@ -727,17 +736,46 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
                       if (!el) {
                         el = document.createElement("div");
                         el.id = "foxxycode-err-overlay";
-                        el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:45vh;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.45 monospace;padding:10px 12px;white-space:pre-wrap;border-top:2px solid #ef4444";
+                        el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:45vh;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.45 monospace;padding:10px 32px 10px 12px;white-space:pre-wrap;border-top:2px solid #ef4444";
+                        var btn = document.createElement("button");
+                        btn.id = "foxxycode-err-overlay-close";
+                        btn.type = "button";
+                        btn.textContent = "×";
+                        btn.setAttribute("aria-label", "Close");
+                        btn.style.cssText = "position:absolute;top:4px;right:6px;background:transparent;border:0;color:#fff;font:16px/1 monospace;cursor:pointer;padding:2px 6px";
+                        btn.onclick = function () { if (el.parentNode) el.parentNode.removeChild(el); };
+                        el.appendChild(btn);
+                        var txt = document.createElement("div");
+                        txt.id = "foxxycode-err-overlay-text";
+                        el.appendChild(txt);
                         (document.body || document.documentElement).appendChild(el);
                       }
-                      el.textContent = "FoxxyCode UI error — " + title + "\n" + (detail || "");
+                      var out = document.getElementById("foxxycode-err-overlay-text") || el;
+                      out.textContent = "FoxxyCode UI error — " + title + "\n" + (detail || "");
                     } catch (e) {}
                   };
+                  // "ResizeObserver loop limit exceeded" (Chromium 104) / "...loop completed with
+                  // undelivered notifications." (newer) is the browser saying it deferred a resize
+                  // observation to the next frame, not an exception in the SPA: nothing is lost
+                  // and the page keeps working, so it must not paint the error overlay.
+                  //
+                  // A dropped request to the backend is not a fault of the page either. The SPA
+                  // polls 127.0.0.1 several times a second for the whole length of a turn, so one
+                  // refused or reset connection is routine, and a real outage is already reported
+                  // by the SPA's own offline indicators and by the plugin when the backend exits.
+                  // The filter applies to rejections too: it used to guard only the error event,
+                  // which is how a single "TypeError: Failed to fetch" from a poll could paint a
+                  // permanent bar over the chat.
+                  var benign = /^ResizeObserver loop|Failed to fetch|NetworkError when attempting to fetch|Load failed|The user aborted a request|^AbortError/;
                   window.addEventListener("error", function (ev) {
+                    if (benign.test(ev.message || "")) return;
                     show(ev.message || "error", (ev.error && ev.error.stack) ? ev.error.stack : (ev.filename + ":" + ev.lineno));
                   });
                   window.addEventListener("unhandledrejection", function (ev) {
                     var r = ev.reason;
+                    var name = (r && r.name) ? String(r.name) : "";
+                    var msg = (r && r.message) ? String(r.message) : "";
+                    if (benign.test((name ? name + ": " : "") + msg) || benign.test(String(r))) return;
                     show("unhandled promise rejection", (r && (r.stack || r.message)) ? (r.stack || r.message) : String(r));
                   });
                 }

@@ -91,3 +91,23 @@ test("known skill chip shows even after selection when caret is after space", ()
     name: "generate-rules",
   });
 });
+
+test("a line-range mention renders as one chip with the full literal", () => {
+  const s = "fix @Dockerfile:21-31 please";
+  const segs = segmentComposerMirrorSpans(s, 0, null, null);
+  expect(segs).toEqual([
+    { type: "text", value: "fix " },
+    { type: "at", literal: "@Dockerfile:21-31", pathRel: "Dockerfile" },
+    { type: "text", value: " please" },
+  ]);
+});
+
+test("a named terminal mention renders as one chip", () => {
+  const s = "see @terminal:dev output";
+  const segs = segmentComposerMirrorSpans(s, 0, null, null);
+  expect(segs).toEqual([
+    { type: "text", value: "see " },
+    { type: "at", literal: "@terminal:dev", pathRel: "terminal" },
+    { type: "text", value: " output" },
+  ]);
+});

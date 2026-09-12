@@ -24,6 +24,18 @@ object FoxxyCodeBackends {
 
     private val live = CopyOnWriteArrayList<KillableProcessHandler>()
     private val shutdownTaskInstalled = AtomicBoolean(false)
+    private val reaping = AtomicBoolean(false)
+
+    /**
+     * True once a shutdown or plugin unload has begun reaping every backend.
+     *
+     * Those paths kill handlers straight through this registry, never through
+     * `FoxxyCodeProcessManager.signalStop`, so the per-project record of "we asked for
+     * this" is empty for them. Without this flag every IDE exit would look like a crash
+     * to [shouldReportBackendExit]. It is never cleared: nothing restarts after it.
+     */
+    val isReapingAll: Boolean
+        get() = reaping.get()
 
     fun register(handler: KillableProcessHandler) {
         live.addIfAbsent(handler)
@@ -40,6 +52,7 @@ object FoxxyCodeBackends {
 
     /** Signals every backend, then waits within one shared [budgetMs], killing stragglers. */
     fun stopAll(budgetMs: Long = STOP_BUDGET_MS) {
+        reaping.set(true)
         val targets = live.toList().filter { !it.isProcessTerminated }
         if (targets.isEmpty()) return
         val survivors = ProcessReaper.reapAll(targets.map { asKillable(it) }, budgetMs)
@@ -48,6 +61,7 @@ object FoxxyCodeBackends {
 
     /** Kills every backend and its children without waiting. For the shutdown hook only. */
     fun killAllNow() {
+        reaping.set(true)
         for (handler in live.toList()) {
             if (handler.isProcessTerminated) continue
             try {

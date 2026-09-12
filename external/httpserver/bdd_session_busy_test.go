@@ -224,7 +224,7 @@ func (s *sessionBusyFeatureState) askIfWorking() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET activity returned %d", res.StatusCode)
 	}
@@ -375,7 +375,7 @@ func (s *sessionBusyFeatureState) stopGeneration() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("cancel returned %d", res.StatusCode)
 	}
@@ -397,7 +397,7 @@ func (s *sessionBusyFeatureState) askAgainWithAnotherModel() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.busyStatus = res.StatusCode
 	_, _ = io.Copy(io.Discard, res.Body)
 	return nil
@@ -425,7 +425,7 @@ func (s *sessionBusyFeatureState) sendAnotherMessage() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.busyStatus = res.StatusCode
 	b, err := io.ReadAll(res.Body)
 	if err != nil {

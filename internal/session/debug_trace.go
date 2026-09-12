@@ -20,7 +20,7 @@ const debugTraceFileName = "debug_trace.jsonl"
 // metadata suitable for a UI timeline and the debug endpoint.
 type DebugEvent struct {
 	Turn   int                    `json:"turn"`
-	Phase  string                 `json:"phase"` // turn_start|llm_request|llm_response|tool_start|tool_finish
+	Phase  string                 `json:"phase"` // turn_start|llm_request|llm_response|tool_start|tool_finish|loop_guard
 	Title  string                 `json:"title,omitempty"`
 	Detail string                 `json:"detail,omitempty"`
 	At     string                 `json:"at"` // RFC3339 UTC
@@ -47,10 +47,15 @@ func AppendDebugEvent(sessionDir string, ev DebugEvent) (string, error) {
 		return path, err
 	}
 	line = append(line, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	// Owner-only, like the process log: the trace records the same turn the
+	// diagnostics layer is dumping, down to tool arguments and model metadata.
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return path, err
 	}
+	// The mode above affects new files only. A trace from an earlier release can
+	// otherwise remain world-readable for the lifetime of its session bundle.
+	_ = f.Chmod(0o600)
 	defer func() { _ = f.Close() }()
 	if _, err := f.Write(line); err != nil {
 		return path, err

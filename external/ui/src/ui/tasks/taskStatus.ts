@@ -107,7 +107,14 @@ export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
   if (task.expected_seconds && task.expected_seconds > 0) {
     parts.push(t("tasks.estimate", { value: formatDuration(task.expected_seconds) }));
   }
-  if (!task.running && typeof task.exit_code === "number") {
+  // An agent task has no process behind it, so its exit code is synthetic:
+  // the status already says how the run ended, and "exit 0" would only
+  // suggest a shell that never existed.
+  if (
+    !task.running &&
+    !isAgentTask(task) &&
+    typeof task.exit_code === "number"
+  ) {
     parts.push(t("tasks.exitCode", { code: task.exit_code }));
   }
   if (isOverdue(task, nowMs)) {
@@ -143,6 +150,26 @@ export function tasksPollIntervalMs(runningCount: number): number {
 }
 
 /**
+ * A detached subagent is blocked on a permission prompt this row can answer.
+ * The task keeps reporting itself as running while it waits — it is, and its
+ * timeout still applies — so "waiting" is a state on top of running, not
+ * instead of it.
+ */
+export function isAwaitingPermission(task: BackgroundTask): boolean {
+  const pending = task.pending_permission;
+  return (
+    !!pending &&
+    !!(pending.sessionId || "").trim() &&
+    !!(pending.toolCall?.toolCallId || "").trim()
+  );
+}
+
+/** How many of these tasks are waiting for an answer. */
+export function awaitingPermissionCount(tasks: BackgroundTask[]): number {
+  return tasks.filter(isAwaitingPermission).length;
+}
+
+/**
  * Ordered purely by when the task was started, newest first. Running tasks are
  * not floated to the top: they already live in their own section, and mixing
  * two orderings makes a list that never sits still to read.
@@ -166,4 +193,26 @@ export function groupTasks(tasks: BackgroundTask[]): {
     running: ordered.filter((t) => t.running),
     finished: ordered.filter((t) => !t.running),
   };
+}
+
+/** A subagent run in the pool, as opposed to a shell command. */
+export function isAgentTask(task: BackgroundTask): boolean {
+  return task.kind === "agent";
+}
+
+/** Definition name of an agent task; empty for commands. */
+export function agentTaskName(task: BackgroundTask): string {
+  return isAgentTask(task) ? (task.agent?.name || "").trim() : "";
+}
+
+/**
+ * Child session an agent task can be opened on, or null when there is nothing
+ * to open: a command task, or an agent row whose child session is not known.
+ */
+export function agentTranscriptSessionId(task: BackgroundTask): string | null {
+  if (!isAgentTask(task)) {
+    return null;
+  }
+  const sid = (task.agent?.session_id || "").trim();
+  return sid ? sid : null;
 }

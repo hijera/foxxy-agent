@@ -36,9 +36,12 @@ export function pickHeroAccentVerb(
 ): HeroAccentVerb {
   const n = HERO_ACCENT_VERBS.length;
   const sid = sessionId.trim();
+  // Both reads index modulo the length, so they are always in range; the
+  // fallback to element 0 exists only because noUncheckedIndexedAccess cannot
+  // see that a computed index is bounded, and it can never actually fire.
   if (sid) {
-    return HERO_ACCENT_VERBS[hashString(sid) % n];
+    return HERO_ACCENT_VERBS[hashString(sid) % n] ?? HERO_ACCENT_VERBS[0];
   }
   const idx = ((homeGeneration % n) + n) % n;
-  return HERO_ACCENT_VERBS[idx];
+  return HERO_ACCENT_VERBS[idx] ?? HERO_ACCENT_VERBS[0];
 }

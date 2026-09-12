@@ -29,13 +29,16 @@ The opt-in is the point. The model decides which results are worth a turn, so a 
 
 - The woken turn starts from a plain statement of the outcome — id, status, exit code, runtime, and any error — and is told to read the output with `background_output` rather than having a wall of text pasted into the prompt. It is also told explicitly that a task which failed, timed out, or was stopped did not succeed.
 - **Tasks finishing together cost one turn.** A short settle window batches a burst, so three results arrive as one turn with three lines instead of three turns.
-- The turn goes through the session manager's normal prompt path, so it takes the **composer turn lock**: a wake waits for a turn already in flight instead of racing it.
+- The turn goes through the session manager's normal prompt path, so it takes the **composer turn lock**. That lock refuses rather than queues: a session with a turn already in flight answers `ErrSessionTurnBusy` at once. Waiting is therefore the waker's job — it **retries the same batch** (1 s, doubling to a 15 s ceiling) until the session goes idle, and only then starts the turn.
+- **A task that dies inside its own turn is still reported.** This is the ordinary case, not an exotic one: the model starts a task, keeps talking, and anything that fails in the first seconds finishes while the launching turn is still open. The outcome waits for that turn and arrives after it, rather than being dropped. Anything that finished during the wait joins the same batch, so a long turn still costs one wake. A session whose turn never ends gives up after 30 minutes and logs `background_wake_abandoned`; every other turn failure is logged as `background_wake_failed` and not retried, because it would only spin.
 - **A woken turn is watchable.** It publishes the same SSE a composer turn does, through the session's composer relay, so `GET /foxxycode/sessions/{id}/composer-stream` streams it and a chat open on that session follows it live. Without that the one turn nobody requested over HTTP produced no stream at all: the session read as busy with nothing to attach to, and the UI sat on a status line built from the transcript as it stood before the wake until it gave up. The relay is taken only **after** the turn lock is won — registering one closes any relay the session already has, and a waiting wake must not cut a watching chat off from the turn it is following.
 - **Nobody is at the keyboard**, so a woken turn still answers its own permission prompts (allow) and questions (empty), exactly as before. Streaming the turn does not turn it into an interactive one; a prompt that waited for a human would hang the turn and hold the session turn lock while it waited.
 - **Shutdown does not wake anything.** Drain stops running tasks, and a stop is terminal; without that guard every task killed by shutdown would start a turn nobody will read.
-- A woken turn can start another notifying task, which is a legitimate pattern for unattended work and also a way to burn a night of tokens on a loop. `maxWakesPerSession` (50 per process, `internal/agent/background_notify.go`) is the backstop; reaching it stops starting turns and logs `background_wake_capped`.
+- A woken turn can start another notifying task, which is a legitimate pattern for unattended work and also a way to burn a night of tokens on a loop. `maxWakesPerSession` (50 per process, `internal/agent/background_notify.go`) is the backstop; reaching it stops starting turns and logs `background_wake_capped`. The budget counts turns that actually ran — an attempt refused by a busy session or by shutdown is refunded, so waiting out one long turn cannot exhaust it.
 
 Wiring lives in `Server.attachBackgroundWaker` (`external/httpserver/background_http.go`), which subscribes under a **keyed** pool subscription so rebuilding the server replaces the watcher instead of stacking another.
+
+- Nobody is attached to a woken turn. On `foxxycode http` it is published to the session's **composer relay** (a watching SPA or `--remote` client can follow it) through a **non-interactive** sender: a gated tool call inside it is **denied** unless the server's own `tools.permission_mode` is `bypass`, exactly like a permission resume. Unattended work that needs gated tools runs under `bypass` or `accept_edits` on purpose, not by accident.
 
 ## Timeouts
 
@@ -190,28 +193,34 @@ tools:
     output_buffer_bytes: 262144
 ```
 
-Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all.
+Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
 
-## Extension point: nested agents
+## Subagent runs
 
-The pool deliberately knows nothing about shells. What a task *is* comes from a `Runner`:
+The pool deliberately knows nothing about shells. What a task *is* comes from whoever starts it: the `CommandRunner` for a shell command, or a launch callback for work the pool cannot describe as a command:
 
 ```go
-type Runner interface {
-	Start(spec Spec, out io.Writer) (Handle, error)
-}
-
 type Handle interface {
 	Wait() (exitCode int, err error)
 	Stop(grace time.Duration) error
 	PID() int
 	ProcessStartedAt() time.Time
 }
+
+type LaunchFunc func(taskID string, out io.Writer) (Handle, error)
 ```
 
-`PID` is 0 and `ProcessStartedAt` is the zero time for work that is not an OS process — which is the shape a nested-agent runner has, and the reason a survivor probe never mistakes one for a pid it may kill.
+A **subagent run** (`docs/subagents.md`) is a task of kind `agent`, started through `Pool.Launch(spec, launch)`. `Launch` shares the single scheduling path with `Start` and `Adopt`: admission (the per-session limit, drain) happens first, so `ErrPoolFull` or `ErrDraining` guarantees the callback never ran and nothing was created; then the pool assigns and registers the task id and only then calls back with that id and the task's output sink, so the child session is created knowing which task it belongs to. The callback returns a `Handle` whose `Stop` cancels the child's context and whose `Wait` blocks until the run settled. `PID` is 0 and `ProcessStartedAt` is the zero time, which is why the survivor probe never mistakes such a task for a pid it may kill.
 
-`CommandRunner` is the only implementation today, and `Spec.Kind` already carries a reserved `KindAgent` value that flows end to end through the snapshot, the persistence format, the HTTP surface, and the drawer. Spawning a nested agent as a background task is therefore a second `Runner` plus a tool that builds the `Spec` — not a second scheduling mechanism, a second status surface, or a second drawer. That work is intentionally **out of scope** for this change and belongs in its own PR.
+What that changes on the surface:
+
+- `Spec.Agent` and `Snapshot.Agent` carry the agent identity, serialised as `"agent": {"name": "…", "session_id": "sub_…"}` on the task row, in `GET .../background-tasks` and in the persisted `meta.json`. The child session id is generated before the pool is involved, so the first snapshot ever published already carries it. Without an explicit label the row reads `agent <name>`; the runtime sets `agent <name>: <description>`.
+- The output log is the child's progress: one `[assistant]` line per line of assistant text, `→ tool` on start, `✓` / `✗ tool` on finish, and a closing block starting with `=== subagent report ===` that carries the outcome, the turn count, the duration and the child's final message. `background_output` and `background_wait` return it like any other log.
+- **Stop cancels the child.** `background_stop`, the panel's Stop control, `POST .../stop`, session delete and server drain all go through the handle, which cancels the child's turn; the pool waits for the run to settle before it reports `stopped`.
+- The Tasks panel shows an `agent` badge with the agent name, and its detail pane offers **Open transcript**, which routes to the child session (`#/s/<child id>`), a read-only transcript that stays out of History.
+- The run is a task of the **parent** session, so it counts against the parent's `max_concurrent` like a background command. Work the child starts itself (a backgrounded `run_command`, a grandchild) is registered under the **child's** session id and persisted in the child's bundle; it is stopped and awaited before the child is retired. The number of child LLM loops the whole process may run at once is a separate, process-wide cap, `subagents.max_concurrent`.
+
+Everything else in this document applies unchanged: timeouts (the run arrives with an explicit `TimeoutSeconds` resolved by the runtime and is capped by `max_timeout_seconds` like any other task), persistence, drain, orphan marking after a restart, and the HTTP surface.
 
 ## Tests
 
@@ -219,3 +228,4 @@ type Handle interface {
 - Edge cases live in ordinary unit tests: timeout resolution, the concurrency cap, output-window truncation, orphan marking, id uniqueness across restarts (`internal/bgtask`), grant refusal for metacharacters (`internal/permission`), and the UI helpers (`external/ui/src/ui/tasks/`).
 - The liveness probe has its own tests in `internal/platform`: `procgroup_test.go` for what both platforms owe (a running process is found, an exited one is not, probing is repeatable), and `procgroup_windows_test.go` for what only Windows can get wrong — reporting a killed process alive because its handle is still open, accepting a creation time the record does not describe, and killing a pid on such a record. Reading a bundle written before `process_started_at` existed is pinned in `internal/bgtask` (`TestLoadPersistedLeavesALegacyRecordWithoutAProcessIdentity`).
 - End-to-end against a real model: `examples/httpserver/http_e2e_background.py`, `examples/httpserver/http_e2e_background_reap.py` (kills its own foxxycode mid-task and makes a fresh one clean up after it), and `examples/acp/acp_e2e_background.py`.
+- Subagent runs on the pool are specified in `features/subagents.feature` (`internal/agent/bdd_subagents_test.go`) and `features/subagents_http.feature` (`external/httpserver/bdd_subagents_test.go`); `Pool.Launch` ordering and `Snapshot.Agent` persistence are unit tests in `internal/bgtask`. See `docs/subagents.md`.

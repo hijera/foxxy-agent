@@ -37,6 +37,16 @@ type bddLoopProvider struct {
 	channel loopAbortChannel
 	// toolCall, when set, is requested on every turn instead of streaming text.
 	toolCall *llm.ToolCall
+	// rotating, when set, is cycled through one call per turn. swapAt replaces the
+	// call at that position with a foreign one, so the cycle is imperfect - the
+	// shape a real re-read loop takes, and the one an exact-match test misses.
+	rotating []llm.ToolCall
+	swapAt   int
+	// answerAfter makes a rotating model give up on tools and answer, which is
+	// what one does after the guard has taken the loop away.
+	answerAfter int
+	// toollessCalls counts requests that arrived with no tool definitions at all.
+	toollessCalls int
 	// recoverAfter is how many degenerate turns precede the real answer.
 	recoverAfter int
 
@@ -51,9 +61,29 @@ func (p *bddLoopProvider) Complete(context.Context, []llm.Message, []llm.ToolDef
 	return nil, fmt.Errorf("Complete must not be used by the loop guard suite")
 }
 
-func (p *bddLoopProvider) Stream(ctx context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddLoopProvider) Stream(ctx context.Context, messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
 	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
+
+	if len(p.rotating) > 0 && len(defs) == 0 {
+		// The guard withheld the tools: there is nothing left to do but answer.
+		p.toollessCalls++
+		onChunk(llm.StreamChunk{TextDelta: p.realAnswer})
+		return &llm.Response{Content: p.realAnswer, StopReason: "end_turn"}, nil
+	}
+	if len(p.rotating) > 0 && p.answerAfter > 0 && p.calls > p.answerAfter {
+		onChunk(llm.StreamChunk{TextDelta: p.realAnswer})
+		return &llm.Response{Content: p.realAnswer, StopReason: "end_turn"}, nil
+	}
+	if len(p.rotating) > 0 {
+		tc := p.rotating[(p.calls-1)%len(p.rotating)]
+		if p.calls-1 == p.swapAt {
+			tc = llm.ToolCall{Name: "glob", InputJSON: `{"pattern":"**/*odd.go"}`}
+		}
+		tc.ID = fmt.Sprintf("call_rot_%d", p.calls)
+		onChunk(llm.StreamChunk{ToolCall: &tc})
+		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+	}
 
 	if p.toolCall != nil {
 		tc := *p.toolCall
@@ -165,8 +195,16 @@ func (s *loopGuardFeatureState) agentWithLoopGuard() error {
 	s.cfg = &config.Config{
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
-		Agent:     config.Agent{Model: "fake/model", MaxTurns: 12},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 24},
 	}
+	return nil
+}
+
+func (s *loopGuardFeatureState) agentWithLoopGuardStopping() error {
+	if err := s.agentWithLoopGuard(); err != nil {
+		return err
+	}
+	s.cfg.Agent.LoopStuckAction = config.AgentLoopStuckActionStop
 	return nil
 }
 
@@ -202,6 +240,75 @@ func (s *loopGuardFeatureState) modelAlwaysRequestsTheSameToolCall() error {
 		toolCall: &llm.ToolCall{ID: "call_loop", Name: "glob", InputJSON: `{"pattern":"**/*.go"}`},
 	}
 	s.buildAgent()
+	return nil
+}
+
+func (s *loopGuardFeatureState) modelCyclesThroughToolCalls() error {
+	s.provider = &bddLoopProvider{
+		rotating: []llm.ToolCall{
+			{Name: "glob", InputJSON: `{"pattern":"**/*a.go"}`},
+			{Name: "glob", InputJSON: `{"pattern":"**/*b.go"}`},
+			{Name: "glob", InputJSON: `{"pattern":"**/*c.go"}`},
+		},
+		// The seventh call breaks the rotation, so no exact repetition of the unit
+		// spans the tail the detector examines.
+		swapAt: 6,
+		// What it says once the guard withholds the tools. This model never gives
+		// up on the loop by itself, so this is the only way it ever answers.
+		realAnswer: "I could not finish the search; here is what I have.",
+	}
+	s.buildAgent()
+	return nil
+}
+
+func (s *loopGuardFeatureState) modelCyclesThenAnswers() error {
+	s.provider = &bddLoopProvider{
+		rotating: []llm.ToolCall{
+			{Name: "glob", InputJSON: `{"pattern":"**/*a.go"}`},
+			{Name: "glob", InputJSON: `{"pattern":"**/*b.go"}`},
+			{Name: "glob", InputJSON: `{"pattern":"**/*c.go"}`},
+		},
+		swapAt:      6,
+		answerAfter: 11,
+		realAnswer:  "Three packages match; here is the summary.",
+	}
+	s.buildAgent()
+	return nil
+}
+
+func (s *loopGuardFeatureState) loopingCallsStopBeingExecuted() error {
+	for _, m := range s.st.GetMessages() {
+		if m.Role == llm.RoleTool && m.Content == toolQuarantinedResult {
+			return nil
+		}
+	}
+	return fmt.Errorf("the guard never took the looping calls away")
+}
+
+func (s *loopGuardFeatureState) modelAskedForAnAnswerWithoutTools() error {
+	if s.provider.toollessCalls == 0 {
+		return fmt.Errorf("the tools were never withheld, so the model was never made to answer")
+	}
+	return nil
+}
+
+func (s *loopGuardFeatureState) turnEndsWithoutAnError() error {
+	if s.runErr != nil {
+		return fmt.Errorf("turn ended with an error instead of an answer: %v", s.runErr)
+	}
+	if s.stop != string(acp.StopReasonEndTurn) {
+		return fmt.Errorf("stop reason = %q, want end_turn", s.stop)
+	}
+	return nil
+}
+
+func (s *loopGuardFeatureState) noticeNamesARepeatingSequence() error {
+	if s.runErr == nil {
+		return fmt.Errorf("turn ended without a notice; stop reason %q", s.stop)
+	}
+	if s.runErr.Error() != toolCycleStopNotice {
+		return fmt.Errorf("notice = %q, want the sequence notice %q", s.runErr, toolCycleStopNotice)
+	}
 	return nil
 }
 
@@ -373,6 +480,13 @@ func initializeLoopGuardScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the tool is executed fewer times than the repeat limit allows$`, s.toolRanFewerTimesThanTheLimit)
 	sc.Step(`^every requested tool call has a result recorded$`, s.everyToolCallHasAResult)
 	sc.Step(`^the turn stops with a loop notice before max turns is reached$`, s.turnStopsWithLoopNoticeBeforeMaxTurns)
+	sc.Step(`^a model that cycles through the same three tool calls, varying one of them$`, s.modelCyclesThroughToolCalls)
+	sc.Step(`^the notice names a repeating sequence rather than one repeated call$`, s.noticeNamesARepeatingSequence)
+	sc.Step(`^a foxxycode agent whose loop guard is set to stop the turn$`, s.agentWithLoopGuardStopping)
+	sc.Step(`^a model that cycles through the same three tool calls, then answers once they stop running$`, s.modelCyclesThenAnswers)
+	sc.Step(`^the looping calls stop being executed$`, s.loopingCallsStopBeingExecuted)
+	sc.Step(`^the model is asked for an answer with the tools withheld$`, s.modelAskedForAnAnswerWithoutTools)
+	sc.Step(`^the turn ends without an error$`, s.turnEndsWithoutAnError)
 }
 
 func TestLoopProtectionFeature(t *testing.T) {

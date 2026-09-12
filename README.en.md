@@ -70,10 +70,13 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **Five operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), `ask` (read-only answers and investigation), and `debug` (systematic root-cause diagnosis before a fix)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
+- **Hooks** - your own commands at lifecycle points of a session: a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, rewrite its arguments or add context; `PostToolUse` / `PostToolUseFailure` see the result; `UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact` / `PostCompact`, `SubagentStart` / `SubagentStop` and `Notification` cover the rest of the turn. Definitions are JSON files in Claude Code's shape (**`~/.foxxycode/hooks.json`**, the workspace's **`.foxxycode/hooks.json`** and **`.claude/settings*.json`**); a file found inside the workspace runs nothing until it is approved there (**`foxxycode hooks trust <file>`**) - see [Hooks](docs/hooks.md)
+- **Session export** - the built-in `/export [md|html|json|jsonl|pdf|docx] [path]` writes the conversation to a file in the workspace, and the panel's download button renders the same document; `--no-tools` / `--no-thinking` trim it (the panel exports the conversation alone by default, the command keeps the tool calls) - see [Session export](docs/session-export.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.foxxycode/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **Background tasks** - `run_command` can detach from the turn (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, the **Background tasks** panel shows what is still running, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a series of similar calls asks once - see [Background tasks](docs/background-tasks.md)
+- **Subagents** - the model delegates a bounded, self-contained task to a child agent with its own context window and session (`spawn_agent`, foreground or detached); definitions are markdown files with YAML frontmatter under **`~/.foxxycode/agents`** and **`.foxxycode/agents`** (Claude Code's **`.claude/agents`** load too), two built-ins (**`general`**, **`explore`**) ship embedded, project files need a one-time approval (**`foxxycode agents trust <name>`**), tools and permission mode can only narrow, and every run is a background task with a read-only child transcript reachable from the **Tasks** panel - see [Subagents](docs/subagents.md)
 - **Transcript export** - any session downloads as **PDF**, **DOCX**, **HTML**, or **JSON**. Markdown in the messages is really rendered: tables, syntax-highlighted code, nested and task lists, blockquotes, links that stay clickable, and images from the session's own `assets/`; a remote `http(s)` image is deliberately never fetched at export time. Editor panels that cannot accept a download get a separate route that writes the document to disk and reveals it in the OS file manager - see [HTTP API](docs/http-api.md)
 - **Reasoning level** - for reasoning models (gpt-5, o-series, gpt-oss, qwen3, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/config.md)
 - **Agent self-configuration** - the agent can change FoxxyCode's own configuration on request, but never behind your back: `config_get` reads a dotted path (secrets come back as `<redacted>`), `config_set` **stages** uci-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file, `config_changes` shows what is staged, `config_commit` applies the batch in one transaction - schema-validated, snapshotted to `config.yaml.prev`, hot-reloading skills, rules, tools and MCP servers, and always behind a permission dialog - while `config_revert` and `config_rollback` undo the staged or the applied batch. The bundled `/configure-foxxycode` skill teaches the syntax - see [Configuration reference](docs/config-reference.md#agent-self-configuration)
@@ -100,7 +103,7 @@ Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install   # copies build/foxxycode to ~/.local/bin or /usr/local/bin
 ```
 
@@ -108,7 +111,20 @@ On **Windows** (or without GNU Make), use the interactive wizard instead:
 **`python scripts/build.py`** — Russian console menus for CLI binary, IntelliJ plugin, VS Code VSIX,
 build tags, and cross-platform targets. See **[`docs/build.md`](docs/build.md#interactive-build-wizard)**.
 
-Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**.
+**Linux** - every release publishes a **`.deb`** and an **`.rpm`** for x86_64 and arm64, so FoxxyCode installs and removes the way the rest of the system does, man page and shell completions included:
+
+```bash
+curl -fsSLO https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode_0.2.63_linux_amd64.deb
+sudo apt-get install ./foxxycode_0.2.63_linux_amd64.deb   # or: sudo dnf install ./...rpm
+```
+
+**macOS** - the Homebrew cask from the same release:
+
+```bash
+brew install --cask https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode.rb
+```
+
+Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**. Every method is in **[`docs/install.md`](docs/install.md)**.
 
 Bootstrap the config: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
 
@@ -169,7 +185,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 ### Build tags
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli browser"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
 
 | Tag | Enables | Docs |
 |-----|---------|------|
@@ -181,13 +197,14 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 | **`cli`** | Interactive console TUI — bare **`foxxycode`** on a terminal (or **`foxxycode cli`**): chat with streaming, tool boxes, permission modals, **`!!<command>`** to run a shell command locally that the agent never sees; **`foxxycode -c`** continues the latest session, **`foxxycode -p "..."`** runs one prompt non-interactively, **`--remote <name|host:port|url>`** (+ `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) drives a remote `foxxycode http` server — the same flags work on `foxxycode acp`. Visual design inspired by the [pi coding agent](https://github.com/badlogic/pi-mono) TUI (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
 | **`gateway.telegram`** | Telegram bot adapter — **`foxxycode gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
+| **`swarm`** | Swarm relay: nodes register into it and relays chain into each other. Run it with **`foxxycode serve`** and **`swarm.enabled: true`**; the **`swarm.join`** list is honoured by any build, which is what makes an ordinary agent reachable through a relay | [`docs/swarm.md`](docs/swarm.md) |
 | **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`** / **`foxxycode-desktop.exe`**; needs **`http`**, **`ui`**, Windows) | [`docs/build.md`](docs/build.md#desktop-windows-webview2) |
 
 Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`browser`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser"`**. Unlike the release archives, it does **not** carry the **`gateway`** tag: build your own image for the messenger gateway (**`docker-compose.dev.yml`** or a custom **`BUILD_TAGS`**), see **[docs/docker.md](docs/docker.md)**.
+Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`browser`**, **`gateway`** and **`swarm`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**, so the default command (**`serve`**) runs whichever subsystems the mounted **`config.yaml`** enables, see **[docs/docker.md](docs/docker.md)**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -237,7 +254,7 @@ If **`$FOXXYCODE_HOME/config.yaml`** is absent, the loader may use **`config.yam
 
 **Providers and models**
 
-- **`providers`** - named backends (**`type`**: **`openai`** for OpenAI and OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for the NeuralDeep hub). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). Each row has **`api_key`** (literal, **`${ENV}`** expanded when the file loads, or empty to read **`NAME_API_KEY`** from the environment at LLM call time, with **`NAME`** derived from **`providers[].name`** in uppercase and hyphens mapped to underscores), and optionally **`api_base`** when the API is not the vendor default. **`neuraldeep`** ignores **`api_base`**: its endpoint is fixed at **`https://api.neuraldeep.ru/v1`**, so only an **`api_key`** is needed. Instead of pasting a key you can sign in with your hub account: **`foxxycode providers login neuraldeep`** opens the browser (loopback callback; **`--device`** for headless machines), stores the hub-issued key under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`foxxycode providers list`** shows every provider with the credential source requests actually use, and **`foxxycode providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
+- **`providers`** - named backends (**`type`**: **`openai`** for OpenAI and OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, selected with **`api_base`**, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`** expanded when the file loads, or empty to read **`NAME_API_KEY`** from the environment at LLM call time, with **`NAME`** derived from **`providers[].name`** in uppercase and hyphens mapped to underscores) and optionally **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`foxxycode providers login codex`** in a terminal (**`foxxycode codex login`** remains a deprecated alias that prints a warning); `api_key` and `api_base` are ignored and credentials live under **`$FOXXYCODE_HOME/providers/<name>/`**. The terminal login also adds the provider, the subscription models Codex lists, and an **`agent.model`** to **`config.yaml`** when they are missing (**`--no-config`** skips that). Codex is only a model backend - the agent keeps FoxxyCode's own prompt, tools and permissions - and an existing Codex CLI login at **`~/.codex/auth.json`** is picked up as a fallback. For **`neuraldeep`**, **`api_base`** picks the deployment: **`https://api.neuraldeep.ru/v1`** (Russia, the default) or **`https://api.neuraldeep.tech/v1`** (the international mirror); any other value falls back to the default. Instead of pasting a key you can sign in with your hub account: **`foxxycode providers login neuraldeep`** prints a short code and the hub page to confirm it on (the device flow, RFC 8628 - the browser can be on any machine, which is what a server reached over SSH needs; **`--browser`** asks for the loopback callback instead, which only completes in a browser running on this machine; **`--api-base`** picks the deployment and moves an existing row to it), stores the hub-issued key under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers an endpoint dropdown and **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`foxxycode providers list`** shows every provider with the credential source requests actually use, and **`foxxycode providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
 - **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
 - **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn.
 
@@ -270,7 +287,7 @@ Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based def
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
 
 **`foxxycode update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/foxxycode`**) or when you run **`./build/foxxycode update`** to refresh a local build artifact.
 
@@ -357,12 +374,10 @@ Best for: keeping README and `docs/` aligned with the code, updating operator gu
 
 Read-only question-answering and investigation mode:
 
-- Read, search, and inspect the workspace without file or documentation writers
-- Use guarded read-only shell commands, web search/fetch, scheduler inspection, and MCP tools annotated with **`readOnlyHint: true`**
-- Refuse shell chaining, output redirection, command substitution, and commands outside the read-only allowlist before execution
-- Never expose plan/todo mutations, scheduler mutations, SSH, browser automation, or memory mutations
-
-The **Disable extended Ask tools** checkbox in Settings → Tools sets **`tools.ask_disable_extended_tools`**. It is off by default. When enabled, Ask hides shell, MCP, web, and scheduler tools while retaining repository read/search/tree, questions, and skills.
+- The model is offered only **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, and **`load_skill`**
+- No shell, no plan/todo/config tools, no MCP tools, no file or documentation writers, no scheduler, SSH, browser automation, or memory mutations (the memory copilot runs recall-only)
+- A tool call outside that set (for example one replayed from history recorded in agent mode) is refused at execution time with a read-only notice instead of running
+- Running a saved plan through **`metadata.runPlanSlug`** or **Run plan** is refused with 409 in ask mode; switch to agent first
 
 Best for: answering repository questions, code reviews, and evidence-based investigation without changing project state.
 
@@ -384,15 +399,26 @@ Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Rules
 
-Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/) convention; the root `AGENTS.md` is injected separately as a project docs preamble) when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
+Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.foxxycode/rules`**, the tool-neutral **`.agents/rules`** (the rules sibling of `.agents/skills`), **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`**.
 
-Rule files often use Cursor-style frontmatter, for example:
+The file extension selects the dialect, so one folder can hold both kinds. A **`.mdc`** file is a Cursor rule (`description`, comma-separated `globs`, `alwaysApply`, manual unless one of them says otherwise); a **`.md`** file is a Claude Code rule (`paths`, and unconditional without them):
 
 ```markdown
 ---
-description: "Go coding standards"
-globs: ["**/*.go"]
+description: Go coding standards
+globs: **/*.go
 alwaysApply: false
+---
+
+Write all comments in English.
+Use fmt.Errorf("context: %w", err) for error wrapping.
+```
+
+```markdown
+---
+description: Go coding standards
+paths:
+  - "**/*.go"
 ---
 
 Write all comments in English.
@@ -581,6 +607,9 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.foxxycode/rules`, …)
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
 - [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and the whole-program grant
+- [Subagents](docs/subagents.md) - definition files, project trust receipts, the **`spawn_agent`** tool, capability narrowing, child sessions
+- [Hooks](docs/hooks.md) - the event table, the JSON contract on stdin and stdout, project trust receipts, and the CLI and HTTP approval surfaces
+- [Session export](docs/session-export.md) - the `/export` command, the `foxxycode sessions export` twin, the formats and what the document holds
 - [Custom tools](docs/custom-tools.md) - how to add a tool of your own to the agent
 - [IntelliJ embedding](docs/intellij-embedding.md) - how the plugin hosts the SPA and the bundled binary
 - [Remote control](docs/remote-control.md) - driving a remote `foxxycode http` from the CLI or ACP
@@ -589,6 +618,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [ZCode hooks](docs/zcode-hooks.md) - the same for ZCode sessions
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 - [Diagnostics](docs/debugging.md) - opt-in `debug:` layer: raw LLM capture, per-session turn trace, `GET /foxxycode/sessions/{id}/debug`, runtime toggle
+- [The `serve` daemon](docs/serve.md) - one process for every enabled subsystem: foreground, the background dispatcher (`--daemon`), `serve status|stop|restart`
+- [Swarm](docs/swarm.md) - the relay nodes register into: `foxxycode serve`, chained relays, the reverse tunnel for a node behind a firewall, and the topology screen in the web UI
 - [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 
 ## Examples (ACP over stdio)
@@ -619,7 +650,7 @@ make test
 # Example harnesses (see examples/README.md): ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 
 ./build/foxxycode -v    # same as --version
 

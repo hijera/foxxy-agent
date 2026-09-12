@@ -1,7 +1,8 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BackgroundTasksPanel } from "./BackgroundTasksPanel";
+import { stripSubagentTitlePrefix } from "./SubagentPermissionCard";
 import type { BackgroundTask } from "./types";
 
 afterEach(() => cleanup());
@@ -55,6 +56,7 @@ function renderPanel(over: Partial<Props> = {}) {
     onBackToList: () => {},
     onStopTask: () => {},
     onClearFinished: () => {},
+    onOpenSession: () => {},
     ...over,
   };
   return render(<BackgroundTasksPanel {...props} />);
@@ -125,6 +127,7 @@ test("Clear is offered only when there is history to clear", () => {
       onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={onClearFinished}
+      onOpenSession={() => {}}
     />,
   );
   fireEvent.click(screen.getByTestId("bgtask-clear-finished"));
@@ -149,6 +152,7 @@ test("the progress bar appears only when the model gave an estimate", () => {
       onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={() => {}}
+      onOpenSession={() => {}}
     />,
   );
   expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
@@ -189,8 +193,162 @@ test("empty and error states replace the sections", () => {
       onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={() => {}}
+      onOpenSession={() => {}}
     />,
   );
   expect(screen.getByTestId("bgtasks-list-error")).toHaveTextContent("HTTP 500");
   expect(screen.queryByTestId("bgtasks-list-empty")).toBeNull();
+});
+
+/** A subagent run: no command, the label the pool writes, the child session. */
+function agentTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  return {
+    id: "bg_7",
+    session_id: "s1",
+    kind: "agent",
+    label: "agent explore: survey the repo",
+    agent: { name: "explore", session_id: "sub_0a1b2c" },
+    status: "running",
+    started_at: new Date(START_MS).toISOString(),
+    timeout_seconds: 1800,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 0,
+    overdue: false,
+    running: true,
+    ...over,
+  };
+}
+
+test("agent tasks carry an agent badge in both sections", () => {
+  renderPanel({
+    tasks: [
+      agentTask(),
+      task(),
+      done("bg_2"),
+      agentTask({
+        id: "bg_8",
+        running: false,
+        status: "succeeded",
+        finished_at: new Date(START_MS + 30_000).toISOString(),
+        elapsed_seconds: 30,
+      }),
+    ],
+  });
+
+  expect(screen.getByTestId("bgtask-agent-badge-bg_7")).toHaveTextContent(
+    "agent",
+  );
+  expect(screen.queryByTestId("bgtask-agent-badge-bg_1")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  expect(screen.getByTestId("bgtask-agent-badge-bg_8")).toBeInTheDocument();
+  expect(screen.queryByTestId("bgtask-agent-badge-bg_2")).toBeNull();
+});
+
+test("an agent task's detail names the subagent and opens its transcript", () => {
+  const onOpenSession = vi.fn();
+  const { container } = renderPanel({
+    selectedTaskId: "bg_7",
+    tasks: [agentTask()],
+    selectedOutput: "→ read\n=== subagent report ===\nstatus: succeeded",
+    onOpenSession,
+  });
+
+  expect(screen.getByTestId("bgtask-detail-agent-name")).toHaveTextContent(
+    "explore",
+  );
+  // The role name stands where a shell command would.
+  expect(container.querySelector(".bgtask-detail-command")).toBeNull();
+  // The output pane is the child's live log, report block included.
+  expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
+    "=== subagent report ===",
+  );
+
+  fireEvent.click(screen.getByTestId("bgtask-open-transcript"));
+  expect(onOpenSession).toHaveBeenCalledWith("sub_0a1b2c");
+});
+
+test("Open transcript stays disabled until the child session is known", () => {
+  const onOpenSession = vi.fn();
+  renderPanel({
+    selectedTaskId: "bg_7",
+    tasks: [agentTask({ agent: { name: "explore" } })],
+    onOpenSession,
+  });
+
+  const button = screen.getByTestId("bgtask-open-transcript");
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+  expect(onOpenSession).not.toHaveBeenCalled();
+});
+
+function awaitingTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  return agentTask({
+    pending_permission: {
+      sessionId: "sub_0a1b2c",
+      agent_name: "explore",
+      asked_at: new Date(START_MS + 10_000).toISOString(),
+      toolCall: {
+        toolCallId: "call_9",
+        title: "[subagent explore] Run: run_command",
+        kind: "execute",
+        content: [{ type: "content", content: { type: "text", text: "npm test" } }],
+      },
+      options: [
+        { optionId: "allow", name: "Allow once", kind: "allow_once" },
+        { optionId: "reject", name: "Reject", kind: "reject_once" },
+      ],
+    },
+    ...over,
+  });
+}
+
+// The parent turn that spawned a detached run has ended, so its prompt has no
+// chat stream to appear in: the task that is blocked has to ask.
+test("a detached subagent's prompt is answered on its task card", async () => {
+  const calls: Array<{ url: string; body?: string }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        ...(typeof init?.body === "string" ? { body: init.body } : {}),
+      });
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    }),
+  );
+  const onRefresh = vi.fn();
+  renderPanel({ tasks: [awaitingTask()], onRefresh });
+
+  const card = screen.getByTestId("bgtask-permission-bg_7");
+  expect(card).toHaveTextContent("explore");
+  expect(card).toHaveTextContent("npm test");
+
+  fireEvent.click(screen.getByTestId("bgtask-permission-allow-bg_7"));
+  await waitFor(() => expect(calls.length).toBe(1));
+  // Answered against the child session - the one actually waiting - not the
+  // parent chat the task belongs to.
+  expect(calls[0]?.url).toBe("/foxxycode/sessions/sub_0a1b2c/permission");
+  expect(calls[0]?.body).toBe(
+    JSON.stringify({ toolCallId: "call_9", optionId: "allow" }),
+  );
+  await waitFor(() => expect(onRefresh).toHaveBeenCalled());
+  vi.unstubAllGlobals();
+});
+
+test("a running task with no prompt carries no permission card", () => {
+  renderPanel({ tasks: [agentTask()] });
+  expect(screen.queryByTestId("bgtask-permission-bg_7")).toBeNull();
+});
+
+// The relay prefixes a forwarded title so the parent chat can tell whose
+// prompt it is; on a task row the card already says that, and the prefix would
+// leave the tool preview's header blank.
+test("the relay's subagent prefix is dropped from the previewed title", () => {
+  expect(stripSubagentTitlePrefix("[subagent explore] Run: run_command")).toBe(
+    "Run: run_command",
+  );
+  expect(stripSubagentTitlePrefix("Run: run_command")).toBe("Run: run_command");
+  expect(stripSubagentTitlePrefix(undefined)).toBe("");
 });

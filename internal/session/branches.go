@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/llm"
 )
@@ -140,12 +141,20 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	if err != nil {
 		return nil, fmt.Errorf("read source session: %w", err)
 	}
+	// A child transcript is read-only on every surface; forking it would hand
+	// the model's task history to a writable session and reopen it that way.
+	if snap.Meta.IsSubagentRun(srcID) {
+		return nil, fmt.Errorf("%w: %s cannot be branched", ErrSubagentReadOnly, srcID)
+	}
 
 	// Collect the messages up to (not including) the Nth user message.
 	prefix, preview := sliceMessagesBeforeUserN(snap.Messages, params.UserMessageIndex)
 
 	// Generate new session ID.
-	newID := newSessionID()
+	newID, err := newSessionID()
+	if err != nil {
+		return nil, fmt.Errorf("branch session id: %w", err)
+	}
 
 	// Create the directory layout for the new session.
 	newDir, err := m.store.EnsureLayout(newID)
@@ -158,6 +167,19 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	wrap := messagesFileData{Version: messagesLayout, Messages: prefix}
 	if err := writeJSONAtomic(msgPath, wrap); err != nil {
 		return nil, fmt.Errorf("branch messages: %w", err)
+	}
+	// The prefix keeps its tool cards, so their per-call store (args, result, the
+	// plan snapshot a todo tool recorded) travels with it; otherwise every card
+	// before the fork degrades to the bare transcript row.
+	for _, m := range prefix {
+		for _, tc := range m.ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" {
+				continue
+			}
+			if err := CopyToolCallStore(snap.Dir, newDir, tc.ID); err != nil {
+				return nil, fmt.Errorf("branch tool call %s: %w", tc.ID, err)
+			}
+		}
 	}
 
 	// Read existing branch metadata for the source session.

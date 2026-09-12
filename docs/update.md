@@ -29,6 +29,23 @@ Each binary is built with **`http`**, **`ui`**, **`scheduler`**, and **`memory`*
 
 This differs from **`make install`**, which always copies to **`~/.local/bin`** or **`/usr/local/bin`**. To update the binary on **`PATH`**, invoke the same **`foxxycode`** that **`which foxxycode`** prints.
 
+## Installations owned by a package manager
+
+A **`foxxycode`** that **`apt`** or **`dnf`** put on disk is listed in the package database, file by file. Overwriting **`/usr/bin/foxxycode`** in place would leave that database describing a build that is gone, the next **`apt upgrade`** or **`dnf reinstall`** would quietly put the old version back, and **`dpkg --verify`** would report a checksum mismatch nobody asked for. So **`foxxycode update`** does not replace a packaged executable. It asks **`dpkg-query -S`** and **`rpm -qf`** who owns the file it is about to write and takes one of two other routes:
+
+- **as an ordinary user** - it changes nothing, names the package that owns the installation, and prints the command that upgrades it (**`sudo apt-get install --only-upgrade foxxycode`**, **`sudo dnf upgrade foxxycode`**, ...). The exit code is **1**, so a script notices;
+- **as root** - it downloads the **`.deb`** or **`.rpm`** for this architecture, verifies it against **`SHA256SUMS`** like any other asset, and hands it to the package manager it found (**`apt-get`**, **`apt`**, **`dnf`**, **`yum`**, **`zypper`**, else **`dpkg`** or **`rpm`**). The package database stays correct.
+
+**Homebrew** is recognised too, on macOS and on Linux: an executable that resolves into a **`Caskroom`** or **`Cellar`** directory belongs to brew. There is no privileged route there - Homebrew refuses to run under **`sudo`** - so both root and an ordinary user are pointed at **`brew upgrade`**. Which of the two markers matched decides the flag: a **`Caskroom`** path is a cask and takes **`brew upgrade --cask foxxycode`**, a **`Cellar`** path is a formula and takes **`brew upgrade foxxycode`**. The distinction is not cosmetic - **`--cask`** on a formula install fails, there being no cask by that name to upgrade.
+
+```bash
+sudo foxxycode update -y
+```
+
+Ownership is asked of the package database, not guessed from the path, so a binary you copied out of **`/usr/bin`** keeps updating itself, a distribution's own rebuild of FoxxyCode is recognised like ours, and a build under **`~/.local/bin`** is untouched by any of this.
+
+A release published before this pipeline has archives but no packages. Root is told exactly that and pointed back at the package manager, rather than being handed an archive that would overwrite the packaged file.
+
 ## Commands
 
 Check for a newer release (exit **0** if up to date, **1** if a newer **`X.Y.Z`** exists):

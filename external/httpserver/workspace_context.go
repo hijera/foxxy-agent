@@ -8,6 +8,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -104,7 +105,7 @@ func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Req
 		}
 		cwd = abs
 	} else {
-		resolved, ok := s.resolveSlashListCWD(w, r)
+		resolved, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}
@@ -168,7 +169,7 @@ func (s *Server) foxxycodeWorkspaceFoldersGet(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if dir == "" {
-		cwd, ok := s.resolveSlashListCWD(w, r)
+		cwd, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}
@@ -208,6 +209,76 @@ func (s *Server) foxxycodeWorkspaceFoldersGet(w http.ResponseWriter, r *http.Req
 	_ = json.NewEncoder(w).Encode(folderListingPayload(abs, folders, drives))
 }
 
+// validWorkspaceFolderName reports whether name is a single new directory
+// entry rather than a path. The picker creates a direct child of the folder it
+// is browsing, so anything that could walk somewhere else - a separator, a
+// volume name, "." or ".." - is refused instead of being cleaned up. Both
+// separators are rejected on every OS so a name behaves the same everywhere.
+func validWorkspaceFolderName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, 0) {
+		return false
+	}
+	return name == filepath.Base(name) && filepath.VolumeName(name) == ""
+}
+
+// foxxycodeWorkspaceFoldersPost creates one subfolder inside the browsed directory
+// and answers with the listing of the folder it just made, so the picker can
+// step straight into it and open it as the workspace. Body: {"path","name"}.
+func (s *Server) foxxycodeWorkspaceFoldersPost(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if !validWorkspaceFolderName(name) {
+		http.Error(w, `{"error":{"message":"invalid folder name"}}`, http.StatusBadRequest)
+		return
+	}
+	dir := strings.TrimSpace(body.Path)
+	// The volume level is synthetic: there is no directory to create anything in.
+	if dir == workspaceDrivesPath {
+		http.Error(w, `{"error":{"message":"cannot create a folder at the drive level"}}`, http.StatusBadRequest)
+		return
+	}
+	if dir == "" {
+		cwd, ok := s.resolveSessionCWD(w, r)
+		if !ok {
+			return
+		}
+		dir = cwd
+	}
+	parent, err := filepath.Abs(dir)
+	if err != nil {
+		http.Error(w, `{"error":{"message":"invalid path"}}`, http.StatusBadRequest)
+		return
+	}
+	// The parent has to exist already; a picker that silently builds a whole
+	// chain from a typo is worse than one that says no.
+	fi, err := os.Stat(parent)
+	if err != nil || !fi.IsDir() {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+parent), http.StatusBadRequest)
+		return
+	}
+	made := filepath.Join(parent, name)
+	if err := os.Mkdir(made, 0o755); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder already exists: "+made), http.StatusConflict)
+			return
+		}
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(folderListingPayload(made, []map[string]string{}, s.hostDrives()))
+}
+
 // hostDrives lists the machine's drive roots, tolerating a server built
 // without the seam (zero-value Server in older tests).
 func (s *Server) hostDrives() []string {
@@ -240,7 +311,16 @@ func (s *Server) foxxycodeSessionWorkspacePost(w http.ResponseWriter, r *http.Re
 	}
 	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, s.defaultCWD)
 	if err != nil {
+		if errors.Is(err, session.ErrReservedSessionID) {
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	// A child session inherited its workspace from the parent's turn and is
+	// read-only; nothing may move it, whatever its message count.
+	if rejectSubagentTurn(w, st) {
 		return
 	}
 	// Folder, branch, and worktree are fixed at session start: once the

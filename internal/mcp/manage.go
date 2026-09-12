@@ -309,7 +309,7 @@ func persistConfigYAML(cfg *config.Config) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("config path is empty")
 	}
-	data, err := config.MarshalConfigYAML(cfg)
+	data, err := config.MarshalConfigYAMLForFile(cfg, path)
 	if err != nil {
 		return err
 	}

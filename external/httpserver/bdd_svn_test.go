@@ -258,7 +258,7 @@ func (s *svnWSState) do(req *http.Request) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	s.status = res.StatusCode
 	s.body = nil
 	var parsed map[string]interface{}

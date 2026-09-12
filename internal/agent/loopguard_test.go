@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -193,6 +194,215 @@ func TestToolRepeatDetectorDisabled(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		if _, tripped := d.Observe("glob", `{"pattern":"*"}`); tripped {
 			t.Fatal("nil detector must never trip")
+		}
+	}
+}
+
+func TestCyclicSuffixKeysDetectsCycles(t *testing.T) {
+	// Tool-call keys are opaque to the detector, so single letters stand in for
+	// "read(a)" and friends; the mixed cases below use realistic keys where the
+	// point is which arguments differ.
+	cases := []struct {
+		name      string
+		keys      []string
+		minCycles int
+		want      bool
+	}{
+		{
+			name:      "exact two-call rotation",
+			keys:      []string{"A", "B", "A", "B", "A", "B"},
+			minCycles: 3,
+			want:      true,
+		},
+		{
+			name:      "rotation with one foreign call",
+			keys:      []string{"A", "B", "A", "B", "A", "D"},
+			minCycles: 3,
+			want:      true,
+		},
+		{
+			name:      "three-call rotation with one foreign call",
+			keys:      []string{"A", "B", "C", "A", "B", "C", "A", "D", "C"},
+			minCycles: 3,
+			want:      true,
+		},
+		{
+			name:      "a constant call inside the unit is still a cycle",
+			keys:      []string{"A", "A", "B", "A", "A", "B", "A", "A", "B"},
+			minCycles: 3,
+			want:      true,
+		},
+		{
+			// Seven is the shortest rotation with no shorter sub-pattern the
+			// tolerance can accept, so it only trips once maxPeriod covers it.
+			name: "seven-call rotation",
+			keys: []string{
+				"A", "B", "C", "D", "E", "F", "G",
+				"A", "B", "C", "D", "E", "F", "G",
+				"A", "B", "C", "D", "E", "F", "G",
+			},
+			minCycles: 3,
+			want:      true,
+		},
+		{
+			name: "eight-call rotation at the upper bound",
+			keys: []string{
+				"A", "B", "C", "D", "E", "F", "G", "H",
+				"A", "B", "C", "D", "E", "F", "G", "H",
+				"A", "B", "C", "D", "E", "F", "G", "H",
+			},
+			minCycles: 3,
+			want:      true,
+		},
+		{
+			name: "reading and editing a different file each round is progress",
+			keys: []string{
+				`read` + "\x00" + `{"path":"a.go"}`, `edit` + "\x00" + `{"path":"a.go"}`,
+				`read` + "\x00" + `{"path":"b.go"}`, `edit` + "\x00" + `{"path":"b.go"}`,
+				`read` + "\x00" + `{"path":"c.go"}`, `edit` + "\x00" + `{"path":"c.go"}`,
+			},
+			minCycles: 3,
+			want:      false,
+		},
+		{
+			name: "editing a new file then running the same check is progress",
+			keys: []string{
+				`edit` + "\x00" + `{"path":"a.go"}`, `run_command` + "\x00" + `{"cmd":"go test"}`,
+				`edit` + "\x00" + `{"path":"b.go"}`, `run_command` + "\x00" + `{"cmd":"go test"}`,
+				`edit` + "\x00" + `{"path":"c.go"}`, `run_command` + "\x00" + `{"cmd":"go test"}`,
+			},
+			minCycles: 3,
+			want:      false,
+		},
+		{
+			name:      "alternating tools over different arguments is not a cycle",
+			keys:      []string{"gx", "ra", "gy", "rb", "gz", "rc"},
+			minCycles: 3,
+			want:      false,
+		},
+		{
+			// Period 1 belongs to toolRepeatDetector, which trips on the third call
+			// rather than the sixth. Claiming it here would report one runaway twice.
+			name:      "a run of identical calls is left to the repeat detector",
+			keys:      []string{"A", "A", "A", "A", "A", "A"},
+			minCycles: 3,
+			want:      false,
+		},
+		{
+			name:      "too little history for three cycles",
+			keys:      []string{"A", "B", "A", "B", "A"},
+			minCycles: 3,
+			want:      false,
+		},
+		{
+			name:      "one position without a majority sinks the match",
+			keys:      []string{"A", "X", "B", "X", "C", "Y"},
+			minCycles: 3,
+			want:      false,
+		},
+		{
+			name:      "an ordinary run of distinct work",
+			keys:      []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"},
+			minCycles: 3,
+			want:      false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			period, unit, ok := cyclicSuffixKeys(tc.keys, tc.minCycles)
+			if ok != tc.want {
+				t.Fatalf("cyclicSuffixKeys ok = %v (period %d), want %v", ok, period, tc.want)
+			}
+			if !ok {
+				return
+			}
+			if period < toolCycleMinPeriod || period > toolCycleMaxPeriod {
+				t.Fatalf("period %d outside [%d,%d]", period, toolCycleMinPeriod, toolCycleMaxPeriod)
+			}
+			// The unit is what the ReAct loop quarantines, so it has to be the
+			// whole cycle, not just the call that tripped the check.
+			if len(unit) != period {
+				t.Fatalf("unit %v has %d keys, want %d (the period)", unit, len(unit), period)
+			}
+		})
+	}
+}
+
+func TestToolCycleDetectorTripsOnRotatingCalls(t *testing.T) {
+	d := newToolCycleDetector(3)
+	paths := []string{"a.go", "b.go", "c.go"}
+	tripped := false
+	for i := 0; i < 9; i++ {
+		_, _, tripped = d.Observe("read", `{"path":"`+paths[i%len(paths)]+`"}`)
+		if tripped && i < 8 {
+			t.Fatalf("tripped after %d calls, before three full cycles", i+1)
+		}
+	}
+	if !tripped {
+		t.Fatal("three rotations of the same three reads must trip the detector")
+	}
+}
+
+func TestToolCycleDetectorIgnoresVaryingArguments(t *testing.T) {
+	d := newToolCycleDetector(3)
+	for i := 0; i < 12; i++ {
+		if _, _, tripped := d.Observe("read", fmt.Sprintf(`{"path":"file%d.go"}`, i)); tripped {
+			t.Fatalf("reading a different file every time is progress, not a cycle (call %d)", i+1)
+		}
+	}
+}
+
+func TestToolCycleDetectorSkipsPollingTools(t *testing.T) {
+	d := newToolCycleDetector(3)
+	for i := 0; i < 12; i++ {
+		name, args := "background_wait", `{"task_id":"bg_1"}`
+		if i%2 == 1 {
+			name, args = "background_output", `{"task_id":"bg_1"}`
+		}
+		if _, _, tripped := d.Observe(name, args); tripped {
+			t.Fatalf("polling one background task is how the tools are meant to be used (call %d)", i+1)
+		}
+	}
+}
+
+func TestToolCycleDetectorDisabled(t *testing.T) {
+	if d := newToolCycleDetector(1); d != nil {
+		t.Fatal("fewer than two cycles must disable the detector")
+	}
+	var d *toolCycleDetector
+	for i := 0; i < 9; i++ {
+		if _, _, tripped := d.Observe("read", `{"path":"a.go"}`); tripped {
+			t.Fatal("nil detector must never trip")
+		}
+	}
+}
+
+func TestToolCycleDetectorReportsTheWholeCycle(t *testing.T) {
+	d := newToolCycleDetector(3)
+	paths := []string{"a.go", "b.go", "c.go"}
+	var unit []string
+	for i := 0; i < 9; i++ {
+		var tripped bool
+		_, unit, tripped = d.Observe("read", `{"path":"`+paths[i%len(paths)]+`"}`)
+		if tripped {
+			break
+		}
+	}
+	if len(unit) != len(paths) {
+		t.Fatalf("unit = %v, want one key per call in the cycle", unit)
+	}
+	// Quarantining only the tripping call would leave the model free to keep
+	// turning the rest of the wheel, so every member must be named.
+	for _, p := range paths {
+		want := canonicalToolCallKey("read", `{"path":"`+p+`"}`)
+		found := false
+		for _, k := range unit {
+			if k == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("unit %v does not name the read of %s", unit, p)
 		}
 	}
 }

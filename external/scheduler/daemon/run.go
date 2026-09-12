@@ -53,20 +53,10 @@ func resolveJobCWD(processCWD string, fm *storage.JobFrontmatter) (string, error
 }
 
 func parseSessionMode(s string) session.Mode {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "", "agent":
-		return session.ModeAgent
-	case "plan":
-		return session.ModePlan
-	case "docs":
-		return session.ModeDocs
-	case "ask":
-		return session.ModeAsk
-	case "debug":
-		return session.ModeDebug
-	default:
-		return session.ModeAgent
+	if norm := strings.ToLower(strings.TrimSpace(s)); session.IsValidMode(norm) {
+		return session.Mode(norm)
 	}
+	return session.ModeAgent
 }
 
 func jobIDFromMDPath(abs string) string {

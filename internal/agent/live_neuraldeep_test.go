@@ -79,7 +79,10 @@ type liveProbeOpts struct {
 	keepRecent int // 0 means "use the shipped default"
 	readLimit  int
 	grepLimit  int
-	prompt     string
+	// moduleFiles, when > 0, writes that many separate large files instead of the
+	// single big.go, so one round of reads outgrows the working window.
+	moduleFiles int
+	prompt      string
 }
 
 type liveProbeResult struct {
@@ -108,7 +111,11 @@ func runLiveProbe(t *testing.T, o liveProbeOpts) liveProbeResult {
 	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	liveBigFile(t, cwd, 3000, 2410)
+	if o.moduleFiles > 0 {
+		liveModuleFiles(t, cwd, o.moduleFiles, 400)
+	} else {
+		liveBigFile(t, cwd, 3000, 2410)
+	}
 
 	keepRecent := o.keepRecent
 	if keepRecent == 0 {
@@ -290,4 +297,94 @@ func truncateForLog(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// liveModuleFiles writes n distinct large files, each carrying its own marker, so
+// a single round of reads produces more large results than KeepRecent.
+func liveModuleFiles(t *testing.T, dir string, n, lines int) {
+	t.Helper()
+	for f := 1; f <= n; f++ {
+		var b strings.Builder
+		for i := 1; i <= lines; i++ {
+			if i == lines/2 {
+				fmt.Fprintf(&b, "const ModuleMarker%d = \"MODULE_MARKER_%d\" // the one line that matters\n", f, f*1111)
+				continue
+			}
+			fmt.Fprintf(&b, "func mod%dHelper%04d(v int) int { return v * %d } // filler %d\n", f, i, i%7+1, i)
+		}
+		name := fmt.Sprintf("mod%d.go", f)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// liveUnseenRoundIsIntact checks the invariant the eviction pass promises: in
+// every request actually sent to the provider, the tool results that follow the
+// last assistant message - the round the model is reading for the first time -
+// are never eviction placeholders. Collapsing one of those answers a read with an
+// order to re-read, which is what sends a turn into a rotating re-read loop.
+func liveUnseenRoundIsIntact(t *testing.T, res liveProbeResult) {
+	t.Helper()
+	for i, r := range res.records {
+		last := -1
+		for j, m := range r.messages {
+			if m.Role == llm.RoleAssistant {
+				last = j
+			}
+		}
+		for _, m := range r.messages[last+1:] {
+			if m.Role == llm.RoleTool && strings.HasPrefix(m.Content, "[evicted:") {
+				t.Errorf("call %d: a result of the unread round was evicted: %s", i+1, truncateForLog(m.Content, 160))
+			}
+		}
+	}
+}
+
+// TestLiveNeuralDeepMultiReadRound is the regression probe for the re-read loop:
+// several large files requested in one round used to push the earliest results
+// out of the projection before the model ever saw them, and every placeholder
+// tells it to re-read.
+func TestLiveNeuralDeepMultiReadRound(t *testing.T) {
+	const prompt = "Read all four files mod1.go, mod2.go, mod3.go and mod4.go. " +
+		"Each contains exactly one line defining a constant whose value starts with MODULE_MARKER_. " +
+		"When you have them, reply with the four marker values, one per line. Do not read any file twice."
+
+	res := runLiveProbe(t, liveProbeOpts{evictionOn: true, moduleFiles: 4, readLimit: 400, grepLimit: 40, prompt: prompt})
+
+	t.Logf("stop reason: %s", res.stop)
+	t.Logf("tool calls: %v", liveToolCallCounts(res.st))
+	liveLogCalls(t, res)
+	liveUnseenRoundIsIntact(t, res)
+
+	// Count how often each read target was requested. A re-read loop shows up here
+	// as the same argument set appearing over and over.
+	reads := map[string]int{}
+	for _, m := range res.st.GetMessages() {
+		for _, tc := range m.ToolCalls {
+			if tc.Name == "read" {
+				reads[canonicalJSON(tc.InputJSON)]++
+			}
+		}
+	}
+	total := 0
+	for args, n := range reads {
+		t.Logf("  read %s -> %d time(s)", args, n)
+		total += n
+		if n > 2 {
+			t.Errorf("read %s was requested %d times; the model is re-reading in a loop", args, n)
+		}
+	}
+	if total > 8 {
+		t.Errorf("%d read calls for 4 files; a healthy run needs about 4", total)
+	}
+
+	last := res.st.GetMessages()[len(res.st.GetMessages())-1]
+	t.Logf("final answer: %s", truncateForLog(last.Content, 400))
+	for f := 1; f <= 4; f++ {
+		want := fmt.Sprintf("MODULE_MARKER_%d", f*1111)
+		if !strings.Contains(last.Content, want) {
+			t.Errorf("answer is missing %s; the model never got that file's contents", want)
+		}
+	}
 }

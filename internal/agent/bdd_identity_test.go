@@ -112,6 +112,7 @@ func (s *identityFeatureState) sessionInMode(mode, templates string) error {
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000}},
 		Agent:     config.Agent{Model: "fake/model"},
 	}
+	disableTitlePass(cfg)
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 

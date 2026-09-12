@@ -35,4 +35,3 @@ func debugLogger() *slog.Logger {
 	}
 	return slog.Default()
 }
-

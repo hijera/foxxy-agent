@@ -107,3 +107,29 @@ func TestBuildInvokedSkillsSection(t *testing.T) {
 		t.Fatalf("got %q", sec)
 	}
 }
+
+// The built-in catalog is what the ACP available-commands update and the HTTP
+// commands endpoint both read, so its shape is pinned here: compact appears
+// only while the coddy compaction engine owns /compact, export and plugin
+// always do.
+func TestBuiltinCommands(t *testing.T) {
+	names := func(cmds []skills.SkillSummary) []string {
+		out := make([]string, 0, len(cmds))
+		for _, c := range cmds {
+			out = append(out, c.Name)
+		}
+		return out
+	}
+	withCompact := skills.BuiltinCommands(true)
+	if got := names(withCompact); len(got) != 3 || got[0] != "compact" || got[1] != "export" || got[2] != "plugin" {
+		t.Fatalf("with compaction: got %v, want [compact export plugin]", got)
+	}
+	for _, c := range withCompact {
+		if strings.TrimSpace(c.Description) == "" {
+			t.Fatalf("builtin command %q must have a description", c.Name)
+		}
+	}
+	if got := names(skills.BuiltinCommands(false)); len(got) != 2 || got[0] != "export" || got[1] != "plugin" {
+		t.Fatalf("without compaction: got %v, want [export plugin]", got)
+	}
+}

@@ -12,6 +12,8 @@ func ParseSystems(ss []string) []Source {
 		switch strings.ToLower(strings.TrimSpace(raw)) {
 		case "foxxycode":
 			out = append(out, SourceFoxxyCode)
+		case "agents-dir":
+			out = append(out, SourceAgentsDir)
 		case "cursor":
 			out = append(out, SourceCursor)
 		case "claude":

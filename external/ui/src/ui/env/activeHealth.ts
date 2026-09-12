@@ -24,15 +24,32 @@ function set(h: EnvHealth): void {
 }
 
 /** probeEnvHealth resolves "up" when the environment answers `GET /v1/models` (authorized), else
- * "down" (offline, DNS/TLS, refused, CORS-blocked, or 401/403). Local is always "up". */
+ * "down" (offline, DNS/TLS, refused, CORS-blocked, or 401/403). Local is always "up".
+ *
+ * A swarm relay is the one remote that answers neither: it serves no /v1 at all, only
+ * /swarm/*. It still has to be added as a remote to be given its bearer token, so a 404
+ * from /v1/models is followed by one ask of `GET /swarm/info` before calling it down -
+ * otherwise every relay sits behind a permanent "unreachable" banner while its screen
+ * works. A 401/403 stays down either way: that is a wrong token, not a relay. */
 export async function probeEnvHealth(env: FoxxyCodeEnv): Promise<EnvHealth> {
   if (env.mode !== "remote") return "up";
+  const headers = env.token ? { Authorization: "Bearer " + env.token } : {};
   try {
     const res = await localFetch(env.baseUrl + "/v1/models", {
-      headers: env.token ? { Authorization: "Bearer " + env.token } : {},
+      headers,
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
-    return res.ok ? "up" : "down";
+    if (res.ok) return "up";
+    if (res.status !== 404) return "down";
+  } catch {
+    return "down";
+  }
+  try {
+    const relay = await localFetch(env.baseUrl + "/swarm/info", {
+      headers,
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    return relay.ok ? "up" : "down";
   } catch {
     return "down";
   }

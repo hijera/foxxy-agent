@@ -22,6 +22,8 @@ const en = {
   "settings.checkbox.followTheme": "Match FoxxyCode UI theme to the VS Code color theme",
   "settings.checkbox.nativeDiffs": "Show native inline diffs in the editor when the agent edits files",
   "settings.checkbox.autoApprove": "Auto-apply edits without asking (still shows the diff, with Revert)",
+  "settings.status.noBinary": "No binary available. Install the extension or set a valid path.",
+  "settings.status.verifying": "Verifying FoxxyCode Binary",
 
   // First-run
   "firstrun.body": "The foxxycode agent binary is bundled with the FoxxyCode extension and ready to use. The FoxxyCode view in the activity bar will start it automatically. Optional: configure host, port, FoxxyCode home, or override the binary path in Settings.",
@@ -35,6 +37,7 @@ const en = {
   "process.error.binaryNotFound": "Bundled foxxycode binary not found. Reinstall the FoxxyCode extension or set a custom binary path in Settings.",
   "process.error.exitedBeforeReady": "FoxxyCode process exited before becoming ready. Verify the binary is a full build and config.yaml has a valid provider API key.",
   "process.error.notReady": "FoxxyCode did not become ready within 30s ({0})",
+  "process.error.portInUse": "Port {0} is already in use by another process. Free it, or set the port to 0 (auto) in Settings → Extensions → FoxxyCode.",
   "process.error.startFailed": "FoxxyCode failed to start",
   "process.error.startFailedPanel": "FoxxyCode failed to start: {0}",
   "process.button.retry": "Retry",
@@ -56,6 +59,9 @@ const en = {
 
   // Notifications
   "notification.title.startFailed": "FoxxyCode failed to start",
+
+  // Add to FoxxyCode (context menus)
+  "addToChat.noFiles": "Select a file inside the workspace to add it to FoxxyCode.",
 
   // Binary validation
   "binary.error.notFound": "File not found: {0}",
@@ -90,6 +96,8 @@ const ru: Record<MessageKey, string> = {
   "settings.checkbox.followTheme": "Подстраивать тему FoxxyCode UI под тему VS Code",
   "settings.checkbox.nativeDiffs": "Показывать нативные inline-диффы в редакторе при правках агента",
   "settings.checkbox.autoApprove": "Применять правки без запроса (дифф всё равно показывается, с возможностью отката)",
+  "settings.status.noBinary": "Бинарник недоступен. Установите расширение или укажите корректный путь.",
+  "settings.status.verifying": "Проверка бинарника FoxxyCode",
 
   "firstrun.body": "Бинарник агента foxxycode встроен в расширение FoxxyCode и готов к работе. Вид FoxxyCode в активити-баре запустит его автоматически. При необходимости настройте хост, порт, домашнюю папку FoxxyCode или путь к бинарнику в настройках.",
   "firstrun.openSettings": "Открыть настройки",
@@ -101,6 +109,7 @@ const ru: Record<MessageKey, string> = {
   "process.error.binaryNotFound": "Встроенный бинарник foxxycode не найден. Переустановите расширение FoxxyCode или укажите путь к бинарнику в настройках.",
   "process.error.exitedBeforeReady": "Процесс FoxxyCode завершился до готовности. Убедитесь, что бинарник полной сборки и в config.yaml указан корректный API-ключ провайдера.",
   "process.error.notReady": "FoxxyCode не стал готов за 30 с ({0})",
+  "process.error.portInUse": "Порт {0} уже занят другим процессом. Освободите его или укажите порт 0 (авто) в Settings → Extensions → FoxxyCode.",
   "process.error.startFailed": "Не удалось запустить FoxxyCode",
   "process.error.startFailedPanel": "Не удалось запустить FoxxyCode: {0}",
   "process.button.retry": "Повторить",
@@ -120,6 +129,8 @@ const ru: Record<MessageKey, string> = {
   "toolbar.action.settings.desc": "Настроить FoxxyCode",
 
   "notification.title.startFailed": "Не удалось запустить FoxxyCode",
+
+  "addToChat.noFiles": "Выберите файл внутри рабочей области, чтобы добавить его в FoxxyCode.",
 
   "binary.error.notFound": "Файл не найден: {0}",
   "binary.error.executeVersion": "Не удалось выполнить: {0} -v",

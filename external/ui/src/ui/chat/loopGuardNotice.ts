@@ -13,6 +13,9 @@ const REASONING_NOTICE =
 // "stopped: the model kept requesting the same <tool> call with identical arguments".
 const TOOL_NOTICE_PREFIX = "stopped: the model kept requesting the same ";
 const TOOL_NOTICE_SUFFIX = " call with identical arguments";
+// The cycle notice interpolates nothing, so it matches by equality.
+const TOOL_CYCLE_NOTICE =
+  "stopped: the model kept repeating the same sequence of tool calls";
 
 /**
  * Returns the localized loop-guard notice for a backend error message, or null
@@ -28,6 +31,9 @@ export function localizeLoopGuardNotice(
   }
   if (text === REASONING_NOTICE) {
     return t("messages.loopGuardReasoning");
+  }
+  if (text === TOOL_CYCLE_NOTICE) {
+    return t("messages.loopGuardToolCycle");
   }
   if (text.startsWith(TOOL_NOTICE_PREFIX) && text.endsWith(TOOL_NOTICE_SUFFIX)) {
     const tool = text.slice(

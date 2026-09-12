@@ -2,7 +2,7 @@ package agent
 
 import "testing"
 
-// The fork has four modes where upstream has two, so which background tools each
+// The fork has five modes where upstream has three, so which background tools each
 // mode gets is a fork decision rather than a ported one. The observing tools go
 // wherever a command can be started; background_reap never does, because it
 // kills process groups the session did not start.
@@ -23,27 +23,13 @@ func TestPlanModeObservesBackgroundTasksButCannotReap(t *testing.T) {
 	}
 }
 
-// Ask mode grants run_command in its extended set, so a backgrounded command is
-// reachable there and has to stay observable.
-func TestAskExtendedObservesBackgroundTasksButCannotReap(t *testing.T) {
+// Ask mode has no run_command at all (upstream's flat read-only set), so
+// nothing can start a task and the pool tools have nothing to observe.
+func TestAskModeHasNoBackgroundTools(t *testing.T) {
 	set := ToolSetForMode("ask", false)
-	for _, name := range backgroundObserveTools() {
-		if !set.Allows(name) {
-			t.Errorf("ask mode should allow %s", name)
-		}
-	}
-	if set.Allows("background_reap") {
-		t.Errorf("ask mode must not allow background_reap")
-	}
-}
-
-// Ask basic-only drops run_command, so nothing can start a task and the pool
-// tools have nothing to observe.
-func TestAskBasicOnlyHasNoBackgroundTools(t *testing.T) {
-	set := ToolSetForMode("ask", false, true)
 	for _, name := range append(backgroundObserveTools(), "background_reap") {
 		if set.Allows(name) {
-			t.Errorf("ask basic-only must not allow %s", name)
+			t.Errorf("ask mode must not allow %s", name)
 		}
 	}
 }
@@ -59,27 +45,21 @@ func TestDocsModeHasNoBackgroundTools(t *testing.T) {
 }
 
 // The allowlists above only bite when the mode is enforced at execution time,
-// which is what actually refuses a call the model makes anyway.
+// which is what actually refuses a call the model makes anyway. Plan keeps the
+// observing tools under the self-run guard; ask refuses the whole family.
 func TestBackgroundReapRefusedByEnforcedModes(t *testing.T) {
-	cases := []struct {
-		mode      string
-		noSelfRun bool
-		basicOnly []bool
-	}{
-		{mode: "ask"},
-		{mode: "plan", noSelfRun: true},
+	if _, refused := toolCallRefusedByMode("plan", "background_reap", true); !refused {
+		t.Error("plan mode should refuse background_reap")
 	}
-	for _, tc := range cases {
-		t.Run(tc.mode, func(t *testing.T) {
-			if !toolCallRefusedByMode(tc.mode, "background_reap", tc.noSelfRun, tc.basicOnly...) {
-				t.Errorf("%s mode should refuse background_reap", tc.mode)
-			}
-			for _, name := range backgroundObserveTools() {
-				if toolCallRefusedByMode(tc.mode, name, tc.noSelfRun, tc.basicOnly...) {
-					t.Errorf("%s mode should not refuse %s", tc.mode, name)
-				}
-			}
-		})
+	for _, name := range backgroundObserveTools() {
+		if _, refused := toolCallRefusedByMode("plan", name, true); refused {
+			t.Errorf("plan mode should not refuse %s", name)
+		}
+	}
+	for _, name := range append(backgroundObserveTools(), "background_reap") {
+		if _, refused := toolCallRefusedByMode("ask", name, false); !refused {
+			t.Errorf("ask mode should refuse %s", name)
+		}
 	}
 }
 
@@ -87,7 +67,7 @@ func TestBackgroundReapRefusedByEnforcedModes(t *testing.T) {
 // reachable there.
 func TestAgentModeAllowsEveryBackgroundTool(t *testing.T) {
 	for _, name := range append(backgroundObserveTools(), "background_reap") {
-		if toolCallRefusedByMode("agent", name, false) {
+		if _, refused := toolCallRefusedByMode("agent", name, false); refused {
 			t.Errorf("agent mode should not refuse %s", name)
 		}
 	}

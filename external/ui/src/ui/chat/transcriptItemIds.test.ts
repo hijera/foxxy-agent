@@ -84,3 +84,105 @@ test("preserveTranscriptItemIds does not match a different plan slug", () => {
   const out = preserveTranscriptItemIds(merged, prev);
   expect(out[0]?.id).toBe("pd_new");
 });
+
+test("preserveTranscriptItemIds keeps a locally known todoPlan when the server row lacks it", () => {
+  const todoPlan = [
+    { content: "Inspect cards", status: "completed" },
+    { content: "Render preview", status: "in_progress" },
+  ];
+  const prev: TranscriptItem[] = [
+    {
+      id: "tc_keep",
+      type: "tool_call",
+      toolCallId: "call_1",
+      status: "in_progress",
+      todoPlan,
+    },
+  ];
+  const merged: TranscriptItem[] = [
+    {
+      id: "tc_new",
+      type: "tool_call",
+      toolCallId: "call_1",
+      status: "completed",
+      resultText: "updated item 1",
+    },
+  ];
+  const out = preserveTranscriptItemIds(merged, prev);
+  expect(out[0]?.id).toBe("tc_keep");
+  expect(out[0]?.type === "tool_call" && out[0].status).toBe("completed");
+  expect(out[0]?.type === "tool_call" && out[0].todoPlan).toEqual(todoPlan);
+});
+
+test("preserveTranscriptItemIds prefers the server todoPlan when the server row carries one", () => {
+  const prev: TranscriptItem[] = [
+    {
+      id: "tc_keep",
+      type: "tool_call",
+      toolCallId: "call_1",
+      status: "completed",
+      todoPlan: [{ content: "stale", status: "pending" }],
+    },
+  ];
+  const merged: TranscriptItem[] = [
+    {
+      id: "tc_new",
+      type: "tool_call",
+      toolCallId: "call_1",
+      status: "completed",
+      todoPlan: [{ content: "fresh", status: "completed" }],
+    },
+  ];
+  const out = preserveTranscriptItemIds(merged, prev);
+  expect(out[0]?.type === "tool_call" && out[0].todoPlan).toEqual([
+    { content: "fresh", status: "completed" },
+  ]);
+});
+
+test("preserveTranscriptItemIds treats an empty server todoPlan as missing", () => {
+  const prev: TranscriptItem[] = [
+    {
+      id: "tc_keep",
+      type: "tool_call",
+      toolCallId: "call_1",
+      status: "completed",
+      todoPlan: [{ content: "known", status: "pending" }],
+    },
+  ];
+  const merged: TranscriptItem[] = [
+    {
+      id: "tc_new",
+      type: "tool_call",
+      toolCallId: "call_1",
+      status: "completed",
+      todoPlan: [],
+    },
+  ];
+  const out = preserveTranscriptItemIds(merged, prev);
+  expect(out[0]?.type === "tool_call" && out[0].todoPlan).toEqual([
+    { content: "known", status: "pending" },
+  ]);
+});
+
+test("preserveTranscriptItemIds does not borrow todoPlan from a different tool call", () => {
+  const prev: TranscriptItem[] = [
+    {
+      id: "tc_keep",
+      type: "tool_call",
+      toolCallId: "call_1",
+      status: "completed",
+      todoPlan: [{ content: "known", status: "pending" }],
+    },
+  ];
+  const merged: TranscriptItem[] = [
+    {
+      id: "tc_new",
+      type: "tool_call",
+      toolCallId: "call_2",
+      status: "completed",
+    },
+  ];
+  const out = preserveTranscriptItemIds(merged, prev);
+  expect(out[0]?.id).toBe("tc_new");
+  expect(out[0]?.type === "tool_call" && out[0].todoPlan).toBeUndefined();
+});

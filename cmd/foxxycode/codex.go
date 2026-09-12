@@ -16,13 +16,22 @@ import (
 // counterpart of Settings -> LLM Providers -> Sign In with ChatGPT, for ACP and
 // headless setups that never open the web UI. Credentials land in the same
 // place the HTTP surface uses ($FOXXYCODE_HOME/providers/<name>/codex-auth.json).
+//
+// It predates `foxxycode providers`, which covers every backend and is the
+// command the docs and the runtime hints name. Upstream removed this one;
+// here it stays as a deprecated alias so a scripted setup does not break on an
+// update, and because `--provider NAME` still reaches a codex provider that
+// config.yaml does not list yet. The flows are otherwise identical.
 func runCodex(args []string) error {
 	if len(args) == 0 {
 		return codexUsageErr()
 	}
+	fmt.Fprintf(os.Stderr, "warning: `%[1]s codex` is deprecated; use `%[1]s providers login codex` "+
+		"(and `%[1]s providers list` for its status).\n", os.Args[0])
 	fs := flag.NewFlagSet("codex", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	provider := fs.String("provider", "", "codex provider name from config.yaml (default: the first codex provider, else \"codex\")")
+	noConfig := fs.Bool("no-config", false, "store only the credential; do not add the provider and its models to config.yaml")
 	home := fs.String("home", "", "override FOXXYCODE_HOME")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -43,7 +52,7 @@ func runCodex(args []string) error {
 
 	switch args[0] {
 	case "login":
-		return codexLogin(prov, name, authPath)
+		return codexLogin(cfg, prov, name, authPath, *noConfig)
 	case "status":
 		return codexStatus(name, authPath)
 	case "logout":
@@ -58,7 +67,8 @@ func runCodex(args []string) error {
 }
 
 func codexUsageErr() error {
-	return fmt.Errorf("usage: %s codex login|status|logout [--provider NAME] [--home DIR]", os.Args[0])
+	return fmt.Errorf("usage: %[1]s codex login|status|logout [--provider NAME] [--no-config] [--home DIR]\n"+
+		"       (deprecated: `%[1]s providers login codex` is the same sign-in, and covers every other backend too)", os.Args[0])
 }
 
 // resolveCodexProvider picks the provider entry to sign in for. An explicit
@@ -92,7 +102,7 @@ func resolveCodexProvider(cfg *config.Config, requested string) (string, *config
 	return "codex", &config.ProviderConfig{Name: "codex", Type: "codex"}, nil
 }
 
-func codexLogin(prov *config.ProviderConfig, name, authPath string) error {
+func codexLogin(cfg *config.Config, prov *config.ProviderConfig, name, authPath string, noConfig bool) error {
 	client, err := llm.HTTPClientForOptionalProxy(prov.Proxy)
 	if err != nil {
 		return err
@@ -109,7 +119,28 @@ func codexLogin(prov *config.ProviderConfig, name, authPath string) error {
 		return fmt.Errorf("codex login: %w", err)
 	}
 	fmt.Printf("Signed in. Credential stored at %s\n", authPath)
+	if !noConfig {
+		codexWriteConfig(ctx, cfg, prov, name, authPath)
+	}
 	return codexStatus(name, authPath)
+}
+
+// codexWriteConfig publishes the subscription catalog into config.yaml and
+// reports what it added. The sign-in itself has already succeeded by the time
+// it runs, so a catalog or config problem is a note on stderr, not a failed
+// login: the credential is on disk either way.
+func codexWriteConfig(ctx context.Context, cfg *config.Config, prov *config.ProviderConfig, name, authPath string) {
+	added, err := llm.ApplyCodexLoginToConfig(ctx, cfg, name, authPath, prov.Proxy)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not update config.yaml: %v\n", err)
+		return
+	}
+	if len(added) == 0 {
+		fmt.Println("config.yaml already lists this provider and its models.")
+		return
+	}
+	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, strings.Join(added, ", "))
+	fmt.Println("A running server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 }
 
 func codexStatus(name, authPath string) error {
@@ -118,7 +149,7 @@ func codexStatus(name, authPath string) error {
 		return fmt.Errorf("codex status: %w", err)
 	}
 	if !status.Connected {
-		fmt.Printf("Provider %q: not connected. Run `%s codex login`.\n", name, os.Args[0])
+		fmt.Printf("Provider %q: not connected. Run `%s providers login %s`.\n", name, os.Args[0], name)
 		return nil
 	}
 	source := "FoxxyCode-managed credential"

@@ -31,7 +31,7 @@ defaults:
     shell: bash
 
 env:
-  GO_BUILD_TAGS: "http,ui,scheduler,memory,cli,browser,gateway"
+  GO_BUILD_TAGS: "http,ui,scheduler,memory,cli,browser,gateway,swarm"
 
 jobs:
   release-binaries:
@@ -114,7 +114,7 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: make ui-build
 
-      - name: Cross-compile release binaries
+      - name: Cross-compile release binaries, build packages, render the cask
         if: steps.gate.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.git_tag.outputs.tag }}
@@ -146,7 +146,14 @@ jobs:
             if [ "$goos" = "windows" ]; then
               (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
             else
-              tar -C "$bindir" -czf "$DIST/${stem}.tar.gz" "$binname"
+              # The macOS archives are what the Homebrew cask installs, so the
+              # man page and the completions travel beside the binary. Every
+              # consumer that wants only the executable - `foxxycode update`, the
+              # install script - takes it out by name and ignores the rest.
+              cp packaging/man/foxxycode.1 "$bindir/foxxycode.1"
+              cp packaging/completions/foxxycode.bash "$bindir/foxxycode.bash"
+              cp packaging/completions/foxxycode.zsh "$bindir/foxxycode.zsh"
+              tar -C "$bindir" -czf "$DIST/${stem}.tar.gz" foxxycode foxxycode.1 foxxycode.bash foxxycode.zsh
             fi
           }
 
@@ -174,8 +181,26 @@ jobs:
           build_target darwin arm64
           build_desktop
 
+          # The deb and rpm wrap the Linux binaries built above rather than
+          # compiling their own: packaging must not double the slowest step of
+          # the release, and shipping a package whose binary differs from the
+          # archive of the same tag would be worse than slow.
+          for arch in amd64 arm64; do
+            scripts/build-packages.sh \r
+              --version "${VERSION}" \r
+              --arch "$arch" \r
+              --out "$DIST" \r
+              --binary "$DIST/_staging/foxxycode_${VERSION}_linux_${arch}/foxxycode"
+          done
+
+          # The cask pins the checksum of the macOS archives, so it is rendered
+          # from the ones just built rather than from a published release.
+          scripts/build-homebrew-cask.sh --version "${VERSION}" --out "$DIST"
+
           rm -rf "$DIST/_staging"
-          (cd "$DIST" && sha256sum foxxycode_*.tar.gz foxxycode_*.zip foxxycode-desktop_*.zip > SHA256SUMS)
+          # `foxxycode update` verifies every asset it downloads against this
+          # list, packages included.
+          (cd "$DIST" && sha256sum foxxycode_*.tar.gz foxxycode_*.zip foxxycode-desktop_*.zip foxxycode_*.deb foxxycode_*.rpm > SHA256SUMS)
           ls -la "$DIST"
 
       - name: Upload assets to GitHub Release

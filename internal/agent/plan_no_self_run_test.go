@@ -22,7 +22,7 @@ func TestModeToolCallRefusedOnlyUnderTheGuard(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := toolCallRefusedByMode(tc.mode, tc.tool, tc.noSelfRun); got != tc.refused {
+			if _, got := toolCallRefusedByMode(tc.mode, tc.tool, tc.noSelfRun); got != tc.refused {
 				t.Fatalf("toolCallRefusedByMode(%q, %q, %v) = %v, want %v",
 					tc.mode, tc.tool, tc.noSelfRun, got, tc.refused)
 			}
@@ -31,8 +31,8 @@ func TestModeToolCallRefusedOnlyUnderTheGuard(t *testing.T) {
 }
 
 func TestModeToolRefusalMentionsTheToolAndMode(t *testing.T) {
-	msg := modeToolRefusalMessage("plan", "write")
-	if msg == "" {
+	msg, refused := toolCallRefusedByMode("plan", "write", true)
+	if !refused || msg == "" {
 		t.Fatal("refusal message must not be empty")
 	}
 	for _, want := range []string{"write", "plan"} {

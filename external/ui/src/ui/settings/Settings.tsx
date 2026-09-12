@@ -110,6 +110,13 @@ export function Settings(props: {
   initialSection?: string | null;
   /** Reopen the onboarding form + guided tour (shown in the Appearance tab). */
   onRestartOnboarding?: () => void;
+  /**
+   * Workspace of the viewed session. The Subagents tab lists the definitions
+   * of that workspace and writes its approvals there, because a receipt is
+   * keyed by workspace and spawn_agent checks the session's own cwd. Undefined
+   * with no session open: the server answers for its session default.
+   */
+  workspacePath?: string | undefined;
 }) {
   const { t } = useT();
   const [schema, setSchema] = useState<JsonSchema | null>(null);
@@ -261,6 +268,7 @@ export function Settings(props: {
                 setDoc={setDoc}
                 isMobileShell={isMobileShell}
                 onRestartOnboarding={props.onRestartOnboarding}
+                workspacePath={props.workspacePath}
               />
             ) : null}
           </div>

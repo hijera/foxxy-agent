@@ -57,4 +57,3 @@ type OutgoingMessage struct {
 	// ParseMode is "HTML" or "MarkdownV2" (Telegram-specific; ignored by other adapters).
 	ParseMode string
 }
-

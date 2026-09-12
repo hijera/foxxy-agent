@@ -1,7 +1,8 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChatScreen } from "./ChatScreen";
+import type { TokenUsage } from "./types";
 
 afterEach(() => cleanup());
 
@@ -156,4 +157,205 @@ test("a whitespace-only assistant answer does not offer the download", () => {
   );
 
   expect(container.querySelector(".session-export")).toBeNull();
+});
+
+const childTranscript = {
+  parentSessionId: "s_parent",
+  name: "explore",
+  taskId: "bg_3",
+};
+
+test("a subagent transcript replaces the docked composer with a read-only notice", () => {
+  const onOpenSession = vi.fn();
+  const { container } = render(
+    <ChatScreen
+      title="agent explore"
+      sessionId="sub_0a1b2c"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[{ type: "user_message", id: "1", content: "survey the repo" }]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+      subagentTranscript={childTranscript}
+      onOpenSession={onOpenSession}
+    />,
+  );
+
+  expect(container.querySelector(".composer-card")).toBeNull();
+  expect(screen.getByTestId("subagent-readonly-notice")).toHaveTextContent(
+    "Read-only transcript of subagent explore",
+  );
+  fireEvent.click(screen.getByTestId("subagent-readonly-parent-link"));
+  expect(onOpenSession).toHaveBeenCalledWith("s_parent");
+});
+
+test("the notice also takes the hero composer's slot on an empty child transcript", () => {
+  const { container } = render(
+    <ChatScreen
+      title=""
+      sessionId="sub_0a1b2c"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[]}
+      draft=""
+      tokenUsage={null}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+      subagentTranscript={childTranscript}
+    />,
+  );
+
+  expect(container.querySelector(".composer-card")).toBeNull();
+  expect(screen.getByTestId("subagent-readonly-notice")).toBeInTheDocument();
+});
+
+// JCEF (Chromium 104) raised "ResizeObserver loop limit exceeded" on every
+// transcript open: the host observer wrote the scroll-tail reserve inside the
+// observer's own delivery loop. The write must wait for the next frame and a
+// repeat of the same height must not touch state at all.
+test("the composer reserve is written on the next frame, not inside the resize callback", () => {
+  const callbacks: Array<() => void> = [];
+  const RO = class {
+    constructor(cb: () => void) {
+      callbacks.push(cb);
+    }
+    observe() {}
+    disconnect() {}
+  };
+  const frames: Array<() => void> = [];
+  const prevRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  const prevRaf = globalThis.requestAnimationFrame;
+  const prevCaf = globalThis.cancelAnimationFrame;
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = RO;
+  globalThis.requestAnimationFrame = (cb) => {
+    frames.push(() => cb(0));
+    return frames.length;
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const { container } = render(
+      <ChatScreen
+        title="Hi"
+        sessionId="s1"
+        heroAccentVerb="know"
+        heroComposerFocusEpoch={0}
+        onTitleSave={() => {}}
+        items={[{ type: "user_message", id: "1", content: "x" }]}
+        draft=""
+        tokenUsage={null}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onDraftChange={() => {}}
+        onSend={() => {}}
+      />,
+    );
+    const host = container.querySelector(".chat-bottom-inner") as HTMLElement;
+    const reserveOf = () =>
+      (container.querySelector("[style*='--chat-composer-reserve']") as HTMLElement)
+        .style.getPropertyValue("--chat-composer-reserve");
+    expect(callbacks).toHaveLength(1);
+    expect(reserveOf()).toBe("140px");
+
+    host.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+    act(() => callbacks[0]!());
+    // Still the mount-time value: nothing changed inside the delivery loop.
+    expect(reserveOf()).toBe("140px");
+    expect(frames).toHaveLength(1);
+
+    act(() => frames.shift()!());
+    expect(reserveOf()).toBe("310px");
+
+    // The same height again schedules a frame but leaves the DOM alone.
+    act(() => callbacks[0]!());
+    act(() => frames.shift()!());
+    expect(reserveOf()).toBe("310px");
+  } finally {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = prevRO;
+    globalThis.requestAnimationFrame = prevRaf;
+    globalThis.cancelAnimationFrame = prevCaf;
+  }
+});
+
+// A turn updates tokenUsage many times, and the reserve effect used to list it
+// as a dependency - left over from when the observer callback wrote the reserve
+// synchronously and re-running the effect was how a changed token line got
+// re-measured. With the write deferred to the next frame, that dependency is
+// the one remaining synchronous writer: React re-runs the layout effect mid-turn
+// and it measures and writes before paint, which can land in the same frame as
+// an observation and is what the panel resize scenario catches as a reserve
+// write of 206px -> 181px. The observer already sees any height change the token
+// line causes, so the effect must not restart for it.
+test("a token usage update neither restarts the resize observer nor writes the reserve", () => {
+  const callbacks: Array<() => void> = [];
+  const RO = class {
+    constructor(cb: () => void) {
+      callbacks.push(cb);
+    }
+    observe() {}
+    disconnect() {}
+  };
+  const frames: Array<() => void> = [];
+  const prevRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  const prevRaf = globalThis.requestAnimationFrame;
+  const prevCaf = globalThis.cancelAnimationFrame;
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = RO;
+  globalThis.requestAnimationFrame = (cb) => {
+    frames.push(() => cb(0));
+    return frames.length;
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  const screenFor = (tokenUsage: TokenUsage | null) => (
+    <ChatScreen
+      title="Hi"
+      sessionId="s1"
+      heroAccentVerb="know"
+      heroComposerFocusEpoch={0}
+      onTitleSave={() => {}}
+      items={[{ type: "user_message", id: "1", content: "x" }]}
+      draft=""
+      tokenUsage={tokenUsage}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onDraftChange={() => {}}
+      onSend={() => {}}
+    />
+  );
+  try {
+    const { container, rerender } = render(screenFor(null));
+    const host = container.querySelector(".chat-bottom-inner") as HTMLElement;
+    const reserveOf = () =>
+      (container.querySelector("[style*='--chat-composer-reserve']") as HTMLElement)
+        .style.getPropertyValue("--chat-composer-reserve");
+    expect(callbacks).toHaveLength(1);
+    expect(reserveOf()).toBe("140px");
+
+    // The composer is taller now, the way it is after a draft grows it.
+    host.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+    act(() => {
+      rerender(screenFor({ inputTokens: 10, outputTokens: 2, totalTokens: 12 }));
+    });
+    expect(callbacks, "the observer was torn down and rebuilt").toHaveLength(1);
+    expect(reserveOf(), "the reserve was written outside a frame").toBe("140px");
+
+    // The observer is still the one that moves it, on the next frame.
+    act(() => callbacks[0]!());
+    act(() => frames.shift()!());
+    expect(reserveOf()).toBe("310px");
+  } finally {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = prevRO;
+    globalThis.requestAnimationFrame = prevRaf;
+    globalThis.cancelAnimationFrame = prevCaf;
+  }
 });

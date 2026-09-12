@@ -15,6 +15,7 @@ import (
 // desktop shell owns no console, so any console child it starts blinks a window
 // and a taskbar button at the operator.
 var spawnSiteExceptions = map[string]string{
+	"internal/serve/daemon.go:StartDetached":              "DetachFromTerminal already starts the dispatcher with DETACHED_PROCESS and HideWindow, so it has no console to show a window for",
 	"cmd/foxxycode/providers.go:openBrowser":              "hands the URL to the browser the operator is about to log in with; SW_HIDE can travel to a window that must be seen",
 	"internal/update/windows_windows.go:restartFoxxyCode": "restarts the freshly installed FoxxyCode for the operator; hiding it would make the update end in a disappearance",
 }

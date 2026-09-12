@@ -3,14 +3,26 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/external/cli/tui"
+	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/platform"
+	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/tools/shell"
 )
 
@@ -204,7 +216,7 @@ func TestEscapeKillsTheRunningCommand(t *testing.T) {
 		t.Skipf("no portable long-running command for shell %q", commandShell.Kind)
 	}
 	a := newTestApp(t)
-	cmd, err := shell.StartOperatorCommand("sleep 60", a.cfg.Paths.CWD)
+	cmd, err := shell.StartOperatorCommand("sleep 60", a.config().Paths.CWD)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,5 +320,232 @@ func TestAssistantMessageStartsWithASeparatorRow(t *testing.T) {
 	}
 	if visible := tui.StripTerminalSequences(lines[0]); strings.TrimSpace(visible) != "" {
 		t.Fatalf("first row must be a blank separator, got %q", lines[0])
+	}
+}
+
+// --- run.go: the console turn agent and the staged config flow ---
+
+// stagedConfigBackend stands in for an OpenAI-compatible server answering
+// blocking (stream: false) requests. It records the tool names every request
+// offered and, when scripted, drives one self-configuration turn: config_set,
+// then config_commit, then a plain answer. Unscripted it answers at once.
+type stagedConfigBackend struct {
+	script bool
+
+	mu    sync.Mutex
+	tools [][]string
+}
+
+func (b *stagedConfigBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	var body struct {
+		Tools []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		} `json:"tools"`
+	}
+	_ = json.Unmarshal(raw, &body)
+	names := make([]string, 0, len(body.Tools))
+	for _, tool := range body.Tools {
+		names = append(names, tool.Function.Name)
+	}
+	b.mu.Lock()
+	b.tools = append(b.tools, names)
+	turn := len(b.tools)
+	b.mu.Unlock()
+
+	message := map[string]any{"role": "assistant", "content": "Done."}
+	finish := "stop"
+	if b.script && turn <= 2 {
+		call := map[string]any{"name": "config_set", "arguments": `{"commands":["set agent.max_turns=19"]}`}
+		if turn == 2 {
+			call = map[string]any{"name": "config_commit", "arguments": "{}"}
+		}
+		message = map[string]any{
+			"role": "assistant", "content": "",
+			"tool_calls": []map[string]any{{"id": fmt.Sprintf("call_%d", turn), "type": "function", "function": call}},
+		}
+		finish = "tool_calls"
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"id": fmt.Sprintf("chatcmpl-%d", turn), "object": "chat.completion", "model": "stub",
+		"choices": []map[string]any{{"index": 0, "finish_reason": finish, "message": message}},
+		"usage":   map[string]int{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+	})
+}
+
+func (b *stagedConfigBackend) offered() [][]string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([][]string(nil), b.tools...)
+}
+
+// newConsoleOverStub writes a config.yaml in a temp home whose only model is
+// served by the stub backend and builds the console exactly as Run does: real
+// manager, real store, real agent, no LLM.
+func newConsoleOverStub(t *testing.T, backend http.Handler) (*App, *config.Config) {
+	t.Helper()
+	ts := httptest.NewServer(backend)
+	t.Cleanup(ts.Close)
+	home, cwd := t.TempDir(), t.TempDir()
+	yaml := "agent:\n  model: stub/model\n  max_turns: 35\n" +
+		"providers:\n  - name: stub\n    type: openai\n    api_base: " + ts.URL + "\n    api_key: test\n" +
+		"models:\n  - model: stub/model\n    max_tokens: 200\n    stream: false\n" +
+		"tools:\n  permission_mode: bypass\n" +
+		// The fork generates a session title with a second LLM request after the
+		// first exchange; the scripted stub counts requests, so keep it off here.
+		"title:\n  enabled: false\n" +
+		"rules:\n  auto_discover: false\n"
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home, CWD: cwd, Config: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &session.FileStore{Root: filepath.Join(home, "sessions")}
+	app := buildApp(cfg, store, slog.New(slog.DiscardHandler), &bddTerminal{cols: 80, rows: 24}, "dark", true)
+	t.Cleanup(app.Close)
+	return app, cfg
+}
+
+// runConsoleTurn opens a session and runs one prompt through the manager, so
+// the turn goes through the runner buildApp installed.
+func runConsoleTurn(t *testing.T, app *App, text string) {
+	t.Helper()
+	ctx := context.Background()
+	res, err := app.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: app.config().Paths.CWD})
+	if err != nil {
+		t.Fatalf("session/new: %v", err)
+	}
+	params := acp.SessionPromptParams{SessionID: res.SessionID, Prompt: []acp.ContentBlock{{Type: "text", Text: text}}}
+	if _, err := app.mgr.HandleSessionPromptWithSender(ctx, params, app.Sender(), nil); err != nil {
+		t.Fatalf("session/prompt: %v", err)
+	}
+}
+
+// The console offers the whole staged config family, so the model can change
+// FoxxyCode's own configuration from the terminal as it can over ACP and HTTP.
+// Without the runtime reloader the agent hides everything but config_get.
+func TestConsoleTurnOffersStagedConfigTools(t *testing.T) {
+	backend := &stagedConfigBackend{}
+	app, _ := newConsoleOverStub(t, backend)
+	runConsoleTurn(t, app, "which config tools do you have?")
+	offered := backend.offered()
+	if len(offered) == 0 {
+		t.Fatal("the stub backend saw no request")
+	}
+	for _, name := range []string{"config_get", "config_set", "config_changes", "config_commit", "config_revert", "config_rollback"} {
+		if !slices.Contains(offered[0], name) {
+			t.Errorf("%s missing from the console turn's tools: %v", name, offered[0])
+		}
+	}
+}
+
+// A committed change hot-reloads the console itself: the app reads the new
+// file and queues the refresh of its model catalog, footer, and header.
+func TestConsoleAdoptsTheConfigAfterCommit(t *testing.T) {
+	backend := &stagedConfigBackend{script: true}
+	app, startup := newConsoleOverStub(t, backend)
+	runConsoleTurn(t, app, "set agent.max_turns to 19")
+	if got := len(backend.offered()); got != 3 {
+		t.Fatalf("stub calls = %d, want stage, commit, and the final answer", got)
+	}
+	if app.config() == startup {
+		t.Fatal("the console still holds the startup config after config_commit")
+	}
+	if got := app.config().Agent.MaxTurns; got != 19 {
+		t.Fatalf("live agent.max_turns = %d, want 19", got)
+	}
+
+	var reloaded *updateMsg
+	for reloaded == nil {
+		select {
+		case msg := <-app.updatesCh:
+			if _, ok := msg.update.(configReloaded); ok {
+				reloaded = &msg
+			}
+		default:
+			t.Fatal("no configReloaded update reached the UI queue")
+		}
+	}
+	app.applyLoopMessage(*reloaded)
+	if ids := app.modelIDs(); !slices.Contains(ids, "stub/model") {
+		t.Fatalf("model catalog after the reload = %v", ids)
+	}
+}
+
+// toolBoxText renders a tool box and strips styling, so assertions read what
+// the operator reads.
+func toolBoxText(t *testing.T, tb *toolBox, width int) string {
+	t.Helper()
+	return tui.StripTerminalSequences(strings.Join(tb.Render(width), "\n"))
+}
+
+// The question tool answers the model in JSON. Printing that JSON into the
+// transcript hands the operator `{"answers":[["..."]]}` for a decision they
+// just made; the box shows the question with the answer instead, the way the
+// SPA timeline does.
+func TestQuestionToolBoxShowsTheAnsweredQuestions(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-1", "question", "other", nil)
+	tb.SetArgs(`{"questions":[` +
+		`{"header":"Swarm topology","question":"Where should the relay live?","options":[{"label":"On nas02"}]},` +
+		`{"question":"How is the node started?","options":[{"label":"A systemd service"}]}]}`)
+	tb.SetStatus("completed", `{"answers":[["On nas02"],["A systemd service"]]}`, 0, 0)
+
+	text := toolBoxText(t, tb, 80)
+	for _, want := range []string{
+		"Where should the relay live?", "On nas02",
+		"How is the node started?", "A systemd service",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%q missing from the box:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "answers") || strings.Contains(text, "[[") {
+		t.Fatalf("raw result JSON still reaches the transcript:\n%s", text)
+	}
+
+	// The arguments also travel behind an "Arguments:" label, and a model may
+	// hand the question list over as one object instead of an array.
+	labelled := newToolBox(newTheme("dark"), "call-1b", "question", "other", nil)
+	labelled.SetArgs(`Arguments: {"questions":{"question":"Where should the relay live?","options":[{"label":"On nas02"}]}}`)
+	labelled.SetStatus("completed", `{"answers":[["On nas02"]]}`, 0, 0)
+	if text := toolBoxText(t, labelled, 80); !strings.Contains(text, "Where should the relay live?") {
+		t.Fatalf("labelled arguments lost the question:\n%s", text)
+	}
+}
+
+// A dismissed question answers with a null list: say so rather than print it.
+func TestQuestionToolBoxReportsADismissedQuestion(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-2", "question", "other", nil)
+	tb.SetArgs(`{"questions":[{"question":"Pick one","options":[{"label":"A"}]}]}`)
+	tb.SetStatus("completed", `{"answers":null}`, 0, 0)
+
+	text := toolBoxText(t, tb, 80)
+	if !strings.Contains(text, "Pick one") || !strings.Contains(text, "no answer") {
+		t.Fatalf("dismissed question renders as %q", text)
+	}
+	if strings.Contains(text, "null") {
+		t.Fatalf("raw result JSON still reaches the transcript:\n%s", text)
+	}
+}
+
+// Only the question tool is reformatted, and only when its result parses: any
+// other body reaches the box unchanged.
+func TestToolBoxLeavesOtherResultsAlone(t *testing.T) {
+	other := newToolBox(newTheme("dark"), "call-3", "read", "read", nil)
+	other.SetStatus("completed", `{"answers":[["A"]]}`, 0, 0)
+	if text := toolBoxText(t, other, 80); !strings.Contains(text, `{"answers":[["A"]]}`) {
+		t.Fatalf("a read result was rewritten:\n%s", text)
+	}
+
+	broken := newToolBox(newTheme("dark"), "call-4", "question", "other", nil)
+	broken.SetStatus("failed", "questions must be non-empty", 0, 0)
+	if text := toolBoxText(t, broken, 80); !strings.Contains(text, "questions must be non-empty") {
+		t.Fatalf("a question error was rewritten:\n%s", text)
 	}
 }

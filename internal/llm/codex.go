@@ -120,16 +120,26 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				if raw := strings.TrimSpace(ev.Item.RawJSON()); raw != "" {
 					reasoningItems = append(reasoningItems, json.RawMessage(raw))
 				}
+				onChunk(StreamChunk{Progress: true})
 			}
 		case "response.completed":
 			inputTokens = int(ev.Response.Usage.InputTokens)
 			outputTokens = int(ev.Response.Usage.OutputTokens)
+			onChunk(StreamChunk{Progress: true})
 		case "error", "response.failed":
 			msg := strings.TrimSpace(ev.Message)
 			if msg == "" {
 				msg = "codex stream error"
 			}
 			return nil, fmt.Errorf("codex stream: %s", msg)
+		default:
+			// The Responses event vocabulary is large and versioned, and this switch
+			// handles only a slice of it. Anything else that arrived is the server
+			// still working - notably response.function_call_arguments.delta, which
+			// is not handled at all, so a model writing one large tool call is
+			// otherwise silent to the caller for its whole duration. There is no
+			// emitted flag on this path to protect, so onChunk is called directly.
+			onChunk(StreamChunk{Progress: true})
 		}
 	}
 
