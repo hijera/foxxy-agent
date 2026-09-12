@@ -176,7 +176,7 @@ func TestMiniAppsCapabilityAndCatalogDraftRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer capability.Body.Close()
+	defer func() { _ = capability.Body.Close() }()
 	if capability.StatusCode != http.StatusOK {
 		t.Fatalf("capability status %d", capability.StatusCode)
 	}
@@ -194,7 +194,7 @@ func TestMiniAppsCapabilityAndCatalogDraftRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusCreated {
 		data, _ := io.ReadAll(response.Body)
 		t.Fatalf("create status %d: %s", response.StatusCode, data)
@@ -217,7 +217,7 @@ func TestMiniAppsCapabilityAndCatalogDraftRevision(t *testing.T) {
 	if err := json.NewDecoder(getDraft.Body).Decode(&update); err != nil {
 		t.Fatal(err)
 	}
-	getDraft.Body.Close()
+	_ = getDraft.Body.Close()
 	update["revision"] = app.Revision
 	update["metadata"] = map[string]any{"name": "Greeting v2", "goal": "Write greeting"}
 	updateBody, _ := json.Marshal(update)
@@ -228,7 +228,7 @@ func TestMiniAppsCapabilityAndCatalogDraftRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated.Body.Close()
+	_ = updated.Body.Close()
 	if updated.StatusCode != http.StatusOK {
 		t.Fatalf("update status %d", updated.StatusCode)
 	}
@@ -239,7 +239,7 @@ func TestMiniAppsCapabilityAndCatalogDraftRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conflict.Body.Close()
+	_ = conflict.Body.Close()
 	if conflict.StatusCode != http.StatusConflict {
 		t.Fatalf("stale update status %d, want 409", conflict.StatusCode)
 	}
@@ -260,7 +260,7 @@ func TestMiniAppsAuthoringSourceOmitsFixtureBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("source status=%d body=%s", response.StatusCode, body)
 	}
@@ -296,7 +296,7 @@ func TestMiniAppsRunEndpointsAcceptAsyncJobIDImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusAccepted {
 		data, _ := io.ReadAll(response.Body)
 		t.Fatalf("start run status %d: %s", response.StatusCode, data)
@@ -314,7 +314,7 @@ func TestMiniAppsRunEndpointsAcceptAsyncJobIDImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status.Body.Close()
+	_ = status.Body.Close()
 	if status.StatusCode != http.StatusOK {
 		t.Fatalf("GET by async job id status %d", status.StatusCode)
 	}
@@ -323,7 +323,7 @@ func TestMiniAppsRunEndpointsAcceptAsyncJobIDImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventBody, _ := io.ReadAll(events.Body)
-	events.Body.Close()
+	_ = events.Body.Close()
 	if events.StatusCode != http.StatusOK || !strings.Contains(string(eventBody), "data: [DONE]") {
 		t.Fatalf("run events status=%d body=%s", events.StatusCode, eventBody)
 	}
@@ -364,10 +364,10 @@ func TestMiniAppsConfirmationInfersSingleWaitingStep(t *testing.T) {
 	}
 	var initial miniapps.AsyncJob
 	if err := json.NewDecoder(response.Body).Decode(&initial); err != nil {
-		response.Body.Close()
+		_ = response.Body.Close()
 		t.Fatal(err)
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode != http.StatusAccepted || initial.ID == "" {
 		t.Fatalf("start response status=%d job=%+v", response.StatusCode, initial)
 	}
@@ -378,7 +378,7 @@ func TestMiniAppsConfirmationInfersSingleWaitingStep(t *testing.T) {
 		if getErr == nil {
 			var current miniapps.AsyncJob
 			decodeErr := json.NewDecoder(status.Body).Decode(&current)
-			status.Body.Close()
+			_ = status.Body.Close()
 			if decodeErr == nil {
 				if current.Status == miniapps.JobWaitingForConfirm {
 					waiting = current
@@ -400,7 +400,7 @@ func TestMiniAppsConfirmationInfersSingleWaitingStep(t *testing.T) {
 	}
 	var resumed miniapps.AsyncJob
 	_ = json.NewDecoder(confirmation.Body).Decode(&resumed)
-	confirmation.Body.Close()
+	_ = confirmation.Body.Close()
 	if confirmation.StatusCode != http.StatusAccepted {
 		t.Fatalf("confirmation status=%d job=%+v", confirmation.StatusCode, resumed)
 	}

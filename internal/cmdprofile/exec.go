@@ -42,6 +42,18 @@ type ExecOptions struct {
 // lookPath is a test seam over exec.LookPath.
 var lookPath = exec.LookPath
 
+// isBatchFile reports whether path names a Windows batch file. CreateProcess
+// launches one through cmd.exe, whose command-line re-parsing is an injection
+// vector, so profiles may only run real executables.
+func isBatchFile(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	return strings.HasSuffix(lower, ".bat") || strings.HasSuffix(lower, ".cmd")
+}
+
+func batchFileError(path string) error {
+	return fmt.Errorf("binary %q is a batch file, which command profiles refuse to execute", path)
+}
+
 // ResolveBinary resolves the profile's binary to the absolute path that would
 // be executed, applying every safety rule: no implicit current-directory
 // resolution (exec.ErrDot), absolute result only, no batch files, and not
@@ -50,6 +62,14 @@ func ResolveBinary(spec ProfileSpec, forbiddenRoot string) (string, error) {
 	binary := strings.TrimSpace(spec.Binary)
 	if binary == "" {
 		return "", &BinaryNotFoundError{Binary: spec.Name, Err: errors.New("profile declares no binary")}
+	}
+	// Refuse a batch file for what the profile declares, before any lookup.
+	// Windows carries .bat and .cmd on PATHEXT, so lookPath finds one and the
+	// post-resolution check below fires; on every other OS such a file has no
+	// exec bit, lookPath fails first, and the caller would hear that the binary
+	// is missing rather than that profiles refuse batch files outright.
+	if isBatchFile(binary) {
+		return "", batchFileError(binary)
 	}
 	resolved, err := lookPath(binary)
 	if err != nil {
@@ -68,11 +88,10 @@ func ResolveBinary(spec ProfileSpec, forbiddenRoot string) (string, error) {
 		}
 		resolved = abs
 	}
-	lower := strings.ToLower(resolved)
-	// CreateProcess launches batch files through cmd.exe, whose command-line
-	// re-parsing is an injection vector; profiles may only run real executables.
-	if strings.HasSuffix(lower, ".bat") || strings.HasSuffix(lower, ".cmd") {
-		return "", fmt.Errorf("binary %q is a batch file, which command profiles refuse to execute", resolved)
+	// A bare name can still reach a batch file through PATHEXT, so the resolved
+	// path is checked too.
+	if isBatchFile(resolved) {
+		return "", batchFileError(resolved)
 	}
 	if forbiddenRoot != "" {
 		if inside, checkErr := pathInsideRoot(forbiddenRoot, resolved); checkErr == nil && inside {

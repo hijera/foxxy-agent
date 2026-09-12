@@ -125,6 +125,27 @@ func TestResolveBinaryRejectsBatchFiles(t *testing.T) {
 	}
 }
 
+// A batch file is refused for what the profile declares, so the answer does not
+// depend on whether the file exists or on the host's idea of an executable:
+// Windows carries .bat on PATHEXT and resolves one, while everywhere else the
+// file has no exec bit and the lookup fails. Both used to decide the message.
+func TestResolveBinaryRejectsBatchFilesBeforeLookup(t *testing.T) {
+	for _, name := range []string{"convert.bat", "convert.CMD"} {
+		t.Run(name, func(t *testing.T) {
+			spec := ffmpegSpec()
+			spec.Binary = filepath.Join(t.TempDir(), name)
+			_, err := ResolveBinary(spec, "")
+			if err == nil || !strings.Contains(err.Error(), "batch") {
+				t.Fatalf("ResolveBinary() error = %v, want a batch-file rejection", err)
+			}
+			var missing *BinaryNotFoundError
+			if errors.As(err, &missing) {
+				t.Fatalf("ResolveBinary() reported the batch file as missing: %v", err)
+			}
+		})
+	}
+}
+
 // Go's LookPath resolves a bare name found in the current directory to a
 // relative ./name and flags it with ErrDot; the resolver must not execute it.
 func TestResolveBinaryRejectsErrDotResolution(t *testing.T) {

@@ -180,7 +180,7 @@ func (s *miniAppsFeatureState) generatedDraftHasInputsAndWriteStep() error {
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("draft status %d", response.StatusCode)
 	}
@@ -199,7 +199,7 @@ func (s *miniAppsFeatureState) generatedDraftHasInputsAndWriteStep() error {
 			if sourceErr != nil {
 				return sourceErr
 			}
-			defer sourceResponse.Body.Close()
+			defer func() { _ = sourceResponse.Body.Close() }()
 			var source map[string]any
 			if decodeErr := json.NewDecoder(sourceResponse.Body).Decode(&source); decodeErr != nil {
 				return decodeErr
@@ -250,7 +250,7 @@ func (s *miniAppsFeatureState) fetchDraft() (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("draft status %d", response.StatusCode)
 	}
@@ -442,7 +442,7 @@ func (s *miniAppsFeatureState) catalogListsReleasedVersion(version string) error
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("catalog status %d", response.StatusCode)
 	}
@@ -472,7 +472,7 @@ func (s *miniAppsFeatureState) runHistoryListsRun() error {
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("run history status %d", response.StatusCode)
 	}
@@ -507,7 +507,7 @@ func (s *miniAppsFeatureState) bothReleasesRetrievable() error {
 		}
 		var released map[string]any
 		decodeErr := json.NewDecoder(response.Body).Decode(&released)
-		response.Body.Close()
+		_ = response.Body.Close()
 		if response.StatusCode != http.StatusOK {
 			return fmt.Errorf("release %s status %d", version, response.StatusCode)
 		}
@@ -544,7 +544,7 @@ func (s *miniAppsFeatureState) runReleased(version string) error {
 	if err != nil {
 		return err
 	}
-	release.Body.Close()
+	_ = release.Body.Close()
 	if release.StatusCode != http.StatusOK {
 		return fmt.Errorf("release lookup status %d", release.StatusCode)
 	}
@@ -617,7 +617,7 @@ func (s *miniAppsFeatureState) do(method, path string, payload any, headers map[
 	if err != nil {
 		return miniAppsResponse{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, _ := io.ReadAll(response.Body)
 	return miniAppsResponse{response.StatusCode, string(body)}, nil
 }
@@ -637,7 +637,7 @@ func (s *miniAppsFeatureState) waitJobPath(prefix, id, want string) (map[string]
 		if err == nil {
 			var job map[string]any
 			if decodeErr := json.NewDecoder(response.Body).Decode(&job); decodeErr == nil {
-				response.Body.Close()
+				_ = response.Body.Close()
 				status, _ := job["status"].(string)
 				if status == want {
 					return job, nil
@@ -646,7 +646,7 @@ func (s *miniAppsFeatureState) waitJobPath(prefix, id, want string) (map[string]
 					return job, fmt.Errorf("job %s ended %s: %v report=%v result=%v", id, status, job["error"], job["report"], job["result"])
 				}
 			} else {
-				response.Body.Close()
+				_ = response.Body.Close()
 			}
 		}
 		time.Sleep(25 * time.Millisecond)

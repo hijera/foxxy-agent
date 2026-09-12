@@ -961,7 +961,7 @@ func readMiniAppsRunEvents(path string) []miniapps.RunEvent {
 	if err != nil {
 		return nil
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var events []miniapps.RunEvent
 	scanner := bufio.NewScanner(io.LimitReader(file, 4<<20))
 	for scanner.Scan() {
