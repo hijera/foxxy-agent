@@ -21,6 +21,8 @@ type DeviceLogin = {
   status?: string;
   connected?: boolean;
   error?: string;
+  /** What the hub's own page calls this agent; see the notice beside the code. */
+  hub_client?: string;
 };
 
 async function responseError(response: Response): Promise<string> {
@@ -258,6 +260,15 @@ export function NeuralDeepAuthField(props: {
           >
             {t("settings.neuralDeepAuth.openSignInPage")}
           </a>
+          {/* The hub's page names the client by the identifier the agent
+              presents, which is the hub's own and not this fork's. Saying so
+              here is the difference between a recognised sign-in and one the
+              user is right to abandon. */}
+          {login.hub_client ? (
+            <p className="settings-field-desc">
+              {t("settings.neuralDeepAuth.hubClientNotice", { client: login.hub_client })}
+            </p>
+          ) : null}
           {login.status !== "failed" && login.status !== "completed" ? (
             <span className="settings-muted">{t("settings.neuralDeepAuth.waiting")}</span>
           ) : null}

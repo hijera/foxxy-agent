@@ -748,3 +748,62 @@ func TestNeuralDeepPersistSkipsCancelledAttempt(t *testing.T) {
 		t.Fatalf("attempt = %+v, want completed", live)
 	}
 }
+
+// The hub's sign-in page names the client by the identifier the agent presents,
+// and that identifier is the hub's own: it reads "coddy", not the product name.
+// A user asked to approve an app they have never heard of is right to walk
+// away, so the start echoes what was actually sent and the panel repeats it.
+// Echoing the constant rather than a literal is the point: a client cannot warn
+// about a name that has since changed underneath it.
+func TestNeuralDeepAuthDeviceStartNamesTheHubClient(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	var sentClient string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/cli/device/start" {
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			sentClient = body["client"]
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code": "dev-name", "user_code": "WXYZ-6789",
+				"verification_uri":          "http://hub/app/device",
+				"verification_uri_complete": "http://hub/app/device?code=WXYZ-6789",
+				"interval":                  0, "expires_in": 900,
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer hub.Close()
+	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)
+
+	srv := newNeuralDeepTestServer(t, home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Drain()
+
+	res, err := http.Post(ts.URL+"/foxxycode/providers/neuraldeep/neuraldeep-auth/device", "application/json", nil)
+	if err != nil {
+		t.Fatalf("device start: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("device start status = %d, want 200", res.StatusCode)
+	}
+	var body struct {
+		UserCode  string `json:"user_code"`
+		HubClient string `json:"hub_client"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.UserCode != "WXYZ-6789" {
+		t.Fatalf("user_code = %q", body.UserCode)
+	}
+	if body.HubClient != llm.NeuralDeepClientID {
+		t.Fatalf("hub_client = %q, want %q", body.HubClient, llm.NeuralDeepClientID)
+	}
+	if sentClient != body.HubClient {
+		t.Fatalf("told the client %q but sent the hub %q", body.HubClient, sentClient)
+	}
+}
