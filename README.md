@@ -651,7 +651,8 @@ LLM  Инструменты Навыки  MCP
 ```bash
 # Запуск тестов
 go test ./...
-make test
+make test          # экспресс-прогон: SPA + один проход со всеми тегами
+make test-matrix   # каждая комбинация тегов по очереди (то же, что гоняет CI)
 
 # Примеры среды (см. examples/README.md):
 # ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh

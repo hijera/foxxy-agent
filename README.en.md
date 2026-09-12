@@ -645,7 +645,8 @@ When the persisted plan is **non-empty**, the agent injects **`### Current todo 
 ```bash
 # Run tests
 go test ./...
-make test
+make test          # express run: the SPA suite plus one pass with every tag
+make test-matrix   # every tag combination in sequence (what CI runs per job)
 
 # Example harnesses (see examples/README.md): ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
