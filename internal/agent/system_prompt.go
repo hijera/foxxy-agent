@@ -75,6 +75,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	}
 	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
 	intellijContextMD := session.LoadIntelliJProjectContext(a.state.GetCWD())
+	vscodeContextMD := session.LoadVSCodeProjectContext(a.state.GetCWD())
 	var promptVariants []string
 	if a.cfg.Prompts.PerProviderEnabled() {
 		promptVariants = a.promptVariants()
@@ -101,7 +102,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	// would appear twice.
 	full = prompts.WithIdentity(languageDirective(a.cfg.UI.Locale) + "\n\n" + full)
 	// Appended outside the configurable template so custom prompts cannot drop IDE metadata or platform facts.
-	full = joinNonEmptyPromptBlocks(full, intellijContextMD, a.environment.PromptContext())
+	full = joinNonEmptyPromptBlocks(full, intellijContextMD, vscodeContextMD, a.environment.PromptContext())
 	// Context handed over by SessionStart and UserPromptSubmit hooks; appended
 	// like the environment block so a custom template carries it too.
 	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
