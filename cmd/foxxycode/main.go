@@ -15,6 +15,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/remote"
@@ -173,13 +174,24 @@ func main() {
 	}
 }
 
-func printUsage(w *os.File) {
+// printUsage writes the command list. It takes an io.Writer rather than the
+// two files it is called with, so usage_test.go can read what an operator
+// would see and hold the man page and the completions to it.
+func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `Usage:
   %[1]s (no arguments on a terminal: interactive console, build tag cli)
   %[1]s -c | --continue (console: continue the latest session here)
   %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
   %[1]s -h | --help
   %[1]s -v | --version
+  %[1]s -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
+        the schema and the loader's rules, print each problem with its line and
+        how to fix it, then exit; cli, acp and serve take the same flag)
+  %[1]s --dry-run [--config PATH] [--home DIR] (check config.yaml and probe what it
+        points at: paths, model servers and credentials, MCP commands, the
+        Telegram token, and for serve the listen addresses; prints only the
+        problems and a status line, add --test-config for the full report;
+        exits without starting anything; cli, acp and serve take the same flag)
   %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s http [flags] (OpenAI-compatible HTTP)
@@ -207,6 +219,8 @@ func printUsage(w *os.File) {
   %[1]s hooks trust <file> [--cwd DIR]
   %[1]s hooks untrust <file> [--cwd DIR]
   %[1]s serve [flags]                  # every enabled subsystem in one process
+  %[1]s serve -d | --daemon [flags]    # the same, in the background under a dispatcher
+  %[1]s serve status | stop | restart [--home DIR]
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]
@@ -233,6 +247,8 @@ func runACP(args []string) error {
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
 	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -248,6 +264,18 @@ func runACP(args []string) error {
 		Home:   strings.TrimSpace(*homeDir),
 		CWD:    strings.TrimSpace(*acpCWD),
 		Config: strings.TrimSpace(*cfgPath),
+	}
+	if *testConfig && !*dryRun {
+		return runConfigTest(cli)
+	}
+	if *dryRun {
+		return dryrun.RunConsole(configTestOutput, dryrun.SurfaceACP, cli, *testConfig, *remoteFlag, *remoteToken, func(c *config.Config) error {
+			if *schedulerEnabled {
+				c.Scheduler.Enabled = true
+			}
+			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+		})
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,20 +10,42 @@ import (
 	"testing"
 )
 
-// docsSchemaPath is the published editor-facing JSON Schema for config.yaml.
-const docsSchemaPath = "../../docs/config.schema.json"
+// schemaFile is where the editor-facing JSON Schema for config.yaml lives. It
+// is embedded into the binary (see schema.go), so -t / --test-config checks a
+// file against the same document editors resolve from the published copy.
+const schemaFile = "internal/config/config.schema.json"
+
+// publishedSchemaPath is that published copy. GitHub Pages serves this
+// repository's docs/ folder from main, so docs/config.schema.json IS the file
+// at SchemaURL. The embedded copy cannot live there - go:embed may not leave
+// its own package directory - so the two are kept byte-identical instead, by
+// `make site-schema` and by TestPublishedSchemaMatchesTheEmbeddedOne below.
+const publishedSchemaPath = "../../docs/config.schema.json"
 
 func loadDocsSchema(t *testing.T) map[string]interface{} {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Clean(docsSchemaPath))
-	if err != nil {
-		t.Fatalf("read %s: %v (the schema must be committed alongside the config structs)", docsSchemaPath, err)
-	}
 	var doc map[string]interface{}
-	if err := json.Unmarshal(data, &doc); err != nil {
-		t.Fatalf("parse %s: %v", docsSchemaPath, err)
+	if err := json.Unmarshal(ConfigSchemaJSON(), &doc); err != nil {
+		t.Fatalf("parse %s: %v", schemaFile, err)
 	}
 	return doc
+}
+
+// TestPublishedSchemaMatchesTheEmbeddedOne is what makes two copies safe. The
+// binary validates against the embedded one and every editor resolves the
+// published one from SchemaURL; a change that lands in only one of them leaves
+// operators validating saved configs against a schema the binary no longer
+// matches, which is exactly the drift the single copy used to rule out.
+func TestPublishedSchemaMatchesTheEmbeddedOne(t *testing.T) {
+	published, err := os.ReadFile(filepath.Clean(publishedSchemaPath))
+	if err != nil {
+		t.Fatalf("read %s: %v (the published schema must stay committed)", publishedSchemaPath, err)
+	}
+	if !bytes.Equal(bytes.ReplaceAll(published, []byte("\r\n"), []byte("\n")),
+		bytes.ReplaceAll(ConfigSchemaJSON(), []byte("\r\n"), []byte("\n"))) {
+		t.Fatalf("%s and %s have drifted apart; run `make site-schema` to republish the embedded copy",
+			publishedSchemaPath, schemaFile)
+	}
 }
 
 // yamlFieldName returns the effective YAML key for a struct field, or "" when skipped.
@@ -106,7 +129,7 @@ func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, 
 		for name, ft := range want {
 			sub, ok := props[name].(map[string]interface{})
 			if !ok {
-				t.Errorf("%s: schema missing property %q (add it to docs/config.schema.json)", path, name)
+				t.Errorf("%s: schema missing property %q (add it to internal/config/config.schema.json)", path, name)
 				continue
 			}
 			checkSchemaNodeMatchesType(t, path+"."+name, ft, sub)
@@ -119,7 +142,7 @@ func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, 
 	}
 }
 
-// TestDocsConfigSchemaMatchesStructs keeps docs/config.schema.json in sync with the
+// TestDocsConfigSchemaMatchesStructs keeps config.schema.json in sync with the
 // yaml-tagged config structs: every YAML key must appear in the schema with the right
 // type, and the schema must not describe keys the loader does not know.
 func TestDocsConfigSchemaMatchesStructs(t *testing.T) {

@@ -176,6 +176,16 @@ The block belongs to the running console only. Reopening the session with
 
 ## Flags
 
+`-t/--test-config` checks the config file the console would load against the
+embedded JSON Schema and the loader's own rules, prints every problem as
+`file:line:col` with a fix line, and exits without opening a terminal or a
+session - so it also works in the lean build without the `cli` tag.
+`--dry-run` runs that check and then probes what the file points at (paths,
+model servers and their credentials, MCP commands, remotes); on its own it
+prints only problems and a status line, with `--test-config` the full report.
+Both exit 1 when something is wrong. See
+[docs/config.md](config.md#checking-the-file-from-the-command-line).
+
 `--config --home --cwd --sessions-dir` mirror the other subcommands.
 `--session-id <id>` reopens (or creates) that session and replays its
 transcript. `-c/--continue` reopens the most recent session recorded for this

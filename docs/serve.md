@@ -9,6 +9,19 @@ the [configuration reference](config-reference.md) and the per-surface guides
 
 This page is about keeping that process running and keeping it current.
 
+## Checking before starting
+
+`foxxycode serve -t` (long form `--test-config`) checks the config file a start
+would load and exits: nothing is created under the home, no listener is opened,
+and the recovery from `config.yaml.bak` that a normal load performs on a broken
+file does not run. `foxxycode serve --dry-run` runs that check and then probes
+what the configuration names - and, for `serve` alone, resolves the subsystems it
+enables exactly as a start would (a surface this binary was not built with is an
+error, not a silent skip) and binds each listen address once to see whether it is
+free. Both exit 1 when something is wrong, which is what makes them useful in a
+deploy script right before `foxxycode serve restart`. Details and sample reports:
+[docs/config.md](config.md#dry-run-probing-what-the-file-points-at).
+
 ## In the foreground
 
 ```bash
