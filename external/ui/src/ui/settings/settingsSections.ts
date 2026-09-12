@@ -50,6 +50,7 @@ export const SYSTEM_KEYS = [
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
   providers: "name",
   models: "model",
+  commands: "name",
 };
 
 /**

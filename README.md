@@ -101,7 +101,7 @@ FoxxyCode работает как **ACP-сервер** (`foxxycode acp`). **Obsi
 ```bash
 git clone https://github.com/hijera/foxxycode-agent
 cd foxxycode-agent
-make build TAGS="http ui scheduler memory cli browser gateway swarm"
+make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
 make install   # копирует build/foxxycode в ~/.local/bin или /usr/local/bin
 ```
 
@@ -158,7 +158,7 @@ go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```bash
 make ui-build
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory,cli \
+go build -tags=http,ui,scheduler,memory,miniapps,cli \
   -ldflags "-X github.com/hijera/foxxycode-agent/internal/version.Version=${VERSION}" \
   -o build/foxxycode \
   ./cmd/foxxycode/
@@ -182,7 +182,7 @@ make build-desktop
 
 ### Теги сборки
 
-В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory`**).
+В переменной **`TAGS`** для **`Makefile`** используйте **пробелы** (**`make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"`**), а в **`go build`** — **запятые** (**`-tags=http,ui,scheduler,memory,miniapps`**).
 
 | Тег | Что включает | Документация |
 |-----|--------------|--------------|
@@ -190,6 +190,7 @@ make build-desktop
 | **`http`** | **`foxxycode http`**, REST-шлюз, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
 | **`ui`** | Встроенный SPA на **`/`** (требует **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Демон планировщика и инструменты **`foxxycode_scheduler_*`**; вместе с **`http`** — REST **`/foxxycode/scheduler`** | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
+| **`miniapps`** | Версионируемые процессы из успешных сессий с инструментами; вместе с **`http`** и **`ui`** — редактор, каталог и запуск | [`docs/mini-apps-implementation-plan.md`](docs/mini-apps-implementation-plan.md), [`docs/http-api.md`](docs/http-api.md#mini-apps-rest--tagshttpminiapps) |
 | **`browser`** | Интерактивные браузерные инструменты (**`foxxycode_browser_*`**: navigate/click/fill/hover/scroll/screenshot/evaluate), управляющие локальным Chrome/Chromium через chromedp; модель видит снимки страницы (**`browser.enabled`** в YAML) | [`docs/browser-tool.md`](docs/browser-tool.md) |
 | **`cli`** | Интерактивная консоль-TUI — голый **`foxxycode`** в терминале (или **`foxxycode cli`**): чат с потоковым выводом, карточки инструментов, диалоги разрешений, **`!!<команда>`** выполняет команду локально, и агент её не видит; **`foxxycode -c`** продолжает последнюю сессию, **`foxxycode -p "..."`** выполняет один промпт неинтерактивно, **`--remote <имя|host:port|url>`** (плюс `--remote-token` / `FOXXYCODE_REMOTE_TOKEN`) работает против удалённого `foxxycode http` — те же флаги принимает `foxxycode acp`. Визуальное оформление вдохновлено TUI [pi coding agent](https://github.com/badlogic/pi-mono) (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
 | **`gateway.telegram`** | Адаптер Telegram-бота — подкоманда **`foxxycode gateway`**, отдельные сессии пользователей и контроль доступа | [`docs/gateway.md`](docs/gateway.md) |
@@ -201,7 +202,7 @@ make build-desktop
 
 ### Docker
 
-Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с тем же набором, что и **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** — включая **`gateway`** и **`swarm`**, так что команда по умолчанию (**`serve`**) поднимает те подсистемы, которые включены в примонтированном **`config.yaml`**, см. **[docs/docker.md](docs/docker.md)**.
+Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/build.md](docs/build.md#release-binaries-ci)**. Публикуемый образ собирается с тем же набором, что и **`make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"`** — включая **`gateway`** и **`swarm`**, так что команда по умолчанию (**`serve`**) поднимает те подсистемы, которые включены в примонтированном **`config.yaml`**, см. **[docs/docker.md](docs/docker.md)**.
 
 **1. Конфигурация и рабочий каталог** (из корня репозитория или другого каталога, в котором хранится **`config.yaml`**):
 
@@ -285,7 +286,7 @@ export OPENAI_API_KEY="sk-..."
 
 ## Обновление
 
-Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
+Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"`**.
 
 Команда **`foxxycode update`** загружает архив для текущей ОС и архитектуры и заменяет запущенный исполняемый файл с разрешением символических ссылок. Обычно так обновляют установку после **`make install`** (**`~/.local/bin/foxxycode`**) или локальный артефакт командой **`./build/foxxycode update`**.
 
@@ -657,7 +658,7 @@ make test
 # ./examples/build_foxxycode.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Полнофункциональная локальная сборка (HTTP + UI + планировщик), как в Docker
-make build TAGS="http ui scheduler memory cli browser gateway swarm"
+make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
 
 ./build/foxxycode -v    # то же, что --version
 

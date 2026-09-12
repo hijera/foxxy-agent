@@ -118,11 +118,11 @@ Optional build args on the dev file:
 
 ```bash
 export FOXXYCODE_VERSION="$(git describe --tags --dirty 2>/dev/null || echo dev)"
-export FOXXYCODE_BUILD_TAGS="http,scheduler,ui,memory,gateway"
+export FOXXYCODE_BUILD_TAGS="http,scheduler,ui,memory,miniapps,gateway"
 docker compose -f docker-compose.dev.yml build foxxycode
 ```
 
-**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway,swarm`** so the built image can run the messenger gateway and the swarm relay; drop either to trim it. That is a *subset* of the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default (**`http,scheduler,ui,memory,gateway,cli,browser`**) - add **`cli,browser`** if you also want the console TUI and the browser tools in the dev image.
+**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,miniapps,gateway,swarm`** so the built image can run Mini Apps, the messenger gateway and the swarm relay; drop any of them to trim it. That is a *subset* of the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default (**`http,scheduler,ui,memory,miniapps,gateway,cli,browser,swarm`**) - add **`cli,browser`** if you also want the console TUI and the browser tools in the dev image.
 
 ### Run another mode (messenger gateway)
 
@@ -138,7 +138,7 @@ docker compose -f docker-compose.dev.yml logs -f foxxycode   # expect: "telegram
 
 Notes:
 
-- The **published GHCR image carries every surface** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,browser,gateway,swarm`**), so the default **`serve`** command runs whichever of them the mounted **`config.yaml`** enables, and **`FOXXYCODE_COMMAND=gateway`** works against it without a custom build.
+- The **published GHCR image carries every surface** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,miniapps,cli,browser,gateway,swarm`**), so the default **`serve`** command runs whichever of them the mounted **`config.yaml`** enables, and **`FOXXYCODE_COMMAND=gateway`** works against it without a custom build.
 - The bot token is read from **`TELEGRAM_BOT_TOKEN`** (passed through by both compose files) or **`$FOXXYCODE_HOME/.env`**; keep it out of git.
 - If your **`gateways.telegram.proxy`** points at a host-local proxy (e.g. **`socks5://127.0.0.1:7890`**), it is unreachable from inside the container - use **`host.docker.internal`** or add **`network_mode: host`** in a **`docker-compose.override.yml`**.
 - Gateway mode uses no inbound port (Telegram long-polling); the mapped **`12345`** is simply unused.
@@ -231,12 +231,13 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 
 ## What the image contains by default
 
-**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,cli,browser,swarm`** (comma-separated, same meaning as **`go build -tags=`**).
+**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,miniapps,gateway,cli,browser,swarm`** (comma-separated, same meaning as **`go build -tags=`**).
 
 - **`http`** - **`foxxycode http`** and REST gateway (see **[docs/http-api.md](http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/scheduler.md](scheduler.md)**).
 - **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../external/memory/README.md)**); toggle runtime behavior via **`memory.enabled`**.
+- **`miniapps`** - reviewed, versioned Mini App workflows and their optional HTTP/UI surface (**[implementation plan](mini-apps-implementation-plan.md)**).
 - **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/gateway.md](gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
 - **`browser`** - interactive browser tools (**[docs/browser-tool.md](browser-tool.md)**), off until **`browser.enabled`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
 

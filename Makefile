@@ -3,11 +3,12 @@
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
 #     Recommended full binary (FULL_TAGS below; what the release CLI archives ship):
-#       make build TAGS="http ui scheduler memory cli browser gateway swarm"
+#       make build TAGS="http ui scheduler memory miniapps cli browser gateway swarm"
 #     http     OpenAI-compatible gateway (foxxycode http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /foxxycode memory REST (see external/memory/)
+#     miniapps        reusable workflows distilled from successful sessions (combine with http ui)
 #     gateway.telegram  Telegram bot gateway only (foxxycode gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #     cli      interactive console TUI (bare `foxxycode` on a terminal; see external/cli/)
@@ -16,7 +17,7 @@
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
-#             make build TAGS="http ui scheduler memory"
+#             make build TAGS="http ui scheduler memory miniapps"
 #             make build TAGS=cli
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory gateway"
@@ -39,7 +40,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/foxxycode
 
 # Default tag set for `make install` when build/foxxycode is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli browser gateway swarm
+FULL_TAGS := http ui scheduler memory miniapps cli browser gateway swarm
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -53,7 +54,7 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
-DESKTOP_TAGS := http ui scheduler memory desktop browser
+DESKTOP_TAGS := http ui scheduler memory miniapps desktop browser
 DESKTOP_LDFLAGS := -H=windowsgui $(LDFLAGS)
 
 # Regenerate the Windows app icon resource from the source PNG. Run manually when
@@ -175,6 +176,8 @@ test: test-opencode-rules
 	go test -tags=browser ./...
 	go test -tags=scheduler ./...
 	go test -tags=scheduler,memory ./...
+	go test -tags=miniapps ./...
+	go test -tags=http,miniapps ./...
 	go test -tags=gateway ./...
 	go test -tags=swarm ./...
 	go test -tags=http,swarm ./...
@@ -187,7 +190,8 @@ test: test-opencode-rules
 	go test -tags=http,scheduler,memory ./...
 	go test -tags=http,scheduler,ui ./...
 	go test -tags=http,scheduler,ui,memory ./...
-	go test -tags=http,ui,scheduler,memory,cli,browser,gateway,swarm ./...
+	go test -tags=http,ui,miniapps ./...
+	go test -tags=http,ui,scheduler,memory,miniapps,cli,browser,gateway,swarm ./...
 
 # Type-check the Windows build without a Windows machine.
 #
@@ -216,6 +220,8 @@ check-windows:
 	GOOS=windows go vet -tags=scheduler,memory ./...
 	GOOS=windows go vet -tags=http,scheduler ./...
 	GOOS=windows go vet -tags=http,scheduler,memory ./...
+	GOOS=windows go vet -tags=miniapps ./...
+	GOOS=windows go vet -tags=http,miniapps ./...
 	GOOS=windows go vet -tags=gateway ./...
 	GOOS=windows go vet -tags=swarm ./...
 	GOOS=windows go vet -tags=http,swarm ./...
@@ -235,10 +241,11 @@ clean:
 # power set: http,scheduler,memory covers the optional server surfaces together,
 # browser covers the chromedp tool, cli covers the TUI, gateway covers the
 # messenger bots (gateway.telegram is a subset of gateway), swarm covers the
-# relay. The ui tag lives in
+# relay, miniapps covers external/miniapps and the Mini App routes in
+# external/httpserver (hence the http pass, not a bare miniapps one). The ui tag lives in
 # lint-ui because it embeds a bundle that only exists after ui-build, and
 # desktop lives in lint-windows because it is //go:build desktop && windows.
-LINT_TAG_SETS := cli browser gateway swarm http,scheduler,memory,gateway,swarm
+LINT_TAG_SETS := cli browser gateway swarm http,scheduler,memory,gateway,swarm,miniapps
 
 # Fail on every finding rather than golangci-lint's default caps
 # (max-issues-per-linter=50, max-same-issues=3), which silently hid most of a
@@ -258,7 +265,7 @@ lint:
 # because the ui tag go:embeds external/ui/dist, which is gitignored and only
 # exists after ui-build - so this target needs Node, and plain `make lint` does not.
 lint-ui: ui-build
-	golangci-lint run $(LINT_FLAGS) --build-tags http,scheduler,memory,ui ./...
+	golangci-lint run $(LINT_FLAGS) --build-tags http,scheduler,memory,miniapps,ui ./...
 
 # Run the linter against the Windows build, which lint above never compiles.
 # desktop is Windows-only (//go:build desktop && windows), so this is the only

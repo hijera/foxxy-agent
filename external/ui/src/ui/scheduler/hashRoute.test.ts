@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   appNavHrefHome,
   appNavHrefHistory,
+  appNavHrefMiniApps,
   appNavHrefScheduler,
   appNavHrefSchedulerJob,
   appNavHrefSchedulerNew,
@@ -11,6 +12,7 @@ import {
   parseAppHash,
   schedulerEditorFromParsedHash,
   setHistoryHash,
+  setMiniAppsHash,
   setSchedulerCreateHash,
   setSchedulerJobHash,
   setSchedulerListHash,
@@ -28,6 +30,16 @@ describe("parseAppHash", () => {
   test("parses standalone history", () => {
     setHash("#/history");
     expect(parseAppHash()).toEqual({ branch: "history" });
+  });
+
+  test("parses Mini Apps catalog and selected app routes", () => {
+    setHash("#/miniapps");
+    expect(parseAppHash()).toEqual({ branch: "miniapps", appId: null });
+    setHash("#/miniapps/build%2Fhello");
+    expect(parseAppHash()).toEqual({
+      branch: "miniapps",
+      appId: "build/hello",
+    });
   });
 
   test("parses home hash with history sidebar query only", () => {
@@ -122,6 +134,13 @@ describe("parseAppHash", () => {
 });
 
 describe("hash writers", () => {
+  test("setMiniAppsHash writes catalog and selected app paths", () => {
+    setHash("");
+    setMiniAppsHash();
+    expect(window.location.hash).toBe("#/miniapps");
+    setMiniAppsHash("build/hello");
+    expect(window.location.hash).toBe("#/miniapps/build%2Fhello");
+  });
   test("setHistoryHash writes #/history", () => {
     setHash("");
     setHistoryHash();
@@ -204,6 +223,8 @@ describe("appNavHref helpers", () => {
     expect(appNavHrefSettings()).toBe("#/settings");
     expect(appNavHrefScheduler()).toBe("#/scheduler");
     expect(appNavHrefSchedulerNew()).toBe("#/scheduler/new");
+    expect(appNavHrefMiniApps()).toBe("#/miniapps");
+    expect(appNavHrefMiniApps("build/hello")).toBe("#/miniapps/build%2Fhello");
   });
 
   test("session path encodes id and falls back to home when empty", () => {
