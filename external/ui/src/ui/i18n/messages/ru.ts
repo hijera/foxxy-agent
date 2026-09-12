@@ -582,6 +582,8 @@ export const messagesRu: Record<string, string> = {
   "settings.neuralDeepAuth.enterCode": "Введите этот одноразовый код на странице NeuralDeep:",
   "settings.neuralDeepAuth.openSignInPage": "Открыть страницу входа",
   "settings.neuralDeepAuth.waiting": "Ожидание подтверждения…",
+  "settings.neuralDeepAuth.hubClientNotice":
+    "На странице приложение будет названо {client}, а не FoxxyCode. Это идентификатор, который NeuralDeep выдал этому агенту, и другого хаб не принимает; сохранённый ключ всё равно подписан вашим именем.",
   "settings.neuralDeepAuth.signingOut": "Выход…",
   "settings.neuralDeepAuth.signOut": "Выйти",
   "settings.neuralDeepAuth.waitingForHub": "Ожидание NeuralDeep…",

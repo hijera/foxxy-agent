@@ -32,6 +32,12 @@ type codexAuthLoginResponse struct {
 	Status          string `json:"status,omitempty"`
 	Connected       bool   `json:"connected"`
 	Error           string `json:"error,omitempty"`
+	// HubClient is the client name the provider presents to its hub, so the
+	// sign-in page the user is sent to can be explained rather than merely
+	// surprising: NeuralDeep shows this agent as its own hub identifier, not
+	// as the name of this fork. Sent only where that gap exists, which today
+	// is the NeuralDeep device start; the Codex responses leave it empty.
+	HubClient string `json:"hub_client,omitempty"`
 }
 
 // cancelCodexAuthLogins stops every sign-in still waiting for confirmation.

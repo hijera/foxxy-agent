@@ -561,6 +561,8 @@ export const messagesEn: Record<string, string> = {
   "settings.neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
   "settings.neuralDeepAuth.openSignInPage": "Open sign-in page",
   "settings.neuralDeepAuth.waiting": "Waiting for confirmation…",
+  "settings.neuralDeepAuth.hubClientNotice":
+    "The page will name the app {client}, not FoxxyCode. That is the identifier NeuralDeep issued for this agent, and the hub accepts no other; the key it stores is still labelled as yours.",
   "settings.neuralDeepAuth.signingOut": "Signing Out…",
   "settings.neuralDeepAuth.signOut": "Sign Out",
   "settings.neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
