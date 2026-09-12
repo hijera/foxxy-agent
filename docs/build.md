@@ -10,7 +10,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`http,scheduler,memory,gateway`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
+- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`swarm`**, **`http,scheduler,memory,gateway,swarm`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
 - **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../scripts/build.py)); stdlib only, no `pip` packages.
 
 ## Interactive build wizard
@@ -173,8 +173,17 @@ Order does not matter for these tags.
 | **`gateway.telegram`** | **`foxxycode gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
 | **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`**); combine with **`http`**, **`ui`** | [`docs/build.md`](build.md#desktop-windows-webview2) |
+| **`cli`** | Interactive console TUI (bare **`foxxycode`**, **`foxxycode cli`**) | [`docs/cli.md`](cli.md) · [`external/cli/`](../external/cli/) |
+| **`browser`** | Interactive browser tool (**`browser_action`**, chromedp) | [`docs/browser-tool.md`](browser-tool.md) |
+| **`swarm`** | Swarm relay served by **`foxxycode serve`**; agents register into it and relays chain | [`docs/swarm.md`](swarm.md) · [`external/swarm/`](../external/swarm/) |
 
-**`make test`** exercises tag combinations (see **`test`** target in [`Makefile`](../Makefile)).
+Tests come at two speeds. **`make test`** is the express run: the SPA assets and suite, then one
+**`go test`** over the whole tree with every optional module compiled in — what the shipped binary
+contains. The combinations themselves live in **`TEST_TAG_SETS`** ([`Makefile`](../Makefile)):
+**`make test-matrix`** walks them in sequence, and CI runs one job per combination —
+**`.github/workflows/tests-on-pr.yaml`** reads the list through **`make print-test-tag-sets`**, so
+it cannot drift from the Makefile. Locally, reach for a single combination instead:
+**`go test -tags=<set> ./...`**.
 
 ## Desktop (Windows WebView2)
 

@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon test test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
+.PHONY: build build-acp build-desktop icon test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -163,31 +163,68 @@ brew-check:
 test-opencode-rules:
 	node --test .opencode/tests/project-rules.test.js
 
-# Run all tests.
-test: test-opencode-rules
+# ---- Tests ----
+#
+# Two speeds. `make test` is the express run: the UI assets, the SPA suite, then
+# one `go test` over the whole tree with every optional module compiled in
+# (FULL_TAGS, what the shipped binary contains). Run it locally before a push.
+# `make test-matrix` walks every tag combination in TEST_TAG_SETS - the lean
+# untagged build with its stubs, single tags, pairs, the shipped set - and is
+# what CI runs on every pull request, one job per combination
+# (.github/workflows/tests-on-pr.yaml reads the list through print-test-tag-sets,
+# so this variable is the only place it is written down). Locally, reach for a
+# single combination instead: go test -tags=<set> ./...
+empty :=
+space := $(empty) $(empty)
+comma := ,
+FULL_TAGS_CSV := $(subst $(space),$(comma),$(strip $(FULL_TAGS)))
+
+# Every tagged combination the tree is tested under, comma-joined. The untagged
+# build is implied and always runs first; the last entry must stay FULL_TAGS_CSV
+# so the express run and the matrix agree on what "everything" means. A ui entry
+# needs the embedded assets, so ui-build precedes the matrix and the CI job
+# builds them only for those entries.
+TEST_TAG_SETS := \
+	memory \
+	cli \
+	cli,scheduler,memory \
+	http,cli \
+	http \
+	http,memory \
+	browser \
+	scheduler \
+	scheduler,memory \
+	gateway \
+	swarm \
+	http,swarm \
+	http,gateway,scheduler,memory \
+	http,ui \
+	http,ui,memory \
+	http,scheduler \
+	http,scheduler,memory \
+	http,scheduler,ui \
+	http,scheduler,ui,memory \
+	$(FULL_TAGS_CSV)
+
+# Express run: the whole tree once, with every optional module compiled in.
+# ui-test is the SPA suite (vitest); it rides along because the express run is
+# the one gate a change is expected to pass before it leaves this machine.
+test: test-opencode-rules ui-build ui-test
+	go test -tags=$(FULL_TAGS_CSV) ./...
+
+# Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run it
+# locally only when a build-tag boundary moved and one combination is not enough.
+test-matrix: test-opencode-rules ui-build
 	go test ./...
-	go test -tags=memory ./...
-	go test -tags=cli ./...
-	go test -tags=cli,scheduler,memory ./...
-	go test -tags=http,cli ./...
-	go test -tags=http ./...
-	go test -tags=http,memory ./...
-	go test -tags=browser ./...
-	go test -tags=scheduler ./...
-	go test -tags=scheduler,memory ./...
-	go test -tags=gateway ./...
-	go test -tags=swarm ./...
-	go test -tags=http,swarm ./...
-	go test -tags=http,gateway,scheduler,memory ./...
-	$(MAKE) ui-build
-	$(MAKE) ui-test
-	go test -tags=http,ui ./...
-	go test -tags=http,ui,memory ./...
-	go test -tags=http,scheduler ./...
-	go test -tags=http,scheduler,memory ./...
-	go test -tags=http,scheduler,ui ./...
-	go test -tags=http,scheduler,ui,memory ./...
-	go test -tags=http,ui,scheduler,memory,cli,browser,gateway,swarm ./...
+	@set -e; for tags in $(TEST_TAG_SETS); do \
+		echo "go test -tags=$$tags ./..."; \
+		go test -tags=$$tags ./...; \
+	done
+
+# The matrix as a JSON array for the CI workflow: [""] for the untagged build,
+# then every entry of TEST_TAG_SETS.
+print-test-tag-sets:
+	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
 
 # Type-check the Windows build without a Windows machine.
 #
@@ -278,7 +315,7 @@ lint-windows:
 hooks:
 	git config core.hooksPath .githooks
 	@echo "Enabled .githooks — 'git commit' now runs the linter (scripts/checks.sh)."
-	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full; skip lint with FOXXYCODE_HOOK_LINT=0; bypass once with --no-verify."
+	@echo "Add tests with FOXXYCODE_HOOK_TESTS=fast|full|matrix; skip lint with FOXXYCODE_HOOK_LINT=0; bypass once with --no-verify."
 
 # ---- Editor plugins ----
 # Build the JetBrains plugin from the repo root. Requires Go, Node/npm, and a JDK 17 on PATH.
