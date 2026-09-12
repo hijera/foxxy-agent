@@ -65,7 +65,8 @@ _foxxycode() {
                         '(-y --yes)'{-y,--yes}'[install without confirmation]' \
                         '--version[install a specific release tag]:tag:' \
                         '--repo[GitHub repository to take releases from]:repo:' \
-                        '--no-restart[Windows only: do not start FoxxyCode again]'
+                        '--no-restart[Windows only: do not start FoxxyCode again]' \
+                        '--no-notes[do not report what changed after the install]'
                     ;;
                 http)
                     _arguments \

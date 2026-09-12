@@ -272,6 +272,11 @@ downloads the release assets published on GitHub, verifies them against the
 release
 .I SHA256SUMS
 list, and replaces the executable it is running.
+Where the installer put the man page and the shell completions beside the
+binary, they are refreshed from the same archive, so
+.BR man (1)
+and Tab completion never describe a release that is gone. Nothing is created:
+a file that was never installed is left alone.
 .TP
 .B \-\-check
 Report whether a newer release exists and exit
@@ -289,6 +294,10 @@ Take releases from another GitHub repository.
 .TP
 .B \-\-no\-restart
 Windows only: install the update but do not start FoxxyCode again.
+.TP
+.B \-\-no\-notes
+Do not report what changed once the update is in (also
+.BR FOXXYCODE_UPDATE_NOTES=0 ).
 .PP
 When the executable belongs to a
 .BR deb (5)
