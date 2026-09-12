@@ -215,7 +215,7 @@ func (s *chatLoadFeatureState) openChat() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET messages returned %d", res.StatusCode)
 	}
@@ -247,7 +247,7 @@ func (s *chatLoadFeatureState) listChats() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET sessions returned %d", res.StatusCode)
 	}

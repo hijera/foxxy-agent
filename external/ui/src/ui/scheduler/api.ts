@@ -4,6 +4,7 @@ import type {
   SchedulerJobCreate,
   SchedulerJobPatch,
 } from "./types";
+import { t } from "../i18n/i18n";
 
 async function readErrorMessage(res: Response): Promise<string> {
   try {
@@ -24,7 +25,32 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; status: number; message: string };
 
-async function parseJson<T>(res: Response): Promise<ApiResult<T>> {
+/**
+ * The jobs list is polled on a timer while the scheduler drawer is open, so a server
+ * that is down or restarting must degrade into a normal error result rather than an
+ * unhandled rejection once per tick — the IDE panels paint those as a red overlay.
+ */
+async function request(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response | null> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    return null;
+  }
+}
+
+// Built per call rather than once at module load, so a locale switch is picked up
+// without a reload. status 0 means the server gave us no answer at all.
+function offline<T>(): ApiResult<T> {
+  return { ok: false, status: 0, message: t("scheduler.offline") };
+}
+
+async function parseJson<T>(res: Response | null): Promise<ApiResult<T>> {
+  if (!res) {
+    return offline();
+  }
   if (!res.ok) {
     return {
       ok: false,
@@ -45,14 +71,14 @@ export async function schedulerListJobs(
   }
   const q = sp.toString();
   const path = q ? `/foxxycode/scheduler/jobs?${q}` : "/foxxycode/scheduler/jobs";
-  const res = await fetch(path);
+  const res = await request(path);
   return parseJson<JobsListResponse>(res);
 }
 
 export async function schedulerGetJob(
   jobId: string,
 ): Promise<ApiResult<SchedulerJob>> {
-  const res = await fetch(
+  const res = await request(
     `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}`,
   );
   return parseJson<SchedulerJob>(res);
@@ -61,7 +87,7 @@ export async function schedulerGetJob(
 export async function schedulerCreateJob(
   body: SchedulerJobCreate,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
-  const res = await fetch("/foxxycode/scheduler/jobs", {
+  const res = await request("/foxxycode/scheduler/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -75,7 +101,7 @@ export async function schedulerPatchJob(
 ): Promise<
   ApiResult<{ object?: string; job_id?: string }>
 > {
-  const res = await fetch(
+  const res = await request(
     `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}`,
     {
       method: "PATCH",
@@ -89,10 +115,13 @@ export async function schedulerPatchJob(
 export async function schedulerDeleteJob(
   jobId: string,
 ): Promise<ApiResult<null>> {
-  const res = await fetch(
+  const res = await request(
     `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}`,
     { method: "DELETE" },
   );
+  if (!res) {
+    return offline();
+  }
   if (res.ok && (res.status === 204 || res.status === 200)) {
     return { ok: true, data: null };
   }
@@ -106,7 +135,7 @@ export async function schedulerDeleteJob(
 export async function schedulerPauseJob(
   jobId: string,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
-  const res = await fetch(
+  const res = await request(
     `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/pause`,
     { method: "POST" },
   );
@@ -116,7 +145,7 @@ export async function schedulerPauseJob(
 export async function schedulerResumeJob(
   jobId: string,
 ): Promise<ApiResult<{ object?: string; job_id?: string }>> {
-  const res = await fetch(
+  const res = await request(
     `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/resume`,
     { method: "POST" },
   );
@@ -128,7 +157,7 @@ export async function schedulerRunJob(
 ): Promise<
   ApiResult<{ object?: string; job_id?: string; status?: string }>
 > {
-  const res = await fetch(
+  const res = await request(
     `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/run`,
     { method: "POST" },
   );
@@ -140,7 +169,7 @@ export async function schedulerCancelJob(
 ): Promise<
   ApiResult<{ object?: string; job_id?: string; cancelled?: boolean }>
 > {
-  const res = await fetch(
+  const res = await request(
     `/foxxycode/scheduler/jobs/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST" },
   );

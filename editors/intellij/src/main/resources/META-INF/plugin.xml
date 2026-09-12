@@ -24,6 +24,21 @@
         <projectService serviceImplementation="dev.foxxycode.intellij.diff.FoxxyCodeIdeDiffService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.editor.FoxxyCodeEditorContextService"/>
         <projectService serviceImplementation="dev.foxxycode.intellij.terminal.FoxxyCodeTerminalContextService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.clipboard.FoxxyCodeCopyBufferService"/>
+        <projectService serviceImplementation="dev.foxxycode.intellij.autocomplete.FoxxyCodeAutocompleteService"/>
+
+        <!-- Inline code autocomplete. The listener only asks the backend once
+             config.autocomplete enables it (Settings form, Autocomplete tab); Tab and Escape are
+             wrapped rather than rebound, so both keep their normal behaviour with no suggestion
+             on screen. -->
+        <editorFactoryDocumentListener
+                implementation="dev.foxxycode.intellij.autocomplete.AutocompleteDocumentListener"/>
+        <editorActionHandler action="EditorTab"
+                             implementationClass="dev.foxxycode.intellij.autocomplete.AcceptSuggestionHandler"
+                             id="foxxycodeAcceptSuggestion" order="first"/>
+        <editorActionHandler action="EditorEscape"
+                             implementationClass="dev.foxxycode.intellij.autocomplete.DismissSuggestionHandler"
+                             id="foxxycodeDismissSuggestion" order="first"/>
 
         <applicationConfigurable
                 parentId="tools"
@@ -55,6 +70,12 @@
                 text="Show FoxxyCode Welcome"
                 description="Re-open the FoxxyCode onboarding tour">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="FoxxyCodeTriggerSuggestion"
+                class="dev.foxxycode.intellij.autocomplete.TriggerSuggestionAction"
+                text="Suggest Code at Caret"
+                description="Ask FoxxyCode for an inline code suggestion at the caret">
+            <keyboard-shortcut first-keystroke="alt BACK_SLASH" keymap="$default"/>
         </action>
         <action id="FoxxyCodeAddFile"
                 class="dev.foxxycode.intellij.ui.FoxxyCodeAddFileAction"

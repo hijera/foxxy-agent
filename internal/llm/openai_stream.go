@@ -203,14 +203,19 @@ func newStreamServerError(obj []byte, emitted bool) error {
 func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
 	params := p.buildParams(messages, tools, true)
 
+	tr := newStreamTrace(p.model)
+	tr.request(len(messages), len(tools), p.maxTokens, p.reasoningEffort)
+
 	var raw *http.Response
 	err := p.client.Post(ctx, "chat/completions", params, &raw, option.WithJSONSet("stream", true))
 	if err != nil {
+		tr.end("request-failed", "", false, err, 0, 0)
 		return nil, fmt.Errorf("openai stream: %w", err)
 	}
 	defer func() { _ = raw.Body.Close() }()
 
 	var fullContent string
+	var reasoningBuf strings.Builder
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens int
@@ -243,6 +248,12 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		emitted = true
 		onChunk(c)
 	}
+	// progress reports a frame that advanced generation without delivering
+	// anything. It calls onChunk directly and deliberately bypasses emit: emit
+	// sets the flag that streamServerError / streamTruncatedError /
+	// streamTransportError carry into resilient.go's retry classification, and a
+	// frame no caller ever saw must not cost the request its replay.
+	progress := func() { onChunk(StreamChunk{Progress: true}) }
 
 	scanner := newSSEScanner(raw.Body)
 	var streamErr error
@@ -253,6 +264,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 		if payload := bytes.TrimSpace(frame.errData); len(payload) > 0 {
 			// llama.cpp <= 2025 mid-stream error frame ("error: {...}").
+			tr.marker("error-frame", string(payload))
 			streamErr = newStreamServerError(payload, emitted)
 			break
 		}
@@ -262,14 +274,17 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			continue
 		}
 		if bytes.HasPrefix(payload, []byte("[DONE]")) {
+			tr.marker("done", "")
 			done = true
 			continue
 		}
 		if done {
+			tr.marker("after-done", string(payload))
 			continue
 		}
 		if e := gjson.GetBytes(payload, "error"); e.Exists() && e.Type != gjson.Null {
 			// Standard-shaped in-band error object (llama.cpp b9038+, gateways).
+			tr.marker("error-object", e.Raw)
 			streamErr = newStreamServerError([]byte(e.Raw), emitted)
 			break
 		}
@@ -279,27 +294,37 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			// A non-empty data frame that is not JSON means the stream is
 			// corrupt; failing silently here would truncate the response.
 			// Carry the payload so the operator sees what the server sent.
+			tr.marker("undecodable", string(payload))
 			streamErr = fmt.Errorf("undecodable SSE frame: %s", streamErrorSnippet(payload))
 			break
 		}
 
 		if len(chunk.Choices) == 0 {
 			if chunk.Usage.TotalTokens > 0 {
+				tr.marker("usage", fmt.Sprintf("in=%d out=%d", chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens))
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
 			}
+			progress()
 			continue
 		}
 		choice := chunk.Choices[0]
+
+		// frameDelivered records whether this frame already reached the caller, so
+		// the progress ping below fires only for the silent frames - the ones a
+		// stall watchdog would otherwise misread as a dead connection.
+		frameDelivered := false
 
 		if choice.FinishReason != "" {
 			stopReason = mapOpenAIStopReason(string(choice.FinishReason))
 		}
 
 		delta := choice.Delta
+		var reasoningDelta string
 
 		if delta.Content != "" {
 			fullContent += delta.Content
+			frameDelivered = true
 			emit(StreamChunk{TextDelta: delta.Content})
 		}
 
@@ -309,6 +334,9 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				r = gjson.Get(raw, "thinking").String()
 			}
 			if r != "" {
+				reasoningDelta = r
+				reasoningBuf.WriteString(r)
+				frameDelivered = true
 				emit(StreamChunk{ReasoningDelta: r})
 			}
 		}
@@ -332,6 +360,22 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			inputTokens = int(chunk.Usage.PromptTokens)
 			outputTokens = int(chunk.Usage.CompletionTokens)
 		}
+
+		var newToolCall string
+		for _, tc := range delta.ToolCalls {
+			if tc.Function.Name != "" {
+				newToolCall = tc.Function.Name
+				break
+			}
+		}
+		tr.delta(delta.Content, reasoningDelta, newToolCall, string(choice.FinishReason), len(delta.ToolCalls))
+
+		// Everything above that did not deliver still means the model is working -
+		// most importantly the tool-call argument deltas accumulated into builders,
+		// which reach onChunk only once the whole call is assembled.
+		if !frameDelivered {
+			progress()
+		}
 	}
 
 	if streamErr == nil {
@@ -343,6 +387,8 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 			streamErr = &streamTransportError{cause: err, emitted: emitted}
 		}
 	}
+	tr.end(streamEndVerdict(streamErr, done, stopReason), stopReason, done, streamErr, inputTokens, outputTokens)
+
 	if streamErr == nil && !done && stopReason == "" {
 		// The transport closed cleanly but the server never finished the
 		// response: no [DONE] and no finish_reason arrived. Fabricating an
@@ -355,13 +401,14 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 	if streamErr != nil {
 		if IsStreamTruncated(streamErr) {
-			// Keep the text the caller already saw, like the cancellation
-			// branch below. Unfinished tool-call builders are dropped
+			// Keep the user-visible output the caller already saw, like the
+			// cancellation branch below. Unfinished tool-call builders are dropped
 			// deliberately: their arguments may be cut mid-JSON, and
 			// replaying an invalid call is worse than losing it.
-			if strings.TrimSpace(fullContent) != "" {
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
 					Content:      fullContent,
+					Reasoning:    reasoningBuf.String(),
 					InputTokens:  inputTokens,
 					OutputTokens: outputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)

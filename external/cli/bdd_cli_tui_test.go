@@ -10,10 +10,14 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +31,45 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
+
+// neuralDeepUsageBDDKey is the stored hub login of the console scenarios.
+const neuralDeepUsageBDDKey = "sk-cli-bdd-usage-key-0123456789ab"
+
+// usageStandPayload renders the hub's schema-1 GET /limits answer for a pro
+// wallet key with the session counter at used (limit 15000).
+func usageStandPayload(used int) string {
+	return `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"pro","tier_expires_at":null,
+ "unlimited_volume":false,"options":[],"bypass":false,"fair_use":true,
+ "key":{"name":"foxxycode","status":"ok","billing_mode":"wallet","cap":null},
+ "decision":{"scope":"chat","can_request":true,"blockers":[],"retry_after_sec":null},
+ "chat":{"session":{"used":` + strconv.Itoa(used) + `,"limit":15000,"remaining":` + strconv.Itoa(15000-used) + `,"reset_in_sec":777,
+                    "resets_at":"2026-09-06T17:59:59Z","window":"3h"},
+         "week":{"used":9981,"limit":150000,"remaining":140019,"reset_in_sec":22378,
+                 "resets_at":"2026-09-07T00:00:00Z","window":"iso-week"},
+         "rpm":{"used":2,"limit":120,"remaining":118,"reset_in_sec":58},"cooldown_sec":0,"scope":"account"},
+ "daily_capacity":{"pct_used":0.0,"exhausted":false,"resets_at":"2026-09-07T00:00:00+00:00"},
+ "night":{"enabled":true,"active":false,"capacity_factor":2},
+ "wallet":{"balance_rub":-1229.244167,"spent_rub_30d":2000.73518},"kimi":null}`
+}
+
+// usageClock is the manager's clock in the neuraldeep scenarios: real time
+// plus whatever the steps added, so the pacing floor can be crossed at will.
+type usageClock struct {
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+func (c *usageClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.offset)
+}
+
+func (c *usageClock) advance(d time.Duration) {
+	c.mu.Lock()
+	c.offset += d
+	c.mu.Unlock()
+}
 
 // bddTerminal is the in-memory terminal for the harness.
 type bddTerminal struct {
@@ -52,6 +95,9 @@ type stubDirective struct {
 	preview string
 	err     error
 	blockCh chan struct{}
+	// taken is closed by the turn that pops this directive, so a step can wait
+	// for the hand-off instead of guessing at it with a pause.
+	taken   chan struct{}
 	qParams *acp.QuestionRequestParams
 }
 
@@ -84,6 +130,18 @@ type cliTUIState struct {
 
 	printOut  *syncBuffer
 	printDone chan error
+
+	// The neuraldeep scenarios: the manager, the stand-in GET /limits, its
+	// session counter, the manager clock, and the environment to restore.
+	mgr         *session.Manager
+	usageStand  *httptest.Server
+	usageUsed   int
+	usageClock  *usageClock
+	prevBaseEnv string
+	prevKeyEnv  string
+	usageEnvSet bool
+	// usageAsked counts the stand-in's requests (under mu).
+	usageAsked int
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -117,6 +175,12 @@ func (s *cliTUIState) reset() {
 	s.prevSessionID = ""
 	s.printOut = nil
 	s.printDone = nil
+	s.mgr = nil
+	s.usageStand = nil
+	s.usageUsed = 407
+	s.usageClock = nil
+	s.usageEnvSet = false
+	s.usageAsked = 0
 	s.directives = make(chan stubDirective, 16)
 	s.turnEnds = make(chan struct{}, 4)
 }
@@ -133,6 +197,20 @@ func (s *cliTUIState) shutdown() {
 		case <-s.appDone:
 		case <-time.After(2 * time.Second):
 		}
+	}
+	// The stand-in is selected through a process-wide variable: no usage
+	// fetch may outlive the scenario, or it lands on the next one's server.
+	if s.mgr != nil {
+		s.mgr.ShutdownProviderUsage(2 * time.Second)
+	}
+	if s.usageStand != nil {
+		s.usageStand.Close()
+		s.usageStand = nil
+	}
+	if s.usageEnvSet {
+		_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)
+		_ = os.Setenv("NEURALDEEP_API_KEY", s.prevKeyEnv)
+		s.usageEnvSet = false
 	}
 }
 
@@ -222,13 +300,39 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					s.mu.Unlock()
 				}
 			case "question":
+				// The real agent runs the question tool like any other call:
+				// a tool_call block opens, the arguments stream in, the
+				// operator answers, and the JSON result closes the block.
+				s.toolSeq++
+				s.activeToolID = fmt.Sprintf("call_%d", s.toolSeq)
+				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
+					SessionUpdate: "tool_call", ToolCallID: s.activeToolID,
+					Title: "question", Kind: "other", Status: "pending",
+				})
+				args, _ := json.Marshal(map[string]interface{}{"questions": d.qParams.Questions})
+				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
+					Status:  "in_progress",
+					Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: string(args)}}},
+				})
 				res, err := snd.RequestQuestion(ctx, *d.qParams)
+				var answers [][]string
 				if err == nil && res != nil {
+					answers = res.Answers
 					s.mu.Lock()
-					s.questionAns = res.Answers
+					s.questionAns = answers
 					s.mu.Unlock()
 				}
+				result, _ := json.Marshal(acp.QuestionResult{Answers: answers})
+				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
+					Status:  "completed",
+					Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: string(result)}}},
+				})
 			case "block":
+				if d.taken != nil {
+					close(d.taken)
+				}
 				s.blockedCh = d.blockCh
 				select {
 				case <-ctx.Done():
@@ -248,7 +352,18 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	}
 }
 
-func (s *cliTUIState) buildApp() error {
+func (s *cliTUIState) buildApp() error { return s.buildAppWith(false) }
+
+// buildAppWith assembles the console; with neuraldeep the default model
+// belongs to a neuraldeep provider whose stored hub login points at a
+// stand-in GET /limits, and the manager runs on the scenario's clock.
+func (s *cliTUIState) buildAppWith(neuraldeep bool) error {
+	return s.buildAppWithUsagePanel(neuraldeep, true)
+}
+
+// buildAppWithUsagePanel is buildAppWith with the neuraldeep row's usage
+// limits panel switched on or off (providers[].usage_limits_panel).
+func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("foxxycode-cli-bdd-%d", time.Now().UnixNano()))
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
@@ -268,6 +383,22 @@ func (s *cliTUIState) buildApp() error {
 		},
 		Agent: config.Agent{Model: "stub/model-one"},
 	}
+	if neuraldeep {
+		if err := s.startUsageStand(); err != nil {
+			return err
+		}
+		if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(s.home, "neuraldeep"), neuralDeepUsageBDDKey, "https://hub.bdd.invalid", llm.NeuralDeepClientID, "foxxycode"); err != nil {
+			return err
+		}
+		row := config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}
+		if !panel {
+			off := false
+			row.UsageLimitsPanel = &off
+		}
+		cfg.Providers = append(cfg.Providers, row)
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000})
+		cfg.Agent.Model = "neuraldeep/qwen3.8-27b"
+	}
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
 	s.cfg = cfg
@@ -278,10 +409,123 @@ func (s *cliTUIState) buildApp() error {
 	var app *App
 	late := &lateBoundSender{}
 	mgr := session.NewManager(cfg, late, s.stubRunner, log, s.cwd, s.store)
+	if neuraldeep {
+		s.usageClock = &usageClock{}
+		mgr.SetProviderUsageClock(s.usageClock.Now, func(d time.Duration, fn func()) func() bool {
+			return time.AfterFunc(d, fn).Stop
+		})
+	}
+	s.mgr = mgr
 	app = newApp(cfg, mgr, log, term, "dark", true)
 	late.inner = app.Sender()
 	s.app = app
 	return nil
+}
+
+// startUsageStand serves GET /limits with the scenario's session counter
+// and routes the neuraldeep provider at it.
+func (s *cliTUIState) startUsageStand() error {
+	s.usageStand = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/limits" || r.Header.Get("Authorization") != "Bearer "+neuralDeepUsageBDDKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		s.mu.Lock()
+		s.usageAsked++
+		used := s.usageUsed
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, usageStandPayload(used))
+	}))
+	s.prevBaseEnv = os.Getenv(llm.EnvNeuralDeepBaseURL)
+	s.prevKeyEnv = os.Getenv("NEURALDEEP_API_KEY")
+	s.usageEnvSet = true
+	if err := os.Setenv(llm.EnvNeuralDeepBaseURL, s.usageStand.URL); err != nil {
+		return err
+	}
+	return os.Setenv("NEURALDEEP_API_KEY", "")
+}
+
+// --- provider usage steps ---
+
+func (s *cliTUIState) aConsoleAppWithNeuralDeep() error { return s.buildAppWith(true) }
+
+func (s *cliTUIState) aConsoleAppWithNeuralDeepPanelOff() error {
+	return s.buildAppWithUsagePanel(true, false)
+}
+
+// standNeverAsked joins the manager's fetches first, so a request still in
+// flight would be counted.
+func (s *cliTUIState) standNeverAsked() error {
+	if s.mgr != nil {
+		if err := s.mgr.WaitProviderUsageIdle(2 * time.Second); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	n := s.usageAsked
+	s.mu.Unlock()
+	if n != 0 {
+		return fmt.Errorf("the stand-in limits API was asked %d times, want none", n)
+	}
+	return nil
+}
+
+func (s *cliTUIState) standReportsSessionAt(pct int) error {
+	s.mu.Lock()
+	s.usageUsed = pct * 15000 / 100
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *cliTUIState) footerShowsUsage(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) transcriptShowsUsageNotice(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) usageClockMoves(seconds int) error {
+	if s.usageClock == nil {
+		return fmt.Errorf("no usage clock: the scenario has no neuraldeep provider")
+	}
+	s.usageClock.advance(time.Duration(seconds) * time.Second)
+	return nil
+}
+
+func (s *cliTUIState) operatorSubmitsCommand(text string) error {
+	s.typeText(text)
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) usageReportShows(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) operatorSwitchesModelTo(id string) error {
+	s.typeText("/model " + id)
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) footerNamesModel(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+// footerHidesUsage waits for the usage line to leave the frame: the model
+// switch renders asynchronously, so the absence is polled rather than read
+// once.
+func (s *cliTUIState) footerHidesUsage() error {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), "3h 3%") {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the usage line is still on screen:\n%s", s.screenText())
 }
 
 func (s *cliTUIState) startApp(sessionID string) error {
@@ -349,7 +593,9 @@ func (s *cliTUIState) aConsoleAppOverStubRunner() error { return s.buildApp() }
 
 func (s *cliTUIState) theConsoleAppStarts() error { return s.startApp("") }
 
-func (s *cliTUIState) screenShowsVersionHeader() error { return s.waitScreen("foxxycode v", 2*time.Second) }
+func (s *cliTUIState) screenShowsVersionHeader() error {
+	return s.waitScreen("foxxycode v", 2*time.Second)
+}
 
 func (s *cliTUIState) screenShowsEditorBorders() error {
 	text := s.screenText()
@@ -422,6 +668,19 @@ func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
 	return s.waitTurnEnd(2 * time.Second)
 }
 
+// statusLineShows waits for the spinner's status message. The verb and its target are
+// composed only by the status line, so "Reading README.md" cannot come from the tool box.
+func (s *cliTUIState) statusLineShows(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+// stubToolCompletesWithoutEndingTurn finishes the call but leaves the turn running, which
+// is the state where the status line has to fall back to waiting on the model.
+func (s *cliTUIState) stubToolCompletesWithoutEndingTurn() error {
+	s.directives <- stubDirective{kind: "tool_done", preview: "done"}
+	return s.waitScreen("done", 3*time.Second)
+}
+
 func (s *cliTUIState) toolBoxShowsPreview(preview string) error {
 	return s.waitScreen(preview, 2*time.Second)
 }
@@ -467,6 +726,24 @@ func (s *cliTUIState) operatorConfirmsPermissionOption() error {
 	return fmt.Errorf("permission result never arrived")
 }
 
+// operatorAllowsPermissionKeepingTurn confirms the highlighted option but leaves the
+// turn running, which is the state where the status line has to name the gated tool
+// again rather than claim the model is being waited on.
+func (s *cliTUIState) operatorAllowsPermissionKeepingTurn() error {
+	s.press("\r")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		got := s.permOutcome
+		s.mu.Unlock()
+		if got != "" {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("permission result never arrived")
+}
+
 func (s *cliTUIState) stubObservesPermissionOutcome(outcome, option string) error {
 	s.mu.Lock()
 	gotOutcome, gotOption := s.permOutcome, s.permOption
@@ -477,10 +754,26 @@ func (s *cliTUIState) stubObservesPermissionOutcome(outcome, option string) erro
 	return nil
 }
 
+// stubBlockTakeTimeout bounds the wait for a turn to take the block directive.
+var stubBlockTakeTimeout = 5 * time.Second
+
+// stubBlocksUntilCancelled parks the running turn inside the stub until
+// something cancels it.
+//
+// It returns only once that turn has actually taken the directive. The
+// directives channel is shared by every turn, so a step that returned on a
+// timer left the directive queued whenever the machine was busy: the next turn
+// popped it and waited on a channel nobody would close, and the console sat on
+// "Waiting for the model" with the rest of the script stranded behind it.
 func (s *cliTUIState) stubBlocksUntilCancelled() error {
-	s.directives <- stubDirective{kind: "block", blockCh: make(chan struct{})}
-	time.Sleep(100 * time.Millisecond)
-	return nil
+	taken := make(chan struct{})
+	s.directives <- stubDirective{kind: "block", blockCh: make(chan struct{}), taken: taken}
+	select {
+	case <-taken:
+		return nil
+	case <-time.After(stubBlockTakeTimeout):
+		return fmt.Errorf("no turn took the block directive within %s", stubBlockTakeTimeout)
+	}
 }
 
 func (s *cliTUIState) operatorPressesEscape() error {
@@ -618,6 +911,67 @@ func (s *cliTUIState) operatorChoosesCustomAndTypes(answer string) error {
 	return fmt.Errorf("question answer never arrived")
 }
 
+// The option texts of a real question are sentences, not menu entries: the
+// label of the recommendation and the explanation under it both have to stay
+// readable at 100 columns.
+const (
+	bddLongOptionLabel = "Relay and node both on nas02 (recommended)"
+	bddLongOptionDesc  = "A self-contained pair on nas02 itself: the relay listens on a port and the node dials it, " +
+		"so the swarm survives the laptop going away."
+)
+
+func (s *cliTUIState) stubAsksQuestionWithLongDescriptions() error {
+	s.directives <- stubDirective{kind: "question", qParams: &acp.QuestionRequestParams{
+		SessionID: s.app.sessionID,
+		RequestID: "q2",
+		Questions: []acp.QuestionPrompt{{
+			Header:   "Swarm topology",
+			Question: "Where should the relay live?",
+			Options: []acp.QuestionOption{
+				{Label: bddLongOptionLabel, Description: bddLongOptionDesc},
+				{Label: "Relay on the laptop, node only on nas02", Description: "The swarm is visible from the laptop only."},
+			},
+		}},
+	}}
+	return s.waitScreen("Where should the relay live?", 3*time.Second)
+}
+
+func (s *cliTUIState) questionModalShowsWholeFirstLabel() error {
+	return s.waitScreen(bddLongOptionLabel, 2*time.Second)
+}
+
+// The description sits under the list, wrapped: its tail is on a row of its
+// own instead of being cut off at the end of the option row.
+func (s *cliTUIState) questionModalWrapsSelectedDescription() error {
+	if err := s.waitScreen("A self-contained pair on nas02 itself", 2*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("swarm survives the laptop going away.", 2*time.Second)
+}
+
+func (s *cliTUIState) operatorChoosesHighlightedOption() error {
+	s.press("\r")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		n := len(s.questionAns)
+		s.mu.Unlock()
+		if n > 0 {
+			s.directives <- stubDirective{kind: "end"}
+			return s.waitTurnEnd(2 * time.Second)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("question answer never arrived")
+}
+
+func (s *cliTUIState) transcriptShowsQuestionAnswered(question, answer string) error {
+	if err := s.waitScreen(question, 3*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("\u2192 "+answer, 3*time.Second)
+}
+
 func (s *cliTUIState) stubObservesQuestionAnswer(answer string) error {
 	s.mu.Lock()
 	ans := s.questionAns
@@ -716,8 +1070,15 @@ func (s *cliTUIState) noAgentTurnReceived(text string) error {
 }
 
 // persistedSessionCarriesNoTrace checks the live message list and every file
-// of the session bundle: a hidden command must not reach either.
+// of the session bundle: a hidden command must not reach either. The walk
+// starts only once the turn worker has returned: after the runner ends it
+// still rewrites session.json (activity bookkeeping) through a temp file, and
+// a walk that lists that temp file loses it to the rename before the read
+// ("The system cannot find the file specified" on Windows CI).
 func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
+	if err := s.waitWorkersIdle(5 * time.Second); err != nil {
+		return err
+	}
 	if st := s.app.mgr.SessionByID(s.app.sessionID); st != nil {
 		for _, msg := range st.GetMessages() {
 			if strings.Contains(msg.Content, text) {
@@ -744,6 +1105,23 @@ func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
 		}
 		return nil
 	})
+}
+
+// waitWorkersIdle blocks until every app worker (the turn, the `!!` poller)
+// has returned, so nothing writes into the session bundle while a step reads
+// it. Unlike App.JoinWorkers it reports a timeout instead of moving on.
+func (s *cliTUIState) waitWorkersIdle(timeout time.Duration) error {
+	done := make(chan struct{})
+	go func() {
+		s.app.workers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("app workers still busy after %s", timeout)
+	}
 }
 
 func (s *cliTUIState) operatorTypesWithoutSending(text string) error {
@@ -791,10 +1169,22 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument path "([^"]*)"$`, func(tool, path string) error {
 		return s.stubStartsToolCall(tool, "path", path)
 	})
+	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument agent "([^"]*)"$`, func(tool, agent string) error {
+		return s.stubStartsToolCall(tool, "agent", agent)
+	})
+	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument command "([^"]*)"$`, func(tool, command string) error {
+		// A run_command box titles itself "$ <command>", not with the tool name,
+		// so readiness is the command string appearing on screen.
+		s.directives <- stubDirective{kind: "tool_start", tool: tool, argsKey: "command", argsVal: command}
+		return s.waitScreen(command, 3*time.Second)
+	})
+	sc.Step(`^the operator allows the pending permission without ending the turn$`, s.operatorAllowsPermissionKeepingTurn)
 	sc.Step(`^the transcript shows a pending tool box titled "([^"]*)"$`, s.transcriptShowsPendingToolBox)
 	sc.Step(`^the stub tool call completes with a preview of (\d+) lines$`, s.stubToolCompletesWithLines)
 	sc.Step(`^the tool box shows the preview "([^"]*)"$`, s.toolBoxShowsPreview)
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
+	sc.Step(`^the stub tool call completes without ending the turn$`, s.stubToolCompletesWithoutEndingTurn)
+	sc.Step(`^the status line shows "([^"]*)"$`, s.statusLineShows)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.permissionModeIs)
 	sc.Step(`^the stub turn requests permission for the tool "([^"]*)"$`, s.stubRequestsPermission)
 	sc.Step(`^the screen shows a permission modal with an allow option$`, s.screenShowsPermissionModalWithAllow)
@@ -812,6 +1202,11 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the replayed prompt "([^"]*)" renders as a user message block and not as assistant text$`, s.replayedPromptRendersAsUserBlock)
 	sc.Step(`^the stub turn asks a question titled "([^"]*)" that allows a custom answer$`, s.stubAsksQuestion)
 	sc.Step(`^the operator chooses the custom answer and types "([^"]*)"$`, s.operatorChoosesCustomAndTypes)
+	sc.Step(`^the stub turn asks a question whose options carry long descriptions$`, s.stubAsksQuestionWithLongDescriptions)
+	sc.Step(`^the question modal shows the whole label of the first option$`, s.questionModalShowsWholeFirstLabel)
+	sc.Step(`^the question modal wraps the selected option's description below the list$`, s.questionModalWrapsSelectedDescription)
+	sc.Step(`^the operator chooses the highlighted option$`, s.operatorChoosesHighlightedOption)
+	sc.Step(`^the transcript shows the question "([^"]*)" answered with "([^"]*)"$`, s.transcriptShowsQuestionAnswered)
 	sc.Step(`^the stub turn observes the question answer "([^"]*)"$`, s.stubObservesQuestionAnswer)
 	sc.Step(`^the stub turn fails with the error "([^"]*)"$`, s.stubFailsWith)
 	sc.Step(`^the transcript shows an error notice containing "([^"]*)"$`, s.transcriptShowsErrorNotice)
@@ -831,6 +1226,18 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator types "([^"]*)" without sending it$`, s.operatorTypesWithoutSending)
 	sc.Step(`^the editor borders render in the local shell color$`, s.editorBordersUseLocalShellColor)
 	sc.Step(`^the operator runs a one-shot prompt "([^"]*)"$`, s.operatorRunsOneShot)
+	sc.Step(`^a foxxycode console app over a stub agent runner with a neuraldeep provider$`, s.aConsoleAppWithNeuralDeep)
+	sc.Step(`^the stand-in limits API reports the session window at (\d+)%$`, s.standReportsSessionAt)
+	sc.Step(`^the footer shows the neuraldeep usage "([^"]*)"$`, s.footerShowsUsage)
+	sc.Step(`^the transcript shows a usage notice containing "([^"]*)"$`, s.transcriptShowsUsageNotice)
+	sc.Step(`^the usage clock moves (\d+) seconds forward$`, s.usageClockMoves)
+	sc.Step(`^the operator submits the command "([^"]*)"$`, s.operatorSubmitsCommand)
+	sc.Step(`^the usage report shows "([^"]*)"$`, s.usageReportShows)
+	sc.Step(`^the operator switches the model to "([^"]*)"$`, s.operatorSwitchesModelTo)
+	sc.Step(`^the footer names the model "([^"]*)"$`, s.footerNamesModel)
+	sc.Step(`^the footer does not show the neuraldeep usage$`, s.footerHidesUsage)
+	sc.Step(`^a foxxycode console app over a stub agent runner with a neuraldeep provider whose usage limits panel is switched off$`, s.aConsoleAppWithNeuralDeepPanelOff)
+	sc.Step(`^the stand-in limits API was never asked$`, s.standNeverAsked)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
 	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)
 }

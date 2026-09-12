@@ -14,12 +14,12 @@ import (
 // valid agents-standard marketplace, reported by `plugin marketplace list`.
 type SourceStatus struct {
 	Source   string `json:"source"`
-	Kind     string `json:"kind"`               // "git" | "api"
-	Valid    bool   `json:"valid"`              // usable as a skill source
-	Standard string `json:"standard"`           // "marketplace" | "no-manifest" | "unreachable" | "invalid"
-	Name     string `json:"name,omitempty"`     // marketplace name (agents standard)
-	Version  string `json:"version,omitempty"`  // marketplace metadata version
-	Plugins  int    `json:"plugins"`            // plugin/skill count when known
+	Kind     string `json:"kind"`              // "git" | "api"
+	Valid    bool   `json:"valid"`             // usable as a skill source
+	Standard string `json:"standard"`          // "marketplace" | "no-manifest" | "unreachable" | "invalid"
+	Name     string `json:"name,omitempty"`    // marketplace name (agents standard)
+	Version  string `json:"version,omitempty"` // marketplace metadata version
+	Plugins  int    `json:"plugins"`           // plugin/skill count when known
 	Error    string `json:"error,omitempty"`
 }
 

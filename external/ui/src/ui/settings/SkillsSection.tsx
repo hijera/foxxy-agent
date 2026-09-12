@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { SchemaForm, IconTrash, type JsonSchema, type FieldOverride } from "./SchemaForm";
-import { Switch } from "./Switch";
+import { SwitchField } from "./SwitchField";
 import { t } from "../i18n/i18n";
 import { tSchemaText } from "../i18n/schemaStrings";
 import { filterInstallableMatches } from "./installableMatches";
@@ -453,22 +453,18 @@ export function SkillsSection(props: {
     <div className="settings-skills-section">
       <fieldset className="settings-fieldset">
         <legend>{t("settings.skills.autoDiscoveryLegend")}</legend>
-        <div className="settings-row settings-row-inline">
-          <Switch
-            checked={autoDiscoveryOn}
-            onChange={(next) =>
-              onChange({ ...value, auto_discovery: next })
-            }
-            ariaLabel={t("settings.skills.autoDiscoveryLegend")}
-            dataTestId="skills-auto-discovery-toggle"
-          />
-          <span>
-            {autoDiscoveryOn
+        <SwitchField
+          checked={autoDiscoveryOn}
+          onChange={(next) => onChange({ ...value, auto_discovery: next })}
+          label={
+            autoDiscoveryOn
               ? t("settings.skills.stateEnabled")
-              : t("settings.skills.stateDisabled")}
-          </span>
-        </div>
-        <p className="settings-field-desc">{autoDiscoveryDesc}</p>
+              : t("settings.skills.stateDisabled")
+          }
+          description={autoDiscoveryDesc}
+          ariaLabel={t("settings.skills.autoDiscoveryLegend")}
+          dataTestId="skills-auto-discovery-toggle"
+        />
       </fieldset>
 
       <SchemaForm schema={schema} value={value} onChange={onChange} fieldOverride={fieldOverride} />

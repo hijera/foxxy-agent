@@ -16,11 +16,24 @@ import {
   type ContextBreakdown,
 } from "./ContextBreakdownPopover";
 import { ContextUsageRing } from "./ContextUsageRing";
+import type { ProviderUsage } from "./providerUsage";
 import {
   draftExtendsFailedAtPrefix,
   atMenuDraftAtCaret,
 } from "../skills/draftAt";
+import {
+  atRangeDraftAtCaret,
+  highlightedRange,
+  replaceAtRangeSuffix,
+  type AtRangeDraft,
+} from "../skills/draftAtRange";
 import { normalizeRelPath } from "../skills/normalizeRelPath";
+import {
+  classifyPastedText,
+  pasteChipLiteralKey,
+  pasteChipToken,
+  shouldAttemptPasteClassify,
+} from "./pasteChip";
 import { parseDroppedPaths } from "../skills/parseDroppedPaths";
 import { subscribeFileMention } from "../skills/fileMentionBus";
 import {
@@ -267,6 +280,8 @@ export function Composer(props: {
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
+  /** Account usage behind the selected model's provider (the usage section of the context popover). */
+  providerUsage?: ProviderUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
@@ -278,6 +293,11 @@ export function Composer(props: {
   onChange: (v: string) => void;
   /** files is non-empty only when the user attached files via the file picker. */
   onSend: (text: string, files?: File[]) => void;
+  /**
+   * A paste classified as a file chip captures its literal text here, keyed by
+   * `path:start-end`, so send time can attach the copied fragment verbatim.
+   */
+  onPasteChipCaptured?: (key: string, literal: string) => void;
   generating?: boolean;
   onStop?: () => void;
   /** Workspace context chips (folder / branch / worktree) above the field. */
@@ -411,6 +431,32 @@ export function Composer(props: {
    *  menu opens (best-effort; empty when no IDE reports terminals). */
   const [terminalRefs, setTerminalRefs] = useState<TerminalRef[]>([]);
   const terminalsFetchedAtRef = useRef(0);
+  /**
+   * Line-range picker for `@path:N-M`. The colon closes the file picker on its own,
+   * and this panel takes its place: it previews the file so the typed digits show
+   * what they select, and on desktop the rows are clickable. The composer text
+   * stays the only input - the panel writes the suffix back into it.
+   */
+  const [atRangeDraft, setAtRangeDraft] = useState<AtRangeDraft>({
+    open: false,
+  });
+  const [atRangeFile, setAtRangeFile] = useState<{
+    pathRel: string;
+    lines: string[];
+    totalLines: number;
+    truncated: boolean;
+  } | null>(null);
+  /** Path whose fetch already settled (loaded or failed), so typing digits refetches nothing. */
+  const atRangeLoadedPathRef = useRef<string | null>(null);
+  const atRangeFetchGenRef = useRef(0);
+  /** Row the pointer went down on, while a drag selection is in flight. */
+  const atRangeDragAnchorRef = useRef<number | null>(null);
+  /** Mention the user dismissed with Escape; suppressed until the draft moves on. */
+  const [atRangeSuppressed, setAtRangeSuppressed] = useState<{
+    atIdx: number;
+    path: string;
+  } | null>(null);
+  const atRangeListRef = useRef<HTMLDivElement>(null);
   const [caretPos, setCaretPos] = useState(0);
   /** Stacked-shell viewports (`max-width`) use a bottom sheet so the picker is not clipped off-screen. */
   const [pickerUseSheet, setPickerUseSheet] = useState(() => {
@@ -457,7 +503,14 @@ export function Composer(props: {
     el.focus();
   }, [props.isEmpty, props.sessionId]);
 
-  const pickerOpen = slashOpen || atOpen;
+  // The range panel only counts as open once its file loaded, so a colon typed in
+  // prose ("см. 10:30-11:00") never flashes an empty panel.
+  const atRangeOpen =
+    atRangeDraft.open &&
+    atRangeFile != null &&
+    atRangeFile.pathRel === atRangeDraft.path;
+  const atRangeHighlight = highlightedRange(atRangeDraft);
+  const pickerOpen = slashOpen || atOpen || atRangeOpen;
   const sheetOverlayOpen = pickerOpen || contextPopoverOpen;
 
   const measureSheetBottom = useCallback(() => {
@@ -645,6 +698,15 @@ export function Composer(props: {
     bumpAtFetchGen();
     setAtLoading(false);
     setAtErr(null);
+
+    // Remember the dismissed mention so the next digit does not reopen the panel.
+    if (atRangeDraft.open) {
+      setAtRangeSuppressed({
+        atIdx: atRangeDraft.atIdx,
+        path: atRangeDraft.path,
+      });
+    }
+    closeAtRangePicker();
   }
 
   const fetchSlashPage = useCallback(
@@ -699,6 +761,71 @@ export function Composer(props: {
         items: WorkspaceFileRow[];
         has_more: boolean;
       };
+    },
+    [props.sessionId],
+  );
+
+  /** Clears the range panel; the composer text is left exactly as typed. */
+  const closeAtRangePicker = useCallback(() => {
+    atRangeFetchGenRef.current++;
+    atRangeDragAnchorRef.current = null;
+    atRangeLoadedPathRef.current = null;
+    setAtRangeDraft({ open: false });
+    setAtRangeFile(null);
+  }, []);
+
+  // A session switch changes the workspace behind every path: drop the loaded
+  // preview and any read still in flight, so the panel never shows another
+  // session's file. The next keystroke in the suffix fetches afresh.
+  useEffect(() => {
+    closeAtRangePicker();
+    setAtRangeSuppressed(null);
+  }, [props.sessionId, closeAtRangePicker]);
+
+  /**
+   * Loads the mentioned file once per path. A path that does not resolve simply
+   * leaves the panel closed - `@user:1-2` in prose must not pop an empty panel -
+   * and is remembered so the next digit does not refetch it.
+   */
+  const loadAtRangeFile = useCallback(
+    async (pathRel: string) => {
+      if (atRangeLoadedPathRef.current === pathRel) {
+        return;
+      }
+      atRangeLoadedPathRef.current = pathRel;
+      const gen = ++atRangeFetchGenRef.current;
+      try {
+        const sp = new URLSearchParams({ path_rel: pathRel });
+        const headers: Record<string, string> = {};
+        const sid = (props.sessionId || "").trim();
+        if (sid) {
+          headers["X-FoxxyCode-Session-ID"] = sid;
+        }
+        const res = await fetch(`/foxxycode/workspace/file?${sp.toString()}`, {
+          headers,
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const body = (await res.json()) as {
+          lines?: string[];
+          total_lines?: number;
+          truncated?: boolean;
+        };
+        if (gen !== atRangeFetchGenRef.current) {
+          return;
+        }
+        setAtRangeFile({
+          pathRel,
+          lines: body.lines || [],
+          totalLines: body.total_lines ?? (body.lines || []).length,
+          truncated: body.truncated === true,
+        });
+      } catch {
+        if (gen === atRangeFetchGenRef.current) {
+          setAtRangeFile(null);
+        }
+      }
     },
     [props.sessionId],
   );
@@ -1021,6 +1148,35 @@ export function Composer(props: {
         deferAtDraftPickerTicksRef.current -= 1;
         deferAtDraft = true;
       }
+      // A ":" after a mention closes the file picker (":" is no MENU_PATH_CHAR);
+      // the range panel takes over from there.
+      const rd = atRangeDraftAtCaret(value, caret);
+      if (rd.open) {
+        setAtRangeDraft(rd);
+        if (
+          atRangeSuppressed == null ||
+          atRangeSuppressed.atIdx !== rd.atIdx ||
+          atRangeSuppressed.path !== rd.path
+        ) {
+          void loadAtRangeFile(rd.path);
+        }
+        bumpSlashFetchGen();
+        setSlashOpen(false);
+        setSlashReplace(null);
+        setSlashNoMatch(null);
+        setSlashLoading(false);
+        bumpAtFetchGen();
+        setAtOpen(false);
+        setAtReplace(null);
+        setAtNoMatch(null);
+        setAtLoading(false);
+        return;
+      }
+      if (atRangeDraft.open) {
+        closeAtRangePicker();
+        setAtRangeSuppressed(null);
+      }
+
       const ad = atMenuDraftAtCaret(value, caret);
       if (ad.open && !deferAtDraft) {
         bumpSlashFetchGen();
@@ -1038,7 +1194,14 @@ export function Composer(props: {
       setAtLoading(false);
       updateSlashMenu(value, caret);
     },
-    [updateAtMenu, updateSlashMenu],
+    [
+      updateAtMenu,
+      updateSlashMenu,
+      loadAtRangeFile,
+      closeAtRangePicker,
+      atRangeDraft.open,
+      atRangeSuppressed,
+    ],
   );
 
   const maskComposerText = props.value.length > 0;
@@ -1215,6 +1378,73 @@ export function Composer(props: {
   // → the file-mention bus. Subscribe once; insertFileMention is stable enough.
   useEffect(() => subscribeFileMention((rel) => insertFileMention(rel)), [insertFileMention]);
 
+  /**
+   * Inserts text at the live caret, preferring `execCommand("insertText")` so
+   * the paste stays in the browser's native undo stack; falls back to a manual
+   * splice. Used by the async paste-to-chip path, which resolves after
+   * `preventDefault()` — the caret may have moved meanwhile, so it is read at
+   * insertion time.
+   */
+  const insertAtLiveCaret = useCallback(
+    (insert: string) => {
+      const el = taRef.current;
+      if (!el) {
+        return;
+      }
+      el.focus();
+      let ok = false;
+      try {
+        ok = document.execCommand("insertText", false, insert);
+      } catch {
+        ok = false;
+      }
+      if (ok) {
+        return;
+      }
+      const value = el.value;
+      const caret = el.selectionStart ?? value.length;
+      const next = value.slice(0, caret) + insert + value.slice(caret);
+      props.onChange(next);
+      const pos = caret + insert.length;
+      requestAnimationFrame(() => {
+        const e2 = taRef.current;
+        if (!e2) {
+          return;
+        }
+        e2.focus();
+        e2.setSelectionRange(pos, pos);
+      });
+    },
+    [props.onChange],
+  );
+
+  /**
+   * Paste-to-chip: classifies pasted text against fragments recently copied in
+   * the IDE and inserts a mention token on a match; any non-match or failure
+   * inserts the original text unchanged.
+   */
+  const classifyAndInsertPaste = useCallback(
+    async (text: string) => {
+      const result = await classifyPastedText(text, props.sessionId || "");
+      const token = pasteChipToken(result);
+      if (token == null) {
+        insertAtLiveCaret(text);
+        return;
+      }
+      if (result.kind === "file") {
+        props.onPasteChipCaptured?.(
+          pasteChipLiteralKey(result.pathRel, result.startLine, result.endLine),
+          text,
+        );
+      }
+      const el = taRef.current;
+      const before = el ? el.value.slice(0, el.selectionStart ?? el.value.length) : "";
+      const lead = before !== "" && !/\s$/.test(before) ? " " : "";
+      insertAtLiveCaret(`${lead}${token} `);
+    },
+    [props.sessionId, props.onPasteChipCaptured, insertAtLiveCaret],
+  );
+
   /** Converts absolute dropped paths to workspace-relative via the backend (VS Code). */
   const relativizePaths = useCallback(
     async (absPaths: string[]): Promise<string[]> => {
@@ -1365,6 +1595,71 @@ export function Composer(props: {
     attachedFiles,
     attachmentSendingEnabled,
   ]);
+
+  /**
+   * Writes a line range picked in the panel back into the composer text, then
+   * re-derives the draft so the next drag step measures against the new suffix.
+   */
+  const applyAtRangeSelection = useCallback(
+    (startLine: number, endLine: number) => {
+      if (!atRangeDraft.open) {
+        return;
+      }
+      const next = replaceAtRangeSuffix(
+        props.value,
+        atRangeDraft,
+        startLine,
+        endLine,
+      );
+      props.onChange(next.text);
+      setAtRangeDraft(atRangeDraftAtCaret(next.text, next.caret));
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) {
+          return;
+        }
+        el.focus();
+        el.setSelectionRange(next.caret, next.caret);
+      });
+    },
+    [atRangeDraft, props.value, props.onChange],
+  );
+
+  // A drag may end anywhere, so the anchor is cleared from the window, not the row.
+  useEffect(() => {
+    if (!atRangeOpen) {
+      return;
+    }
+    const onUp = () => {
+      atRangeDragAnchorRef.current = null;
+    };
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, [atRangeOpen]);
+
+  const atRangeHighlightStart = atRangeHighlight?.start ?? 0;
+  const atRangeHighlightEnd = atRangeHighlight?.end ?? 0;
+  // Keep the typed range in view: digits can point far outside the shown window.
+  // Start first, then end, so a range that fits shows from its top while a longer
+  // one settles on the edge the user is still typing.
+  useEffect(() => {
+    if (!atRangeOpen || atRangeHighlightStart < 1) {
+      return;
+    }
+    const host = atRangeListRef.current;
+    if (!host) {
+      return;
+    }
+    for (const line of [atRangeHighlightStart, atRangeHighlightEnd]) {
+      const row = host.querySelector(`[data-line="${line}"]`);
+      if (
+        row instanceof HTMLElement &&
+        typeof row.scrollIntoView === "function"
+      ) {
+        row.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [atRangeOpen, atRangeHighlightStart, atRangeHighlightEnd]);
 
   const loadMoreSlash = () => {
     if (!slashOpen || slashLoading || !slashHasMore) {
@@ -1646,9 +1941,119 @@ export function Composer(props: {
             {atLoading ? t("composer.loading") : t("composer.more")}
           </button>
         ) : null}
+        {atItems.length > 0 ? (
+          <div className="slash-muted at-range-menu-hint">
+            {t("composer.atRangeMenuHint")}
+          </div>
+        ) : null}
       </div>
     </>
   );
+
+  const atRangeChrome = (
+    <>
+      <div className="slash-menu-surface" aria-hidden />
+      <div
+        className="slash-menu-scroll"
+        style={{ maxHeight: pickerFloatRect?.maxH }}
+      >
+        <div className="slash-menu-title">
+          {t("composer.atRangeTitle")}
+          <span className="at-range-title-path">{atRangeFile?.pathRel}</span>
+          {atRangeHighlight ? (
+            <span
+              className="at-range-title-range"
+              data-testid="at-range-current"
+            >
+              {atRangeHighlight.start}-{atRangeHighlight.end}
+            </span>
+          ) : null}
+        </div>
+        <div className="slash-muted at-range-hint">
+          {isMobileShell
+            ? t("composer.atRangeHintMobile")
+            : t("composer.atRangeHint")}
+        </div>
+        <div
+          className="at-range-lines"
+          data-testid="at-range-lines"
+          ref={atRangeListRef}
+        >
+          {(atRangeFile?.lines ?? []).map((line, idx) => {
+            const no = idx + 1;
+            const selected =
+              atRangeHighlight != null &&
+              no >= atRangeHighlight.start &&
+              no <= atRangeHighlight.end;
+            const cls = `at-range-line${selected ? " at-range-line--sel" : ""}`;
+            const body = (
+              <>
+                <span className="at-range-line-no">{no}</span>
+                <span className="at-range-line-code">
+                  {line === "" ? " " : line}
+                </span>
+              </>
+            );
+            // Mobile shells have no mouse to select with: rows are display only
+            // and the range is typed as digits.
+            return isMobileShell ? (
+              <div key={no} className={cls} data-line={no}>
+                {body}
+              </div>
+            ) : (
+              <button
+                key={no}
+                type="button"
+                className={cls}
+                data-line={no}
+                data-testid={`at-range-line-${no}`}
+                aria-pressed={selected}
+                onMouseDown={(e) => {
+                  // Never take focus from the textarea - it holds the draft.
+                  e.preventDefault();
+                  atRangeDragAnchorRef.current = no;
+                  applyAtRangeSelection(no, no);
+                }}
+                onMouseEnter={() => {
+                  const anchor = atRangeDragAnchorRef.current;
+                  if (anchor != null) {
+                    applyAtRangeSelection(anchor, no);
+                  }
+                }}
+              >
+                {body}
+              </button>
+            );
+          })}
+        </div>
+        {atRangeFile?.truncated ? (
+          <div className="slash-muted">
+            {t("composer.atRangeTruncated", {
+              shown: atRangeFile.lines.length,
+              total: atRangeFile.totalLines,
+            })}
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+
+  const pickerChrome = atRangeOpen
+    ? atRangeChrome
+    : atOpen
+      ? atMenuChrome
+      : slashMenuChrome;
+  const pickerTestId = atRangeOpen
+    ? "at-range-picker"
+    : atOpen
+      ? "workspace-files-menu"
+      : "slash-command-menu";
+  const pickerAriaLabel = atRangeOpen
+    ? t("composer.atRangeAriaLabel")
+    : atOpen
+      ? t("composer.workspaceFilesAriaLabel")
+      : t("composer.slashCommandsAriaLabel");
+  const pickerRole = atRangeOpen ? "group" : "listbox";
 
   return (
     <>
@@ -1816,18 +2221,24 @@ export function Composer(props: {
                 }}
                 onPaste={(ev) => {
                   const images = clipboardImageFiles(ev.clipboardData);
-                  if (images.length === 0) {
+                  if (images.length > 0) {
+                    ev.preventDefault();
+                    if (!attachmentSendingEnabled) {
+                      showAttachHint();
+                      return;
+                    }
+                    setAttachedFiles((prev) => [
+                      ...prev,
+                      ...renamePastedImages(images, pastedSeqRef.current),
+                    ]);
+                    return;
+                  }
+                  const text = ev.clipboardData?.getData("text/plain") ?? "";
+                  if (!shouldAttemptPasteClassify(text, isEditorEmbed())) {
                     return;
                   }
                   ev.preventDefault();
-                  if (!attachmentSendingEnabled) {
-                    showAttachHint();
-                    return;
-                  }
-                  setAttachedFiles((prev) => [
-                    ...prev,
-                    ...renamePastedImages(images, pastedSeqRef.current),
-                  ]);
+                  void classifyAndInsertPaste(text);
                 }}
                 onScroll={() => syncComposerScroll()}
                 onKeyUp={(ev) => {
@@ -1880,7 +2291,10 @@ export function Composer(props: {
                     closeContextPopover();
                     return;
                   }
-                  if (ev.key === "Escape" && (slashOpen || atOpen)) {
+                  if (
+                    ev.key === "Escape" &&
+                    (slashOpen || atOpen || atRangeOpen)
+                  ) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
                     return;
@@ -2139,6 +2553,8 @@ export function Composer(props: {
           contextPct={pct}
           maxContextTokens={maxCtx}
           breakdown={props.contextBreakdown}
+          usage={props.providerUsage ?? null}
+          modelId={llmVal || ""}
         />
       ) : null}
       {menuOpen && (menuUseSheet || menuAnchorRect)
@@ -2284,11 +2700,9 @@ export function Composer(props: {
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  data-testid={
-                    atOpen ? "workspace-files-menu" : "slash-command-menu"
-                  }
-                  role="listbox"
-                  aria-label={atOpen ? t("composer.workspaceFilesAriaLabel") : t("composer.slashCommandsAriaLabel")}
+                  data-testid={pickerTestId}
+                  role={pickerRole}
+                  aria-label={pickerAriaLabel}
                   style={
                     !props.isEmpty && sheetBottomPx != null
                       ? {
@@ -2298,24 +2712,22 @@ export function Composer(props: {
                       : undefined
                   }
                 >
-                  {atOpen ? atMenuChrome : slashMenuChrome}
+                  {pickerChrome}
                 </div>
               </>
             ) : pickerFloatRect ? (
               <div
                 className="slash-menu slash-menu--portal"
-                data-testid={
-                  atOpen ? "workspace-files-menu" : "slash-command-menu"
-                }
-                role="listbox"
-                aria-label={atOpen ? t("composer.workspaceFilesAriaLabel") : t("composer.slashCommandsAriaLabel")}
+                data-testid={pickerTestId}
+                role={pickerRole}
+                aria-label={pickerAriaLabel}
                 style={{
                   left: pickerFloatRect.left,
                   width: pickerFloatRect.width,
                   bottom: pickerFloatRect.bottom,
                 }}
               >
-                {atOpen ? atMenuChrome : slashMenuChrome}
+                {pickerChrome}
               </div>
             ) : null,
             document.body,

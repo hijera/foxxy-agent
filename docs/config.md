@@ -3,13 +3,26 @@
 This page is the narrative guide. Two companion artifacts cover the full key list:
 
 - **[config-reference.md](config-reference.md)** - field-by-field tables: type, default, env-var fallback, required/optional, examples.
-- **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation. Add this header line to your `config.yaml` and any editor with a YAML language server (VS Code YAML extension, IntelliJ, Zed) validates keys and values as you type:
+- **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation, published at **https://hijera.github.io/foxxy-agent/config.schema.json** so an editor resolves it without a checkout. Any editor with a YAML language server (VS Code YAML extension, Zed, Neovim, Helix) validates keys and values as you type once the file carries this header line:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
+```
+
+**FoxxyCode writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /foxxycode/config`), `foxxycode mcp add`, a skill source, a provider login, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, and the order the keys are already in; only the values change. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
+
+```json
+"yaml.schemas": { "https://hijera.github.io/foxxy-agent/config.schema.json": ["**/.foxxycode/config.yaml"] }
 ```
 
 The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` (`internal/config/docs_schema_test.go`); CI fails when a config field is added or renamed without updating the schema.
+
+That URL is GitHub Pages serving this repository's `docs/` folder from `main`, so the
+file above **is** the published schema - there is no second copy to keep current. It
+also means a merge to `main` publishes it immediately, and the schema sets
+`"additionalProperties": false`: a renamed or removed key marks configs already on
+disk as invalid the moment it goes live. Land such a change with, or after, the
+release that understands the new key - never before it.
 
 ## Config File Location and Paths
 
@@ -111,10 +124,19 @@ agent:
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
   llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard);
                                      # a reasoning model given a large tool result can need most of it
+  llm_stall_timeout_ms: 300000 # cut a stream that has already produced output but stopped sending data
+                               # (0 disables); the partial answer is kept and the model asked to continue
+  llm_stall_retry: true        # wait and re-issue a call that failed without producing output
+                               # (silence, unexpected EOF, Client.Timeout, 5xx); a refused 4xx is not retried
+  llm_stall_retry_delays_ms: [60000, 180000, 300000]  # pause before each retry; the last entry
+                               # repeats, so this is 1min, 3min, then every 5min
+  llm_stall_retry_max_wait_ms: 3600000  # total time spent waiting between retries before giving up (0 = unbounded)
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
   loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
-  loop_nudge_max: 2            # nudges before the guard stops the turn with a notice
+  loop_tool_cycle_repeats: 3   # repeats of the same sequence of calls before intervening (0 disables)
+  loop_nudge_max: 2            # nudges before the guard acts on a loop
+  loop_stuck_action: quarantine # then: block the looping calls and finish the turn, or "stop" it
 
 # System prompt templates
 prompts:
@@ -180,12 +202,13 @@ skills:
     - "${CWD}/.foxxycode/skills"
 
 # Project rules (Go: config.Rules, internal/config/rules.go)
-# Discovered from .foxxycode/rules, .cursor/rules, .claude/rules, .codex/rules,
-# and nested **/AGENTS.md under session CWD.
+# Discovered from .foxxycode/rules, the shared .agents/rules, .cursor/rules,
+# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
+# .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: foxxycode, cursor, claude, codex, agents
+  systems: []   # optional: foxxycode, agents-dir, cursor, claude, codex, agents
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
@@ -211,13 +234,33 @@ tools:
   # Overridable per session via ACP session/set_config_option with configId "permission_mode".
   permission_mode: ask
 
+  # How long a permission prompt may wait for the operator before the tool
+  # call is cancelled instead (seconds; 0 by default = wait forever).
+  # permission_timeout_seconds: 0
+
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
 
-  # Keep Ask on basic repository-reading tools only (default: false).
-  # When false, Ask also exposes guarded read-only shell, web, annotated MCP,
-  # and scheduler inspection tools.
-  # ask_disable_extended_tools: false
+# Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
+# from markdown definitions; each run is a background task with its own child session. See docs/subagents.md.
+# subagents:
+#   enabled: true
+#   dirs: ["${FOXXYCODE_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.foxxycode/agents"]
+#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   max_concurrent: 4             # subagent runs in flight across the whole process
+#   max_depth: 1                  # 1 = children cannot spawn further; 0 = nobody spawns
+#   default_timeout_seconds: 1800 # hard limit when the definition and the call give none
+#   max_turns: 0                  # 0 follows agent.max_turns
+
+# Hooks (Go: config.Hooks, internal/config/hooks.go). Your own commands at lifecycle points of a session,
+# defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/hooks.md.
+# hooks:
+#   enabled: true
+#   files: ["${FOXXYCODE_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.foxxycode/hooks.json"]
+#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   default_timeout_seconds: 60   # per hook process when the definition gives no timeout
+#   stop_loop_limit: 5            # Stop-hook continuations per turn
+#   max_output_chars: 10000       # cap on what one hook hands to the model or the user
 
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
@@ -432,12 +475,12 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 **not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
 write `$$` by hand.
 
-Special variables in YAML (before parse) and in path strings:
+Two placeholders are not environment variables:
 
-- **`${FOXXYCODE_HOME}`** - resolved `FOXXYCODE_HOME` directory
-- **`${CWD}`** in **`skills.dirs`** is resolved at skill load time using the **session** working directory (ACP `session/new` cwd)
+- **`${FOXXYCODE_HOME}`** - the resolved `FOXXYCODE_HOME` directory, substituted when the file is read.
+- **`${CWD}`** - the **session** working directory. It is **not** substituted when the file is read: it stays in the loaded value and whatever uses the path expands it against the session that asks - skill loading, subagent and hook discovery, prompt templates (**`prompts.dir`**), MCP server arguments and URLs. One **`foxxycode http`** process therefore serves many workspaces, and a session rooted in a project sees that project's **`${CWD}/.foxxycode/skills`** (or any entry you write, such as **`${CWD}/.agents/skills`**) regardless of the directory the server was started from. Only the process-scoped locations (**`sessions.dir`**, **`scheduler.dir`**, **`memory.dir`**, **`logger.file`**) expand **`${CWD}`** against the default working directory (**`FOXXYCODE_CWD`**) at load time, since no session owns them.
 
-Inside the raw config file body, **`${CWD}`** and **`${FOXXYCODE_HOME}`** are expanded using the process **`FOXXYCODE_CWD`** and **`FOXXYCODE_HOME`** when the file is read. For paths that must follow the session cwd, leave **`${CWD}`** in **`skills.dirs`** so it is not baked in at parse time (defaults do this when **`dirs`** is empty).
+An environment variable named **`CWD`** does not replace the placeholder (a bare **`$CWD`** without braces is still an ordinary environment reference, as before), and **`GET /foxxycode/config`**, the Settings UI, and **`config_get`** report the entry exactly as written. The placeholder is honoured only in the fields listed above; in any other string value it stays as written (prompt templates use **`{{.CWD}}`** instead).
 
 ## Model Provider Reference
 
@@ -445,7 +488,7 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 
 YAML split:
 
-- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (ignored for fixed-endpoint `neuraldeep` and `codex` providers), optional **`proxy`**. Codex credentials are managed out of band through the UI or `foxxycode codex`.
+- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (for `neuraldeep` it selects one of the two official deployments; ignored for the fixed-endpoint `codex` provider), optional **`proxy`**. Codex credentials are managed out of band through the UI or `foxxycode codex`.
 - **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`**, optional **`multimodal`**, optional **`reasoning_levels`** (omitted: auto-detected from the API model id — **`gpt-5*`** → **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, ...) and Claude extended-thinking models → **`low,medium,high`**), and optional **`reasoning_default`**. For **`qwen3*`** models on OpenAI-compatible providers a selected level also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`**, because Qwen thinking is a chat-template switch rather than an effort tier. Codex does not receive `max_tokens`; it maps `minimal` to `none` and requests reasoning summaries plus encrypted reasoning replay across tool calls.
 
 ### `openai`
@@ -459,7 +502,7 @@ Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-
 Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic API base URL (default **`https://api.anthropic.com`**), for example an Anthropic-compatible gateway or relay. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
 
 ### `neuraldeep`
-NeuralDeep hub (**`https://hub.neuraldeep.ru`**). It speaks the OpenAI wire protocol, so requests are handled by the OpenAI client, but the endpoint is **fixed** at **`https://api.neuraldeep.ru/v1`**: **`api_base`** is ignored (setting it changes nothing). Provider needs only **`api_key`** — a literal key, a **`"${NEURALDEEP_API_KEY}"`** reference, or empty to read **`NEURALDEEP_API_KEY`** at call time when the provider is named **`neuraldeep`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/gpt-oss-120b`**, plus **`max_tokens`**, **`temperature`**.
+NeuralDeep hub (**`https://hub.neuraldeep.ru`**). It speaks the OpenAI wire protocol, so requests are handled by the OpenAI client. The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`foxxycode providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; FoxxyCode warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`FOXXYCODE_NEURALDEEP_BASE_URL`** and **`FOXXYCODE_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Provider needs only **`api_key`** — a literal key, a **`"${NEURALDEEP_API_KEY}"`** reference, or empty to read **`NEURALDEEP_API_KEY`** at call time when the provider is named **`neuraldeep`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/gpt-oss-120b`**, plus **`max_tokens`**, **`temperature`**.
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

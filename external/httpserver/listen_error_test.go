@@ -16,12 +16,12 @@ func TestDescribeListenErrorNamesABusyPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer held.Close()
+	defer func() { _ = held.Close() }()
 	addr := held.Addr().String()
 
 	second, err := net.Listen("tcp", addr)
 	if err == nil {
-		second.Close()
+		_ = second.Close()
 		t.Skip("this platform allows two listeners on the same address")
 	}
 

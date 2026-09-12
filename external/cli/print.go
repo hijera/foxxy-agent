@@ -66,9 +66,12 @@ func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
 }
 
 func (p *printSender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	mode := ""
-	if st := p.mgr.SessionByID(params.SessionID); st != nil {
-		mode = st.GetPermissionMode()
+	// A subagent's request carries the child's own mode; see sender.go.
+	mode := strings.TrimSpace(params.EffectivePermissionMode)
+	if mode == "" {
+		if st := p.mgr.SessionByID(params.SessionID); st != nil {
+			mode = st.GetPermissionMode()
+		}
 	}
 	if mode == "" && p.cfg != nil && !p.remote {
 		mode = p.cfg.Tools.ResolvedPermMode()
@@ -144,10 +147,11 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	}
 
 	snd := &printSender{mgr: mgr, cfg: cfg, out: opts.Out, errOut: opts.ErrOut}
+	// A one-shot print has no footer: no usage refresh at the end.
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: opts.Prompt}},
-	}, snd, nil)
+	}, snd, &session.PromptRunOpts{SkipUsagePublish: true})
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")
 	}

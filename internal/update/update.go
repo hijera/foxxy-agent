@@ -29,8 +29,16 @@ type Options struct {
 	InstallPath    string // empty = replace os.Executable()
 	CheckOnly      bool
 	Yes            bool
+	NoRestart      bool // Windows only: install the update but do not start FoxxyCode again
 	Stdout         io.Writer
 	HTTPClient     *http.Client
+
+	// windowsInstaller replaces the Windows helper launcher in deterministic tests.
+	windowsInstaller windowsUpdateInstaller
+
+	// packageEnv replaces the package database, the package manager, and the
+	// effective user id in deterministic tests.
+	packageEnv *packageEnv
 }
 
 // Run checks GitHub releases and optionally installs a newer binary.
@@ -72,6 +80,31 @@ func Run(ctx context.Context, opts Options) error {
 		return ErrUpdateAvailable
 	}
 
+	dest := strings.TrimSpace(opts.InstallPath)
+	if dest == "" {
+		dest, err = resolveExecutablePath()
+		if err != nil {
+			return err
+		}
+	}
+
+	// A package manager owning this file changes what an update even is: the
+	// unit to replace is the package, not the executable inside it.
+	if opts.GOOS == "linux" || opts.GOOS == "darwin" {
+		env := defaultPackageEnv()
+		if opts.packageEnv != nil {
+			env = *opts.packageEnv
+		}
+		if pkg, ok := detectSystemPackage(ctx, env, dest); ok {
+			// Homebrew has no privileged route - it refuses to run as root -
+			// so every brew install ends at the same guidance.
+			if pkg.Format == formatBrew || env.Geteuid() != 0 {
+				return packageManagedError(pkg, opts.CurrentVersion, latest, dest)
+			}
+			return installSystemPackage(ctx, opts, env, pkg, rel, latest, out, client)
+		}
+	}
+
 	assetName, err := AssetFileName(latest, opts.GOOS, opts.GOARCH)
 	if err != nil {
 		return err
@@ -79,14 +112,6 @@ func Run(ctx context.Context, opts Options) error {
 	asset, err := pickAsset(rel, assetName)
 	if err != nil {
 		return err
-	}
-
-	dest := strings.TrimSpace(opts.InstallPath)
-	if dest == "" {
-		dest, err = resolveExecutablePath()
-		if err != nil {
-			return err
-		}
 	}
 
 	if !opts.Yes {
@@ -102,9 +127,42 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	_, _ = fmt.Fprintf(out, "Downloading %s ...\n", asset.Name)
-	data, err := downloadURL(ctx, client, asset.BrowserDownloadURL)
+	data, err := downloadURL(ctx, client, asset.BrowserDownloadURL, newDownloadProgress(out, asset.Name))
 	if err != nil {
 		return err
+	}
+	if err := verifyAssetChecksum(ctx, client, rel, asset.Name, data, out); err != nil {
+		return err
+	}
+	if opts.GOOS == "windows" {
+		body, err := executableFromArchive(data, asset.Name)
+		if err != nil {
+			return err
+		}
+		staged, err := stageExecutable(dest, body)
+		if err != nil {
+			return err
+		}
+		req := windowsUpdateRequest{
+			ParentPID:  os.Getpid(),
+			Restart:    !opts.NoRestart,
+			StagedPath: staged,
+			TargetPath: dest,
+		}
+		installer := opts.windowsInstaller
+		if installer == nil {
+			installer = scheduleWindowsUpdate
+		}
+		if err := installer(req); err != nil {
+			_ = os.Remove(staged)
+			return err
+		}
+		if req.Restart {
+			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after FoxxyCode exits and restart it.\n", latest)
+		} else {
+			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after FoxxyCode exits.\n", latest)
+		}
+		return nil
 	}
 	if err := installFromArchive(data, asset.Name, dest); err != nil {
 		return err

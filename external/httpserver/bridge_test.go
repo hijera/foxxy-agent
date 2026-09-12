@@ -13,6 +13,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
 func TestForwardTextChunk_ReasoningEmittedAsReasoningContent(t *testing.T) {
@@ -56,7 +57,7 @@ func TestForwardTextChunk_ReasoningEmittedAsReasoningContent(t *testing.T) {
 }
 
 func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
-	rec := httptest.NewRecorder()
+	rec := &syncBuffer{}
 	sender := NewSender(&config.Config{}, rec, true, "agent-model")
 	ctx := context.Background()
 	p := acp.QuestionRequestParams{
@@ -77,7 +78,7 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "event: question") {
+		if strings.Contains(rec.String(), "event: question") {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -94,7 +95,7 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 }
 
 func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
-	rec := httptest.NewRecorder()
+	rec := &syncBuffer{}
 	sender := NewSender(&config.Config{}, rec, true, "agent-model")
 	ctx := context.Background()
 	p := acp.PermissionRequestParams{
@@ -126,7 +127,7 @@ func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "event: permission") {
+		if strings.Contains(rec.String(), "event: permission") {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -179,6 +180,108 @@ func TestForwardTextChunk_TextUsesContentDelta(t *testing.T) {
 	}
 }
 
+// A subagent's forwarded request carries the child's own effective mode; the
+// bridge decides its bypass short-circuit from that stamp, not from the
+// global setting, and denies a narrowed child when nobody can answer.
+func TestRequestPermissionHonoursTheStampedEffectiveMode(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.PermissionMode = config.PermModeBypass
+	params := func(mode string) acp.PermissionRequestParams {
+		return acp.PermissionRequestParams{
+			SessionID:               "s1",
+			ToolCall:                acp.PermissionToolCall{ToolCallID: "c1", Title: "[subagent writer] Run: run_command", Status: "pending"},
+			EffectivePermissionMode: mode,
+		}
+	}
+	nonInteractive := NewSender(cfg, httptest.NewRecorder(), false, "agent-model")
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params("")); got.OptionID != "allow" {
+		t.Fatalf("unstamped request under global bypass = %#v, want allow", got)
+	}
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" {
+		t.Fatalf("stamped bypass = %#v, want allow", got)
+	}
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params(config.PermModeAsk)); got.OptionID != "reject" || got.Outcome != "cancelled" {
+		t.Fatalf("stamped ask with nobody to answer = %#v, want a denial", got)
+	}
+
+	// Interactive: the stamped ask goes out as a permission event and waits
+	// for the answer instead of being auto-allowed.
+	out := &syncBuffer{}
+	interactive := NewSender(cfg, out, true, "agent-model")
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		r, _ := interactive.RequestPermission(context.Background(), params(config.PermModeAsk))
+		done <- r
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "event: permission") {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "event: permission") {
+		t.Fatal("a stamped ask under global bypass must be forwarded as a permission event")
+	}
+	if !CompletePermissionAnswer("s1", "c1", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}) {
+		t.Fatal("CompletePermissionAnswer failed")
+	}
+	if got := <-done; got == nil || got.OptionID != "reject" {
+		t.Fatalf("interactive answer = %#v, want the operator's reject", got)
+	}
+}
+
+// A relayed subagent prompt (stamped with the child's mode) is answered live
+// or not at all: it never becomes the parent's pending permission record, so
+// it cannot be resumed later and cannot evict the parent's own gate.
+func TestRequestPermissionDoesNotPersistARelayedPrompt(t *testing.T) {
+	dir := t.TempDir()
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+	sender.SetSessionDir(dir)
+	relayed := acp.PermissionRequestParams{
+		SessionID:               "s1",
+		ToolCall:                acp.PermissionToolCall{ToolCallID: "child-1", Title: "[subagent explore] Run: run_command", Status: "pending"},
+		EffectivePermissionMode: config.PermModeAsk,
+	}
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		r, _ := sender.RequestPermission(context.Background(), relayed)
+		done <- r
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "event: permission") {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if session.PendingPermissionHeld(dir) {
+		t.Fatal("a relayed prompt must not write pending_permission.json")
+	}
+	if !CompletePermissionAnswer("s1", "child-1", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}) {
+		t.Fatal("the in-memory wait must still accept the answer")
+	}
+	if got := <-done; got == nil || got.OptionID != "allow" {
+		t.Fatalf("answer = %#v", got)
+	}
+
+	// The parent's own prompt still leaves its record while it waits.
+	own := acp.PermissionRequestParams{
+		SessionID: "s1",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "own-1", Title: "Run: run_command", Status: "pending"},
+	}
+	go func() {
+		r, _ := sender.RequestPermission(context.Background(), own)
+		done <- r
+	}()
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !session.PendingPermissionHeld(dir) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !session.PendingPermissionHeld(dir) {
+		t.Fatal("the parent's own prompt must be recorded")
+	}
+	if !CompletePermissionAnswer("s1", "own-1", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}) {
+		t.Fatal("CompletePermissionAnswer failed")
+	}
+	<-done
+}
+
 func TestSenderSendErrorWritesOpenAIFrameAndFlushes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	relay := newComposerStreamRelay()
@@ -204,5 +307,46 @@ func TestSenderSendErrorWritesOpenAIFrameAndFlushes(t *testing.T) {
 	relay.mu.Unlock()
 	if relayed.String() != got {
 		t.Fatalf("relay missed the stream error: primary=%q relay=%q", got, relayed.String())
+	}
+}
+
+// TestRequestPermissionClearsTheRecordWhenTheContextEnds pins the cleanup that
+// tools.permission_timeout_seconds made load-bearing. The deadline lives on the
+// agent side, so from here it arrives as a cancelled context; before the fix
+// only the answered path cleared the record, so a timed-out prompt stranded
+// pending_permission.json on disk. A stranded record is then matched by
+// tryResumePendingPermission, which reports a late answer as handled and only
+// then fails with "already has a result".
+func TestRequestPermissionClearsTheRecordWhenTheContextEnds(t *testing.T) {
+	dir := t.TempDir()
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+	sender.SetSessionDir(dir)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		r, _ := sender.RequestPermission(ctx, acp.PermissionRequestParams{
+			SessionID: "s1",
+			ToolCall:  acp.PermissionToolCall{ToolCallID: "tc-1", Title: "Run: run_command", Status: "pending"},
+		})
+		done <- r
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !session.PendingPermissionHeld(dir) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !session.PendingPermissionHeld(dir) {
+		t.Fatal("the prompt must record itself while it waits")
+	}
+
+	cancel()
+	got := <-done
+	if got == nil || got.OptionID != "reject" {
+		t.Fatalf("a cancelled prompt must answer reject, got %#v", got)
+	}
+	if session.PendingPermissionHeld(dir) {
+		t.Fatal("a prompt ended by context cancellation left pending_permission.json behind")
 	}
 }

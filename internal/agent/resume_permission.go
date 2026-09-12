@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -27,21 +28,27 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	}
 	tc, err := a.findPendingToolCall(toolCallID)
 	if err != nil {
+		// The gate is over - most often the prompt timed out and the turn moved
+		// on. Drop the persisted record so a stale one from before bridge.go
+		// learned to clear it does not keep being resurrected.
+		if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" {
+			_ = session.ClearPendingPermission(sd)
+		}
 		return "", err
 	}
 	mode := a.state.GetMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
-	if st := sessionStatePtr(a.state); st != nil {
-		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
-	}
-	if sd != "" {
-		_ = session.ClearPendingPermission(sd)
-	}
-	if perm.Outcome == "cancelled" || perm.OptionID == "reject" {
+	if !permission.Approved(perm) {
+		// A refusal needs nothing from the bundle: the gate is cleared and
+		// the denial recorded before anything is read, so an unreadable
+		// arguments file cannot keep a refused call pending.
+		if sd != "" {
+			_ = session.ClearPendingPermission(sd)
+		}
 		toolResultMsg := llm.Message{
 			Role:       llm.RoleTool,
-			Content:    "permission denied by user",
+			Content:    permissionDeniedResult(perm),
 			ToolCallID: tc.ID,
 		}
 		a.state.AddMessage(toolResultMsg)
@@ -50,6 +57,33 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
 		}
 		return a.continueReAct(ctx, mode, toolEnv)
+	}
+	// The history holds the arguments the model produced; the bundle holds
+	// the arguments the prompt showed, after any PreToolUse rewrite (it is
+	// written when the call starts and again after a rewrite, or the call is
+	// cancelled before the prompt). The approval binds to the latter, so
+	// those are what runs and what an allow-always grant is recorded
+	// against; a bundle that cannot produce them fails closed, and the gate
+	// stays for a retry.
+	if sd != "" {
+		shown, err := session.ReadToolCallArgs(sd, tc.ID)
+		if err != nil {
+			return "", fmt.Errorf("resume tool call %s: the approved arguments could not be read: %w", tc.ID, err)
+		}
+		if strings.TrimSpace(shown) == "" && strings.TrimSpace(tc.InputJSON) != "" {
+			return "", fmt.Errorf("resume tool call %s: the approved arguments are missing from the bundle", tc.ID)
+		}
+		tc.InputJSON = shown
+	}
+	// A call the current mode refuses (a pending agent-mode write approved
+	// after switching to ask) must not leave an "allow always" grant behind:
+	// the grant would outlive the refusal and apply once the mode changes back.
+	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name, a.cfg.Tools.PlanNoSelfRunEnabled())
+	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
+		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
+	}
+	if sd != "" {
+		_ = session.ClearPendingPermission(sd)
 	}
 	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true, 0)
 	var toolResultMsg llm.Message
@@ -84,9 +118,19 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 			continue
 		}
 		for _, tc := range m.ToolCalls {
-			if strings.TrimSpace(tc.ID) == toolCallID {
-				return tc, nil
+			if strings.TrimSpace(tc.ID) != toolCallID {
+				continue
 			}
+			// A session written before partial persists stopped carrying tool calls
+			// can hold one whose arguments were cut mid-write. The SPA restores a
+			// permission prompt for it, so approving would run the tool on truncated
+			// input; refuse with something the operator can act on instead of a
+			// per-tool unmarshal error.
+			if args := strings.TrimSpace(tc.InputJSON); args != "" && !json.Valid([]byte(args)) {
+				return llm.ToolCall{}, fmt.Errorf(
+					"tool call %s has incomplete arguments (the response was cut off before it finished writing them); ask again instead of resuming it", toolCallID)
+			}
+			return tc, nil
 		}
 	}
 	return llm.ToolCall{}, fmt.Errorf("tool call %s not found in session history", toolCallID)
@@ -111,13 +155,10 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			}
 			return session.WritePlanArchivedMarkdown(sessionDir, md)
 		},
-		Sender:  a.server,
-		GetPlan: a.state.GetPlan,
-		SetPlan: a.state.SetPlan,
-		SetSessionMode: func(m string) error {
-			a.state.SetMode(strings.TrimSpace(m))
-			return nil
-		},
+		Sender:         a.server,
+		GetPlan:        a.state.GetPlan,
+		SetPlan:        a.state.SetPlan,
+		SetSessionMode: a.setSessionModeAnnounced,
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
@@ -125,6 +166,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
+	a.applySubagentEnv(env, mode)
 	a.wireFileEditHook(env)
 	return env
 }

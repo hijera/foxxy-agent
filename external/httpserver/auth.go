@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // authPolicy is the effective bearer-token policy for one request, snapshotting the live
@@ -14,6 +15,9 @@ type authPolicy struct {
 	enabled    bool
 	tokens     []string
 	publicDocs bool
+	// ticketsOnly mirrors httpserver.stream_tickets_only: when set, an SSE route accepts a
+	// stream ticket in ?access_token= but no longer the durable bearer token.
+	ticketsOnly bool
 }
 
 // SetExtraAuthTokens registers bearer tokens supplied via --auth-token / FOXXYCODE_HTTP_TOKEN.
@@ -34,6 +38,7 @@ func (s *Server) authPolicyNow() authPolicy {
 	if c := s.activeCfg(); c != nil {
 		pol.tokens = append(pol.tokens, c.HTTPServer.EffectiveAuthTokens()...)
 		pol.publicDocs = c.HTTPServer.PublicDocs
+		pol.ticketsOnly = c.HTTPServer.StreamTicketsOnly
 	}
 	if len(s.extraAuthTokens) > 0 {
 		pol.tokens = append(pol.tokens, s.extraAuthTokens...)
@@ -55,9 +60,18 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 		}
 		got := bearerToken(r)
 		if got == "" && isSSETokenPattern(pattern) {
-			// EventSource cannot set an Authorization header cross-origin, so the composer-stream
-			// re-attach GET also accepts a ?access_token= query parameter (this route only).
-			got = strings.TrimSpace(r.URL.Query().Get("access_token"))
+			// EventSource cannot set an Authorization header cross-origin, so the SSE routes
+			// also accept ?access_token= (these routes only). A query string is logged all
+			// over the place, so a single-use stream ticket is tried first and consumed here;
+			// the durable token still works unless the operator set stream_tickets_only.
+			offered := streamCredential(r)
+			if s.streamTickets.consume(offered, time.Now()) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !pol.ticketsOnly {
+				got = offered
+			}
 		}
 		if !acceptBearer(pol.tokens, got) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="foxxycode"`)

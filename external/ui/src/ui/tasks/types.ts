@@ -1,8 +1,11 @@
 /**
- * Background tasks: commands the agent started with `run_command` `background: true`.
+ * Background tasks: commands the agent started with `run_command` `background: true`
+ * and subagent runs started with `spawn_agent` (`kind: "agent"`).
  * Shapes mirror `GET /foxxycode/sessions/{id}/background-tasks` in
  * `external/httpserver/background_http.go`.
  */
+
+import type { FoxxyCodePermissionPayload } from "../chat/permissionTypes";
 
 export type BackgroundTaskStatus =
   | "queued"
@@ -21,6 +24,12 @@ export type BackgroundTask = {
   command?: string;
   cwd?: string;
   tool_call_id?: string;
+  /**
+   * Present on `kind: "agent"` rows: the definition name and the child session
+   * the run is persisted under. `session_id` is what "Open transcript" routes
+   * to; a snapshot may carry the name alone when the child does not exist yet.
+   */
+  agent?: { name: string; session_id?: string };
   status: BackgroundTaskStatus;
   exit_code?: number;
   error?: string;
@@ -34,6 +43,16 @@ export type BackgroundTask = {
   elapsed_seconds: number;
   overdue: boolean;
   running: boolean;
+  /**
+   * Set while a detached subagent behind this task is blocked on a permission
+   * prompt. The parent turn that spawned it has ended, so the prompt has no
+   * chat stream to appear in and is answered here instead — against
+   * `sessionId`, which is the child session, not the parent.
+   */
+  pending_permission?: FoxxyCodePermissionPayload & {
+    agent_name?: string;
+    asked_at?: string;
+  };
 };
 
 export type BackgroundTaskListResponse = {

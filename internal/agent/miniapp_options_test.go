@@ -115,7 +115,7 @@ func TestAgentOptionsAllowlistFiltersAndRejectsMCPTools(t *testing.T) {
 	ag := NewAgentWithOptions(miniAppAgentConfig(), st, sender, nil, AgentOptions{
 		BuiltinToolAllowlist: []string{"read"},
 	})
-	for _, definition := range ag.mcpToolDefinitions(string(session.ModeAgent), false) {
+	for _, definition := range ag.mcpToolDefinitions() {
 		if definition.Name == "srv__echo" {
 			t.Fatal("undeclared MCP tool was exposed to the model")
 		}

@@ -8,9 +8,14 @@ import (
 
 // HTTPServerConfig controls the optional OpenAI-compatible HTTP gateway (built with -tags http). The embedded SPA requires -tags http,ui.
 type HTTPServerConfig struct {
-	// Host is the default bind address when foxxycode http does not override -H/--host (e.g. "127.0.0.1"). Empty falls back to 0.0.0.0 in the CLI.
+	// Enabled runs the HTTP API (and the embedded SPA) in this process. A nil
+	// pointer means the default, true: the API is the surface `foxxycode serve`
+	// exists for. Set `httpserver.enabled: false` on a node that should only
+	// poll a messenger or relay a swarm.
+	Enabled *bool `yaml:"enabled"`
+	// Host is the default bind address when `foxxycode serve` does not override -H/--host. Empty falls back to 127.0.0.1, so a process that was started for some other subsystem never opens the API to the network by accident.
 	Host string `yaml:"host"`
-	// Port is the default listen port when foxxycode http does not override -P/--port. Zero falls back to 12345 in the CLI.
+	// Port is the default listen port when `foxxycode serve` does not override -P/--port. Zero falls back to 12345.
 	Port int `yaml:"port"`
 	// AuthToken is the optional bearer credential for the HTTP API. Empty means no authentication
 	// (historical "no login" behavior). "${ENV}" references are expanded at load. The HTTP layer
@@ -19,6 +24,12 @@ type HTTPServerConfig struct {
 	AuthToken string `yaml:"auth_token"`
 	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
 	PublicDocs bool `yaml:"public_docs"`
+	// StreamTicketsOnly stops the SSE routes from accepting the long-lived auth token as
+	// ?access_token=, leaving POST /foxxycode/stream-tickets as the only way to authenticate
+	// an EventSource. Query strings reach access logs, proxy logs and browser history, so
+	// this keeps the durable credential out of all of them at the cost of one extra round
+	// trip per subscription. Off by default: it breaks existing EventSource clients.
+	StreamTicketsOnly bool `yaml:"stream_tickets_only"`
 	// AllowInsecure silences the startup warning about a non-loopback bind without authentication.
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
@@ -46,10 +57,16 @@ type HTTPRemote struct {
 // CORSAllowOrigin returns the Access-Control-Allow-Origin value for origin and whether it is
 // allowed. It returns "*" only when configured; otherwise it echoes the matched origin.
 func (h *HTTPServerConfig) CORSAllowOrigin(origin string) (string, bool) {
-	if !h.CORS.Enabled || strings.TrimSpace(origin) == "" {
+	return h.CORS.AllowOrigin(origin)
+}
+
+// AllowOrigin answers the same question for any surface holding this policy,
+// which the swarm relay needs because it carries its own CORS settings.
+func (c HTTPCORSConfig) AllowOrigin(origin string) (string, bool) {
+	if !c.Enabled || strings.TrimSpace(origin) == "" {
 		return "", false
 	}
-	for _, o := range h.CORS.AllowedOrigins {
+	for _, o := range c.AllowedOrigins {
 		o = strings.TrimSpace(o)
 		if o == "*" {
 			return "*", true
@@ -91,12 +108,34 @@ func (h *HTTPServerConfig) Validate() error {
 	return nil
 }
 
+// IsEnabled reports whether this process should serve the HTTP API. Unset means true.
+func (h *HTTPServerConfig) IsEnabled() bool {
+	return h == nil || h.Enabled == nil || *h.Enabled
+}
+
 // DefaultListenHost returns YAML host or the CLI fallback when omitted.
+// `foxxycode http` is a command whose only job is to serve the API, and it has
+// answered on every interface since it existed; ServeListenHost is the narrower
+// answer for `foxxycode serve`.
 func (h *HTTPServerConfig) DefaultListenHost() string {
 	if s := strings.TrimSpace(h.Host); s != "" {
 		return s
 	}
 	return "0.0.0.0"
+}
+
+// ServeListenHost returns YAML host or the loopback fallback when omitted.
+//
+// The fallback is deliberately not 0.0.0.0 here: one `foxxycode serve` process
+// starts every subsystem the config enables, so an operator who asked only for
+// a Telegram bot must not find the agent API listening on every interface as a
+// side effect. Reaching it from another machine is an explicit
+// `httpserver.host` or -H away.
+func (h *HTTPServerConfig) ServeListenHost() string {
+	if s := strings.TrimSpace(h.Host); s != "" {
+		return s
+	}
+	return "127.0.0.1"
 }
 
 // DefaultListenPortString returns YAML port or the CLI fallback when zero.

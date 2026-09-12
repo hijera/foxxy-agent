@@ -32,8 +32,18 @@ type Manager struct {
 	cfgAt      atomic.Pointer[config.Config]
 	server     acp.UpdateSender
 	skillsLoad *skills.Loader
-	runner     AgentRunner
-	log        *slog.Logger
+	// cfgObservers are told whenever the live configuration is replaced, from
+	// whichever path replaced it (see config_observers.go).
+	cfgObserverMu  sync.Mutex
+	cfgObservers   map[int]func(*config.Config)
+	cfgObserverSeq int
+
+	// deleting marks sessions whose bundles are being removed by
+	// DeleteSessionTree, so a turn racing the delete is refused instead of
+	// usage is the provider usage cache and schedule (provider_usage.go).
+	usage  providerUsageState
+	runner AgentRunner
+	log    *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -63,6 +73,30 @@ type Manager struct {
 	turnObserverMu  sync.Mutex
 	turnObservers   map[int]func(TurnEvent)
 	turnObserverSeq int
+
+	// deleting counts the DeleteSessionTree calls currently covering a
+	// session, so a turn racing the delete is refused instead of recreating
+	// the bundle through its persist hook; the mark holds until the last of
+	// them finishes.
+	deletingMu sync.Mutex
+	deleting   map[string]int
+
+	// testHooks pause the manager at points a test needs to observe; every
+	// field is nil outside tests (see export_test.go).
+	testHooks struct {
+		// afterSubagentPublish runs once a child state is in the live map and
+		// before its bundle exists.
+		afterSubagentPublish func(*State)
+		// beforeTurnAdmission runs at the start of beginTurn, after the
+		// caller resolved its state and before anything is registered.
+		beforeTurnAdmission func(sessionID string)
+		// beforeTurnAdmissionRecheck runs after a turn installed its cancel
+		// function and before it rechecks admission.
+		beforeTurnAdmissionRecheck func(sessionID string)
+		// afterTreeScan runs once DeleteSessionTree took its first snapshot
+		// of the tree and before it marks anything.
+		afterTreeScan func(rootID string)
+	}
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -125,6 +159,12 @@ func (m *Manager) storeConfig(next *config.Config) *config.Config {
 	previous := m.activeCfg()
 	m.skillsLoad = skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
 	m.cfgAt.Store(next)
+	// The provider rows behind the usage cache may have changed with the
+	// configuration: work in flight for the old rows is dropped, the
+	// snapshots and their pacing stay, and the fingerprint tells a changed
+	// credential apart on the next read.
+	m.pauseProviderUsage()
+	m.publishConfigReplaced(next)
 	return previous
 }
 
@@ -287,9 +327,17 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
 			return nil, fmt.Errorf("session/new: %w", err)
 		}
+		// The sub_ prefix marks child sessions; a client may reopen an existing
+		// child bundle (read-only) but never mint an ordinary session under it.
+		if IsSubagentSessionID(preferredConsumed) && (m.store == nil || !m.store.HasPersistedSnapshot(preferredConsumed)) {
+			return nil, fmt.Errorf("session/new: %w: %s", ErrReservedSessionID, preferredConsumed)
+		}
 		id = preferredConsumed
 	} else {
-		id = newSessionID()
+		var err error
+		if id, err = newSessionID(); err != nil {
+			return nil, fmt.Errorf("session/new: %w", err)
+		}
 	}
 
 	m.mu.RLock()
@@ -347,6 +395,8 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	m.sessions[id] = state
 	m.mu.Unlock()
 
+	m.runSessionStartHooks(ctx, state, hookSourceStartup)
+
 	if m.store != nil {
 		if err := m.store.Save(state); err != nil {
 			m.log.Warn("initial session save", "error", err)
@@ -387,6 +437,7 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 		if err := m.connectMCPServer(ctx, state, cfgSrv); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
+		state.RememberSessionMCPDeclaration(cfgSrv)
 	}
 
 	return state, nil
@@ -441,7 +492,18 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
+	if snap.Meta.IsSubagentRun(params.SessionID) {
+		// A restored child is a read-only transcript; the meta keeps the guard
+		// and the parent link, the role and tool set are not needed any more.
+		st.SetSubagentMeta(SubagentMeta{
+			Name:            snap.Meta.SubagentName,
+			ParentSessionID: snap.Meta.ParentSessionID,
+			TaskID:          snap.Meta.SubagentTaskID,
+			Depth:           snap.Meta.SubagentDepth,
+		})
+	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
+	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.SetTitleAutoWithoutPersist(snap.Meta.TitleAuto)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
@@ -459,6 +521,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
 
 	st.SetPersistHook(m.makePersist(st))
+	m.runSessionStartHooks(ctx, st, hookSourceResume)
 
 	m.connectConfiguredMCPServers(ctx, st)
 
@@ -467,6 +530,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
+		st.RememberSessionMCPDeclaration(cfgSrv)
 	}
 
 	m.mu.Lock()
@@ -580,6 +644,16 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 // turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
 // before opening a relay for watchers.
 type PromptRunOpts struct {
+	// SkipUsagePublish turns off the provider usage refresh a finished turn
+	// normally triggers (provider_usage.go). Surfaces that cannot show the
+	// numbers set it: foxxycode -p, the messenger gateway, the background wake.
+	SkipUsagePublish bool
+
+	// subagentTurn marks the one prompt a child session may run: its own task
+	// turn, started by the subagent runtime. Every other prompt against a child
+	// is refused with ErrSubagentReadOnly (see RunSubagentTurn).
+	subagentTurn bool
+
 	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. foxxycode http SSE).
 	SkipTurnLock bool
 	// DetachFromRequest when true runs the turn on a context.WithoutCancel copy of ctx, so a
@@ -622,6 +696,26 @@ func (m *Manager) awaitMCPReady(ctx context.Context, sessionID string, state *St
 		"session", sessionID, "waited_ms", time.Since(started).Milliseconds())
 }
 
+// turnAdmission carries what beginTurn needs to know about the caller.
+type turnAdmission struct {
+	// skipLock says the caller already holds the composer turn lock.
+	skipLock bool
+	// publishUsage says the turn's release refreshes the provider usage of the
+	// session's model, provided the turn reached its runner (MarkTurnRan).
+	publishUsage bool
+}
+
+// admissionFor derives the admission of a prompt from its options: a
+// subagent turn and an opted-out caller publish no usage.
+func admissionFor(opts *PromptRunOpts) turnAdmission {
+	adm := turnAdmission{publishUsage: true}
+	if opts != nil {
+		adm.skipLock = opts.SkipTurnLock
+		adm.publishUsage = !opts.SkipUsagePublish && !opts.subagentTurn
+	}
+	return adm
+}
+
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
 func (m *Manager) AcquireComposerTurnLock(sessionID string, st *State) (unlock func(), err error) {
 	return m.acquireTurnLockWithReloadDrain(sessionID, st)
@@ -636,6 +730,102 @@ func (m *Manager) WriteCrossProcessCancelRequest(sessionID string) error {
 	return WriteCancelRequest(fs.SessionPath(sessionID))
 }
 
+// beginTurn is the one admission path for anything that runs a turn on a
+// session: it registers the turn, takes the turn lock unless the caller holds
+// it, installs the turn's cancel on the state and decides admission against a
+// concurrent deletion. It returns the context the turn runs on and the release
+// that undoes all of it (cancel, unlock, unregister), in that order.
+//
+// Admission against deletion is decided twice. DeleteSessionTree marks the
+// session and then cancels the installed turn; this turn installs its cancel
+// and then rechecks the mark. Whichever order the two interleave in, either
+// the delete sees this turn's cancel or this recheck sees the mark, so no turn
+// runs on past the removal of its bundle.
+func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State, adm turnAdmission) (context.Context, func(), error) {
+	if hook := m.testHooks.beforeTurnAdmission; hook != nil {
+		hook(sessionID)
+	}
+	if err := m.admissible(sessionID, state); err != nil {
+		return nil, nil, err
+	}
+	// Before the lock, not after: a turn queued behind another one is already
+	// active as far as a client watching the session is concerned.
+	clearActive := m.markTurnActive(sessionID)
+	unlock := func() {}
+	if !adm.skipLock {
+		var err error
+		unlock, err = m.acquireTurnLockWithReloadDrain(sessionID, state)
+		if err != nil {
+			clearActive()
+			return nil, nil, err
+		}
+	}
+	// The ran marker lives on this admission's context, so a concurrent
+	// admission that loses the lock cannot reset it.
+	markedCtx, ran := withTurnRanMarker(ctx)
+	turnCtx, cancel := context.WithCancel(markedCtx)
+	state.SetCancel(cancel)
+	var finishOnce sync.Once
+	finish := func() {
+		finishOnce.Do(func() {
+			cancel()
+			// The usage refresh is reserved before the turn is released: a
+			// client that pulls the numbers on turn_ended joins that fetch
+			// instead of reading the pre-turn snapshot.
+			if adm.publishUsage && ran.Load() {
+				m.publishProviderUsageAsync(sessionID, state)
+			}
+			unlock()
+			clearActive()
+		})
+	}
+	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {
+		hook(sessionID)
+	}
+	if err := m.admissible(sessionID, state); err != nil {
+		finish()
+		return nil, nil, err
+	}
+	return turnCtx, finish, nil
+}
+
+// admissible decides, under the live-map lock, whether a turn may run on
+// state: the state must still be the session's live entry (a caller that
+// resolved it before a delete or a forget completed holds a stale one whose
+// persist hook would recreate the bundle) and no deletion may be covering
+// the session.
+func (m *Manager) admissible(sessionID string, state *State) error {
+	m.mu.RLock()
+	live := m.sessions[sessionID] == state
+	deleting := m.isDeleting(sessionID)
+	m.mu.RUnlock()
+	if !live {
+		return fmt.Errorf("%w: %s", ErrSessionGone, sessionID)
+	}
+	if deleting {
+		return fmt.Errorf("%w: %s", ErrSessionDeleting, sessionID)
+	}
+	return nil
+}
+
+// BeginTurn admits a turn that a caller drives itself instead of going through
+// BeginTurn admits a turn that a caller drives itself instead of going through
+// HandleSessionPromptWithSender (the HTTP permission resume runs the ReAct
+// loop directly). It applies the same rules: child sessions are read-only, a
+// session being deleted refuses, the turn is registered, locked (unless
+// opts.SkipTurnLock) and cancellable through State.Cancel. The caller runs on
+// the returned context and calls finish when the turn is over.
+func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptRunOpts) (context.Context, func(), error) {
+	state := m.getSession(sessionID)
+	if state == nil {
+		return nil, nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if state.IsSubagentRun() || IsSubagentSessionID(sessionID) {
+		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	}
+	return m.beginTurn(ctx, sessionID, state, admissionFor(opts))
+}
+
 // HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).
 func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *PromptRunOpts) (*acp.SessionPromptResult, error) {
 	if sender == nil {
@@ -645,38 +835,26 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
+	if (state.IsSubagentRun() || IsSubagentSessionID(params.SessionID)) && (opts == nil || !opts.subagentTurn) {
+		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
+	}
 
 	// Stage timings for the turn. A panel that sits on "waiting for the model" cannot tell a
 	// slow model from a turn stuck before the model was ever called; these numbers can.
 	turnStart := time.Now()
 	var lockWait, mcpWait time.Duration
 
-	// Before the lock, not after: a turn queued behind another one is already active as
-	// far as a client watching the session is concerned.
-	clearActive := m.markTurnActive(params.SessionID)
-	defer clearActive()
-
-	var unlock func()
-	var err error
-	if opts != nil && opts.SkipTurnLock {
-		unlock = func() {}
-	} else {
-		lockStart := time.Now()
-		unlock, err = m.acquireTurnLockWithReloadDrain(params.SessionID, state)
-		lockWait = time.Since(lockStart)
-		if err != nil {
-			return nil, err
-		}
-	}
-	defer unlock()
-
 	turnBase := ctx
 	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
 	}
-	turnCtx, cancel := context.WithCancel(turnBase)
-	state.SetCancel(cancel)
-	defer cancel()
+	lockStart := time.Now()
+	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, admissionFor(opts))
+	lockWait = time.Since(lockStart)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
 
 	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())
 	if sessionDir != "" {
@@ -709,8 +887,20 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		)
 	}()
 
-	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" {
-		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
+	// A child's own task turn carries text the parent model wrote, never a
+	// plan the operator saved: the run-plan delegation and the @plans mention
+	// hydration read the (empty) child bundle and would refuse or fail the
+	// child's only legitimate turn, so the prompt goes to the runner verbatim.
+	subagentTurn := opts != nil && opts.subagentTurn
+	// Ask mode is read-only: the run-plan metadata shortcut is refused, and a
+	// plan mention below stays material to read (HydrateSessionPlanMentions
+	// inlines the document) instead of turning into a run request.
+	askMode := state.GetMode() == string(ModeAsk)
+	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" && !subagentTurn {
+		if askMode {
+			return nil, fmt.Errorf("plan %q cannot be run in ask mode: switch to agent mode first", slug)
+		}
+		return m.runPlanAdmitted(turnCtx, params.SessionID, slug, state, sender)
 	}
 
 	if len(params.ImageParts) > 0 {
@@ -732,13 +922,13 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn {
 		hydrated, err = HydrateSessionPlanMentions(sd, hydrated)
 		if err != nil {
 			return nil, err
 		}
-		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
-			return m.RunPlan(turnCtx, params.SessionID, mentionSlug, sender)
+		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" && !askMode {
+			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}
 	}
 
@@ -750,6 +940,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}()
 
 	ranRunner = true
+	MarkTurnRan(turnCtx)
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -765,6 +956,11 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 	state := m.getSession(params.SessionID)
 	if state == nil {
 		return fmt.Errorf("session not found: %s", params.SessionID)
+	}
+	// A child transcript is read-only: its mode was fixed at spawn time and
+	// nothing may rewrite it afterwards.
+	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+		return fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
 	if !IsValidMode(params.ModeID) {
@@ -791,6 +987,11 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 	state := m.getSession(params.SessionID)
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
+	}
+	// A child transcript is read-only: mode, model and permission mode were
+	// fixed at spawn time.
+	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
 	switch params.ConfigID {
@@ -898,6 +1099,9 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 		}
 	}
 	m.sendAvailableSlashCommands(sessionID, st)
+	// The footer is populated before the first prompt: an automatic read,
+	// served from the cache when it is warm.
+	m.publishProviderUsageOnReady(sessionID, st)
 }
 
 func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
@@ -1185,10 +1389,17 @@ func (m *Manager) connectMCPClient(ctx context.Context, cwd string, srv config.M
 	return client, nil
 }
 
-func newSessionID() string {
+// randRead is indirected so tests can exercise the entropy-failure path;
+// production always uses crypto/rand.
+var randRead = rand.Read
+
+// newSessionID mints a fresh random session id. Entropy failure is returned
+// as an error rather than panicked on: one unlucky session/new must not take
+// down the process serving every other session.
+func newSessionID() (string, error) {
 	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		panic("failed to generate session ID: " + err.Error())
+	if _, err := randRead(b); err != nil {
+		return "", fmt.Errorf("generate session id: %w", err)
 	}
-	return "sess_" + hex.EncodeToString(b)
+	return "sess_" + hex.EncodeToString(b), nil
 }

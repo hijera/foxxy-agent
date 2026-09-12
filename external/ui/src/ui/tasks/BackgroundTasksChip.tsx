@@ -1,5 +1,6 @@
 import { useT } from "../i18n/I18nProvider";
 import type { BackgroundTask } from "./types";
+import { awaitingPermissionCount } from "./taskStatus";
 
 /**
  * The opener for the background tasks panel, sitting under the last message the
@@ -13,7 +14,7 @@ export function BackgroundTasksChip(props: {
   tasks: BackgroundTask[];
   onOpen: () => void;
 }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const running = props.tasks.filter((task) => task.running).length;
   const total = props.tasks.length;
 
@@ -23,21 +24,28 @@ export function BackgroundTasksChip(props: {
   }
 
   const live = running > 0;
-  // Plural forms differ per language (Russian has three), so the count picks
-  // the key instead of an "s" being appended to a translated noun.
-  const label = live
-    ? t(running === 1 ? "tasks.chip.runningOne" : "tasks.chip.runningMany", {
-        count: running,
-      })
-    : t(total === 1 ? "tasks.chip.totalOne" : "tasks.chip.totalMany", {
-        count: total,
-      });
+  // A detached subagent waiting for an answer has nowhere else to be noticed:
+  // the panel is closed by default and the prompt is not in the transcript, so
+  // the chip has to say so.
+  const awaiting = awaitingPermissionCount(props.tasks);
+  // Plural forms differ per language (Russian has three), so the locale's CLDR
+  // rules pick the dictionary entry instead of the component choosing one.
+  const label =
+    awaiting > 0
+      ? tp("tasks.chip.awaiting", awaiting)
+      : live
+        ? tp("tasks.chip.running", running)
+        : tp("tasks.chip.total", total);
 
   return (
     <div className="bgtask-chip-row">
       <button
         type="button"
-        className={["bgtask-chip", live ? "is-running" : ""]
+        className={[
+          "bgtask-chip",
+          live ? "is-running" : "",
+          awaiting > 0 ? "is-awaiting" : "",
+        ]
           .filter(Boolean)
           .join(" ")}
         data-testid="bgtask-chip"
@@ -45,7 +53,13 @@ export function BackgroundTasksChip(props: {
         onClick={props.onOpen}
       >
         <span
-          className={`bgtask-dot ${live ? "bgtask-dot--running" : "bgtask-dot--muted"}`}
+          className={`bgtask-dot ${
+            awaiting > 0
+              ? "bgtask-dot--warning"
+              : live
+                ? "bgtask-dot--running"
+                : "bgtask-dot--muted"
+          }`}
           aria-hidden="true"
         />
         <span className="bgtask-chip-text">{label}</span>

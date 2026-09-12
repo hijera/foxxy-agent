@@ -17,7 +17,7 @@ import (
 func jobCancelTool(cfg *config.Config) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name: toolJobCancel,
+			Name:        toolJobCancel,
 			Description: "Requests cancellation for an ACTIVE scheduler-backed agent run linked to job_id via the process-wide run tracker (context.Cancel). Returns JSON bool cancelled=false when nothing was tracked. Different from paused (resume still needed after pause); cancel stops an in-flight run only.",
 			InputSchema: map[string]interface{}{
 				"type": "object",

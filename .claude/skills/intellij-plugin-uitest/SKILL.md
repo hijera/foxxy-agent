@@ -1,30 +1,33 @@
 ---
 name: intellij-plugin-uitest
-description: Drive and visually verify the FoxxyCode plugin's UI in a real sandbox IDE with Remote Robot - launch the sandbox, dump the Swing component tree, click/type/screenshot via uiConsole scripts, and run the permanent uiTest suite. Use when asked to check how the plugin looks or behaves in the IDE, take plugin screenshots, or write/debug UI tests. For building, unit tests and runIde use intellij-plugin-gradle instead.
+description: Drive and verify the FoxxyCode plugin's UI in a real sandbox IDE - Remote Robot for the Swing side (tree, click, screenshot) and a CDP bridge (cef-* commands) that reaches inside the JCEF chat itself (read its text, click by CSS selector, type into the composer, assert on the DOM). Use when asked to check how the plugin looks or behaves in the IDE, take plugin screenshots, test the chat/SPA inside IntelliJ, or write/debug UI tests. For building, unit tests and runIde use intellij-plugin-gradle instead.
 ---
 
-# UI testing the IntelliJ plugin (Remote Robot)
+# UI testing the IntelliJ plugin (Remote Robot + CDP)
 
 Everything below happens in `editors/intellij`. Environment rules from
 `intellij-plugin-gradle` (JAVA_HOME, `-g H:/gradle-home`, proxy flags for online runs) apply to
 every command here; that skill also owns building and the unit-test layer.
 
-## What automation can and cannot reach
+## Two channels: Swing outside, CDP inside
 
-The tool window is a **toolbar plus a JCEF browser**. Remote Robot walks the *Swing* hierarchy,
-and the browser's content is not Swing — so `tree`, `click <xpath>` and `assert-text` reach the
-toolbar, the tool window chrome, IDE dialogs and popups, and **nothing inside the chat**. The
-composer, the messages, the mention popup and every SPA control are invisible to XPath.
+The tool window is a **toolbar plus a JCEF browser**, and automation reaches each half through
+its own channel:
 
-That is not a gap to work around; it decides how you verify:
+- **Remote Robot** walks the *Swing* hierarchy: `tree`, `click <xpath>`, `assert-text` reach
+  the toolbar, the tool window chrome, IDE dialogs and popups — and nothing inside the chat.
+- **CDP** (`cef-*` commands, `CefChat.kt`) reaches the page *inside* JCEF: the sandbox runs
+  Chromium with its DevTools port open on **8581**, so scripts can evaluate JS in the SPA, read
+  the rendered text, click by CSS selector and type through **trusted** input events. This is
+  how the composer, messages, popups-in-page and every SPA control are tested directly in the
+  IDE. `curl -s --noproxy '*' http://127.0.0.1:8581/json` lists the live page targets.
 
-- **Chrome, lifecycle, toolbar composition, dialogs** → assertions (`uiTest`).
-- **Anything the SPA renders** → screenshots you read, plus raw keyboard/mouse if you need to
-  drive it. Click into the panel by coordinates from a screenshot, then use `type` / `key`.
-- If you truly need to assert on chat content, the escape hatch is JS on the IDE side:
-  `FoxxyCodeBrowserPanel.forProject(project)` exposes the panel, and its `cefBrowser` can
-  `executeJavaScript`. There is no return channel today, so that is a build-it-first task, not
-  something to reach for casually.
+Pick the channel by what owns the pixel: chrome/lifecycle/dialogs → Swing; anything the SPA
+renders → `cef-*` plus a screenshot when the *look* matters, not just the DOM.
+
+A useful asymmetry: `cef-*` commands hit the off-screen browser directly and **do not care
+about window focus or z-order** — they work even with the sandbox buried behind other windows.
+Swing-side mouse gestures and screenshots still need the sandbox visible and frontmost.
 
 ## Pick the cheapest sufficient layer first
 
@@ -92,7 +95,27 @@ tree FoxxyCode
 | `theme <light\|dark>` | switch IDE LaF |
 | `js <rhino>` | escape hatch: ES5 on the IDE side, runs on the EDT |
 
+Inside the chat (CDP; connect lazily on first use, after the tool window is open):
+
+| Command | Does |
+|---|---|
+| `cef-js <expr>` | evaluate JS in the SPA page, echo the result (modern Chromium JS, not Rhino) |
+| `cef-text` | the page's rendered text → `NN-cef-text.txt` + echo — the in-chat `text` |
+| `cef-assert-text <s>` / `cef-assert-no-text <s>` | assert on the page's rendered text |
+| `cef-wait-text <s> [sec]` | poll until the page renders the text (SPA load, streamed reply) |
+| `cef-click <css>` | scroll into view, focus and click the first match of a CSS selector |
+| `cef-type <text>` | trusted typing into the focused element (`Input.insertText`) |
+| `cef-key <ENTER\|ESC\|TAB\|UP\|DOWN\|BACKSPACE\|DELETE>` | trusted key press in the page |
+
 Every interacting command auto-screenshots; a failure screenshots too, then stops the script.
+`cef-smoke.uiscript` is the worked example: mount check, `cef-text`, typing into `#composer`
+and cleaning it up again.
+
+**React owns the inputs**: assigning `.value` from `cef-js` never updates component state —
+that is exactly why `cef-type`/`cef-key` send trusted CDP events instead. To clear a
+controlled input: `cef-js …select()` then `cef-key BACKSPACE`. Useful selectors: `#composer`
+(the textarea), `#root` (the mount point), and the SPA's `data-testid` attributes
+(`[data-testid='composer-attach-btn']` — grep `external/ui/src` for more).
 
 ### Finding locators
 
@@ -116,22 +139,27 @@ cd editors/intellij && JAVA_HOME="/c/Program Files/JetBrains/PyCharm Community E
 
 Needs the sandbox already running (same as uiConsole). Sources in `src/uiTest/`:
 `BrowserPanelUiTest` (tool window opens without a modal, the toolbar carries every action, the
-backend reaches the SPA instead of the start-error card, reopening keeps a working panel),
-`fixtures/FoxxyCodeToolWindowFixture` (the PageObject — extend it rather than sprinkling raw
-XPath), `IdeControl` (tool window / action / theme scripts shared with uiConsole). JUnit 4,
-same as the rest of the project. Failures: `grep -A6 "<failure" build/test-results/uiTest/TEST-*.xml`.
+backend reaches the SPA instead of the start-error card, the SPA actually mounts into `#root`
+with a composer and no error overlay, reopening keeps a working panel),
+`fixtures/FoxxyCodeToolWindowFixture` (the Swing PageObject — extend it rather than sprinkling
+raw XPath), `CefChat` (the CDP client — `CefChat.connectWithRetry().use { … }` for anything
+inside the chat), `IdeControl` (tool window / action / theme scripts shared with uiConsole).
+JUnit 4, same as the rest of the project.
+Failures: `grep -A6 "<failure" build/test-results/uiTest/TEST-*.xml`.
 
-**Codify a scenario as a test when it guards a behaviour that must not regress** and when it is
-reachable from Swing. One-off "does this look right after my change" stays a throwaway uiConsole
-script — do not accumulate brittle tests for visual judgement calls, and do not try to assert on
-chat content from here.
+**Codify a scenario as a test when it guards a behaviour that must not regress.** Swing-side
+behaviour goes through the fixture, in-chat behaviour through `CefChat` — assert on the DOM
+and rendered text, not on pixels. One-off "does this look right after my change" stays a
+throwaway uiConsole script — do not accumulate brittle tests for visual judgement calls.
 
 ## The visual checklist
 
 Source of truth: the list in `intellij-plugin-gradle` → Visual verification. Ready-made scripts:
-`checklist-1-narrow` (item 1), `checklist-2-themes` (item 2). Not scriptable: HiDPI (needs an IDE
-restart with a different scale factor) and a live agent turn (needs a real API key; the isolated
-test home deliberately has none). Report those as not covered instead of faking them.
+`checklist-1-narrow` (item 1), `checklist-2-themes` (item 2); item 4 (keyboard in the composer)
+is now scriptable with `cef-click #composer` + `cef-type`/`cef-key`, layout-independently.
+Not scriptable: HiDPI (needs an IDE restart with a different scale factor) and a live agent
+turn (needs a real API key; the isolated test home deliberately has none). Report those as not
+covered instead of faking them.
 
 ## Known traps
 
@@ -149,6 +177,14 @@ test home deliberately has none). Report those as not covered instead of faking 
 - **State leaks between runs**: the sandbox persists the IDE theme and the tool window width
   across scripts and test runs. Scripts must establish what they need and put the default back
   (dark theme) when done.
+- **The CDP endpoint sleeps until the first browser exists.** Port 8581 refuses connections
+  until JCEF initialises, which happens when the tool window first opens. `toolwindow FoxxyCode`
+  before any `cef-*` command; `CefChat.connectWithRetry` retries for a minute, so ordering, not
+  timing, is what matters. The debug port comes from `-Dide.browser.jcef.debug.port` set on
+  `runIdeForUiTests` (a system property overriding the same-named IDE registry key).
+- **CDP picks its page by `embed=intellij`** in the URL — that is how the SPA is told apart
+  from DevTools windows and the IDE's other JCEF pages in `/json`. If connect fails with
+  "no page with embed=intellij", the panel is showing an error card instead of the SPA.
 - **Gson vs JDK 17**: the `--add-opens java.base/java.lang=ALL-UNNAMED` on uiConsole/uiTest is
   load-bearing; without it every robot call dies with "Unable to create converter for
   RetrieveResponse".

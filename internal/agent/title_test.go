@@ -163,6 +163,25 @@ func TestMaybeGenerateTitleDisabled(t *testing.T) {
 	}
 }
 
+func TestMaybeGenerateTitleUsesCapturedConfig(t *testing.T) {
+	snapshot := titleConfig(t)
+	current := titleConfig(t)
+	disabled := false
+	current.Title.Enabled = &disabled
+	st := &session.State{ID: "s", CWD: t.TempDir(), Mode: session.ModeAgent}
+	st.ReplaceMessagesWithoutPersist(firstExchange())
+	prov := &summarizeProvider{summary: "Captured configuration title"}
+	a := NewAgent(current, st, &titleSender{}, nil)
+
+	// Detached title generation must use the config current when it was scheduled,
+	// not a later config_commit replacement held by the agent.
+	a.maybeGenerateTitleForConfig(context.Background(), prov, snapshot)
+
+	if prov.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1 from the captured enabled config", prov.calls)
+	}
+}
+
 func TestCleanTitleStripsThinkAndClamps(t *testing.T) {
 	got := cleanTitle("<think>let me think</think>\n\n\"Rate limiting implementation\"\n")
 	if got != "Rate limiting implementation" {

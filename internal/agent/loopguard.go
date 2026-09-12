@@ -1,6 +1,6 @@
 package agent
 
-// Runaway-loop protection. Two independent detectors guard a turn:
+// Runaway-loop protection. Three independent detectors guard a turn:
 //
 //   - streamRepeatDetector watches one streamed channel (answer text or
 //     reasoning) and reports when the output degenerates into repeating the same
@@ -9,9 +9,14 @@ package agent
 //   - toolRepeatDetector reports when the model keeps requesting the identical
 //     tool call (same name, same canonical arguments), which otherwise burns the
 //     whole max_turns budget without producing an answer.
+//   - toolCycleDetector covers what the one above cannot see: a model rotating
+//     through a set of calls - read A, read B, read C, read A, ... - resets a
+//     consecutive counter on every call and never trips it, so the turn runs to
+//     max_turns. It looks for a repeating period in the tail instead, and
+//     tolerates a lap that varies, because real loops are rarely perfect.
 //
-// Both are pure and allocation-light; the ReAct loop owns the policy (nudge the
-// model, then stop the turn) in react.go.
+// All three are pure and allocation-light; the ReAct loop owns the policy (nudge
+// the model, then stop the turn) in react.go.
 
 import (
 	"bytes"
@@ -257,4 +262,144 @@ func canonicalJSON(s string) string {
 		return "raw:" + strings.Join(strings.Fields(trimmed), " ")
 	}
 	return string(b)
+}
+
+const (
+	// toolCycleMinPeriod starts the cycle search at two calls. A period of one is
+	// a run of identical calls, which toolRepeatDetector already owns and trips on
+	// sooner; claiming it here would report one runaway twice, with two different
+	// notices.
+	toolCycleMinPeriod = 2
+	// toolCycleMaxPeriod bounds the search at an eight-call routine. Longer
+	// rotations whose length is composite are usually caught anyway, through a
+	// shorter sub-pattern the tolerance below accepts; a prime length past this
+	// bound is not, and max_turns stays the backstop there. Raising it further is a
+	// one-constant change, at the cost of a wider surface to match on by accident.
+	toolCycleMaxPeriod = 8
+	// toolCycleTolerance divides the window into the mismatch budget: up to
+	// window/toolCycleTolerance positions may deviate from the repeating unit and
+	// the tail still counts as a cycle. A stuck model rarely loops perfectly - it
+	// slips one different file into an otherwise identical rotation - and an
+	// exact-match test misses exactly those runs.
+	toolCycleTolerance = 3
+)
+
+// toolCycleExempt are the polling tools whose repetition is how they are meant to
+// be used: waiting on one background task really is a cycle, and a legitimate one.
+// Names mirror internal/tools/shell/background.go, spelled out here because
+// internal/agent refers to tool names as literals (see toolsets.go).
+var toolCycleExempt = map[string]struct{}{
+	"background_list":   {},
+	"background_output": {},
+	"background_wait":   {},
+}
+
+// cyclicSuffixKeys reports the smallest period p for which the tail of keys is one
+// p-call unit repeated minCycles times over. Unlike periodicSuffix it does not
+// demand exact repetition: a model stuck re-reading a rotating set of files
+// usually varies one call per lap, and an exact test would never fire.
+//
+// A position of the unit counts as on-pattern only when a strict majority of its
+// repetitions agree, which is what separates a loop from progress: in
+// edit(a),test,edit(b),test,edit(c),test the edit position has three different
+// arguments and no majority, so the run is work, not a cycle. On top of that the
+// deviations across the whole window must fit in the budget.
+//
+// The unit is recovered by majority vote per position rather than copied from one
+// block, so a single foreign call cannot poison the reference no matter which lap
+// it lands in - including the most recent one. That unit is returned as well: the
+// ReAct loop quarantines every call in it, because taking away only the call that
+// happened to trip the check would leave the model free to keep turning the rest
+// of the same wheel.
+func cyclicSuffixKeys(keys []string, minCycles int) (period int, unit []string, ok bool) {
+	if minCycles < 2 {
+		return 0, nil, false
+	}
+	n := len(keys)
+	for p := toolCycleMinPeriod; p <= toolCycleMaxPeriod; p++ {
+		window := p * minCycles
+		if window > n {
+			break
+		}
+		tail := keys[n-window:]
+		budget := window / toolCycleTolerance
+		var consensus [toolCycleMaxPeriod]string
+		deviations, matched := 0, true
+		for j := 0; j < p; j++ {
+			// Majority value at position j, counted in place: minCycles is small, so
+			// a pairwise scan beats allocating a map on every Observe.
+			best, bestN := "", 0
+			for k := 0; k < minCycles; k++ {
+				v := tail[k*p+j]
+				cnt := 1
+				for m := k + 1; m < minCycles; m++ {
+					if tail[m*p+j] == v {
+						cnt++
+					}
+				}
+				if cnt > bestN {
+					best, bestN = v, cnt
+				}
+			}
+			if bestN*2 <= minCycles {
+				matched = false
+				break
+			}
+			deviations += minCycles - bestN
+			if deviations > budget {
+				matched = false
+				break
+			}
+			consensus[j] = best
+		}
+		if matched && distinctCount(consensus[:p]) >= 2 {
+			return p, append([]string(nil), consensus[:p]...), true
+		}
+	}
+	return 0, nil, false
+}
+
+// distinctCount counts how many different strings appear in s.
+func distinctCount(s []string) int {
+	seen := make(map[string]struct{}, len(s))
+	for _, v := range s {
+		seen[v] = struct{}{}
+	}
+	return len(seen)
+}
+
+// toolCycleDetector reports when the requested tool calls degenerate into
+// repeating a whole sequence rather than a single call. A nil detector is inert,
+// which is how the check is switched off.
+type toolCycleDetector struct {
+	minCycles int
+	histCap   int
+	keys      []string
+}
+
+// newToolCycleDetector returns nil when the check is disabled (minCycles < 2).
+func newToolCycleDetector(minCycles int) *toolCycleDetector {
+	if minCycles < 2 {
+		return nil
+	}
+	capacity := toolCycleMaxPeriod * minCycles
+	return &toolCycleDetector{minCycles: minCycles, histCap: capacity, keys: make([]string, 0, capacity)}
+}
+
+// Observe records one requested tool call and reports the period of the cycle the
+// tail has degenerated into. It keeps tripping while that cycle persists, the same
+// way toolRepeatDetector keeps counting: a genuinely different call breaks the
+// periodic tail on its own at the next call.
+func (d *toolCycleDetector) Observe(name, inputJSON string) (period int, unit []string, tripped bool) {
+	if d == nil {
+		return 0, nil, false
+	}
+	if _, exempt := toolCycleExempt[name]; exempt {
+		return 0, nil, false
+	}
+	d.keys = append(d.keys, canonicalToolCallKey(name, inputJSON))
+	if len(d.keys) > d.histCap {
+		d.keys = append(d.keys[:0], d.keys[len(d.keys)-d.histCap:]...)
+	}
+	return cyclicSuffixKeys(d.keys, d.minCycles)
 }

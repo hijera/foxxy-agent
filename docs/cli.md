@@ -44,8 +44,17 @@ Top to bottom:
   (`read <path>`, `$ command`), preview capped at 10 lines, and
   `... (ctrl+o to expand)` reading the full result from
   `sessions/<id>/tool_calls/`.
-- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with `Working...` while a turn
-  runs.
+- **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
+  the current step while a turn runs - verb plus target plus elapsed counter
+  (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
+  `Responding`; `Running subagent reviewer · 40s` while a `spawn_agent` call
+  is in flight). A plain wait escalates with time: `Waiting for the model` →
+  `The model is taking longer than usual` (15 s) → `Still no response from the
+  server` (60 s). While a permission or question modal is open the line shows
+  `Waiting for your approval` / `Waiting for your answer` with **no** counter
+  (nothing is running), and after approval it returns to the gated tool with a
+  restarted counter. Phrase table lives in `external/cli/status.go` (Go twin of
+  the SPA's `liveStatus.ts`).
 - **Plan widget**: current todo entries (`✓` done, `◐` active, `○` pending,
   `✗` failed) above the editor.
 - **Editor**: multi-line input between full-width `─` rules (green while the
@@ -55,6 +64,9 @@ Top to bottom:
   content shows `─── ↑ N more ───` borders. Autocomplete: `/` commands on the
   first line, `@` file mentions (workspace walk capped at 50k entries;
   hidden directories, `node_modules`, and `.foxxycode` are skipped), `tab` forces file completion.
+  A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
+  the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
+  those lines reach the model (see `docs/ui.md`, **Line ranges**).
 - **Footer**: dim `cwd (git-branch) • title [• plan]`, then
   `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
 
@@ -66,9 +78,20 @@ throttle with immediate renders after keystrokes.
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
-`/hotkeys`, `/quit`; server-driven `/compact`, `/plugin`, and every loaded
-skill (from the ACP available-commands catalog). Enter on a slash suggestion
-applies and submits in one stroke.
+`/hotkeys`, `/quit`; server-driven `/compact`, `/export`, `/plugin`, and every
+loaded skill (from the ACP available-commands catalog). Enter on a slash
+suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
+[path]` writes the transcript into the workspace (`docs/session-export.md`);
+under `--remote` the file lands on the server.
+
+Agent self-configuration works as it does over ACP and HTTP: every turn
+offers the staged config tools (`config_get`, `config_set`,
+`config_changes`, `config_commit`, `config_revert`, `config_rollback`; see
+**Agent self-configuration** in `docs/config-reference.md`), and a commit or
+rollback hot-reloads the running console, so the model catalog (`ctrl+l`,
+`ctrl+p`), the footer, and the header's `[Context]`, `[Skills]`, `[Rules]`,
+and `[MCP]` sections follow the new file without a restart. `-p/--prompt`
+offers the same tools; under `--remote` the server owns the reload.
 
 | Key | Action |
 |-----|--------|
@@ -88,6 +111,13 @@ Modals replace the editor while open: permission requests (the option list
 comes from the agent's `permission.Options`), the question tool (single or
 multi-select via space, custom free-text answers), model/mode/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
+
+The question modal spends every row on its option label and prints the
+description of the highlighted option under the list, word-wrapped over the
+whole width, so a sentence-long answer stays readable instead of being cut at
+a column boundary. When the question is answered, its tool block shows the
+questions with the chosen answers (`→ answer`, `→ (no answer)` for a dismissed
+one) rather than the JSON the tool hands the model.
 
 ## Local shell (`!!`)
 
@@ -133,11 +163,6 @@ half, `!`, which feeds the output back to the model, is still deferred.
 The block belongs to the running console only. Reopening the session with
 `-c`, `--session-id`, or `/resume` does not replay it, because nothing about a
 `!!` command is written to disk.
-
-Modals replace the editor while open: permission requests (the option list
-comes from the agent's `permission.Options`), the question tool (single or
-multi-select via space, custom free-text answers), model/mode/theme/session
-selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
 ## Flags
 
@@ -192,6 +217,82 @@ permission mode is governed by the remote server's configuration:
 error. Reasoning-level cycling is unavailable remotely in v1. Sessions
 persist only on the server; the startup banner shows `remote: <url>` and the
 exit hint prints a reconnect command with `--remote` included.
+
+Subagents run on the remote host: the definitions, the trust receipts and the
+child sessions are the server's. Approve a project definition there (`foxxycode
+agents trust` on the server, or `POST /foxxycode/subagents/{name}/trust`); the
+local `foxxycode agents` subcommands do not take `--remote`. A child's permission
+prompts reach the remote console like the parent's own, prefixed
+`[subagent <name>]`, and the status line reads `Running subagent <name>` while
+the child runs. The footer shows the local folder; the trust receipt is keyed
+by the server-side session workspace (the server's default cwd for a session
+the console created). A dropped connection leaves the server turn and its
+child running; `/resume` shows the outcome once it ends, and an answer to a
+prompt the server has already withdrawn is ignored. Quitting the console
+mid-turn waits briefly for the remote cancel to reach the server. See
+`docs/subagents.md`, Remote mode.
+
+## Subagent definitions (`foxxycode agents`)
+
+Three subcommands manage the subagent definitions the agent may delegate to
+(`docs/subagents.md`). They need no build tag, like `foxxycode mcp` and
+`foxxycode rules`:
+
+```
+foxxycode agents list [--cwd DIR]
+foxxycode agents trust <name> [--cwd DIR]
+foxxycode agents untrust <name> [--cwd DIR]
+```
+
+`list` prints the workspace and the effective `subagents.project_trust`, then
+the catalog as a table with `NAME`, `SCOPE` (`builtin`, `user`, `project`),
+`TRUST` (`trusted` or `needs_approval`), `FLAGS` (`hidden`, `model=…`,
+`mode=…`), `DESCRIPTION` and `PATH` (`(embedded)` for built-ins), a `(total N)`
+line, and a hint when project definitions await approval. `trust` prints the
+effective declaration first (file, model, mode, permission mode, tool lists,
+digest, receipt path) and then records a receipt for the file as it is on disk
+right now, keyed by the canonical workspace, the name and the file digest, in
+`<home>/subagents-trust.json`; a built-in or user-scope name needs no approval
+and the command says so. `untrust` withdraws a receipt. `--cwd` defaults to the
+process working directory, resolved like `foxxycode mcp`. Under
+`subagents.project_trust: deny` project files are not listed at all, and under
+`allow` they need no receipt.
+
+In the console a `spawn_agent` call shows as a tool box like any other, and the
+status line reads `Running subagent <name>` with its elapsed counter for as long
+as the child runs. A child's permission request, while its spawning turn is
+still alive, opens the usual modal in the parent chat with the title prefixed
+`[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
+`-c` never picks one, and a prompt sent to one is refused with a message naming
+the parent session.
+
+## Hook definition files (`foxxycode hooks`)
+
+Three subcommands manage the hook definition files a session would load
+(`docs/hooks.md`). They need no build tag, like `foxxycode agents`:
+
+```
+foxxycode hooks list [--cwd DIR]
+foxxycode hooks trust <file> [--cwd DIR]
+foxxycode hooks untrust <file> [--cwd DIR]
+```
+
+`list` prints the workspace and the effective `hooks.project_trust`, then a
+table with `FILE` (the name receipts use: the workspace-relative path for a
+project file, the absolute path for the operator's own), `SCOPE` (`user`,
+`project`), `TRUST` (`trusted` or `needs_approval`) and `HOOKS` (a summary such
+as `PreToolUse(run_command); PostToolUse(*)`, or `invalid: <error>` for a file
+that does not parse), a `(total N)` line, and a hint when project files await
+approval. `trust` prints the hooks it is about to approve (event, matcher,
+command) and records a receipt for the file as it is on disk right now, keyed
+by the canonical workspace, the file and its digest, in
+`<home>/hooks-trust.json`; a user-scope file needs no approval and the command
+says so, and an invalid file is refused. `untrust` withdraws a receipt. `--cwd`
+defaults to the process working directory, resolved like `foxxycode mcp`. Under
+`hooks.project_trust: deny` project files are not listed at all, and under
+`allow` they need no receipt. A remote console (`--remote`) approves through
+`POST /foxxycode/hooks/trust` on the server instead, because the receipt must live
+on the machine running the hooks.
 
 ## Security
 

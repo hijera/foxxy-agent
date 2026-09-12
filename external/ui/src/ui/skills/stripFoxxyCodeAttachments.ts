@@ -17,14 +17,26 @@ function workspacePathsEqual(a: string, b: string): boolean {
 }
 
 /**
- * True when **`text`** already contains a completed **`@path`** workspace mention for **`path`** (same grammar as **`extractAtFileAttachments`**).
+ * True when **`text`** already contains a completed **`@path`** workspace mention for **`path`**
+ * with the same line range (same grammar as **`extractAtFileAttachments`**). A plain
+ * mention does not cover a ranged attachment of the same path, and vice versa.
  */
-function userBubbleAlreadyShowsAtPath(visiblePrefix: string, path: string): boolean {
+function userBubbleAlreadyShowsAtPath(
+  visiblePrefix: string,
+  path: string,
+  lines: { start: number; end: number } | null,
+): boolean {
   if (!path.trim()) {
     return false;
   }
   for (const sp of listAtPathSpans(visiblePrefix)) {
-    if (workspacePathsEqual(sp.path, path)) {
+    if (!workspacePathsEqual(sp.path, path)) {
+      continue;
+    }
+    if (lines == null && sp.lines == null) {
+      return true;
+    }
+    if (lines != null && sp.lines != null && sp.lines.start === lines.start && sp.lines.end === lines.end) {
       return true;
     }
   }
@@ -42,7 +54,7 @@ export function parseSessionAssetFiles(
   const m = /<foxxycode_session_assets>([\s\S]*?)<\/foxxycode_session_assets>/i.exec(content);
   if (!m) return [];
   const files: { name: string; mimeType: string }[] = [];
-  for (const line of m[1].split("\n")) {
+  for (const line of (m[1] ?? "").split("\n")) {
     const t = line.trim();
     if (!t.startsWith("- /")) continue;
     const body = t.slice(2); // remove "- "
@@ -98,10 +110,19 @@ export function stripFoxxyCodeAttachmentsForUserDisplay(raw: string): string {
     rebuilt += s.slice(lastIdx, m.index);
     const pathEnc = m[1] ?? "";
     const path = decodeXmlAttrValue(pathEnc).trim();
-    if (path !== "" && userBubbleAlreadyShowsAtPath(rebuilt, path)) {
+    // The lines attribute lives in the opening tag only — never scan the body.
+    const openTag = m[0].slice(0, m[0].indexOf(">") + 1);
+    // Same bounds as the mention grammar: a malformed label (zero, inverted)
+    // never becomes a ranged mention, the block falls back to the plain path.
+    const lm = /\blines="(\d{1,9})-(\d{1,9})"/.exec(openTag);
+    const lines =
+      lm && Number(lm[1]) >= 1 && Number(lm[2]) >= Number(lm[1])
+        ? { start: Number(lm[1]), end: Number(lm[2]) }
+        : null;
+    if (path !== "" && userBubbleAlreadyShowsAtPath(rebuilt, path, lines)) {
       rebuilt += "";
     } else if (path !== "") {
-      rebuilt += `@${path}`;
+      rebuilt += lines ? `@${path}:${lines.start}-${lines.end}` : `@${path}`;
     }
     lastIdx = m.index + m[0].length;
   }

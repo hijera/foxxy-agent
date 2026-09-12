@@ -3,7 +3,7 @@
 package cli
 
 // Godog harness for features/cli_remote.feature: the console (interactive and
-// one-shot print) runs against a fake remote foxxycode http server that speaks
+// one-shot print) runs against a fake remote foxxycode serve server that speaks
 // the documented SSE and REST contract, bearer auth included.
 
 import (
@@ -28,7 +28,7 @@ import (
 
 const bddRemoteToken = "bdd-remote-token"
 
-// fakeRemoteServer implements just enough of the foxxycode http contract for the
+// fakeRemoteServer implements just enough of the foxxycode serve HTTP contract for the
 // console: model catalog, streaming responses, command catalogs.
 type fakeRemoteServer struct {
 	ts     *httptest.Server

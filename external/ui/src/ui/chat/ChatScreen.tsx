@@ -10,9 +10,13 @@ import type { HeroAccentVerb } from "./heroTitleWords";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
+import { UsageBanner } from "./UsageBanner";
+import type { ProviderUsage } from "./providerUsage";
 import { ChatHeader } from "./ChatHeader";
 import { SessionExportMenu, type ExportFormat } from "./SessionExportMenu";
 import { Composer } from "./Composer";
+import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
+import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
 import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
@@ -40,6 +44,10 @@ export function ChatScreen(props: {
   headerActions?: ReactNode;
   draft: string;
   tokenUsage: TokenUsage | null;
+  /** Account usage behind the selected model's provider: the pill and the banner. */
+  providerUsage?: ProviderUsage | null;
+  usageBannerDismissedKey?: string;
+  onUsageBannerDismiss?: (key: string) => void;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: import("./ContextBreakdownPopover").ContextBreakdown | null;
@@ -57,6 +65,8 @@ export function ChatScreen(props: {
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string, files?: File[]) => void;
+  /** Pass-through to Composer: captured paste-chip literals (see Composer). */
+  onPasteChipCaptured?: (key: string, literal: string) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
@@ -100,6 +110,10 @@ export function ChatScreen(props: {
   onWorktreeToggle?: () => void;
   onWorkspacePickSvnBranch?: (branch: string, separateFolder: boolean) => void;
   onSvnFolderToggle?: () => void;
+  /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
+  subagentTranscript?: SubagentTranscriptMeta | null;
+  /** Opens another session in this tab (the parent chat from the notice). */
+  onOpenSession?: (sessionId: string) => void;
 }) {
   const { t } = useT();
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -111,7 +125,10 @@ export function ChatScreen(props: {
   const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
-  const [composerReserve, setComposerReserve] = useState(200);
+  // The scroll-tail reserve is written straight to this element, never held as
+  // state: see the effect below for why React must stay out of this loop.
+  const chatStackRef = useRef<HTMLDivElement | null>(null);
+  const composerReserveRef = useRef(0);
   const mobileDocScroll = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -123,16 +140,54 @@ export function ChatScreen(props: {
     const host = composerHostRef.current;
     if (!host) return;
     const extra = 10;
-    const apply = () => {
-      const h = host.getBoundingClientRect().height;
-      setComposerReserve(Math.max(140, Math.ceil(h) + extra));
+    const measure = () => Math.max(140, Math.ceil(host.getBoundingClientRect().height) + extra);
+    // The reserve is the height of `.chat-scroll-tail` inside the scroll
+    // container. Writing it from inside the ResizeObserver callback relayouts
+    // the transcript in the same delivery loop, and with content-visibility
+    // rows that resizes the observed host again before the loop settles:
+    // JCEF (Chromium 104) then raises "ResizeObserver loop limit exceeded"
+    // on every transcript open. So the write waits for the next frame and an
+    // unchanged value is skipped, and the loop cannot feed itself.
+    //
+    // It is written to the element rather than held as state, which is the
+    // other half of the same problem. A setState here does not write the DOM
+    // where it is called: React commits it on its own schedule, and that commit
+    // can land after the frame's resize observations have already been
+    // delivered - a write inside the delivery loop again, one frame along, which
+    // is what the panel resize scenario catches as a reserve write landing in
+    // the frame that measured it. A direct write happens exactly where it is
+    // scheduled, and re-renders nothing, so nothing cascades from it.
+    const write = (next: number) => {
+      const stack = chatStackRef.current;
+      if (!stack || composerReserveRef.current === next) return;
+      composerReserveRef.current = next;
+      stack.style.setProperty("--chat-composer-reserve", `${next}px`);
     };
-    apply();
+    write(measure());
+    let frame = 0;
+    const onResize = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        write(measure());
+      });
+    };
     const ro =
-      typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
     ro?.observe(host);
-    return () => ro?.disconnect();
-  }, [isEmpty, props.tokenUsage]);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      ro?.disconnect();
+    };
+    // Only isEmpty. tokenUsage was a dependency back when the observer callback
+    // wrote the reserve synchronously and restarting the effect was how a
+    // changed token line got re-measured; with the write deferred above, it is
+    // the one synchronous writer left. A turn updates tokenUsage repeatedly, so
+    // React re-ran this effect mid-turn and it measured and wrote before paint -
+    // landing in the same frame as an observation, which is the reserve write
+    // the panel resize scenario catches. The observer sees every height change
+    // the token line can cause, so there is nothing to restart for.
+  }, [isEmpty]);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -179,6 +234,15 @@ export function ChatScreen(props: {
     el?.addEventListener("scroll", onScroll, { passive: true });
     return () => el?.removeEventListener("scroll", onScroll);
   }, [isEmpty, mobileDocScroll]);
+
+  // A child session is read-only on the server (409 on any prompt), so the
+  // notice takes the composer's slot in both the hero and the docked layout.
+  const readOnlyNotice = props.subagentTranscript ? (
+    <SubagentReadOnlyNotice
+      meta={props.subagentTranscript}
+      {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
+    />
+  ) : null;
 
   const mainClassName = [
     "main",
@@ -249,78 +313,89 @@ export function ChatScreen(props: {
             })()}
           </h1>
           <div className="hero-composer">
-            <Composer
-              value={props.draft}
-              attachedFiles={attachedFiles}
-              onAttachedFilesChange={setAttachedFiles}
-              isEmpty={true}
-              focusEpoch={props.heroComposerFocusEpoch}
-              sessionId={props.sessionId}
-              contextIdle={!props.sessionId}
-              mode={props.mode}
-              modes={props.modes}
-              tokenUsage={props.tokenUsage}
-              {...(props.contextPct !== undefined
-                ? { contextPct: props.contextPct }
-                : {})}
-              {...(props.maxContextTokens !== undefined
-                ? { maxContextTokens: props.maxContextTokens }
-                : {})}
-              {...(props.contextBreakdown !== undefined
-                ? { contextBreakdown: props.contextBreakdown }
-                : {})}
-              {...(props.llmModels !== undefined &&
-              props.llmModels.length > 0 &&
-              props.onLlmModelChange !== undefined
-                ? {
-                    llmModels: props.llmModels,
-                    llmModel: props.llmModel,
-                    onLlmModelChange: props.onLlmModelChange,
-                    llmModelMultimodal: props.llmModelMultimodal,
-                    ...(props.llmReasoningLevels !== undefined &&
-                    props.llmReasoningLevels.length > 0 &&
-                    props.onLlmReasoningChange !== undefined
-                      ? {
-                          llmReasoningLevels: props.llmReasoningLevels,
-                          llmReasoning: props.llmReasoning,
-                          onLlmReasoningChange: props.onLlmReasoningChange,
-                        }
-                      : {}),
-                  }
-                : {})}
-              onModeChange={props.onModeChange}
-              onChange={props.onDraftChange}
-              onSend={props.onSend}
-              {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
-              {...(props.generating === true && props.onStop !== undefined
-                ? { generating: true, onStop: props.onStop }
-                : {})}
-              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
-              {...(props.onWorkspacePickFolder
-                ? {
-                    workspaceCtx: props.workspaceCtx ?? null,
-                    worktreePref: props.worktreePref ?? false,
-                    svnFolderPref: props.svnFolderPref ?? false,
-                    workspaceLocked: props.workspaceLocked ?? false,
-                    onWorkspacePickFolder: props.onWorkspacePickFolder,
-                    onWorkspacePickBranch: props.onWorkspacePickBranch,
-                    onWorktreeToggle: props.onWorktreeToggle,
-                    onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
-                    onSvnFolderToggle: props.onSvnFolderToggle,
-                  }
-                : {})}
-            />
+            {readOnlyNotice ? null : (
+              <UsageBanner
+                usage={props.providerUsage}
+                modelId={props.llmModel ?? ""}
+                {...(props.usageBannerDismissedKey
+                  ? { dismissedKey: props.usageBannerDismissedKey }
+                  : {})}
+                {...(props.onUsageBannerDismiss
+                  ? { onDismiss: props.onUsageBannerDismiss }
+                  : {})}
+              />
+            )}
+            {readOnlyNotice ?? (
+              <Composer
+                value={props.draft}
+                providerUsage={props.providerUsage ?? null}
+                attachedFiles={attachedFiles}
+                onAttachedFilesChange={setAttachedFiles}
+                isEmpty={true}
+                focusEpoch={props.heroComposerFocusEpoch}
+                sessionId={props.sessionId}
+                contextIdle={!props.sessionId}
+                mode={props.mode}
+                modes={props.modes}
+                tokenUsage={props.tokenUsage}
+                {...(props.contextPct !== undefined
+                  ? { contextPct: props.contextPct }
+                  : {})}
+                {...(props.maxContextTokens !== undefined
+                  ? { maxContextTokens: props.maxContextTokens }
+                  : {})}
+                {...(props.contextBreakdown !== undefined
+                  ? { contextBreakdown: props.contextBreakdown }
+                  : {})}
+                {...(props.llmModels !== undefined &&
+                props.llmModels.length > 0 &&
+                props.onLlmModelChange !== undefined
+                  ? {
+                      llmModels: props.llmModels,
+                      llmModel: props.llmModel,
+                      onLlmModelChange: props.onLlmModelChange,
+                      llmModelMultimodal: props.llmModelMultimodal,
+                      ...(props.llmReasoningLevels !== undefined &&
+                      props.llmReasoningLevels.length > 0 &&
+                      props.onLlmReasoningChange !== undefined
+                        ? {
+                            llmReasoningLevels: props.llmReasoningLevels,
+                            llmReasoning: props.llmReasoning,
+                            onLlmReasoningChange: props.onLlmReasoningChange,
+                          }
+                        : {}),
+                    }
+                  : {})}
+                onModeChange={props.onModeChange}
+                onChange={props.onDraftChange}
+                onSend={props.onSend}
+                {...(props.onPasteChipCaptured
+                  ? { onPasteChipCaptured: props.onPasteChipCaptured }
+                  : {})}
+                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                {...(props.generating === true && props.onStop !== undefined
+                  ? { generating: true, onStop: props.onStop }
+                  : {})}
+                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                {...(props.onWorkspacePickFolder
+                  ? {
+                      workspaceCtx: props.workspaceCtx ?? null,
+                      worktreePref: props.worktreePref ?? false,
+                      svnFolderPref: props.svnFolderPref ?? false,
+                      workspaceLocked: props.workspaceLocked ?? false,
+                      onWorkspacePickFolder: props.onWorkspacePickFolder,
+                      onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorktreeToggle: props.onWorktreeToggle,
+                      onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
+                      onSvnFolderToggle: props.onSvnFolderToggle,
+                    }
+                  : {})}
+              />
+            )}
           </div>
         </div>
       ) : (
-        <div
-          className="chat-stack"
-          style={
-            {
-              "--chat-composer-reserve": `${composerReserve}px`,
-            } as CSSProperties
-          }
-        >
+        <div className="chat-stack" ref={chatStackRef}>
           <div
             id="messages"
             className="chat-scroll"
@@ -359,6 +434,12 @@ export function ChatScreen(props: {
                 items={props.items}
                 sessionId={props.sessionId}
                 generating={props.generating === true}
+                {...(props.workspaceCtx?.path
+                  ? { workspacePath: props.workspaceCtx.path }
+                  : {})}
+                {...(props.onOpenSession
+                  ? { onOpenSubagentTranscript: props.onOpenSession }
+                  : {})}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
                   : {})}
@@ -415,69 +496,87 @@ export function ChatScreen(props: {
               the marker class replaces :has(), unsupported in JCEF Chromium 104 */}
           <div className="chat-bottom chat-bottom--docked">
             <div className="chat-bottom-inner" ref={composerHostRef}>
-              <Composer
-                value={props.draft}
-                attachedFiles={attachedFiles}
-                onAttachedFilesChange={setAttachedFiles}
-                isEmpty={false}
-                sessionId={props.sessionId}
-                contextIdle={false}
-                mode={props.mode}
-                modes={props.modes}
-                tokenUsage={props.tokenUsage}
-                {...(props.contextPct !== undefined
-                  ? { contextPct: props.contextPct }
+              {readOnlyNotice ? null : (
+                <UsageBanner
+                  usage={props.providerUsage}
+                  modelId={props.llmModel ?? ""}
+                  {...(props.usageBannerDismissedKey
+                    ? { dismissedKey: props.usageBannerDismissedKey }
+                    : {})}
+                  {...(props.onUsageBannerDismiss
+                    ? { onDismiss: props.onUsageBannerDismiss }
+                    : {})}
+                />
+              )}
+              {readOnlyNotice ?? (
+                <Composer
+                  value={props.draft}
+                  providerUsage={props.providerUsage ?? null}
+                  attachedFiles={attachedFiles}
+                  onAttachedFilesChange={setAttachedFiles}
+                  isEmpty={false}
+                  sessionId={props.sessionId}
+                  contextIdle={false}
+                  mode={props.mode}
+                  modes={props.modes}
+                  tokenUsage={props.tokenUsage}
+                  {...(props.contextPct !== undefined
+                    ? { contextPct: props.contextPct }
+                    : {})}
+                {...(props.maxContextTokens !== undefined
+                  ? { maxContextTokens: props.maxContextTokens }
                   : {})}
-              {...(props.maxContextTokens !== undefined
-                ? { maxContextTokens: props.maxContextTokens }
-                : {})}
-              {...(props.contextBreakdown !== undefined
-                ? { contextBreakdown: props.contextBreakdown }
-                : {})}
-              {...(props.llmModels !== undefined &&
-                props.llmModels.length > 0 &&
-                props.onLlmModelChange !== undefined
-                  ? {
-                      llmModels: props.llmModels,
-                      llmModel: props.llmModel,
-                      onLlmModelChange: props.onLlmModelChange,
-                      llmModelMultimodal: props.llmModelMultimodal,
-                      ...(props.llmReasoningLevels !== undefined &&
-                      props.llmReasoningLevels.length > 0 &&
-                      props.onLlmReasoningChange !== undefined
-                        ? {
-                            llmReasoningLevels: props.llmReasoningLevels,
-                            llmReasoning: props.llmReasoning,
-                            onLlmReasoningChange: props.onLlmReasoningChange,
-                          }
-                        : {}),
-                    }
+                {...(props.contextBreakdown !== undefined
+                  ? { contextBreakdown: props.contextBreakdown }
                   : {})}
-                onModeChange={props.onModeChange}
-                onChange={props.onDraftChange}
-                onSend={props.onSend}
-                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
-                {...(props.generating === true && props.onStop !== undefined
-                  ? { generating: true, onStop: props.onStop }
-                  : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
-                {...(props.editingFiles && props.editingFiles.length > 0
-                  ? { editingFiles: props.editingFiles }
-                  : {})}
-                {...(props.onWorkspacePickFolder
-                  ? {
-                      workspaceCtx: props.workspaceCtx ?? null,
-                      worktreePref: props.worktreePref ?? false,
-                      svnFolderPref: props.svnFolderPref ?? false,
-                      workspaceLocked: props.workspaceLocked ?? false,
-                      onWorkspacePickFolder: props.onWorkspacePickFolder,
-                      onWorkspacePickBranch: props.onWorkspacePickBranch,
-                      onWorktreeToggle: props.onWorktreeToggle,
-                      onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
-                      onSvnFolderToggle: props.onSvnFolderToggle,
-                    }
-                  : {})}
-              />
+                {...(props.llmModels !== undefined &&
+                  props.llmModels.length > 0 &&
+                  props.onLlmModelChange !== undefined
+                    ? {
+                        llmModels: props.llmModels,
+                        llmModel: props.llmModel,
+                        onLlmModelChange: props.onLlmModelChange,
+                        llmModelMultimodal: props.llmModelMultimodal,
+                        ...(props.llmReasoningLevels !== undefined &&
+                        props.llmReasoningLevels.length > 0 &&
+                        props.onLlmReasoningChange !== undefined
+                          ? {
+                              llmReasoningLevels: props.llmReasoningLevels,
+                              llmReasoning: props.llmReasoning,
+                              onLlmReasoningChange: props.onLlmReasoningChange,
+                            }
+                          : {}),
+                      }
+                    : {})}
+                  onModeChange={props.onModeChange}
+                  onChange={props.onDraftChange}
+                  onSend={props.onSend}
+                  {...(props.onPasteChipCaptured
+                    ? { onPasteChipCaptured: props.onPasteChipCaptured }
+                    : {})}
+                  {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
+                  {...(props.generating === true && props.onStop !== undefined
+                    ? { generating: true, onStop: props.onStop }
+                    : {})}
+                  {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                  {...(props.editingFiles && props.editingFiles.length > 0
+                    ? { editingFiles: props.editingFiles }
+                    : {})}
+                  {...(props.onWorkspacePickFolder
+                    ? {
+                        workspaceCtx: props.workspaceCtx ?? null,
+                        worktreePref: props.worktreePref ?? false,
+                        svnFolderPref: props.svnFolderPref ?? false,
+                        workspaceLocked: props.workspaceLocked ?? false,
+                        onWorkspacePickFolder: props.onWorkspacePickFolder,
+                        onWorkspacePickBranch: props.onWorkspacePickBranch,
+                        onWorktreeToggle: props.onWorktreeToggle,
+                        onWorkspacePickSvnBranch: props.onWorkspacePickSvnBranch,
+                        onSvnFolderToggle: props.onSvnFolderToggle,
+                      }
+                    : {})}
+                />
+              )}
             </div>
           </div>
         </div>

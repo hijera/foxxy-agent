@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import React from "react";
 import { WorkspaceChips } from "./WorkspaceChips";
 import type { WorkspaceContext } from "./workspaceContext";
@@ -48,7 +54,9 @@ const svnCtx: WorkspaceContext = {
   },
 };
 
-function renderChips(overrides: Partial<React.ComponentProps<typeof WorkspaceChips>> = {}) {
+function renderChips(
+  overrides: Partial<React.ComponentProps<typeof WorkspaceChips>> = {},
+) {
   const props: React.ComponentProps<typeof WorkspaceChips> = {
     context: gitCtx,
     worktreePref: false,
@@ -65,6 +73,7 @@ function renderChips(overrides: Partial<React.ComponentProps<typeof WorkspaceChi
 }
 
 beforeEach(() => {
+  setLocale("en");
   localStorage.removeItem(WORKSPACE_RECENTS_KEY);
   initLocale("en");
 });
@@ -89,7 +98,9 @@ describe("WorkspaceChips", () => {
 
   it("shows only the folder chip for a non-git workspace", () => {
     renderChips({ context: plainCtx });
-    expect(screen.getByTestId("composer-workspace-chip").textContent).toContain("plain");
+    expect(screen.getByTestId("composer-workspace-chip").textContent).toContain(
+      "plain",
+    );
     expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
     expect(screen.queryByTestId("composer-worktree-chip")).toBeNull();
   });
@@ -110,14 +121,18 @@ describe("WorkspaceChips", () => {
 
   it("renders the worktree control as a real checkbox", () => {
     renderChips();
-    const box = screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement;
+    const box = screen.getByTestId(
+      "composer-worktree-checkbox",
+    ) as HTMLInputElement;
     expect(box.type).toBe("checkbox");
     expect(box.checked).toBe(false);
   });
 
   it("checks and disables the worktree checkbox when the session lives in a worktree", () => {
     renderChips({ context: { ...gitCtx, is_worktree: true } });
-    const box = screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement;
+    const box = screen.getByTestId(
+      "composer-worktree-checkbox",
+    ) as HTMLInputElement;
     expect(box.checked).toBe(true);
     expect(box.disabled).toBe(true);
   });
@@ -132,7 +147,9 @@ describe("WorkspaceChips", () => {
     const { props } = renderChips({ worktreePref: true });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
     const menu = screen.getByTestId("workspace-branch-menu");
-    const rows = menu.querySelectorAll("[data-testid^='workspace-branch-row-']");
+    const rows = menu.querySelectorAll(
+      "[data-testid^='workspace-branch-row-']",
+    );
     expect(rows.length).toBe(2);
     fireEvent.click(screen.getByTestId("workspace-branch-row-feature/login"));
     expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", true);
@@ -141,13 +158,16 @@ describe("WorkspaceChips", () => {
   it("locks every control once the conversation started", () => {
     renderChips({ locked: true });
     expect(
-      (screen.getByTestId("composer-workspace-chip") as HTMLButtonElement).disabled,
+      (screen.getByTestId("composer-workspace-chip") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId("composer-branch-chip") as HTMLButtonElement).disabled,
+      (screen.getByTestId("composer-branch-chip") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement).disabled,
+      (screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement)
+        .disabled,
     ).toBe(true);
     fireEvent.click(screen.getByTestId("composer-workspace-chip"));
     expect(screen.queryByTestId("workspace-folder-menu")).toBeNull();
@@ -212,7 +232,9 @@ describe("WorkspaceChips", () => {
     await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
     fireEvent.click(screen.getByTestId("workspace-modal-row-other"));
     await waitFor(() =>
-      expect(screen.getByTestId("workspace-modal-open").textContent).toContain("Open"),
+      expect(screen.getByTestId("workspace-modal-open").textContent).toContain(
+        "Open",
+      ),
     );
 
     fireEvent.click(screen.getByTestId("workspace-modal-open"));
@@ -316,6 +338,301 @@ describe("WorkspaceChips", () => {
     renderChips({ context: svnCtx });
     expect(screen.getByTestId("composer-svn-folder-chip").textContent).toContain(
       "папка-ветка",
+    );
+  });
+
+  it("reaches other drives through the drive level and a typed path", async () => {
+    // Windows-shaped server: a drive root has no parent directory, so the
+    // listing points at the ":drives:" volume level instead.
+    const winCtx: WorkspaceContext = {
+      path: "H:\\repos\\app",
+      name: "app",
+      is_git_repo: false,
+      is_worktree: false,
+    };
+    const listings: Record<string, unknown> = {
+      "H:\\repos": {
+        path: "H:\\repos",
+        parent: "H:\\",
+        folders: [{ name: "app", path: "H:\\repos\\app" }],
+      },
+      "H:\\": {
+        path: "H:\\",
+        parent: ":drives:",
+        folders: [{ name: "repos", path: "H:\\repos" }],
+      },
+      ":drives:": {
+        path: ":drives:",
+        parent: ":drives:",
+        drives: true,
+        folders: [
+          { name: "C:", path: "C:\\" },
+          { name: "H:", path: "H:\\" },
+        ],
+      },
+      "C:\\": {
+        path: "C:\\",
+        parent: ":drives:",
+        folders: [{ name: "Users", path: "C:\\Users" }],
+      },
+      "D:\\work": {
+        path: "D:\\work",
+        parent: "D:\\",
+        folders: [],
+      },
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const u = new URL(String(url), "http://localhost");
+      const p = u.searchParams.get("path") || "";
+      const hit = listings[p];
+      return Promise.resolve({ ok: Boolean(hit), json: async () => hit });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { props } = renderChips({ context: winCtx });
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+
+    // Starts at the parent of the workspace on the same drive, not at "/".
+    await waitFor(() => screen.getByTestId("workspace-modal-row-app"));
+    expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+      "value",
+      "H:\\repos",
+    );
+
+    // Up to the drive root, then up again into the drive list.
+    fireEvent.click(screen.getByTestId("workspace-modal-up"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-repos"));
+    fireEvent.click(screen.getByTestId("workspace-modal-up"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-C:"));
+
+    // The drive level is a place to navigate, not a workspace to open.
+    expect(screen.getByTestId("workspace-modal-open")).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.queryByTestId("workspace-modal-up")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("workspace-modal-row-C:"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-Users"));
+    expect(props.onPickFolder).not.toHaveBeenCalled();
+
+    // A pasted path jumps to a third drive; the button says what it will do.
+    const field = screen.getByTestId("workspace-modal-path");
+    fireEvent.change(field, { target: { value: '"D:\\work"' } });
+    expect(screen.getByTestId("workspace-modal-open").textContent).toBe("Go");
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-modal-open").textContent).toBe(
+        "Open",
+      ),
+    );
+
+    fireEvent.click(screen.getByTestId("workspace-modal-open"));
+    expect(props.onPickFolder).toHaveBeenCalledWith("D:\\work");
+  });
+
+  it("keeps the most recently requested folder when an older listing arrives late", async () => {
+    let resolveRoot: (response: unknown) => void = () => {};
+    const rootResponse = new Promise((resolve) => {
+      resolveRoot = resolve;
+    });
+    const listings: Record<string, unknown> = {
+      "/repos": {
+        path: "/repos",
+        parent: "/",
+        folders: [{ name: "other", path: "/repos/other" }],
+      },
+      "/repos/other": {
+        path: "/repos/other",
+        parent: "/repos",
+        folders: [],
+      },
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const u = new URL(String(url), "http://localhost");
+      const p = u.searchParams.get("path") || "";
+      if (p === "/") {
+        return rootResponse;
+      }
+      return Promise.resolve({ ok: true, json: async () => listings[p] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
+
+    // The slow parent request starts first. The old listing is still visible,
+    // so a user can navigate into a child before that response comes back.
+    fireEvent.click(screen.getByTestId("workspace-modal-up"));
+    fireEvent.click(screen.getByTestId("workspace-modal-row-other"));
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+        "value",
+        "/repos/other",
+      ),
+    );
+
+    resolveRoot({
+      ok: true,
+      json: async () => ({
+        path: "/",
+        parent: "/",
+        folders: [{ name: "repos", path: "/repos" }],
+      }),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+      "value",
+      "/repos/other",
+    );
+  });
+
+  it("creates a folder from the browser and steps into it", async () => {
+    const listings: Record<string, unknown> = {
+      "/repos": {
+        path: "/repos",
+        parent: "/",
+        folders: [{ name: "other", path: "/repos/other" }],
+      },
+    };
+    const created = {
+      path: "/repos/fresh",
+      parent: "/repos",
+      folders: [],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Promise.resolve({ ok: true, json: async () => created });
+        }
+        const u = new URL(String(url), "http://localhost");
+        const p = u.searchParams.get("path") || "";
+        return Promise.resolve({ ok: true, json: async () => listings[p] });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { props } = renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
+
+    // The name row only appears on demand, and an empty name cannot be sent.
+    expect(screen.queryByTestId("workspace-modal-new-folder-name")).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
+    const field = screen.getByTestId("workspace-modal-new-folder-name");
+    expect(
+      (
+        screen.getByTestId(
+          "workspace-modal-new-folder-create",
+        ) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    fireEvent.change(field, { target: { value: "fresh" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+        "value",
+        "/repos/fresh",
+      ),
+    );
+    const post = fetchMock.mock.calls.find(
+      (c) => (c[1] as RequestInit | undefined)?.method === "POST",
+    );
+    expect(post?.[0]).toBe("/foxxycode/workspace/folders");
+    expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({
+      path: "/repos",
+      name: "fresh",
+    });
+
+    // The row closes and the new folder is what Open picks.
+    expect(screen.queryByTestId("workspace-modal-new-folder-name")).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-modal-open"));
+    expect(props.onPickFolder).toHaveBeenCalledWith("/repos/fresh");
+  });
+
+  it("keeps the name row out of the scrolling list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        path: "/repos",
+        parent: "/",
+        folders: Array.from({ length: 30 }, (_, i) => ({
+          name: `project-${i}`,
+          path: `/repos/project-${i}`,
+        })),
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-project-0"));
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
+
+    // The row is a sibling of the list, not a child of it: inside the
+    // scrollport it would scroll away under the operator, and on a short
+    // window it is taller than the port itself.
+    const list = document.querySelector(".workspace-modal-list");
+    const row = document.querySelector(".workspace-modal-row--new");
+    expect(row).toBeTruthy();
+    expect(list?.contains(row as Node)).toBe(false);
+    // It sits directly above the listing it will appear in.
+    expect(row?.nextElementSibling).toBe(list);
+  });
+
+  it("keeps the name row open and explains a folder that already exists", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({}),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            path: "/repos",
+            parent: "/",
+            folders: [{ name: "other", path: "/repos/other" }],
+          }),
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
+
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
+    fireEvent.change(screen.getByTestId("workspace-modal-new-folder-name"), {
+      target: { value: "other" },
+    });
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder-create"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("workspace-folder-modal").textContent,
+      ).toContain("already exists"),
+    );
+    // The typed name survives so it can be corrected rather than retyped.
+    expect(
+      screen.getByTestId("workspace-modal-new-folder-name"),
+    ).toHaveProperty("value", "other");
+    expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+      "value",
+      "/repos",
     );
   });
 

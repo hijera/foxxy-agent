@@ -14,7 +14,8 @@ const (
 	ReasoningNone = "none"
 )
 
-// reasoningWithMinimal is the level set for models that support a minimal tier (OpenAI gpt-5 family).
+// reasoningWithMinimal is the level set for models that support a minimal tier
+// (the OpenAI gpt-5 and gpt-6 families).
 var reasoningWithMinimal = []string{ReasoningMinimal, ReasoningLow, ReasoningMedium, ReasoningHigh}
 
 // reasoningStandard is the level set for reasoning models without a minimal tier
@@ -22,16 +23,16 @@ var reasoningWithMinimal = []string{ReasoningMinimal, ReasoningLow, ReasoningMed
 var reasoningStandard = []string{ReasoningLow, ReasoningMedium, ReasoningHigh}
 
 // ResolvedReasoningLevels returns the reasoning levels offered for this model.
-// An explicit ReasoningLevels (including an empty slice) overrides auto-detection;
+// An explicit ReasoningLevels (including an empty list) overrides auto-detection;
 // otherwise levels are inferred from the API model id. Returns nil when the model
 // has no reasoning support.
 func (m *ModelEntry) ResolvedReasoningLevels() []string {
 	if m.ReasoningLevels != nil {
-		if len(m.ReasoningLevels) == 0 {
+		if len(*m.ReasoningLevels) == 0 {
 			return nil
 		}
-		out := make([]string, len(m.ReasoningLevels))
-		copy(out, m.ReasoningLevels)
+		out := make([]string, len(*m.ReasoningLevels))
+		copy(out, *m.ReasoningLevels)
 		return out
 	}
 	return detectReasoningLevels(m.APIModel())
@@ -59,8 +60,26 @@ func (c *Config) ReasoningLevelsFor(ent *ModelEntry) []string {
 	if ent == nil {
 		return nil
 	}
+	providerType := ""
+	if c != nil {
+		if prov := c.FindProvider(ent.ProviderName()); prov != nil {
+			providerType = prov.Type
+		}
+	}
+	return ReasoningLevelsForProviderType(ent, providerType)
+}
+
+// ReasoningLevelsForProviderType is ReasoningLevelsFor with the provider type
+// supplied by the caller instead of looked up in the saved config. The settings
+// form needs that while a provider row is still being edited: the type the
+// operator has picked, not the one on disk, decides whether the Codex remap
+// applies. An empty or non-codex type leaves the detected list untouched.
+func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []string {
+	if ent == nil {
+		return nil
+	}
 	levels := ent.ResolvedReasoningLevels()
-	if c == nil || len(levels) == 0 || !c.providerTypeFor(ent) {
+	if len(levels) == 0 || providerType != "codex" {
 		return levels
 	}
 	return remapMinimalToNone(levels)
@@ -110,7 +129,7 @@ func remapMinimalToNone(levels []string) []string {
 func detectReasoningLevels(apiModel string) []string {
 	id := strings.ToLower(strings.TrimSpace(apiModel))
 	switch {
-	case strings.HasPrefix(id, "gpt-5"):
+	case strings.HasPrefix(id, "gpt-5"), strings.HasPrefix(id, "gpt-6"):
 		return append([]string(nil), reasoningWithMinimal...)
 	case isOpenAIOSeries(id), strings.HasPrefix(id, "gpt-oss"):
 		return append([]string(nil), reasoningStandard...)

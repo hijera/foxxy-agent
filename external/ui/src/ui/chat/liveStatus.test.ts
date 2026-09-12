@@ -126,6 +126,24 @@ describe("deriveLiveStatus", () => {
     expect(s.key).toBe("status.run");
   });
 
+  it("prefers the running tool over a later pending one", () => {
+    // The agent announces every call as pending while the response streams,
+    // then executes sequentially: the newest pending row must not mask the
+    // call that is actually running.
+    const s = deriveLiveStatus([
+      user(),
+      tool({
+        id: "t1",
+        toolCallId: "c1",
+        title: "read",
+        argsText: '{"path":"a.go"}',
+      }),
+      tool({ id: "t2", toolCallId: "c2", title: "write", status: "pending" }),
+    ]);
+    expect(s.key).toBe("status.read");
+    expect(s.target).toBe("a.go");
+  });
+
   it("prefers a tool call over in-progress thinking", () => {
     const s = deriveLiveStatus([
       user(),
@@ -285,6 +303,26 @@ describe("deriveLiveStatus waiting for the server", () => {
     expect(s.key).toBe("status.reconnecting");
     expect(s.target).toBe("");
   });
+
+  it("reports a pending model retry above a stale tool row", () => {
+    // No model call is in flight while the turn waits out a silent provider, so a
+    // tool row left over from the cut attempt must not drive the label.
+    const s = deriveLiveStatus([user(), tool({ title: "read" })], {
+      llmRetrying: true,
+    });
+    expect(s.kind).toBe("llmretry");
+    expect(s.key).toBe("status.retryingModel");
+    expect(s.target).toBe("");
+  });
+
+  it("keeps reconnecting above a pending model retry", () => {
+    // A dropped stream means we cannot know the turn is still parked.
+    const s = deriveLiveStatus([user()], {
+      reconnecting: true,
+      llmRetrying: true,
+    });
+    expect(s.kind).toBe("reconnecting");
+  });
 });
 
 describe("waitingStatusKey", () => {
@@ -302,11 +340,14 @@ describe("waitingStatusKey", () => {
 describe("statusKeyForTool", () => {
   it("maps prefixes and exact ids", () => {
     expect(statusKeyForTool("foxxycode_browser_click")).toBe("status.browse");
+    expect(statusKeyForTool("spawn_agent")).toBe("status.spawnAgent");
     expect(statusKeyForTool("foxxycode_todo_write")).toBe("status.plan");
     expect(statusKeyForTool("foxxycode_todo_plan_read")).toBe("status.planRead");
     expect(statusKeyForTool("foxxycode_scheduler_jobs_list")).toBe(
       "status.schedule",
     );
+    expect(statusKeyForTool("foxxycode_memory_search")).toBe("status.memory");
+    expect(statusKeyForTool("config_set")).toBe("status.config");
     expect(statusKeyForTool("svn_commit")).toBe("status.vcs");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
     expect(statusKeyForTool("")).toBe("status.tool");

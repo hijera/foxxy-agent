@@ -126,6 +126,13 @@ func (m *Manager) loadOrCreateSession(ctx context.Context, id, defaultCWD string
 	if !allowCreate {
 		return nil, ErrSessionSnapshotMissing
 	}
+	// The sub_ prefix is how bundles are recognised as subagent runs. A
+	// client must not be able to mint an ordinary chat under it: the listing
+	// would hide it and a reload would turn it read-only. An existing child
+	// (live or persisted) is served above; only creation is refused.
+	if strings.HasPrefix(id, subagentSessionPrefix) {
+		return nil, fmt.Errorf("%w: %s", ErrReservedSessionID, id)
+	}
 
 	// preferredNewSessionID is a single slot on the manager: the pin and the create that
 	// consumes it have to be one atomic step, or two sessions being created at once can

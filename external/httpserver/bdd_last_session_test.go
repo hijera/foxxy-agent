@@ -172,7 +172,7 @@ func (s *lastSessionFeatureState) putLastSession(id string) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("PUT last-session returned %d", res.StatusCode)
 	}
@@ -191,7 +191,7 @@ func (s *lastSessionFeatureState) askWhichSession() error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("GET last-session returned %d", res.StatusCode)
 	}

@@ -6,6 +6,10 @@
  * The module stays free of React and of locale state: it returns i18n *keys* plus the raw
  * target, so the component owns translation and truncation and the tests can assert on
  * locale-independent values.
+ *
+ * The console TUI carries the same phrase table in Go (external/cli/status.go). The two
+ * cannot share code across the language boundary, so a tool added to one belongs in the
+ * other as well.
  */
 
 import { toolCallTargetText } from "./permissionToolPreview";
@@ -13,6 +17,7 @@ import type { TranscriptItem } from "./types";
 
 export type LiveStatusKind =
   | "reconnecting"
+  | "llmretry"
   | "mcp"
   | "permission"
   | "question"
@@ -77,6 +82,12 @@ export function statusKeyForTool(toolName: string): string {
   if (n.startsWith("foxxycode_scheduler_")) {
     return "status.schedule";
   }
+  if (n.startsWith("foxxycode_memory_")) {
+    return "status.memory";
+  }
+  if (n.startsWith("config_")) {
+    return "status.config";
+  }
   // The background family runs long by design - background_wait alone parks for up to a
   // minute - so a generic phrase here reads as a frozen row rather than as work.
   if (n.startsWith("background_")) {
@@ -116,6 +127,8 @@ export function statusKeyForTool(toolName: string): string {
       return "status.run";
     case "ssh_run_command":
       return "status.runRemote";
+    case "spawn_agent":
+      return "status.spawnAgent";
     case "mkdir":
       return "status.createDir";
     case "touch":
@@ -236,11 +249,23 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
  */
 export function deriveLiveStatus(
   items: readonly TranscriptItem[],
-  opts?: { reconnecting?: boolean; mcpConnecting?: boolean },
+  opts?: {
+    reconnecting?: boolean;
+    mcpConnecting?: boolean;
+    llmRetrying?: boolean;
+  },
 ): LiveStatus {
   if (opts?.reconnecting) {
     // Events are not arriving at all, so any tool row is stale by construction.
     return { kind: "reconnecting", key: "status.reconnecting", target: "" };
+  }
+
+  // The provider answered nothing and the turn is deliberately sitting out a pause before
+  // trying the same call again. Ranked above the transcript-derived states for the same
+  // reason as reconnecting: no model call is in flight, so every tool row is stale, and a
+  // wait measured in minutes must not read as "waiting for the model".
+  if (opts?.llmRetrying) {
+    return { kind: "llmretry", key: "status.retryingModel", target: "" };
   }
 
   // The backend told us the turn is parked before the model call, waiting for the session's
@@ -252,7 +277,8 @@ export function deriveLiveStatus(
 
   let permissionPending = false;
   let questionPending = false;
-  let tool: ToolItem | null = null;
+  let toolRunning: ToolItem | null = null;
+  let toolPending: ToolItem | null = null;
   let thinking: ThinkingItem | null = null;
   let memory: MemoryItem | null = null;
   // When the model went quiet: end of the most recent finished step in this turn.
@@ -280,8 +306,12 @@ export function deriveLiveStatus(
         }
         break;
       case "tool_call":
-        if (!tool && (it.status === "pending" || it.status === "in_progress")) {
-          tool = it;
+        // The agent announces every call as pending while the response streams,
+        // then executes sequentially: a running call beats any later pending one.
+        if (!toolRunning && it.status === "in_progress") {
+          toolRunning = it;
+        } else if (!toolPending && it.status === "pending") {
+          toolPending = it;
         }
         if (waitingFrom === undefined && typeof it.finishedAtMs === "number") {
           waitingFrom = it.finishedAtMs;
@@ -324,6 +354,7 @@ export function deriveLiveStatus(
     return { kind: "question", key: "status.awaitingAnswer", target: "" };
   }
 
+  const tool = toolRunning ?? toolPending;
   if (tool) {
     const rawName = (tool.title || tool.kind || "").trim();
     const key = statusKeyForTool(rawName);

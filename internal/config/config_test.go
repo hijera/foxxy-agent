@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -303,7 +304,9 @@ logger:
 	if cfg.Logger.Outputs[0] != config.LogOutputStderr || cfg.Logger.Outputs[1] != config.LogOutputFile {
 		t.Fatalf("unexpected outputs: %v", cfg.Logger.Outputs)
 	}
-	if cfg.Logger.File != "/tmp/foxxycode-legacy.log" {
+	// logger.file is process-scoped now, so applyDefaults cleans it; on Windows
+	// that turns the separators around without changing the path.
+	if filepath.ToSlash(cfg.Logger.File) != "/tmp/foxxycode-legacy.log" {
 		t.Fatalf("file: %q", cfg.Logger.File)
 	}
 }
@@ -373,6 +376,46 @@ agent:
 	}
 	if cfg.Models[0].Model != "openai/gpt-4o" {
 		t.Errorf("model: got %q", cfg.Models[0].Model)
+	}
+}
+
+func TestLoadNeuralDeepProviderWithMirrorAPIBase(t *testing.T) {
+	t.Setenv("NEURALDEEP_API_KEY", "nd-test-key")
+
+	content := `
+providers:
+  - name: neuraldeep
+    type: neuraldeep
+    api_base: "https://api.neuraldeep.tech/v1"
+    api_key: "${NEURALDEEP_API_KEY}"
+
+models:
+  - model: "neuraldeep/default"
+
+agent:
+  model: "neuraldeep/default"
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// The mirror is a legitimate NeuralDeep deployment, so the row keeps it and
+	// ResolveLLM carries it to the provider constructor.
+	if got := cfg.Providers[0].APIBase; got != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("api_base = %q, want the mirror", got)
+	}
+	rm, err := cfg.ResolveLLM("neuraldeep/default")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.BaseURL != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("resolved base URL = %q, want the mirror", rm.BaseURL)
 	}
 }
 
@@ -624,7 +667,6 @@ agent:
 	}
 }
 
-
 func TestMCPProjectTrustDefaultsToAskAndRejectsUnknown(t *testing.T) {
 	// An empty or unrecognised value must never widen the policy.
 	for _, in := range []string{"", "   ", "nonsense"} {
@@ -808,6 +850,49 @@ func TestCodexRejectsStreamFalse(t *testing.T) {
 	}
 }
 
+// The Settings UI reads the configuration as JSON and writes it back as YAML.
+// A skills.dirs entry with ${CWD} must survive that round trip verbatim on
+// both legs: GET reports the placeholder, PUT stores it, and the next load
+// still leaves it to the session (hijera/foxxy-agent#146).
+func TestConfigJSONRoundTripKeepsSessionCWDPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	paths := config.Paths{Home: home, CWD: launch, ConfigPath: path}
+	body := `{"providers":[{"name":"local","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"local/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"local/gpt-4o"},` +
+		`"skills":{"dirs":["${CWD}/.agents/skills","${FOXXYCODE_HOME}/skills"]}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if got := next.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("PUT lost the placeholder before writing: %q", got)
+	}
+	if got := config.ConfigToJSONDTO(next).Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("GET must report the placeholder verbatim, got %q", got)
+	}
+	yb, err := config.MarshalConfigYAML(next)
+	if err != nil {
+		t.Fatalf("marshal yaml: %v", err)
+	}
+	if err := os.WriteFile(path, yb, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := reloaded.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("reload after PUT baked the placeholder: %q", got)
+	}
+	if got, want := filepath.ToSlash(reloaded.Skills.Dirs[1]), filepath.ToSlash(filepath.Join(home, "skills")); got != want {
+		t.Fatalf("reload after PUT: skills.dirs[1] got %q want %q", got, want)
+	}
+}
+
 // TestUISchemaModelStreamDefault pins the one boolean in the settings schema whose
 // absence means true. The form seeds a new entry from schema defaults and draws an
 // unset switch from them, so a missing default here would make the UI write and
@@ -912,5 +997,196 @@ func TestAgentLLMKnobsValidation(t *testing.T) {
 	p := config.ProviderConfig{Name: "x", Type: "openai", TimeoutMS: -5}
 	if err := p.Validate(); err == nil {
 		t.Error("negative providers timeout_ms must fail validation")
+	}
+}
+
+// TestAgentStallRetryKnobs covers the stall-retry family: the master switch, the
+// delay ladder (whose last entry repeats for every later attempt), and the
+// wall-clock budget where an explicit 0 means unbounded.
+func TestAgentStallRetryKnobs(t *testing.T) {
+	unset := config.Agent{}
+	if !unset.LLMStallRetryEnabled() {
+		t.Error("stall retry must default to on")
+	}
+	if got := unset.EffectiveLLMStallTimeout(); got != 5*time.Minute {
+		t.Errorf("unset llm_stall_timeout_ms = %v, want 5m", got)
+	}
+	if got := unset.EffectiveLLMStallRetryMaxWait(); got != config.AgentDefaultLLMStallRetryMaxWaitMS*time.Millisecond {
+		t.Errorf("unset llm_stall_retry_max_wait_ms = %v, want 1h", got)
+	}
+	want := []time.Duration{time.Minute, 3 * time.Minute, 5 * time.Minute}
+	if got := unset.EffectiveLLMStallRetryDelays(); !reflect.DeepEqual(got, want) {
+		t.Errorf("unset ladder = %v, want %v", got, want)
+	}
+
+	off := false
+	if (&config.Agent{LLMStallRetry: &off}).LLMStallRetryEnabled() {
+		t.Error("llm_stall_retry: false must disable the retry")
+	}
+
+	zero := 0
+	if got := (&config.Agent{LLMStallRetryMaxWaitMS: &zero}).EffectiveLLMStallRetryMaxWait(); got != 0 {
+		t.Errorf("explicit 0 max wait = %v, want 0 (unbounded)", got)
+	}
+	if got := (&config.Agent{LLMStallTimeoutMS: &zero}).EffectiveLLMStallTimeout(); got != 0 {
+		t.Errorf("explicit 0 stall timeout = %v, want 0 (guard disabled)", got)
+	}
+
+	custom := config.Agent{LLMStallRetryDelaysMS: []int{40, 120}}
+	wantCustom := []time.Duration{40 * time.Millisecond, 120 * time.Millisecond}
+	if got := custom.EffectiveLLMStallRetryDelays(); !reflect.DeepEqual(got, wantCustom) {
+		t.Errorf("custom ladder = %v, want %v", got, wantCustom)
+	}
+}
+
+// TestAgentStallRetryValidation rejects the malformed combinations, including the
+// one pathological pairing: unbounded retries whose final pause is zero would spin
+// against the provider with no gap at all.
+func TestAgentStallRetryValidation(t *testing.T) {
+	neg := -1
+	if err := (&config.Agent{LLMStallTimeoutMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stall_timeout_ms must fail validation")
+	}
+	if err := (&config.Agent{LLMStallRetryMaxWaitMS: &neg}).Validate(); err == nil {
+		t.Error("negative llm_stall_retry_max_wait_ms must fail validation")
+	}
+	if err := (&config.Agent{LLMStallRetryDelaysMS: []int{1000, -5}}).Validate(); err == nil {
+		t.Error("negative entry in llm_stall_retry_delays_ms must fail validation")
+	}
+	zero := 0
+	a := &config.Agent{LLMStallRetryMaxWaitMS: &zero, LLMStallRetryDelaysMS: []int{0}}
+	if err := a.Validate(); err == nil {
+		t.Error("unbounded retries with a zero final delay must fail validation")
+	}
+}
+
+// Regression for hijera/foxxy-agent#146: ${CWD} is a session placeholder.
+// A config file that spells it out (skills.dirs, subagents.dirs, hooks.files,
+// prompts.dir, mcp_servers) must keep it verbatim through load so every session
+// resolves it against its own workspace, while the process-scoped directories
+// (sessions, scheduler, memory, log file) still resolve it against the default
+// working directory at load time. An environment variable that happens to be
+// named CWD must not be mistaken for the placeholder either.
+func TestLoadFromYAML_SessionCWDPlaceholderSurvivesLoad(t *testing.T) {
+	t.Setenv("CWD", filepath.Join("decoy", "env"))
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "local/gpt-4o"
+
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+    - "${FOXXYCODE_HOME}/skills"
+
+subagents:
+  dirs:
+    - "${CWD}/.foxxycode/agents"
+
+hooks:
+  files:
+    - "${CWD}/.foxxycode/hooks.json"
+
+prompts:
+  dir: "${CWD}/prompts"
+
+mcp_servers:
+  - name: fs
+    command: "${CWD}/bin/mcp-fs"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
+    env:
+      - name: PROJECT
+        value: "${CWD}"
+  - name: docs
+    type: http
+    url: "http://127.0.0.1:8080/mcp?root=${CWD}"
+    headers:
+      - name: X-Workspace
+        value: "${CWD}"
+
+sessions:
+  dir: "${CWD}/sessions"
+
+scheduler:
+  dir: "${CWD}/.scheduler"
+
+memory:
+  dir: "${CWD}/memory"
+
+logger:
+  file: "${CWD}/foxxycode.log"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: path})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+
+	perSession := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"skills.dirs[0]", cfg.Skills.Dirs[0], "${CWD}/.agents/skills"},
+		{"skills.dirs[1]", cfg.Skills.Dirs[1], filepath.Join(home, "skills")},
+		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.foxxycode/agents"},
+		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.foxxycode/hooks.json"},
+		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},
+		{"mcp_servers[0].command", cfg.MCPServers[0].Command, "${CWD}/bin/mcp-fs"},
+		{"mcp_servers[0].args[2]", cfg.MCPServers[0].Args[2], "${CWD}"},
+		{"mcp_servers[0].env[0].value", cfg.MCPServers[0].Env[0].Value, "${CWD}"},
+		{"mcp_servers[1].url", cfg.MCPServers[1].URL, "http://127.0.0.1:8080/mcp?root=${CWD}"},
+		{"mcp_servers[1].headers[0].value", cfg.MCPServers[1].Headers[0].Value, "${CWD}"},
+	}
+	for _, tc := range perSession {
+		// ${FOXXYCODE_HOME} is substituted with forward slashes; compare slash-normalised.
+		if filepath.ToSlash(tc.got) != filepath.ToSlash(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+
+	// The consumers resolve the placeholder against the session that asks.
+	sessionCWD := filepath.Join(dir, "project")
+	if got, want := cfg.Prompts.ResolvedDir(sessionCWD), filepath.Join(sessionCWD, "prompts"); got != want {
+		t.Errorf("prompts.ResolvedDir(session): got %q want %q", got, want)
+	}
+	// internal/mcp resolves command, args, env, url and headers with the same
+	// config.ExpandCWD at connect time (see stdioSpec and expandHeaders there).
+	if got, want := config.ExpandCWD(cfg.MCPServers[0].Args[2], sessionCWD), sessionCWD; got != want {
+		t.Errorf("mcp arg ExpandCWD(session): got %q want %q", got, want)
+	}
+	if got, want := config.ExpandCWD(cfg.MCPServers[1].URL, sessionCWD), "http://127.0.0.1:8080/mcp?root="+sessionCWD; got != want {
+		t.Errorf("mcp url ExpandCWD(session): got %q want %q", got, want)
+	}
+
+	processScoped := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
+		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
+		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
+		{"logger.file", cfg.Logger.File, filepath.Join(launch, "foxxycode.log")},
+	}
+	for _, tc := range processScoped {
+		if filepath.Clean(tc.got) != filepath.Clean(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
 	}
 }

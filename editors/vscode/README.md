@@ -82,7 +82,7 @@ Install the built VSIX via **Extensions: Install from VSIX…** in the Command P
 ### Tests
 
 ```sh
-npm test                # vitest: i18n, binaryResolver, portUtil, editEvent, lineFragments, prepareBinary
+npm test                # vitest: i18n, binaryResolver, execCapture, portUtil, editEvent, lineFragments, projectRelativePaths, terminalCapturePolicy, prepareBinary, build
 npm run typecheck       # tsc --noEmit
 npm run compile         # esbuild bundle to out/extension.js
 ```
@@ -100,20 +100,43 @@ On first activation the extension opens the **Get started with FoxxyCode** walkt
    before launching VS Code), then chat, schedule jobs, browse skills, use plan mode, etc.
 
 Reconfigure anytime in **Settings → Extensions → FoxxyCode**: optional binary path override (leave
-empty to use the bundled foxxycode), host, port (0 = auto), FoxxyCode home, extra `foxxycode http`
-args, **"Match FoxxyCode UI theme to the VS Code color theme"**, native inline diffs, and auto-apply
-edits. The UI language is **not** an extension setting — it is set once in the FoxxyCode UI
-(**Settings → General**) and shared across the whole app. Toolbar buttons on the webview title bar:
-Restart, Reload, Open in Browser, Open DevTools, Settings. The extension version is shown next to
-the view name in the sidebar header (and in the editor tab title when opened via **Open Panel**).
+empty to use the bundled foxxycode; the **Verify binary** link under it, or **FoxxyCode: Verify
+Binary** in the Command Palette, runs the binary and reports its version and whether it is a full
+build), host, port (0 = auto; a fixed port that is already taken is reported as such instead of a
+generic start failure), FoxxyCode home, extra `foxxycode http` args, **"Match FoxxyCode UI theme to
+the VS Code color theme"**, native inline diffs, auto-apply edits, open-file and terminal tracking,
+and the opt-in **terminal clipboard capture** (see below). The UI language is **not** an extension
+setting — it is set once in the FoxxyCode UI (**Settings → General**) and shared across the whole
+app. Toolbar buttons on the webview title bar: Restart, Reload, Open in Browser, Open DevTools,
+Settings. The extension version is shown next to the view name in the sidebar header (and in the
+editor tab title when opened via **Open Panel**).
 
-### Attaching files by drag and drop
+### Attaching files
 
-Drag a file from the **Explorer**, or an open **editor tab**, onto the composer to insert it as an
-`@`-mention carrying its full workspace-relative path. **Hold `Shift` while
-dragging** — VS Code disables pointer events over webviews during a workbench drag unless `Shift`
-is held, so without it the drop lands on the editor group behind the panel. This is a VS Code
-platform behaviour, not a FoxxyCode setting.
+**Add to FoxxyCode** in the context menu of the **Explorer** (multi-select aware), of an **editor
+tab**, or of the **editor** itself inserts the file(s) into the composer as `@`-mentions carrying
+their full workspace-relative path. The FoxxyCode view is opened (and the server started) if it is
+not up yet; the mentions land once the UI has loaded. Files outside the first workspace folder
+(the backend's `--cwd`) are skipped.
+
+Drag and drop onto the composer also works: drag a file from the **Explorer**, or an open **editor
+tab**, onto the composer. **Hold `Shift` while dragging** — VS Code disables pointer events over
+webviews during a workbench drag unless `Shift` is held, so without it the drop lands on the editor
+group behind the panel. This is a VS Code platform behaviour, not a FoxxyCode setting; the context
+menu command above is the Shift-free alternative.
+
+### Terminal output
+
+With *Track terminals* on, the extension reports every open terminal (name, shell, cwd, focus) and
+the output of commands captured through VS Code's shell integration (1.93+), which only sees
+commands that start after the extension is running. Enable **Terminal clipboard capture** to also
+snapshot the *active* terminal's visible buffer — scrollback from before activation, terminals
+without shell integration — the way cline does: select all → copy → read → restore the clipboard.
+It runs when the active terminal changes and when the FoxxyCode panel is shown, at most every two
+seconds per terminal, and not while shell integration delivered output in the last few seconds. The
+clipboard is restored right after each snapshot, but clipboard-history tools (Windows `Win+V`,
+macOS clipboard managers) will still record it, and a non-text clipboard payload (an image) cannot
+be restored; that is why it is off by default.
 
 ### Language
 
@@ -167,6 +190,13 @@ channel (View → Output → FoxxyCode). If the UI goes blank, run **FoxxyCode: 
 inspect the embedded webview; uncaught JS errors in the SPA also surface as a red overlay at the
 bottom of the panel.
 
+- **"Port N is already in use by another process"** — `foxxycode.port` is fixed and something
+  else (another VS Code window, a backend from a previous extension version still shutting down)
+  holds it. The extension waits up to 3 s for it to free up before giving up. Free the port or set
+  it back to 0 (auto).
+- **FoxxyCode: Verify Binary** — checks that the binary in use (the override, or the bundled one)
+  runs and is a full `http ui` build; the result is also written to the output channel.
+
 ## Layout
 
 ```
@@ -177,11 +207,18 @@ src/
   i18n/bundle.ts                  localized strings (en + ru); 1:1 with the IntelliJ bundle
   package.nls.json                VS Code NLS (English) for package.json %key% surfaces
   package.nls.ru.json             VS Code NLS (Russian) for package.json %key% surfaces
-  binary/binaryResolver.ts        OS/arch → bundled foxxycode binary path; validate()
-  process/portUtil.ts             free-port picker
+  binary/binaryResolver.ts        OS/arch → bundled foxxycode binary path; validateBinary()
+  binary/execCapture.ts           run the binary, merged stdout+stderr (Verify Binary)
+  process/portUtil.ts             free-port picker + fixed-port availability wait
   process/processManager.ts       per-workspace process lifecycle + readiness polling
+  ide/projectRelativePaths.ts     workspace-relative POSIX paths for Add to FoxxyCode (pure)
+  ide/editorStatePayload.ts       open tabs / selection payload (pure)
+  ide/editorStateService.ts       POST /foxxycode/ide/editor-state
+  ide/terminalStatePayload.ts     terminal snapshot payload + ANSI stripping (pure)
+  ide/terminalCapturePolicy.ts    when/how the clipboard screen capture runs (pure)
+  ide/terminalStateService.ts     POST /foxxycode/ide/terminal-state; shell integration + capture
   util/http.ts                    GET (readiness) + POST (permission) helpers
-  webview/panel.ts                WebviewPanel + WebviewView host; iframe + CSP + theme/lang sync
+  webview/panel.ts                WebviewPanel + WebviewView host; iframe + CSP + theme/lang sync + mention relay
   webview/themeBridge.ts          VS Code color theme → foxxycode theme id
   webview/firstRun.ts             first-run walkthrough opener + WALKTHROUGH_ID
   diff/editEvent.ts               one `edit_proposed`/`edit_applied` SSE event
@@ -190,5 +227,15 @@ src/
   diff/ideDiffService.ts          decorations + Accept/Reject/Revert + diff editor + revert
 scripts/
   prepare-binary.mjs              cross-compile foxxycode for one or all targets
+  stamp-changelog.mjs             rewrite `## Unreleased` in CHANGELOG.md to the packaged version
 test/                             vitest unit tests (no vscode dependency)
+CHANGELOG.md                      user-facing change notes (Russian); the extension's Changelog tab
 ```
+
+## Changelog
+
+`CHANGELOG.md` is shown verbatim on the extension page (**Changelog** tab), so it is written in
+Russian for users, newest section first. While a PR is open its section is headed
+`## Unreleased — YYYY-MM-DD`; `make vscode-package` stamps that heading with the release tag in
+the packaged copy and restores the file afterwards. Which changelog a change belongs in (this
+one, the IntelliJ one, or both) is spelled out in `.claude/rules/release-changelog.md`.

@@ -70,7 +70,7 @@ func openAPISpec() map[string]interface{} {
 						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: foxxycode_meta`** before **`[DONE]`**). Otherwise JSON. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
-						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
+						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"The last entry in **messages** must have role **user**.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
@@ -119,7 +119,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -140,7 +140,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (provider counters accumulated over the turn so far, so `inputTokens` + `outputTokens` == `totalTokens`), **usage_update** (`used` / `size` for the current context window), **mcp_phase** (`{\"phase\":\"connecting\"}` then `{\"phase\":\"ready\"}`, emitted only when the turn has to wait for the session's configured MCP servers to finish connecting — transient status, not a transcript row), **llm_retry** (`{\"phase\":\"waiting\",\"attempt\":1,\"delayMs\":60000}` then `{\"phase\":\"retrying\"}`, emitted only while a turn is parked between two attempts at the same model call because the provider produced no output — transient status, not a transcript row), **`foxxycode_meta`** (effective **`metadata`** map last; for agent/plan/docs/ask/debug turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -195,12 +195,18 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
-						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**.",
+						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
+						"Child sessions of subagent runs (**subagentRun** metadata, **sub_** ids) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
 					"parameters": append(foxxycodePagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include scheduler-run session directories in the list.",
+					}, map[string]interface{}{
+						"name":        "include_subagents",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
 					}, map[string]interface{}{
 						"name":        "include_activity",
 						"in":          "query",
@@ -316,7 +322,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List slash commands from skills (paginated)",
 					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
-						"When **X-FoxxyCode-Session-ID** is set (existing session), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
+						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default cwd applies.",
 					"operationId": "listSlashCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -629,6 +635,50 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/workspace/file": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read one workspace text file as display lines",
+					"description": "Backs the composer's line-range picker, the panel that opens while typing **`@path:`** so a ranged mention (**`@path:21-31`**) can be pointed at. " +
+						"**`path_rel`** is workspace-relative and never escapes session **cwd**. Legacy encodings are decoded to UTF-8 and files over 512 KiB are refused. " +
+						"A trailing newline adds no empty last line and CRLF files lose the stray **`\\r`**. **`max_lines`** (1 to 5000, default 2000) caps **`lines`**; **`total_lines`** always counts the whole file and **`truncated`** says whether the cap applied. " +
+						"A directory, a binary or otherwise undecodable file, and a traversing path yield **400**; a missing file yields **404**.",
+					"operationId": "foxxycodeWorkspaceFileGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the read root.",
+						},
+						map[string]interface{}{
+							"name": "path_rel", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Workspace-relative file path.",
+						},
+						map[string]interface{}{
+							"name": "max_lines", "in": "query", "required": false,
+							"schema": map[string]interface{}{
+								"type": "integer", "minimum": 1, "maximum": 5000, "default": 2000,
+							},
+							"description": "Cap on returned lines.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "File content split into display lines",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/FoxxyCodeWorkspaceFile",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/workspace/context": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree, svn branch)",
@@ -671,7 +721,9 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
 					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-FoxxyCode-Session-ID`**, else the server default cwd). " +
-						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**.",
+						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**. " +
+						"**`path=:drives:`** lists the machine's drive roots instead (Windows only; **400** elsewhere), and the **`parent`** " +
+						"of a drive root is **`:drives:`** so the picker can walk up out of a volume.",
 					"operationId": "foxxycodeWorkspaceFoldersGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -682,7 +734,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "path", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Absolute folder to list.",
+							"description": "Absolute folder to list, or **`:drives:`** for the drive level.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -696,6 +748,10 @@ func openAPISpec() map[string]interface{} {
 											"object": map[string]interface{}{"type": "string", "example": "foxxycode.workspace_folders"},
 											"path":   map[string]interface{}{"type": "string"},
 											"parent": map[string]interface{}{"type": "string"},
+											"drives": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and **`true`** only on the **`:drives:`** level, whose rows are drive roots rather than folders.",
+											},
 											"folders": map[string]interface{}{
 												"type": "array",
 												"items": map[string]interface{}{
@@ -710,10 +766,69 @@ func openAPISpec() map[string]interface{} {
 									},
 								},
 							},
-							"400": errorResponseRef(),
-							"404": errorResponseRef(),
-							"500": errorResponseRef(),
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"post": map[string]interface{}{
+					"summary": "Create a subfolder for the workspace folder picker",
+					"description": "Creates **`name`** inside **`path`** (default: session cwd via **`X-FoxxyCode-Session-ID`**, else the server default cwd) and answers with the " +
+						"**listing of the folder just created**, so the picker can step into it and open it as the workspace. " +
+						"**`name`** must be a single new entry: an empty name, **`.`**, **`..`**, a volume name, or anything containing **`/`** or **`\\`** yields **400**, and so does a " +
+						"parent that does not exist (the chain is never created) or the **`:drives:`** level, which has no directory behind it. " +
+						"An existing folder of that name yields **409**.",
+					"operationId": "foxxycodeWorkspaceFoldersPost",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the default parent folder.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"name"},
+									"properties": map[string]interface{}{
+										"path": map[string]interface{}{
+											"type":        "string",
+											"description": "Absolute folder the new one is created in. Defaults to the session **cwd**.",
+										},
+										"name": map[string]interface{}{
+											"type":        "string",
+											"description": "Name of the new folder: one entry, no path separators.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Listing of the folder that was created (empty **`folders`**)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":  map[string]interface{}{"type": "string", "example": "foxxycode.workspace_folders"},
+											"path":    map[string]interface{}{"type": "string"},
+											"parent":  map[string]interface{}{"type": "string"},
+											"folders": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object"}},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -735,10 +850,47 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/config/reasoning-levels": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Reasoning levels a model id offers (UI)",
+					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The provider type decides the Codex remap (**`minimal`** becomes **`none`**): **`provider_type`**, when sent, is the type currently chosen in the settings form and wins over the saved config, so an unsaved or just-retyped provider row is honoured; without it the **`model`** provider prefix is looked up in the active config. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**, reported as the flat **`{\"ok\":false,\"error\":...}`** the other **`/foxxycode/config`** routes use.",
+					"operationId": "foxxycodeConfigReasoningLevelsGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "model",
+							"in":          "query",
+							"required":    true,
+							"description": "Logical model id in the form **`provider_name/api_model_id`**. It need not be saved in **`models[]`** yet.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "valera/qwen3.8-27b",
+						},
+						map[string]interface{}{
+							"name":        "provider_type",
+							"in":          "query",
+							"required":    false,
+							"description": "Wire type of the provider currently chosen for this model in the settings form (**`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**). Overrides the saved provider's type for the Codex remap so an unsaved or just-retyped provider row resolves correctly; omit to use the saved config.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "codex",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Resolved levels, or `ok:false` with `error` for a malformed model id",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/FoxxyCodeReasoningLevelsResponse"},
+								},
+							},
+						},
+						"400": foxxycodeConfigErrorResponse("Missing `model` query parameter"),
+						"500": foxxycodeConfigErrorResponse("Configuration unavailable"),
+					},
+				},
+			},
 			"/foxxycode/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers).",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${FOXXYCODE_HOME}`** and the process-scoped directories are returned expanded.",
 					"operationId": "foxxycodeConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -754,7 +906,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically, and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -814,7 +966,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI.",
+					"description": "Returns **turnActive** (turn in flight in this process or holding the exclusive turn lock), **activitySeq**, **readActivitySeq**, **unreadComplete**, and **permissionPending** (a persisted permission gate is awaiting the user) for multi-surface UI. A session live in this process also reports **messageSeq**, the number of messages in its transcript: unlike **activitySeq**, which advances once per *completed* turn, it moves **within** a turn, so a client polling a long one can tell whether a transcript reload would return anything new. It is absent for a session only on disk, because this route stays a cheap disk probe and does not load a bundle.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -893,7 +1045,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/background-tasks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Background tasks of a session",
-					"description": "Lists commands the agent started with **run_command** **`background: true`**. Each row carries **id**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **foxxycode** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id}`** naming the definition and the child session whose transcript **GET /foxxycode/sessions/{session_id}/messages** serves). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. A **kind agent** row also carries **pending_permission** while a detached subagent behind it is blocked on a permission prompt: the same payload the SSE **permission** event carries (**sessionId** - the **child** session - **toolCall**, **options**) plus **agent_name** and **asked_at**. The parent turn that spawned such a run has ended, so the prompt has no stream to appear in; answer it with **POST /foxxycode/sessions/{child session}/permission**. It is never persisted: a prompt cannot outlive the process that raised it. The task pool lives in the running **foxxycode** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -973,10 +1125,148 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/subagents": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Subagent definitions visible from a workspace",
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${FOXXYCODE_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.foxxycode/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, the bounds the definition declares (**tools**, **disallowed_tools**, **permission_mode**, **timeout_seconds**, **max_turns**, **background**, **role_bytes**) so an approval surface can show what it is approving, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
+					"operationId": "listSubagents",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "foxxycode.subagent_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/subagents/{name}/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project subagent definition for a workspace",
+					"description": "Records a receipt in **`<home>/subagents-trust.json`** binding the workspace, the definition name and the digest of its current file content, so **spawn_agent** may run it under **`subagents.project_trust: ask`**. Rewriting the file changes the digest and withdraws the approval. " +
+						"Optional body **`{\"cwd\": ...}`** selects the workspace (default: the server's default cwd). **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/subagents/{name}/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project subagent approval",
+					"description": "Removes the receipt of the named definition for the workspace (optional body **`{\"cwd\": ...}`**, default: the server's default cwd). Withdrawing an approval that was never on file, or naming a built-in or user-scope definition, changes nothing and still answers with the current entry. **404** when no definition of that name is visible from the workspace; **400** for a malformed body or a relative **cwd**.",
+					"operationId": "untrustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/hooks": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Hook definition files visible from a workspace",
+					"description": "Lists the hook definition files a session with this **cwd** would load, in load order (**`hooks.files`**: the operator's **`${FOXXYCODE_HOME}/hooks.json`**, then the workspace's **`.claude/settings.json`**, **`.claude/settings.local.json`** and **`.foxxycode/hooks.json`**). " +
+						"Each item carries **file** (the name receipts use: the workspace-relative path for project scope, the absolute path otherwise), **path**, **scope** (**user**, **project**), **digest** (SHA-256 of the file), the trust decision for this workspace (**trust**, mirrored as **trusted** and **needs_approval**), **error** for a file that does not parse, **warnings**, and **hooks**: one row per handler with its event, matcher, command and flags. " +
+						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See **`docs/hooks.md`**.",
+					"operationId": "listHooks",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "foxxycode.hook_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/hooks/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project hooks file for a workspace",
+					"description": "Records a receipt in **`<home>/hooks-trust.json`** binding the workspace, the file and the digest of its current content, so its hooks run under **`hooks.project_trust: ask`** from the next turn. Rewriting the file changes the digest and withdraws the approval. " +
+						"Body **`{\"cwd\": ..., \"file\": ...}`**: **cwd** selects the workspace (default: the server's default cwd; it must be the session's server-side workspace, since receipts are keyed by that path) and **file** names the file as **GET /foxxycode/hooks** lists it. **404** when no such file is visible from the workspace; **400** for a user-scope file (nothing to approve), a file that does not parse, a missing **file**, a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/hooks/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project hooks file approval",
+					"description": "Removes the receipt of the named file for the workspace (same body as the trust route). Withdrawing an approval that was never on file changes nothing and still answers with the current entry. **404** when no such file is visible from the workspace; **400** for a missing **file**, a malformed body or a relative **cwd**.",
+					"operationId": "untrustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
+					"description": "Set **title** (pinned title), **mode** (session profile: **`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**; **400** for anything else), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **mode** persists the profile without sending a turn, so a client that switches Mode and reloads gets it back; a turn sets it too, through the top-level **`model`** of **POST /v1/responses**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -992,6 +1282,7 @@ func openAPISpec() map[string]interface{} {
 									"type": "object",
 									"properties": map[string]interface{}{
 										"title":             map[string]string{"type": "string"},
+										"mode":              map[string]string{"type": "string"},
 										"selectedModelId":   map[string]string{"type": "string"},
 										"selectedReasoning": map[string]string{"type": "string"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
@@ -1009,6 +1300,7 @@ func openAPISpec() map[string]interface{} {
 				"delete": map[string]interface{}{
 					"summary": "Delete a persisted session",
 					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
+						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first, so nothing writes into a removed directory. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
 						"A session that forked from another is also retracted from the **branches.json** of its source, and a branch point left with a single thread is dropped, so the branch navigator never points at a bundle that is gone. " +
 						"Deleting an id with no bundle on disk still answers **200**.",
 					"operationId": "foxxycodeSessionDelete",
@@ -1035,6 +1327,14 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "Nothing was removed: either a cancelled turn of the session tree was still running after the settle timeout, or descendants kept appearing while the tree was being marked. Retry once the tree is quiet.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
@@ -1091,6 +1391,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The source is a subagent child session (**sub_** ids): its transcript is read-only and cannot be forked; branch the parent instead.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 					},
 				},
@@ -1204,7 +1512,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The workspace is locked (the conversation already has messages), or the session is a subagent child (**sub_** ids) whose transcript is read-only.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 					},
 				},
@@ -1212,11 +1527,12 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** is the stored session profile (**`agent`**, **`plan`**, **`docs`**, **`ask`** or **`debug`**), so a client restores the composer's Mode on load instead of dropping every reopened session back to **agent**. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
-						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows.",
+						"Immediately after **POST /foxxycode/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
+						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1338,10 +1654,37 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/stream-tickets": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Mint a single-use ticket for an SSE subscription",
+					"description": "EventSource cannot set an **Authorization** header, so the SSE routes accept a credential as **`?access_token=`** - and a query string reaches access logs, proxy logs, browser history and **Referer** headers. This route trades the durable token for a weaker one: authenticate normally with **Authorization: Bearer**, receive **`{object, ticket, expiresIn, expiresAt}`**, and pass **`ticket`** as **`?access_token=`** on **GET /foxxycode/events** or **GET /foxxycode/sessions/{id}/composer-stream**. The ticket is accepted once, on those two routes only, and expires after 60 seconds, so the value that lands in a log is already spent. Tickets live in the server process and do not survive a restart. Answers **409** when no token is configured, because a ticket would then authenticate nothing. Set **`httpserver.stream_tickets_only: true`** to make this the only accepted query credential.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "A freshly minted stream ticket (Cache-Control: no-store)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"ticket":    map[string]string{"type": "string"},
+											"expiresIn": map[string]string{"type": "integer"},
+											"expiresAt": map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"401": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -1351,7 +1694,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask**/**debug** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**docs**/**ask**/**debug** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). This also covers the **autonomous turn** a finished **notify_on_finish** background task wakes: that turn registers a relay of its own, so a client watching the session sees it live rather than only after a reload. While a turn is running but no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). When no turn is in flight for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream** instead of waiting, so a client can fall back to the persisted transcript. Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids. Because EventSource cannot set an **Authorization** header, this route also accepts **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1380,10 +1723,153 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/completion": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Suggest the code to insert at the caret",
+					"description": "Inline code autocomplete for editor plugins: one LLM call with no tools, no session and no agent loop, returning the text to insert at the caret as a greyed suggestion. **`prefix`** and **`suffix`** are the code on either side of the caret; both are truncated server-side to **`autocomplete.max_prefix_bytes`** / **`autocomplete.max_suffix_bytes`**. Per **`autocomplete.mode`** the hole reaches the model either as native fill-in-the-middle tokens through a raw completion (**`mode: \"fim\"`** in the reply) or as a chat prompt (**`\"chat\"`**); in **`auto`** a raw call that fails switches that model to chat for the rest of the process. Up to **`autocomplete.related_files`** other open workspace files (from **`POST /foxxycode/ide/editor-state`**) are excerpted into the prompt. The server decides per request whether a block or a single line is appropriate, sends matching stop sequences, streams and cuts the reply where the block ends, and cleans it of fences, re-typed caret text and anything already present in the suffix, so it can be inserted verbatim. Cancel by dropping the connection — the upstream call is bound to the request context. When **`autocomplete.enabled`** is false the endpoint answers **`200`** with an empty completion and **`enabled: false`** so clients stop asking, rather than an error status.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"prefix":   map[string]interface{}{"type": "string", "description": "Code before the caret."},
+										"suffix":   map[string]interface{}{"type": "string", "description": "Code after the caret."},
+										"path":     map[string]interface{}{"type": "string", "description": "File path, used only as a prompt hint."},
+										"language": map[string]interface{}{"type": "string", "description": "Language id, used only as a prompt hint."},
+										"debug":    map[string]interface{}{"type": "boolean", "description": "When true the reply also carries **`raw`** (the model's text before cleaning), **`multi_line`** and **`stops`**, so a quality harness can tell a bad model answer from an over-eager filter."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Suggestion (possibly empty)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"completion": map[string]interface{}{"type": "string", "description": "Text to insert at the caret; empty when nothing is suggested."},
+											"model":      map[string]interface{}{"type": "string", "description": "Logical model id that produced the suggestion."},
+											"mode":       map[string]interface{}{"type": "string", "enum": []string{"fim", "chat", ""}, "description": "How the model was asked: native fill-in-the-middle or a chat prompt; empty when no model was called."},
+											"enabled":    map[string]interface{}{"type": "boolean", "description": "False when autocomplete is switched off in config."},
+											"timed_out":  map[string]interface{}{"type": "boolean", "description": "Present and true when the model did not answer within autocomplete.timeout_ms; the completion is then empty."},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"429": map[string]interface{}{
+							"description": "The model provider rate-limited the request; **`Retry-After`** (seconds) says how long automatic requests should pause.",
+							"headers": map[string]interface{}{
+								"Retry-After": map[string]interface{}{"schema": map[string]string{"type": "integer"}},
+							},
+						},
+						"502": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/completion/config": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read the autocomplete settings an editor client needs",
+					"description": "The subset of **`config.autocomplete`** an editor plugin needs before it can behave: whether to run at all, when to ask, and how much context to send. Clients read this instead of the whole config document, so the knobs stay in one place. Unset fields come back with their defaults applied.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Client-facing autocomplete settings",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"enabled":          map[string]interface{}{"type": "boolean"},
+											"trigger":          map[string]interface{}{"type": "string", "enum": []string{"auto", "manual"}},
+											"debounce_ms":      map[string]interface{}{"type": "integer"},
+											"multi_line":       map[string]interface{}{"type": "boolean"},
+											"timeout_ms":       map[string]interface{}{"type": "integer"},
+											"max_prefix_bytes": map[string]interface{}{"type": "integer"},
+											"max_suffix_bytes": map[string]interface{}{"type": "integer"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/completion/stats": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Inline completion counters",
+					"description": "Process-wide numbers that say whether inline completion is fast enough and accepted often enough to keep: requests split by outcome (served, empty, errors, cancelled) and by prompt mode (fim, chat, fim_fallback), latency (average and worst), token cost, and the editor-reported outcomes posted to **`POST /foxxycode/completion/feedback`** (shown, accepted, dismissed, cache_hits) with the resulting **`acceptance_rate`**.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Counters",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"requests":          map[string]interface{}{"type": "integer"},
+											"served":            map[string]interface{}{"type": "integer"},
+											"empty":             map[string]interface{}{"type": "integer"},
+											"errors":            map[string]interface{}{"type": "integer"},
+											"cancelled":         map[string]interface{}{"type": "integer"},
+											"timeouts":          map[string]interface{}{"type": "integer", "description": "Requests the model did not answer within autocomplete.timeout_ms."},
+											"rate_limited":      map[string]interface{}{"type": "integer", "description": "Requests the provider refused with 429, passed on to the client as 429 + Retry-After."},
+											"fim":               map[string]interface{}{"type": "integer"},
+											"chat":              map[string]interface{}{"type": "integer"},
+											"fim_fallback":      map[string]interface{}{"type": "integer"},
+											"fim_empty":         map[string]interface{}{"type": "integer", "description": "Raw FIM calls that answered 200 with nothing and were re-issued as chat; a streak retires FIM for that model."},
+											"reasoning_retries": map[string]interface{}{"type": "integer", "description": "Chat calls re-issued without stop sequences because the model reasons before answering and the stops cut the reasoning short; such models get no stops afterwards."},
+											"latency_avg_ms":    map[string]interface{}{"type": "integer"},
+											"latency_max_ms":    map[string]interface{}{"type": "integer"},
+											"prompt_tokens":     map[string]interface{}{"type": "integer"},
+											"output_tokens":     map[string]interface{}{"type": "integer"},
+											"shown":             map[string]interface{}{"type": "integer"},
+											"accepted":          map[string]interface{}{"type": "integer"},
+											"dismissed":         map[string]interface{}{"type": "integer"},
+											"cache_hits":        map[string]interface{}{"type": "integer"},
+											"acceptance_rate":   map[string]interface{}{"type": "number"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/completion/feedback": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report what happened to a suggestion",
+					"description": "Editor plugins post one event per outcome so the counters in **`GET /foxxycode/completion/stats`** can pair model-side cost with user-side value: **`shown`** (a suggestion was drawn), **`accepted`** (Tab), **`dismissed`** (Escape), **`cache_hit`** (re-rendered from the editor's prefix cache without a request).",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"event"},
+									"properties": map[string]interface{}{
+										"event": map[string]interface{}{"type": "string", "enum": []string{"shown", "accepted", "dismissed", "cache_hit"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Counted"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/foxxycode/ide/editor-state": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Report the IDE's open tabs and active file",
-					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push the currently open editor tabs and the focused file here whenever the editor selection changes. The latest snapshot is injected into subsequent agent turns as a **`<foxxycode_ide_context>`** block so the model knows which files the user is actively viewing. Paths are absolute; **`openFiles`** may be empty and **`activeFile`** may be omitted.",
+					"description": "Native editor clients (VSCode extension, IntelliJ plugin) push the currently open editor tabs, the focused file, and optionally the current text selection here whenever the editor state changes. The latest snapshot is injected into subsequent agent turns as a **`<foxxycode_ide_context>`** block so the model knows which files the user is actively viewing. Paths are absolute; **`openFiles`** may be empty and **`activeFile`** / **`selection`** may be omitted.",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -1400,6 +1886,16 @@ func openAPISpec() map[string]interface{} {
 											"type":        "string",
 											"description": "Absolute path of the focused editor, if any.",
 										},
+										"selection": map[string]interface{}{
+											"type":        "object",
+											"description": "Current text selection, if any. Injected as a `# Selection` section of the IDE context block and offered to the paste-to-chip copy ring.",
+											"properties": map[string]interface{}{
+												"file":      map[string]interface{}{"type": "string", "description": "Absolute path of the file the selection is in."},
+												"startLine": map[string]interface{}{"type": "integer", "description": "1-based first selected line."},
+												"endLine":   map[string]interface{}{"type": "integer", "description": "1-based last selected line (inclusive)."},
+												"text":      map[string]interface{}{"type": "string", "description": "Selected text (server caps at 16 KiB)."},
+											},
+										},
 									},
 								},
 							},
@@ -1407,6 +1903,75 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"204": map[string]interface{}{"description": "Snapshot stored"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/ide/copy-buffer": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Report a fragment copied in the IDE",
+					"description": "IDE clients with real clipboard events (IntelliJ plugin) push each copied fragment here: a file fragment carries the absolute source path and 1-based inclusive line range, a terminal fragment carries the terminal name. Candidates feed **`POST /foxxycode/ide/paste-classify`** (paste-to-chip). The ring keeps the 5 most recent candidates for 15 minutes; blank or oversize (>64 KiB) texts are dropped.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"kind", "text"},
+									"properties": map[string]interface{}{
+										"kind":         map[string]interface{}{"type": "string", "enum": []interface{}{"file", "terminal"}, "description": "Where the fragment was copied from."},
+										"path":         map[string]interface{}{"type": "string", "description": "Absolute source file path (kind \"file\")."},
+										"startLine":    map[string]interface{}{"type": "integer", "description": "1-based first copied line (kind \"file\")."},
+										"endLine":      map[string]interface{}{"type": "integer", "description": "1-based last copied line, inclusive (kind \"file\")."},
+										"terminalName": map[string]interface{}{"type": "string", "description": "Source terminal name (kind \"terminal\")."},
+										"text":         map[string]interface{}{"type": "string", "description": "The copied text, verbatim."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Candidate stored"},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/ide/paste-classify": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Classify pasted text against recent IDE copies",
+					"description": "The chat composer posts pasted text here to decide whether it is a fragment recently copied in the IDE (paste-to-chip). Match precedence: exact match (after CRLF/LF normalization) against the copy-buffer ring, then against the current editor selection, then substring match against tracked terminal buffers. Single-line pastes under 16 characters and pastes over 64 KiB always return **`none`**. File paths outside the workspace return **`none`**. Optional **`X-FoxxyCode-Session-ID`** header selects the session cwd used for relativization.",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"text"},
+									"properties": map[string]interface{}{
+										"text": map[string]interface{}{"type": "string", "description": "The pasted text, verbatim."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Classification result",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"kind":         map[string]interface{}{"type": "string", "enum": []interface{}{"none", "file", "terminal"}},
+											"pathRel":      map[string]interface{}{"type": "string", "description": "Workspace-relative POSIX path (kind \"file\")."},
+											"startLine":    map[string]interface{}{"type": "integer", "description": "1-based first line (kind \"file\")."},
+											"endLine":      map[string]interface{}{"type": "integer", "description": "1-based last line, inclusive (kind \"file\")."},
+											"terminalName": map[string]interface{}{"type": "string", "description": "Terminal name for an `@terminal:<name>` mention; empty means use the bare `@terminal` token (kind \"terminal\")."},
+										},
+									},
+								},
+							},
+						},
 						"400": errorResponseRef(),
 					},
 				},
@@ -1481,7 +2046,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** normally holds no prompt of its own - its requests are relayed to the parent chat - and answers **409**. The one exception is a **detached** child whose parent turn has ended: its prompt is published on the parent's background task row as **pending_permission** and is answered here under the **child's** id, which the payload's **sessionId** carries. A **409** therefore means only that nobody is waiting on that id. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-FoxxyCode-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -1513,6 +2078,7 @@ func openAPISpec() map[string]interface{} {
 						"204": map[string]interface{}{"description": "Permission choice accepted"},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 					},
 				},
 			},
@@ -1561,9 +2127,17 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/foxxycode/skills": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "List skills",
-					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.foxxycode/skills/.disabled`).",
+					"summary": "List skills",
+					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.foxxycode/skills/.disabled`). " +
+						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default cwd applies.",
 					"operationId": "listSkills",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-FoxxyCode-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Optional session whose cwd scopes skill path expansion.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Skill list",
@@ -1640,13 +2214,19 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get NeuralDeep sign-in status",
-					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved, and so is a saved row of another type that the form has just retyped to neuraldeep (the credential file is keyed by name alone).",
 					"operationId": "getProviderNeuralDeepAuth",
-					"parameters":  []interface{}{codexProviderNameParameter()},
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "api_base", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Endpoint currently picked in the settings form (`https://api.neuraldeep.ru/v1` or `https://api.neuraldeep.tech/v1`), possibly unsaved. Omitted or unrecognized: the saved row's endpoint, falling back to the default deployment like requests do.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -1658,7 +2238,6 @@ func openAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
-						"409": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -1666,7 +2245,15 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `foxxycode`. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow for client `foxxycode`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/NeuralDeepAuthDeviceStartRequest"},
+							},
+						},
+					},
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
@@ -1674,6 +2261,26 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
 						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/providers/{name}/usage": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get provider account usage",
+					"description": "Account usage behind a provider row, for the status bar of every surface. Today only `neuraldeep` rows have a source: the hub's read-only `GET /v1/limits`, read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows); `{ok:false, unsupported:true}` for a provider type without a source; `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server.",
+					"operationId": "getProviderUsage",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "`1` asks for a fresh read instead of the cached snapshot, subject to the pacing floor.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Account usage answer.", "#/components/schemas/ProviderUsageAnswer"),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -2127,7 +2734,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**; codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,vision}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name,vision}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. **`vision`** is omitted unless the catalog advertises image input (**`capabilities.vision`** or **`modalities.input`** containing **`image`**); it is advisory - the UI seeds the `models[].multimodal` default from it and the user can override. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -2196,7 +2803,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript (coddy compaction engine). As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript (coddy compaction engine). As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running). A child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -2326,13 +2933,21 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 				"patch": map[string]interface{}{
-					"summary":     "Update design plan frontmatter fields",
-					"description": "Partial update of **name**, **overview**, and **todos** without touching the markdown body.",
+					"summary":     "Update design plan frontmatter fields, or run the plan",
+					"description": "Partial update of **name**, **overview**, and **todos** without touching the markdown body. Body **`{\"runPlan\": true}`** instead runs **RunPlan** synchronously: the session switches to **agent** mode, the plan document is injected and one agent turn runs (prefer **POST /v1/responses** with **`metadata.runPlanSlug`** for streaming). The run is admitted like any other turn (turn lock, registration, cancellation).",
 					"parameters":  []interface{}{designPlanIDParam(), designPlanSlugParam()},
 					"responses": map[string]interface{}{
 						"200": designPlanResponseRef(),
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The session is in **ask** mode (read-only: switch the mode first, then run), the session is a subagent child (**sub_** ids, whose transcript is read-only), or another turn holds the turn lock.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 					},
 				},
 				"delete": map[string]interface{}{
@@ -2380,10 +2995,78 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The local /foxxycode/ide/* routes stay public.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The local /foxxycode/ide/* routes stay public. The two SSE routes additionally accept `?access_token=`, which should carry a single-use ticket from POST /foxxycode/stream-tickets rather than the durable token; set httpserver.stream_tickets_only to require that.",
 				},
 			},
 			"schemas": map[string]interface{}{
+				"SubagentCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One subagent definition as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"name":           map[string]string{"type": "string"},
+						"description":    map[string]string{"type": "string"},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"builtin", "user", "project"}},
+						"path":           map[string]string{"type": "string", "description": "Definition file; absent for built-ins."},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the definition bytes (the embedded bytes for built-ins)."},
+						"model":          map[string]string{"type": "string", "description": "models[].model id from the frontmatter, when set."},
+						"mode":           map[string]string{"type": "string", "description": "agent or plan from the frontmatter, when set."},
+						"builtin":        map[string]string{"type": "boolean"},
+						"hidden":         map[string]string{"type": "boolean", "description": "Kept out of the model-facing catalog; still spawnable by name."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+						"tools": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Allowlist from the frontmatter (exact names, a bare * or prefix* patterns); absent means everything the spawning session can call.",
+						},
+						"disallowed_tools": map[string]interface{}{
+							"type": "array", "items": map[string]string{"type": "string"},
+							"description": "Denylist from the frontmatter; it wins over tools.",
+						},
+						"permission_mode": map[string]interface{}{"type": "string", "enum": []string{"ask", "accept_edits", "bypass"}, "description": "Requested permission mode; absent means inherit. It can only narrow the parent's mode."},
+						"timeout_seconds": map[string]string{"type": "integer", "description": "The definition's own run limit; absent defers to the call and subagents.default_timeout_seconds."},
+						"max_turns":       map[string]string{"type": "integer", "description": "Cap on the child's ReAct rounds; absent follows subagents.max_turns, then agent.max_turns."},
+						"background":      map[string]string{"type": "boolean", "description": "The definition forces detached runs whatever the call asks for."},
+						"role_bytes":      map[string]string{"type": "integer", "description": "Size of the role body. The body itself is never served: an unapproved file's instructions must not reach a client that would render them."},
+					},
+					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
+				},
+				"HookCatalogHandler": map[string]interface{}{
+					"type":        "object",
+					"description": "One handler of a hooks file as the catalog shows it.",
+					"properties": map[string]interface{}{
+						"event":           map[string]string{"type": "string", "description": "Event name, for example PreToolUse."},
+						"matcher":         map[string]string{"type": "string", "description": "Matcher of the group; absent or empty means every occurrence."},
+						"type":            map[string]string{"type": "string", "description": "Handler type; only command runs."},
+						"command":         map[string]string{"type": "string"},
+						"args":            map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Present for the exec form."},
+						"timeout_seconds": map[string]string{"type": "integer"},
+						"async":           map[string]string{"type": "boolean"},
+						"fail_closed":     map[string]string{"type": "boolean"},
+						"unsupported":     map[string]string{"type": "string", "description": "Why the handler never runs (an unsupported type)."},
+					},
+					"required": []string{"event", "type"},
+				},
+				"HookCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One hook definition file as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"file":           map[string]string{"type": "string", "description": "The name receipts and the CLI use: the workspace-relative path for project scope, the absolute path otherwise."},
+						"path":           map[string]string{"type": "string", "description": "Absolute file path."},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"user", "project"}},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the file bytes."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+						"error":          map[string]string{"type": "string", "description": "Parse or read error of an invalid file."},
+						"warnings":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"hooks": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogHandler"},
+						},
+					},
+					"required": []string{"file", "path", "scope", "trust", "trusted", "needs_approval", "hooks"},
+				},
 				"DesignPlan": map[string]interface{}{
 					"type":        "object",
 					"description": "A design plan file (plans/<slug>.plan.md) inside the session bundle.",
@@ -2496,13 +3179,14 @@ func openAPISpec() map[string]interface{} {
 				"FoxxyCodeOnboardingStatus": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"first_run":          map[string]string{"type": "boolean"},
-						"has_config":         map[string]string{"type": "boolean"},
-						"has_providers":      map[string]string{"type": "boolean"},
-						"has_models":         map[string]string{"type": "boolean"},
-						"has_agent_model":    map[string]string{"type": "boolean"},
-						"missing_api_keys":   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"suggested_defaults": map[string]interface{}{"type": "object"},
+						"first_run":             map[string]string{"type": "boolean"},
+						"has_config":            map[string]string{"type": "boolean"},
+						"has_providers":         map[string]string{"type": "boolean"},
+						"has_models":            map[string]string{"type": "boolean"},
+						"has_agent_model":       map[string]string{"type": "boolean"},
+						"has_agent_credentials": map[string]string{"type": "boolean", "description": "The provider named by agent.model has a credential source (api_key, api_key_command, NAME_API_KEY, or a stored hub/ChatGPT login). The SPA opens the provider picker when this is false."},
+						"missing_api_keys":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Providers with no credential source at all. Informational; the picker is not gated on it."},
+						"suggested_defaults":    map[string]interface{}{"type": "object"},
 					},
 				},
 				"FoxxyCodeProject": map[string]interface{}{
@@ -2625,6 +3309,16 @@ func openAPISpec() map[string]interface{} {
 						"error": map[string]string{"type": "string"},
 					},
 				},
+				"NeuralDeepAuthDeviceStartRequest": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"api_base": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"https://api.neuraldeep.ru/v1", "https://api.neuraldeep.tech/v1"},
+							"description": "Deployment to sign in against; decides which hub mints the key. Empty or absent: the saved provider row's `api_base`, else the default deployment.",
+						},
+					},
+				},
 				"NeuralDeepAuthStatus": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -2639,8 +3333,36 @@ func openAPISpec() map[string]interface{} {
 							"enum":        []string{"oauth", "api_key", "api_key_command", "env", "none"},
 							"description": "Credential requests actually use. An explicit api_key / command / env var wins over a stored hub login.",
 						},
+						"hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub that issued the stored login, as recorded in the credential file. Omitted when there is no stored login.",
+						},
+						"endpoint_hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub a sign-in for the queried endpoint (`api_base`, default: the saved row's) would use. Differs from `hub` when the stored login belongs to the other deployment.",
+						},
 					},
 					"required": []string{"connected", "source"},
+				},
+				"FoxxyCodeReasoningLevelsResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":    map[string]string{"type": "boolean"},
+						"error": map[string]string{"type": "string"},
+						"model": map[string]string{"type": "string"},
+						"levels": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Levels detected for this model id, in the order the composer offers them. Empty for a model without reasoning support.",
+						},
+						"detected": map[string]interface{}{
+							"type":        "boolean",
+							"description": "False when the model id matches no reasoning family, so the UI can say so instead of writing an override.",
+						},
+					},
+					"required": []string{"ok", "levels", "detected"},
 				},
 				"CodexAuthStatus": map[string]interface{}{
 					"type": "object",
@@ -2775,7 +3497,7 @@ func openAPISpec() map[string]interface{} {
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -2826,7 +3548,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`.",
+							"description":          "Optional. For agent/plan/docs/ask/debug only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
@@ -2851,10 +3573,16 @@ func openAPISpec() map[string]interface{} {
 						},
 						"source": map[string]interface{}{
 							"type": "object",
+							"description": "How the attachment body is sourced. **`literal`** supplies it directly; **`start`**/**`end`** are byte offsets into the decoded file; " +
+								"**`startLine`**/**`endLine`** are a 1-based inclusive line range, which is what a ranged mention (**`@path:21-31`**) sends. " +
+								"A literal wins over byte offsets, which win over the line range; only a body that really is the line slice is labelled, so the model sees **`lines=\"21-31\"`** for a sliced file and no label for a literal or byte-offset body. " +
+								"A range the file cannot honour (zero, inverted, or starting past the last line) is answered with **400**; an end past the last line clamps.",
 							"properties": map[string]interface{}{
-								"literal": map[string]string{"type": "string"},
-								"start":   map[string]string{"type": "integer"},
-								"end":     map[string]string{"type": "integer"},
+								"literal":   map[string]string{"type": "string"},
+								"start":     map[string]string{"type": "integer"},
+								"end":       map[string]string{"type": "integer"},
+								"startLine": map[string]interface{}{"type": "integer", "minimum": 1},
+								"endLine":   map[string]interface{}{"type": "integer", "minimum": 1},
 							},
 						},
 					},
@@ -2958,6 +3686,22 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
 				},
+				"FoxxyCodeWorkspaceFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":    map[string]string{"type": "string", "example": "foxxycode.workspace_file"},
+						"path_rel":  map[string]string{"type": "string"},
+						"mime_type": map[string]string{"type": "string", "example": "text/plain; charset=utf-8"},
+						"lines": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Display lines without their terminators.",
+						},
+						"total_lines": map[string]string{"type": "integer"},
+						"truncated":   map[string]string{"type": "boolean"},
+					},
+					"required": []string{"object", "path_rel", "lines", "total_lines", "truncated"},
+				},
 				"FoxxyCodeWorkspaceContext": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -3034,6 +3778,22 @@ func sessionBusyResponseRef() map[string]interface{} {
 	out := errorResponseRef()
 	out["description"] = "Session busy - another agent turn is in progress. `error.code` is `session_busy`, `error.sessionId` names the busy session, `error.turnActive` is true. Streaming requests wait up to 3s for the lock first, so a send issued right after `POST /foxxycode/sessions/{id}/cancel` succeeds while the cancelled turn unwinds."
 	return out
+}
+
+// foxxycodeConfigErrorResponse documents the flat {"ok":false,"error":...} body that
+// writeFoxxyCodeConfigErr emits for the /foxxycode/config routes, as opposed to the
+// OpenAI-style nested ErrorEnvelope used by the /v1 surface.
+func foxxycodeConfigErrorResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"$ref": "#/components/schemas/FoxxyCodeConfigValidateResponse",
+				},
+			},
+		},
+	}
 }
 
 func errorResponseRef() map[string]interface{} {
@@ -3174,4 +3934,88 @@ func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `inline; filename="openapi.json"`)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// subagentNameParam is the {name} path parameter of the subagent trust routes.
+func subagentNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Subagent definition name as listed by **GET /foxxycode/subagents**.",
+	}
+}
+
+// subagentTrustRequestBody is the optional body of the trust routes: the
+// workspace the receipt is written for.
+func subagentTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": false,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the cwd a new session would get: the current project when one is set, else the server's default cwd. A relative path is a **400**."},
+					},
+				},
+			},
+		},
+	}
+}
+
+// hookTrustRequestBody is the body of the hooks trust routes.
+func hookTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": true,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd":  map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"file": map[string]string{"type": "string", "description": "The file as **GET /foxxycode/hooks** names it (workspace-relative for project scope)."},
+					},
+					"required": []string{"file"},
+				},
+			},
+		},
+	}
+}
+
+// hookEntryResponse describes a 200 carrying one refreshed hooks catalog entry.
+func hookEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "foxxycode.hook_source"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
+				},
+			},
+		},
+	}
+}
+
+// subagentEntryResponse describes a 200 carrying one refreshed catalog entry.
+func subagentEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "foxxycode.subagent"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
+				},
+			},
+		},
+	}
 }

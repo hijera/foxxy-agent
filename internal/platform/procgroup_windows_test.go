@@ -80,6 +80,28 @@ func TestProcessGroupAliveFailsClosedWithoutAStartTime(t *testing.T) {
 	}
 }
 
+// ProcessAlive without a start time is the opposite case, and the two are easy to
+// confuse: ProcessGroupAlive refuses an unproven pid because its caller uses the
+// answer to authorize a kill, while ProcessAlive is asked about a process the
+// caller launched a moment ago and has no recorded identity for yet. Borrowing the
+// strict answer made `foxxycode serve --daemon` report a healthy dispatcher as one
+// that exited during startup.
+func TestProcessAliveWithoutAStartTimeAnswersLiveness(t *testing.T) {
+	cmd, pid, _ := startProbeHelper(t)
+
+	if !ProcessAlive(pid, time.Time{}) {
+		t.Fatalf("ProcessAlive(%d) = false for a running process with no recorded start time", pid)
+	}
+
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("kill the probe: %v", err)
+	}
+	_, _ = cmd.Process.Wait()
+	if ProcessAlive(pid, time.Time{}) {
+		t.Fatalf("ProcessAlive(%d) = true after the process exited", pid)
+	}
+}
+
 // Proving the identity in one call and killing by number in the next would leave
 // a window for the pid to change hands in between, which is the same mistake in
 // a smaller form. The kill therefore re-checks the identity itself, under a

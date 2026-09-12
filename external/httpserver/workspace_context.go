@@ -8,6 +8,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -104,7 +105,7 @@ func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Req
 		}
 		cwd = abs
 	} else {
-		resolved, ok := s.resolveSlashListCWD(w, r)
+		resolved, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}
@@ -114,12 +115,61 @@ func (s *Server) foxxycodeWorkspaceContextGet(w http.ResponseWriter, r *http.Req
 	_ = json.NewEncoder(w).Encode(s.workspaceContextPayload(r.Context(), cwd))
 }
 
+// workspaceDrivesPath is the pseudo-path of the volume level that sits above
+// the drive roots ("This PC"). A Windows drive root has no parent directory -
+// filepath.Dir(`C:\`) is `C:\` - so the picker needs a synthetic level to hop
+// between volumes from. A colon is only legal after the drive letter, so the
+// sentinel cannot collide with a real Windows path.
+const workspaceDrivesPath = ":drives:"
+
+// drivesListingPayload renders the volume level: one row per drive root, and
+// no level above it (path == parent, so the picker hides its ".." row).
+func drivesListingPayload(drives []string) map[string]interface{} {
+	folders := make([]map[string]string, 0, len(drives))
+	for _, root := range drives {
+		folders = append(folders, map[string]string{
+			"name": strings.TrimRight(root, `\/`),
+			"path": root,
+		})
+	}
+	return map[string]interface{}{
+		"object":  "foxxycode.workspace_folders",
+		"path":    workspaceDrivesPath,
+		"parent":  workspaceDrivesPath,
+		"drives":  true,
+		"folders": folders,
+	}
+}
+
+// folderListingPayload renders a real directory. The parent of a filesystem
+// root is promoted to the volume level when the host has drives, which is what
+// lets a Windows session walk up out of `C:\` and into another drive.
+func folderListingPayload(abs string, folders []map[string]string, drives []string) map[string]interface{} {
+	parent := filepath.Dir(abs)
+	if parent == abs && len(drives) > 0 {
+		parent = workspaceDrivesPath
+	}
+	return map[string]interface{}{
+		"object":  "foxxycode.workspace_folders",
+		"path":    abs,
+		"parent":  parent,
+		"folders": folders,
+	}
+}
+
 // foxxycodeWorkspaceFoldersGet lists subfolders of ?path= (default: session cwd)
 // for the workspace folder picker. Hidden folders and node_modules are skipped.
+// ?path=:drives: lists the machine's drive roots instead.
 func (s *Server) foxxycodeWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request) {
 	dir := strings.TrimSpace(r.URL.Query().Get("path"))
+	drives := s.hostDrives()
+	if dir == workspaceDrivesPath && len(drives) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(drivesListingPayload(drives))
+		return
+	}
 	if dir == "" {
-		cwd, ok := s.resolveSlashListCWD(w, r)
+		cwd, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}
@@ -156,12 +206,86 @@ func (s *Server) foxxycodeWorkspaceFoldersGet(w http.ResponseWriter, r *http.Req
 	}
 	sort.Slice(folders, func(i, j int) bool { return folders[i]["name"] < folders[j]["name"] })
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":  "foxxycode.workspace_folders",
-		"path":    abs,
-		"parent":  filepath.Dir(abs),
-		"folders": folders,
-	})
+	_ = json.NewEncoder(w).Encode(folderListingPayload(abs, folders, drives))
+}
+
+// validWorkspaceFolderName reports whether name is a single new directory
+// entry rather than a path. The picker creates a direct child of the folder it
+// is browsing, so anything that could walk somewhere else - a separator, a
+// volume name, "." or ".." - is refused instead of being cleaned up. Both
+// separators are rejected on every OS so a name behaves the same everywhere.
+func validWorkspaceFolderName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, 0) {
+		return false
+	}
+	return name == filepath.Base(name) && filepath.VolumeName(name) == ""
+}
+
+// foxxycodeWorkspaceFoldersPost creates one subfolder inside the browsed directory
+// and answers with the listing of the folder it just made, so the picker can
+// step straight into it and open it as the workspace. Body: {"path","name"}.
+func (s *Server) foxxycodeWorkspaceFoldersPost(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if !validWorkspaceFolderName(name) {
+		http.Error(w, `{"error":{"message":"invalid folder name"}}`, http.StatusBadRequest)
+		return
+	}
+	dir := strings.TrimSpace(body.Path)
+	// The volume level is synthetic: there is no directory to create anything in.
+	if dir == workspaceDrivesPath {
+		http.Error(w, `{"error":{"message":"cannot create a folder at the drive level"}}`, http.StatusBadRequest)
+		return
+	}
+	if dir == "" {
+		cwd, ok := s.resolveSessionCWD(w, r)
+		if !ok {
+			return
+		}
+		dir = cwd
+	}
+	parent, err := filepath.Abs(dir)
+	if err != nil {
+		http.Error(w, `{"error":{"message":"invalid path"}}`, http.StatusBadRequest)
+		return
+	}
+	// The parent has to exist already; a picker that silently builds a whole
+	// chain from a typo is worse than one that says no.
+	fi, err := os.Stat(parent)
+	if err != nil || !fi.IsDir() {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+parent), http.StatusBadRequest)
+		return
+	}
+	made := filepath.Join(parent, name)
+	if err := os.Mkdir(made, 0o755); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder already exists: "+made), http.StatusConflict)
+			return
+		}
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(folderListingPayload(made, []map[string]string{}, s.hostDrives()))
+}
+
+// hostDrives lists the machine's drive roots, tolerating a server built
+// without the seam (zero-value Server in older tests).
+func (s *Server) hostDrives() []string {
+	if s.drives == nil {
+		return nil
+	}
+	return s.drives()
 }
 
 // foxxycodeSessionWorkspacePost switches the session workspace: {"path": dir}
@@ -187,7 +311,16 @@ func (s *Server) foxxycodeSessionWorkspacePost(w http.ResponseWriter, r *http.Re
 	}
 	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, s.defaultCWD)
 	if err != nil {
+		if errors.Is(err, session.ErrReservedSessionID) {
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	// A child session inherited its workspace from the parent's turn and is
+	// read-only; nothing may move it, whatever its message count.
+	if rejectSubagentTurn(w, st) {
 		return
 	}
 	// Folder, branch, and worktree are fixed at session start: once the

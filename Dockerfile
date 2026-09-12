@@ -25,7 +25,7 @@ ARG VERSION=dev
 # Default build includes the messenger gateway so the image can run `foxxycode gateway`
 # by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
 # to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
-ARG BUILD_TAGS=http,scheduler,ui,memory,miniapps,gateway,cli,browser
+ARG BUILD_TAGS=http,scheduler,ui,memory,miniapps,gateway,cli,browser,swarm
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
@@ -71,6 +71,11 @@ ENV FOXXYCODE_CONFIG=/home/user/.foxxycode.yaml
 EXPOSE 12345
 
 ENTRYPOINT ["/bin/foxxycode"]
-# Default subcommand. Override to run another mode, e.g. `docker run ... gateway --cwd /workspace`
-# or via compose `command:` / the FOXXYCODE_COMMAND override in docker-compose(.dev).yml.
-CMD ["http","-H","0.0.0.0","-P","12345"]
+# Default subcommand. `serve` starts every subsystem the mounted config.yaml enables -
+# the HTTP API and web UI unless it says otherwise, plus the Telegram gateway, the
+# swarm relay and the cron scheduler when they are turned on - over one set of
+# sessions. The bind address is explicit because a container has to accept
+# connections from outside it, where `serve` on its own would answer on loopback.
+# Override for a single surface, e.g. `docker run ... gateway --cwd /workspace`, or
+# via compose `command:` / the FOXXYCODE_COMMAND override in docker-compose(.dev).yml.
+CMD ["serve","-H","0.0.0.0","-P","12345"]

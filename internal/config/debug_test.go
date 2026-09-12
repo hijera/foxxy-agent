@@ -41,11 +41,11 @@ func TestDebugValidateApplyDefaultsNoop(t *testing.T) {
 
 func TestApplyDebugFlagOnlyWhenPassed(t *testing.T) {
 	cases := []struct {
-		name    string
-		passed  bool
-		value   bool
-		preSet  bool
-		wantOn  bool
+		name   string
+		passed bool
+		value  bool
+		preSet bool
+		wantOn bool
 	}{
 		{name: "flag passed true forces on", passed: true, value: true, wantOn: true},
 		{name: "flag passed false does not disable", passed: true, value: false, preSet: true, wantOn: true},

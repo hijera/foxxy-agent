@@ -120,6 +120,7 @@ func (s *compactionFeatureState) sessionWithExchanges(n int) error {
 			KeepRecentTurns: &keep,
 		},
 	}
+	disableTitlePass(cfg)
 	cfg.Compaction.ApplyDefaults()
 	s.ag = NewAgent(cfg, s.st, s.sender, nil)
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
@@ -206,6 +207,7 @@ func TestCoddyCompactionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
 			},
 		},
 	}
+	disableTitlePass(cfg)
 	provider := &bddCompactionProvider{}
 	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {

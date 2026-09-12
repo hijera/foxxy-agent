@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/session"
@@ -48,6 +49,13 @@ type Handler struct {
 	models    []remoteModel
 	profiles  []string
 	defModel  string
+
+	// cancelWG tracks server-side cancels posted from HandleSessionCancel.
+	cancelWG sync.WaitGroup
+
+	// usageState caches which providers the server reported as having no
+	// usage source (usage.go).
+	usageState
 }
 
 type sessionState struct {
@@ -147,16 +155,20 @@ func (h *Handler) currentSender() acp.UpdateSender {
 	return h.sender
 }
 
+// randRead is indirected so tests can exercise the entropy-failure path;
+// production always uses crypto/rand.
+var randRead = rand.Read
+
 // newRemoteSessionID mints a client-side session id; the server pins the
 // bundle under this exact id on the first prompt (EnsureHTTPSession).
-func newRemoteSessionID() string {
+// Entropy failure is returned as an error rather than panicked on, so one
+// unlucky session/new cannot take down the handler.
+func newRemoteSessionID() (string, error) {
 	var buf [16]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		// crypto/rand failing is unrecoverable enough that a constant id
-		// would be worse than an error surfaced by the server.
-		panic(fmt.Sprintf("remote: session id entropy: %v", err))
+	if _, err := randRead(buf[:]); err != nil {
+		return "", fmt.Errorf("remote: session id entropy: %w", err)
 	}
-	return "sess_" + hex.EncodeToString(buf[:])
+	return "sess_" + hex.EncodeToString(buf[:]), nil
 }
 
 // ---- acp.Handler ----
@@ -195,7 +207,10 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	id := preferred
 	if id == "" {
-		id = newRemoteSessionID()
+		var err error
+		if id, err = newRemoteSessionID(); err != nil {
+			return nil, fmt.Errorf("session/new: %w", err)
+		}
 	} else if err := session.ValidateFolderSessionID(id); err != nil {
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
@@ -204,6 +219,11 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if preferred != "" {
 		msgs, err := h.sessionMessages(ctx, id)
 		switch {
+		case isNotFound(err) && session.IsSubagentSessionID(id):
+			// The sub_ prefix belongs to subagent child sessions; an unknown
+			// one cannot be minted remotely any more than locally.
+			h.forget(id)
+			return nil, fmt.Errorf("session/new: %w: %s", session.ErrReservedSessionID, id)
 		case isNotFound(err):
 			// no such session remotely: a fresh one starts under this id
 		case err != nil:
@@ -378,11 +398,40 @@ func (h *Handler) HandleSessionCancel(params acp.SessionCancelParams) {
 	if cancel != nil {
 		cancel()
 	}
+	// The server-side cancel is posted off the caller's goroutine (a key
+	// handler must not wait on the network), but tracked, so a surface that
+	// is about to exit can wait for it with WaitCancels.
+	h.cancelWG.Add(1)
 	go func() {
+		defer h.cancelWG.Done()
 		if err := h.cancelSession(context.Background(), params.SessionID); err != nil {
 			h.log.Warn("remote cancel", "session", params.SessionID, "error", err)
 		}
 	}()
+}
+
+// WaitCancels blocks until every server-side cancel posted by
+// HandleSessionCancel has completed, or until d elapses. The console calls
+// it on its way out so a detached server turn is not left running just
+// because the process exited before the request left the machine.
+func (h *Handler) WaitCancels(d time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		h.cancelWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		h.log.Warn("remote cancel still in flight at exit", "timeout", d.String())
+	}
+}
+
+// forget drops the client-side state of a session that never came to be.
+func (h *Handler) forget(id string) {
+	h.mu.Lock()
+	delete(h.sessions, id)
+	h.mu.Unlock()
 }
 
 // ---- session.Manager extras used by the console surface ----
@@ -406,6 +455,10 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 			})
 		}
 	}
+	// The footer is populated before the first prompt, like the local
+	// console's session-ready refresh; the server's cache answers when warm,
+	// and the load never waits for it.
+	h.pullProviderUsageAsync(sessionID, false)
 }
 
 // SetPreferredSessionID pins the id the next HandleSessionNew adopts.
@@ -501,7 +554,7 @@ func (h *Handler) configOptions(st *sessionState) []acp.ConfigOption {
 		Category:     "mode",
 		Type:         "select",
 		CurrentValue: mode,
-		Options: profileOptionValues(h.profileModes()),
+		Options:      profileOptionValues(h.profileModes()),
 	}}
 	if len(models) == 0 {
 		return out

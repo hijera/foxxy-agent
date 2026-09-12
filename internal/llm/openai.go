@@ -20,6 +20,57 @@ type openAIProvider struct {
 	maxTokens       int
 	temp            float64
 	reasoningEffort string
+	// Generation tuning taken from ProviderInput; see withTuning.
+	stop          []string
+	deterministic bool
+	noThinking    bool
+}
+
+// withTuning copies the generation knobs a caller may set beyond model, budget
+// and temperature. Kept off the constructor so its many test call sites stay as
+// they are.
+func (p *openAIProvider) withTuning(in ProviderInput) *openAIProvider {
+	p.stop = in.Stop
+	p.deterministic = in.Deterministic
+	p.noThinking = in.NoThinking
+	return p
+}
+
+// CompleteRaw runs a plain text completion (POST /v1/completions) with the
+// prompt sent verbatim, no chat template. That is what fill-in-the-middle needs:
+// the FIM control tokens must reach the model as tokens, and a chat template
+// would wrap them in a user turn. Not every OpenAI-compatible gateway serves the
+// endpoint; callers fall back to Complete on error.
+func (p *openAIProvider) CompleteRaw(ctx context.Context, prompt string) (*Response, error) {
+	params := openai.CompletionNewParams{
+		Model:  openai.CompletionNewParamsModel(p.model),
+		Prompt: openai.CompletionNewParamsPromptUnion{OfString: openai.String(prompt)},
+	}
+	if p.maxTokens > 0 {
+		params.MaxTokens = openai.Int(int64(p.maxTokens))
+	}
+	if p.temp > 0 {
+		params.Temperature = openai.Float(p.temp)
+	} else if p.deterministic {
+		params.Temperature = openai.Float(0)
+	}
+	if len(p.stop) > 0 {
+		params.Stop = openai.CompletionNewParamsStopUnion{OfStringArray: p.stop}
+	}
+	resp, err := p.client.Completions.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("openai raw complete: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("openai raw complete: empty response")
+	}
+	choice := resp.Choices[0]
+	return &Response{
+		Content:      choice.Text,
+		StopReason:   mapOpenAIStopReason(string(choice.FinishReason)),
+		InputTokens:  int(resp.Usage.PromptTokens),
+		OutputTokens: int(resp.Usage.CompletionTokens),
+	}, nil
 }
 
 func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
@@ -114,6 +165,29 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 					})
 				}
 				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
+			} else if m.Reasoning != "" {
+				// The same replay as the branch above, for a message that announced no
+				// tool call. A stream the stall guard cut often leaves exactly that: the
+				// model had produced reasoning and nothing else, and the tool call it was
+				// writing is dropped on purpose. Without this the message reaches the
+				// provider as an assistant turn with empty content and nothing else.
+				//
+				// Whether that helps is the provider's call, and not every one honours it:
+				// measured against api.neuraldeep.ru on 2026-09-09, reasoning_content on an
+				// inbound message is dropped before tokenization - 1039 characters of it
+				// changed prompt_tokens by zero, and a marker planted in it came back
+				// unknown to the model. It costs nothing there and carries the context on
+				// APIs that do read the field back; the guard that actually covers a
+				// text-less partial is stallNoTextNudge, which assumes nothing.
+				asst := openai.ChatCompletionAssistantMessageParam{
+					Content: openai.ChatCompletionAssistantMessageParamContentUnion{
+						OfString: openai.String(m.Content),
+					},
+				}
+				asst.SetExtraFields(map[string]any{
+					"reasoning_content": m.Reasoning,
+				})
+				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			} else {
 				oaiMessages = append(oaiMessages, openai.AssistantMessage(m.Content))
 			}
@@ -149,7 +223,20 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition,
 		}
 		if p.temp > 0 {
 			params.Temperature = openai.Float(p.temp)
+		} else if p.deterministic {
+			params.Temperature = openai.Float(0)
 		}
+		// The mirror image of the reasoning branch above: with no effort selected
+		// the serving template's default decides whether Qwen3 thinks, and a
+		// caller with a tiny budget (inline completion) cannot afford that.
+		if p.noThinking && isQwenChatTemplateModel(p.model) {
+			params.SetExtraFields(map[string]any{
+				"chat_template_kwargs": map[string]any{"enable_thinking": false},
+			})
+		}
+	}
+	if len(p.stop) > 0 {
+		params.Stop = openai.ChatCompletionNewParamsStopUnion{OfStringArray: p.stop}
 	}
 
 	if len(tools) > 0 {

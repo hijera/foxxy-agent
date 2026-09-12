@@ -23,6 +23,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
@@ -46,8 +47,18 @@ type Server struct {
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// extraAuthTokens are bearer tokens supplied out-of-band via --auth-token / FOXXYCODE_HTTP_TOKEN.
 	extraAuthTokens []string
+	// streamTickets holds the short-lived, single-use credentials the SSE routes accept in
+	// place of the durable token (see stream_ticket.go).
+	streamTickets *streamTicketStore
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
+	// drives lists the machine's drive roots for the folder picker's volume
+	// level (Windows only; empty elsewhere). Tests override.
+	drives func() []string
+	// neuralDeepHubFor maps a neuraldeep api_base to the hub that mints keys
+	// for it (llm.NeuralDeepHubFor). Tests substitute stand-in hubs per
+	// deployment.
+	neuralDeepHubFor func(apiBase string) string
 
 	// projects tracks the current project folder and recent list; nil
 	// degrades the /foxxycode/project endpoints gracefully.
@@ -74,6 +85,12 @@ type Server struct {
 	// events fans server-wide turn lifecycle events out to GET /foxxycode/events subscribers.
 	events             *serverEventsHub
 	removeTurnObserver func()
+	// removeConfigObserver detaches the observer that keeps this server's live
+	// config in step with the manager's.
+	removeConfigObserver func()
+	// removeUsageObserver detaches the provider usage observer that feeds
+	// provider_usage frames to the events stream.
+	removeUsageObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -83,14 +100,24 @@ type Server struct {
 	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
-	bgWG               sync.WaitGroup
+
+	// autocomplete holds inline-completion counters and the per-model "raw FIM
+	// failed, use chat" memory; its zero value is ready to use.
+	autocomplete autocompleteState
+	bgWG         sync.WaitGroup
 }
 
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	if s.removeUsageObserver != nil {
+		s.removeUsageObserver()
+	}
 	if s.removeTurnObserver != nil {
 		s.removeTurnObserver()
+	}
+	if s.removeConfigObserver != nil {
+		s.removeConfigObserver()
 	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
@@ -122,17 +149,25 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		providerFactory:      defaultProviderFromAgentModel,
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
+		drives:               platform.Drives,
+		neuralDeepHubFor:     llm.NeuralDeepHubFor,
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
+		streamTickets:        newStreamTicketStore(),
 	}
 	s.cfgAt.Store(cfg)
 	// Several servers may share one manager (tests do), so each takes its own removable
 	// observer registration rather than a single manager-wide slot.
 	if mgr != nil {
 		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
+		s.removeUsageObserver = mgr.AddUsageObserver(s.publishProviderUsageEvent)
+		// The manager is the one place every reload path passes through - the
+		// settings screen, the agent's config_commit tool, the console - so
+		// following it is how the handlers see an edit no matter who made it.
+		s.removeConfigObserver = mgr.AddConfigObserver(s.ReplaceConfig)
 	}
 	// A fresh server means this process intends to serve again, so reopen the
 	// task pool a previous Drain closed.
@@ -164,17 +199,29 @@ func (s *Server) activeCfg() *config.Config {
 	return s.cfgAt.Load()
 }
 
-// ReplaceConfig updates the in-memory config used by HTTP handlers. It also reapplies
-// the diagnostics layer — flipping the process log level and the raw LLM capture flag —
-// so toggling debug.enabled through PUT /foxxycode/config takes effect without a restart.
+// ReplaceConfig updates the in-memory config used by HTTP handlers, reapplies the
+// diagnostics layer, and tells the connected clients that the config moved.
+//
+// Order matters, because a client re-reads the config-derived endpoints the moment it
+// sees the event and must not be able to catch the outgoing answers. The live pointer
+// moves first, then the per-workspace slash-command cache is dropped (a reload can move
+// skills.dirs, or leave them alone while the skills behind them changed), and only then
+// is the reload announced.
+//
+// The diagnostics layer rides along - the process log level and the raw LLM capture
+// flag - so toggling debug.enabled through PUT /foxxycode/config takes effect without a
+// restart.
 func (s *Server) ReplaceConfig(c *config.Config) {
-	if c != nil {
-		s.cfgAt.Store(c)
-		if s.logLevel != nil {
-			s.logLevel.Set(logger.EffectiveLevel(c.Debug.Enabled, c.Logger.Level))
-		}
-		llm.SetDebugCapture(c.Debug.EffectiveCapture())
+	if c == nil {
+		return
 	}
+	if s.logLevel != nil {
+		s.logLevel.Set(logger.EffectiveLevel(c.Debug.Enabled, c.Logger.Level))
+	}
+	llm.SetDebugCapture(c.Debug.EffectiveCapture())
+	s.cfgAt.Store(c)
+	s.invalidateSlashCache()
+	s.publishConfigReloaded()
 }
 
 func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
@@ -382,6 +429,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-FoxxyCode-Session-ID", sessionID)
 	}
+	// A subagent's child session is a read-only transcript for every caller;
+	// even a direct completion would append to it.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 
 	if httpModelIsFoxxyCodeProfile(model) {
 		st.SetMode(model)
@@ -391,6 +443,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+		if runPlanRefusedInAskMode(model, req.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
 			return
 		}
 	} else if completionMetadataForbidden(req.Metadata) {
@@ -448,6 +504,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if !req.Stream {
 				if errors.Is(err, session.ErrSessionTurnBusy) {
 					writeSessionBusy(w, sessionID, sessionBusyMessage)
+					return
+				}
+				if isSubagentReadOnly(err) {
+					// A child transcript is read-only for every caller; 409, not 500,
+					// and never the busy retry path.
+					http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 					return
 				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)
@@ -582,6 +644,11 @@ func (s *Server) resolveSession(ctx context.Context, r *http.Request) (st *sessi
 		}
 		st2, err := s.mgr.EnsureHTTPSession(ctx, sid, s.sessionDefaultCWD())
 		if err != nil {
+			if errors.Is(err, session.ErrReservedSessionID) {
+				// Only the runtime creates sub_ sessions; a header naming an
+				// unknown one is a missing session, not a request for a new one.
+				return nil, "", false, errSessionNotFound
+			}
 			return nil, "", false, err
 		}
 		return st2, sid, false, nil
@@ -731,6 +798,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-FoxxyCode-Session-ID", sid)
 	}
+	// See handleChatCompletions: a child session is read-only for every caller.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 
 	if httpModelIsFoxxyCodeProfile(model) {
 		st.SetMode(model)
@@ -740,6 +811,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+		if runPlanRefusedInAskMode(model, body.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
 			return
 		}
 	} else if completionMetadataForbidden(body.Metadata) {
@@ -843,6 +918,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			if !body.Stream {
 				if errors.Is(err, session.ErrSessionTurnBusy) {
 					writeSessionBusy(w, sid, sessionBusyMessage)
+					return
+				}
+				if isSubagentReadOnly(err) {
+					// A child transcript is read-only for every caller; 409, not 500,
+					// and never the busy retry path.
+					http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 					return
 				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)

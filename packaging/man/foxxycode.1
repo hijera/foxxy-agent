@@ -1,0 +1,381 @@
+.\" Manual page for foxxycode.
+.\" Keep the command list in sync with printUsage() in cmd/foxxycode/main.go.
+.TH FOXXYCODE 1 "2026-09-10" "FoxxyCode" "User Commands"
+.SH NAME
+foxxycode \- coding agent with a console, an editor protocol, an HTTP gateway and a messenger gateway
+.SH SYNOPSIS
+.B foxxycode
+.RI [ command ]
+.RI [ options ]
+.br
+.B foxxycode
+.RB [ \-c | \-\-continue ]
+.RB [ \-p
+.IR PROMPT ]
+.br
+.B foxxycode
+.RB [ \-h | \-\-help ]
+.RB [ \-v | \-\-version ]
+.SH DESCRIPTION
+.B foxxycode
+is a coding agent built around a ReAct loop: the model reasons, calls tools, and
+observes the results. One agent core is reachable through several surfaces that
+all share the same sessions under
+.BR $FOXXYCODE_HOME :
+an interactive console, an Agent Client Protocol (ACP) server for editors, an
+OpenAI\-compatible HTTP gateway with an embedded web UI, a messenger gateway,
+and a swarm relay.
+.PP
+.B foxxycode serve
+runs every one of those surfaces that
+.I config.yaml
+enables, in one process over one set of sessions: a conversation started in a
+chat is the same conversation a browser opens, while it is still going. Each
+surface also remains a command of its own \(em
+.BR "foxxycode http" ,
+.BR "foxxycode gateway" ,
+.B foxxycode desktop
+\(em for running exactly one of them and nothing else.
+.PP
+Run with no arguments on a terminal,
+.B foxxycode
+opens the interactive console. Optional surfaces are Go build tags, so a binary
+may not carry every command below; a missing one says so and names the tag to
+rebuild with. The packages published for Linux carry all of them.
+.SH COMMANDS
+.TP
+.B cli
+Interactive console TUI. Bare
+.B foxxycode
+on a terminal does the same.
+.TP
+.B acp
+Agent Client Protocol server on stdio, for editors and ACP clients.
+.TP
+.B http
+The OpenAI\-compatible HTTP gateway alone, with the embedded web UI when the
+binary carries the
+.B ui
+tag.
+.BR \-H / \-\-host
+and
+.BR \-P / \-\-port
+set the listen address; it answers on every interface by default, unlike
+.BR serve .
+.TP
+.B desktop
+Windows only: the same web UI in a WebView2 window, with the server in the same
+process.
+.TP
+.B gateway
+The messenger gateway alone \(em currently a Telegram bot.
+.TP
+.B serve
+Run every subsystem enabled in
+.IR config.yaml ,
+in one process:
+.IP \(bu 2
+.B httpserver
+\(em the OpenAI\-compatible HTTP gateway, the REST API under
+.IR /foxxycode ,
+Swagger UI at
+.IR /docs ,
+and the embedded web UI at
+.IR / .
+Governed by
+.BR httpserver.enable ,
+which defaults to true.
+.IP \(bu 2
+.B gateway
+\(em the messenger gateway (Telegram). Governed by
+.BR gateways.telegram.enable .
+.IP \(bu 2
+.B swarm
+\(em the stateless relay: nodes register themselves into it, it mounts each of
+them under its own address, and a client pointed at the relay drives any node
+behind it. Governed by
+.BR swarm.enable .
+.IP \(bu 2
+.B scheduler
+\(em the cron daemon. Governed by
+.BR scheduler.enable .
+.PP
+A subsystem enabled in the configuration but missing from the build is a startup
+error naming the tag to rebuild with, never a silent no\-op. A process with
+nothing enabled refuses to start.
+.PP
+The configuration file is watched while the process runs, so a change made
+outside it \(em a
+.B foxxycode providers login
+in another terminal, an edit by hand, a deployment \(em reaches every surface the
+way a save from the settings screen does. A change no running process can adopt,
+such as a listen address, restarts the process when it has a dispatcher behind
+it, and is reported as needing a restart when it does not.
+.TP
+.BR "serve \-d" ", " "serve \-\-daemon"
+Run in the background under a dispatcher that starts the subsystems in a worker
+process and starts a new one whenever that process goes away for any reason
+other than being told to stop. Repeated failures are waited out with a growing
+pause rather than retried in a loop, and the pause returns to its shortest value
+once a worker has stayed up. The dispatcher records itself in
+.I ~/.foxxycode/serve.json
+and writes to
+.IR ~/.foxxycode/logs/serve.log .
+.TP
+.B "serve status"
+Report the background dispatcher for this agent home: its process, when it
+started, the configuration and log it is using, whether a worker is up right
+now, and why the last one went away.
+.TP
+.B "serve stop"
+Stop the background dispatcher and the worker under it.
+.TP
+.B "serve restart"
+Stop the background dispatcher and start it again with the arguments it was
+started with the first time.
+.TP
+.BI "sessions list"
+List stored sessions.
+.TP
+.BI "sessions export " id
+Write a stored session to a file:
+.BI \-\-format " md|html|json|jsonl" ,
+.BI \-\-out " PATH" ,
+.BR \-\-no\-tools ,
+.BR \-\-no\-thinking .
+.TP
+.B "skills list | enable | disable | add | sync | remove"
+Manage skills: slash commands and
+.I SKILL.md
+packs from
+.IR skills.dirs .
+.B add
+takes an
+.IR owner/repo ,
+a git URL, or a marketplace URL.
+.TP
+.B "plugin marketplace list | add | remove | sync"
+Manage skill marketplaces.
+.TP
+.B "plugin install | remove | enable | disable"
+Manage installed plugins.
+.TP
+.B "mcp list | trust | untrust"
+List merged MCP servers and approve or revoke project\-local
+.I .foxxycode/mcp.json
+declarations for a workspace.
+.TP
+.B "providers list | login | logout"
+Manage provider credentials. A login signs in through the device flow: it
+prints a short code and the page that confirms it, so the browser can be on
+any machine. Pass
+.B \-\-browser
+for the loopback callback instead, which only completes in a browser running
+on this machine. A login also adds the provider, the
+models the account can use and an
+.I agent.model
+to the configuration unless
+.B \-\-no\-config
+is given.
+.TP
+.B "codex login | status | logout"
+Deprecated alias of
+.BR "providers login codex" .
+It prints a warning naming the new form and then does the same thing, including
+publishing the subscription catalog into
+.I config.yaml
+(suppress with
+.BR \-\-no\-config ).
+Use
+.B providers
+instead.
+.TP
+.B "rules list"
+Show the project rules discovered under the session working directory.
+.TP
+.B "agents list | trust | untrust"
+List subagent definitions and approve or revoke project\-scope ones.
+.TP
+.B "hooks list | trust | untrust"
+List lifecycle hooks and approve or revoke project\-scope hook files.
+.TP
+.B update
+Install the latest release. See
+.B SELF\-UPDATE
+below.
+.SH OPTIONS
+Every command parses its own flags;
+.BI "foxxycode " command " \-\-help"
+prints them. The options accepted before any command are:
+.TP
+.BR \-h ", " \-\-help
+Print the command list and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-c ", " \-\-continue
+Console: continue the most recent session for this directory.
+.TP
+.BR \-p ", " \-\-prompt " " \fIPROMPT\fR
+Console: run one prompt, print the answer, and exit.
+.TP
+.B \-\-resume
+Console: pick a session to resume.
+.PP
+Flags shared by the long\-running commands
+.RB ( cli ", " acp ", " serve )
+include
+.BI \-\-config " PATH" ,
+.BI \-\-home " DIR" ,
+.BI \-\-cwd " DIR" ,
+.BI \-\-log\-level " debug|info|warn|error" ,
+and
+.BI \-\-remote " NAME|HOST:PORT|URL"
+with
+.BI \-\-remote\-token " TOKEN"
+.RB ( cli " and " acp " only)
+to drive a remote
+.B foxxycode serve
+server instead of a local agent.
+.SH SELF\-UPDATE
+.B foxxycode update
+downloads the release assets published on GitHub, verifies them against the
+release
+.I SHA256SUMS
+list, and replaces the executable it is running.
+.TP
+.B \-\-check
+Report whether a newer release exists and exit
+.B 1
+if one does.
+.TP
+.BR \-y ", " \-\-yes
+Install without the confirmation prompt.
+.TP
+.BI \-\-version " X.Y.Z"
+Install a specific release tag instead of the latest.
+.TP
+.BI \-\-repo " owner/name"
+Take releases from another GitHub repository.
+.TP
+.B \-\-no\-restart
+Windows only: install the update but do not start FoxxyCode again.
+.PP
+When the executable belongs to a
+.BR deb (5)
+or rpm package,
+.B foxxycode update
+does not overwrite it: that would leave the package database describing a build
+that is gone. Run as an ordinary user it names the package manager command that
+upgrades it; run as
+.B root
+it downloads the release package for this architecture and installs it through
+.BR apt\-get (8),
+.BR dnf (8),
+.BR zypper (8),
+.BR dpkg (1)
+or
+.BR rpm (8),
+whichever the system provides.
+.PP
+A FoxxyCode installed by Homebrew is treated the same way: nothing is replaced, and
+.B "brew upgrade \-\-cask foxxycode"
+is named instead. Homebrew refuses to run under
+.BR sudo ,
+so there is no privileged path there.
+.SH ENVIRONMENT
+.TP
+.B FOXXYCODE_HOME
+Agent state directory: configuration, sessions, skills, logs. Default
+.IR ~/.foxxycode .
+.TP
+.B FOXXYCODE_CWD
+Default session working directory when a client sends none. Default: the process
+working directory.
+.TP
+.B FOXXYCODE_CONFIG
+Configuration file to load. Default
+.IR $FOXXYCODE_HOME/config.yaml .
+.TP
+.B FOXXYCODE_HTTP_TOKEN
+Bearer token required on the HTTP API served by
+.BR "foxxycode serve" .
+.TP
+.B FOXXYCODE_REMOTE_TOKEN
+Bearer token used by
+.BI \-\-remote .
+.PP
+Provider keys are read from the environment as well
+.RB ( OPENAI_API_KEY
+and the equivalents of the other providers), and from
+.IR $FOXXYCODE_HOME/.env .
+.SH FILES
+.TP
+.I ~/.foxxycode/config.yaml
+Main configuration. A commented starting point is installed as
+.IR /usr/share/doc/foxxycode/config.example.yaml .
+.TP
+.I ~/.foxxycode/sessions/
+Persisted sessions, one directory per session.
+.TP
+.I ~/.foxxycode/skills/
+Installed skills.
+.TP
+.I .foxxycode/rules/, .cursor/rules/, .claude/rules/, .codex/rules/, AGENTS.md
+Project rules, discovered under the session working directory.
+.TP
+.I .foxxycode/mcp.json, .foxxycode/agents/, .foxxycode/hooks.json
+Project\-local MCP servers, subagents and hooks. Each needs a one\-time approval
+before FoxxyCode reads or runs it.
+.SH EXAMPLES
+Start the console in the current repository:
+.PP
+.RS 4
+.B foxxycode
+.RE
+.PP
+Ask one question and exit:
+.PP
+.RS 4
+.B foxxycode \-p "what does internal/agent do?"
+.RE
+.PP
+Serve the web UI and REST API on the default port, plus whatever else
+.I config.yaml
+enables:
+.PP
+.RS 4
+.B foxxycode serve
+.RE
+.PP
+Serve the API to the network rather than to this machine only:
+.PP
+.RS 4
+.B foxxycode serve \-H 0.0.0.0 \-\-auth\-token "$TOKEN"
+.RE
+.PP
+Wire an editor to FoxxyCode over ACP:
+.PP
+.RS 4
+.B foxxycode acp
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+A command failed, or
+.B foxxycode update \-\-check
+found a newer release.
+.SH SEE ALSO
+Project documentation:
+.UR https://github.com/hijera/foxxy-agent
+.UE .
+.PP
+FoxxyCode is a fork of coddy\-agent:
+.UR https://github.com/coddy-project/coddy-agent
+.UE .
+.SH AUTHOR
+Pavel Rykov and the coddy\-agent contributors, and the contributors to this fork.

@@ -30,9 +30,40 @@
           "title": "LLM retry max",
           "type": "integer"
         },
+        "llm_stall_retry": {
+          "default": true,
+          "description": "When a model call fails without producing any output - silence, a dropped connection, a provider timeout, a 5xx - wait and send the same request again instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so nothing can be duplicated. Off restores the immediate error.",
+          "title": "Retry a failed provider call",
+          "type": "boolean"
+        },
+        "llm_stall_retry_delays_ms": {
+          "default": [
+            60000,
+            180000,
+            300000
+          ],
+          "description": "Pause before each retry, in milliseconds. The last entry repeats for every later attempt, so 60000, 180000, 300000 means one minute, then three, then five minutes forever.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Retry delays ms",
+          "type": "array"
+        },
+        "llm_stall_retry_max_wait_ms": {
+          "default": 3600000,
+          "description": "Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop.",
+          "title": "Retry budget ms",
+          "type": "integer"
+        },
+        "llm_stall_timeout_ms": {
+          "default": 300000,
+          "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard).",
+          "title": "LLM stall timeout ms",
+          "type": "integer"
+        },
         "loop_guard": {
           "default": true,
-          "description": "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "description": "Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.",
           "title": "Loop guard",
           "type": "boolean"
         },
@@ -46,6 +77,22 @@
           "default": 5,
           "description": "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
           "title": "Loop stream repeat cycles",
+          "type": "integer"
+        },
+        "loop_stuck_action": {
+          "default": "quarantine",
+          "description": "What the guard does once a tool loop has survived every nudge. \"quarantine\" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; \"stop\" ends the turn with a notice.",
+          "enum": [
+            "quarantine",
+            "stop"
+          ],
+          "title": "Loop stuck action",
+          "type": "string"
+        },
+        "loop_tool_cycle_repeats": {
+          "default": 3,
+          "description": "Repetitions of the same sequence of tool calls before the loop guard steps in, which is what catches a model rotating through several calls instead of repeating one (0 disables the check).",
+          "title": "Loop tool cycle repeats",
           "type": "integer"
         },
         "loop_tool_repeat_limit": {
@@ -67,10 +114,21 @@
           "type": "integer"
         },
         "model": {
-          "default": "openai/gpt-4o",
+          "default": "openai/gpt-5.6-terra",
           "description": "Logical model id from the models list used when the client omits a model.",
           "title": "Default model",
           "type": "string"
+        },
+        "wait_for_limit_reset": {
+          "description": "Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile.",
+          "title": "Wait for limit reset",
+          "type": "boolean"
+        },
+        "wait_for_limit_reset_max_ms": {
+          "default": 14400000,
+          "description": "Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits.",
+          "title": "Wait for limit reset max ms",
+          "type": "integer"
         }
       },
       "title": "ReAct agent",
@@ -83,10 +141,119 @@
         "llm_retry_base_ms",
         "llm_min_interval_ms",
         "llm_first_token_timeout_ms",
+        "llm_stall_timeout_ms",
+        "llm_stall_retry",
+        "llm_stall_retry_delays_ms",
+        "llm_stall_retry_max_wait_ms",
         "loop_guard",
         "loop_tool_repeat_limit",
         "loop_stream_repeat_cycles",
-        "loop_nudge_max"
+        "loop_tool_cycle_repeats",
+        "loop_stuck_action",
+        "loop_nudge_max",
+        "wait_for_limit_reset",
+        "wait_for_limit_reset_max_ms"
+      ]
+    },
+    "autocomplete": {
+      "additionalProperties": false,
+      "description": "LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.",
+      "properties": {
+        "debounce_ms": {
+          "default": 350,
+          "description": "How long typing must pause before an automatic request goes out. Ignored when the trigger is manual (default 350).",
+          "title": "Debounce ms",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_prefix_bytes": {
+          "default": 8000,
+          "description": "How much of the text before the caret is sent as context (default 8000).",
+          "title": "Max prefix bytes",
+          "type": "integer"
+        },
+        "max_suffix_bytes": {
+          "default": 2000,
+          "description": "How much of the text after the caret is sent as context (default 2000).",
+          "title": "Max suffix bytes",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "default": 128,
+          "description": "Completion token cap for one suggestion. Small values keep suggestions short and quick (default 128).",
+          "title": "Suggestion max tokens",
+          "type": "integer"
+        },
+        "mode": {
+          "default": "auto",
+          "description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. \"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and reports an error when that is not possible.",
+          "enum": [
+            "auto",
+            "chat",
+            "fim"
+          ],
+          "title": "Prompt mode",
+          "type": "string"
+        },
+        "model": {
+          "description": "Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it.",
+          "title": "Completion model",
+          "type": "string"
+        },
+        "multi_line": {
+          "default": true,
+          "description": "Allow one suggestion to span several lines. When off, only the first line of a suggestion is kept, so completion never grows past the caret line (default on).",
+          "title": "Multi-line suggestions",
+          "type": "boolean"
+        },
+        "related_files": {
+          "default": 3,
+          "description": "How many other open editor tabs are excerpted (first lines: imports and signatures) into the prompt, so the model sees symbols from neighbouring files. 0 disables it (default 3).",
+          "title": "Related files",
+          "type": "integer"
+        },
+        "temperature": {
+          "description": "Sampling temperature for suggestions. 0 (the default) is greedy: the same context yields the same suggestion, which is what lets a suggestion survive the next keystroke.",
+          "title": "Temperature",
+          "type": "number"
+        },
+        "timeout_ms": {
+          "default": 4000,
+          "description": "How long one suggestion request may take before the editor abandons it (default 4000).",
+          "title": "Request timeout ms",
+          "type": "integer"
+        },
+        "trigger": {
+          "default": "auto",
+          "description": "When to ask the model. \"auto\" suggests while you type, after the debounce pause. \"manual\" suggests only when you press the editor shortcut.",
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Trigger",
+          "type": "string"
+        }
+      },
+      "title": "Autocomplete",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "model",
+        "mode",
+        "trigger",
+        "debounce_ms",
+        "max_tokens",
+        "temperature",
+        "timeout_ms",
+        "multi_line",
+        "related_files",
+        "max_prefix_bytes",
+        "max_suffix_bytes"
       ]
     },
     "browser": {
@@ -575,6 +742,71 @@
         "telegram"
       ]
     },
+    "hooks": {
+      "additionalProperties": false,
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
+      "properties": {
+        "default_timeout_seconds": {
+          "default": 60,
+          "description": "Hard limit for one hook process whose definition gives no timeout (default 60).",
+          "title": "Default timeout (s)",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Load and run hooks at all (default true).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "files": {
+          "default": [
+            "${FOXXYCODE_HOME}/hooks.json",
+            "${CWD}/.claude/settings.json",
+            "${CWD}/.claude/settings.local.json",
+            "${CWD}/.foxxycode/hooks.json"
+          ],
+          "description": "Lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Definition files",
+          "type": "array"
+        },
+        "max_output_chars": {
+          "default": 10000,
+          "description": "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).",
+          "title": "Max output chars",
+          "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Hook files found inside the workspace travel with the checkout. \"ask\": list them but run nothing until the file is approved for this workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust). \"allow\": treat them like your own file. \"deny\": never read them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project hooks",
+          "type": "string"
+        },
+        "stop_loop_limit": {
+          "default": 5,
+          "description": "How many times per turn a Stop hook may send the agent back to work (default 5).",
+          "title": "Stop loop limit",
+          "type": "integer"
+        }
+      },
+      "title": "Hooks",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "files",
+        "project_trust",
+        "default_timeout_seconds",
+        "stop_loop_limit",
+        "max_output_chars"
+      ]
+    },
     "instructions": {
       "additionalProperties": false,
       "description": "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
@@ -685,7 +917,7 @@
         "additionalProperties": false,
         "properties": {
           "args": {
-            "description": "Argv passed after command for stdio MCP servers.",
+            "description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
             "items": {
               "type": "string"
             },
@@ -693,7 +925,7 @@
             "type": "array"
           },
           "command": {
-            "description": "Executable for stdio transport (leave empty when using http url).",
+            "description": "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd.",
             "title": "Command",
             "type": "string"
           },
@@ -711,7 +943,7 @@
             "type": "array"
           },
           "env": {
-            "description": "Extra environment variables for the stdio child process.",
+            "description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -736,7 +968,7 @@
             "type": "array"
           },
           "headers": {
-            "description": "Optional headers sent with MCP HTTP requests.",
+            "description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -776,7 +1008,7 @@
             "type": "string"
           },
           "url": {
-            "description": "HTTP(S) endpoint when type selects an HTTP-based MCP server.",
+            "description": "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd.",
             "title": "MCP URL",
             "type": "string"
           }
@@ -861,7 +1093,7 @@
       "default": [
         {
           "max_tokens": 4096,
-          "model": "openai/gpt-4o",
+          "model": "openai/gpt-5.6-terra",
           "temperature": 0.2
         }
       ],
@@ -881,7 +1113,7 @@
             "type": "integer"
           },
           "model": {
-            "default": "openai/gpt-4o",
+            "default": "openai/gpt-5.6-terra",
             "description": "Logical id in the form provider/api-model-id; must match a provider name prefix.",
             "title": "Model id",
             "type": "string"
@@ -945,6 +1177,12 @@
           "title": "Agent prompt file",
           "type": "string"
         },
+        "ask_prompt": {
+          "default": "ask.md",
+          "description": "Filename for ask-mode system prompt.",
+          "title": "Ask prompt file",
+          "type": "string"
+        },
         "dir": {
           "description": "Optional override directory for prompt markdown files.",
           "title": "Prompts directory",
@@ -980,6 +1218,7 @@
         "dir",
         "agent_prompt",
         "plan_prompt",
+        "ask_prompt",
         "per_provider"
       ]
     },
@@ -995,7 +1234,7 @@
         "additionalProperties": false,
         "properties": {
           "api_base": {
-            "description": "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.",
+            "description": "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.",
             "title": "API base URL",
             "type": "string"
           },
@@ -1039,6 +1278,12 @@
             ],
             "title": "Provider type",
             "type": "string"
+          },
+          "usage_limits_panel": {
+            "default": true,
+            "description": "Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+            "title": "Usage limits panel",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1052,7 +1297,8 @@
           "api_base",
           "api_key",
           "proxy",
-          "timeout_ms"
+          "timeout_ms",
+          "usage_limits_panel"
         ]
       },
       "title": "LLM providers",
@@ -1134,7 +1380,7 @@
             "${FOXXYCODE_HOME}/skills",
             "${CWD}/.foxxycode/skills"
           ],
-          "description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
+          "description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
           "items": {
             "type": "string"
           },
@@ -1157,6 +1403,76 @@
         "dirs",
         "sources",
         "auto_discovery"
+      ]
+    },
+    "subagents": {
+      "additionalProperties": false,
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+      "properties": {
+        "default_timeout_seconds": {
+          "default": 1800,
+          "description": "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout.",
+          "title": "Default timeout (s)",
+          "type": "integer"
+        },
+        "dirs": {
+          "default": [
+            "${FOXXYCODE_HOME}/agents",
+            "${CWD}/.claude/agents",
+            "${CWD}/.foxxycode/agents"
+          ],
+          "description": "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Definition directories",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_concurrent": {
+          "default": 4,
+          "description": "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.",
+          "title": "Max concurrent",
+          "type": "integer"
+        },
+        "max_depth": {
+          "default": 1,
+          "description": "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere.",
+          "title": "Max depth",
+          "type": "integer"
+        },
+        "max_turns": {
+          "description": "ReAct rounds a child may take; 0 follows agent.max_turns.",
+          "title": "Max turns",
+          "type": "integer"
+        },
+        "project_trust": {
+          "default": "ask",
+          "description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ],
+          "title": "Project definitions",
+          "type": "string"
+        }
+      },
+      "title": "Subagents",
+      "type": "object",
+      "x-foxxycode-property-order": [
+        "enabled",
+        "dirs",
+        "project_trust",
+        "max_concurrent",
+        "max_depth",
+        "default_timeout_seconds",
+        "max_turns"
       ]
     },
     "title": {
@@ -1193,12 +1509,6 @@
       "additionalProperties": false,
       "description": "Filesystem and shell policy for built-in tools.",
       "properties": {
-        "ask_disable_extended_tools": {
-          "default": false,
-          "description": "In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.",
-          "title": "Disable extended Ask tools",
-          "type": "boolean"
-        },
         "background": {
           "additionalProperties": false,
           "description": "Commands the agent runs detached in the session task pool instead of blocking a turn.",
@@ -1323,6 +1633,11 @@
           "title": "Permission mode",
           "type": "string"
         },
+        "permission_timeout_seconds": {
+          "description": "How long a permission prompt may wait for the operator before the tool call is cancelled instead (0 waits forever).",
+          "title": "Permission timeout (s)",
+          "type": "integer"
+        },
         "plan_no_self_run": {
           "default": false,
           "description": "In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on.",
@@ -1335,8 +1650,8 @@
       "x-foxxycode-property-order": [
         "permission_mode",
         "command_allowlist",
+        "permission_timeout_seconds",
         "plan_no_self_run",
-        "ask_disable_extended_tools",
         "output_limits",
         "background"
       ]
@@ -1441,8 +1756,11 @@
     "providers",
     "models",
     "agent",
+    "autocomplete",
     "tools",
     "commands",
+    "subagents",
+    "hooks",
     "mcp_servers",
     "skills",
     "memory",

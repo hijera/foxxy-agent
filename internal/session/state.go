@@ -58,11 +58,19 @@ type State struct {
 	// Resolved against the effective model's levels by EffectiveReasoning.
 	SelectedReasoning string
 
+	// HookContext is the context SessionStart hooks handed to the session;
+	// every system prompt of the session carries it (see docs/hooks.md).
+	HookContext string
+
 	// Messages is the conversation history.
 	Messages []llm.Message
 
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
+
+	// hookNotices remembers which hooks-file notices this live session has
+	// already recorded (see MarkHookNoticeShown); not persisted.
+	hookNotices map[string]bool
 
 	// MCPClients are MCP servers supplied by the session client (for example
 	// ACP). They survive configured project-server reconnects.
@@ -71,6 +79,15 @@ type State struct {
 	// configuredMCPClients are derived from config.yaml plus global/project
 	// mcp.json. They are replaced when the session workspace changes.
 	configuredMCPClients []*mcp.Client
+
+	// subagent is set for a child session spawned by another session (see
+	// subagent.go); nil for ordinary chats and scheduler runs.
+	subagent *SubagentMeta
+
+	// sessionMCPDecls are the ACP client-supplied MCP declarations this session
+	// dialed, kept so a child session can redial them: they exist nowhere in
+	// the configuration, only on the wire that opened this session.
+	sessionMCPDecls []config.MCPServerConfig
 
 	// mcpReady is the gate for a configured-MCP connect running in the background;
 	// nil when nothing is in flight. mcpClosed marks the session as gone so a late
@@ -203,6 +220,14 @@ func (s *State) SetCWD(dir string) {
 	s.touchPersist()
 }
 
+// setSessionDir records the bundle directory once it exists (child sessions
+// register before their bundle is laid out).
+func (s *State) setSessionDir(dir string) {
+	s.mu.Lock()
+	s.SessionDir = dir
+	s.mu.Unlock()
+}
+
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
 func (s *State) GetPersistedSessionDir() string {
 	s.mu.RLock()
@@ -276,10 +301,84 @@ func (s *State) GetMCPClients() []*mcp.Client {
 	return out
 }
 
+// RememberSessionMCPDeclaration records a client-supplied MCP declaration so a
+// child session spawned from this one can redial the same server.
+func (s *State) RememberSessionMCPDeclaration(srv config.MCPServerConfig) {
+	s.mu.Lock()
+	s.sessionMCPDecls = append(s.sessionMCPDecls, srv)
+	s.mu.Unlock()
+}
+
+// SessionMCPDeclarations returns a copy of the client-supplied MCP
+// declarations this session dialed.
+func (s *State) SessionMCPDeclarations() []config.MCPServerConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]config.MCPServerConfig, len(s.sessionMCPDecls))
+	copy(out, s.sessionMCPDecls)
+	return out
+}
+
+// SubagentMeta describes a child session spawned by another session: who
+// spawned it, which pool task represents it, how deep it sits, and what role
+// and tool set the runtime gave it.
+type SubagentMeta struct {
+	// Name is the subagent definition name.
+	Name string
+	// ParentSessionID is the session whose turn spawned this child; the pool
+	// task representing the child lives under that session.
+	ParentSessionID string
+	// TaskID is the background task id of the run.
+	TaskID string
+	// Depth is the nesting level: 1 for a child of an ordinary session.
+	Depth int
+	// MaxTurns caps the child's ReAct rounds; 0 uses the configured default.
+	MaxTurns int
+	// Role is the definition body the child's system prompt carries. Not
+	// persisted: a restored child is a read-only transcript.
+	Role string
+	// Tools is the effective tool set the child may call. Not persisted.
+	Tools []string
+}
+
+// SetSubagentMeta marks the session as a child run. It does not persist by
+// itself: the manager saves the state right after building it.
+func (s *State) SetSubagentMeta(meta SubagentMeta) {
+	meta.Tools = append([]string(nil), meta.Tools...)
+	s.mu.Lock()
+	s.subagent = &meta
+	s.mu.Unlock()
+}
+
+// Subagent returns a copy of the child-run metadata, or nil for an ordinary
+// session.
+func (s *State) Subagent() *SubagentMeta {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.subagent == nil {
+		return nil
+	}
+	out := *s.subagent
+	out.Tools = append([]string(nil), s.subagent.Tools...)
+	return &out
+}
+
+// IsSubagentRun reports whether this session is a child spawned by another
+// session, and therefore a read-only transcript for everyone but its own run.
+func (s *State) IsSubagentRun() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.subagent != nil
+}
+
 // addMCPClient attaches a server the ACP client supplied. A connect that lands
 // after the session was closed hands its client straight to Close instead of
 // attaching it to dead state, the same rule replaceConfiguredMCPClients follows.
-func (s *State) addMCPClient(client *mcp.Client) {
+func (s *State) addMCPClient(client *mcp.Client) { s.AddSessionMCPClient(client) }
+
+// AddSessionMCPClient attaches a client-supplied MCP connection to the session
+// (the exported twin of addMCPClient, used by the subagent runtime and tests).
+func (s *State) AddSessionMCPClient(client *mcp.Client) {
 	if client == nil {
 		return
 	}
@@ -420,6 +519,28 @@ func (s *State) SetSelectedModelID(id string) {
 	s.touchPersist()
 }
 
+// GetHookContext returns the context SessionStart hooks handed to the session.
+func (s *State) GetHookContext() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.HookContext
+}
+
+// SetHookContext replaces the SessionStart hook context and persists it.
+func (s *State) SetHookContext(text string) {
+	s.mu.Lock()
+	s.HookContext = strings.TrimSpace(text)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// RestoreHookContextWithoutPersist sets the hook context from disk (session load).
+func (s *State) RestoreHookContextWithoutPersist(text string) {
+	s.mu.Lock()
+	s.HookContext = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
 // GetSelectedReasoning returns the session reasoning override, or empty.
 func (s *State) GetSelectedReasoning() string {
 	s.mu.RLock()
@@ -504,6 +625,20 @@ func (s *State) GetMessages() []llm.Message {
 	return msgs
 }
 
+// MessageCount is how many messages the transcript holds right now.
+//
+// A client watching a long turn needs to know whether anything has been added
+// since it last looked, and activitySeq cannot answer that: it advances once
+// per completed turn. This counter moves with every ReAct round and every tool
+// result, which is exactly the granularity a transcript reload observes. It
+// deliberately does not copy the slice the way GetMessages does - the caller
+// wants a number, and this is polled.
+func (s *State) MessageCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.Messages)
+}
+
 // GetAgentMemory returns session memory text for prompt templates.
 func (s *State) GetAgentMemory() string {
 	s.mu.RLock()
@@ -517,6 +652,12 @@ func (s *State) SetAgentMemory(text string) {
 	s.AgentMemory = text
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// ConversationTitle returns the pinned title, or the one derived from the
+// first user message (the value session.json records).
+func (s *State) ConversationTitle() string {
+	return persistedConversationTitle(s)
 }
 
 // GetTitlePinned returns the user-pinned session title shown in snapshots, if any.

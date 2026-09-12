@@ -32,6 +32,7 @@ Configuration edits never apply immediately. The flow is always:
 | `add_list skills.dirs=/home/dev/.agents/skills` | Append to a list |
 | `del_list skills.dirs=/home/dev/.agents/skills` | Remove a matching list entry |
 | `delete mcp_servers[name=context7]` | Delete a field or entry |
+| `delete models[model=valera/qwen3.8-27b].reasoning_levels` | Drop an optional key so its default applies again (here: reasoning levels go back to auto-detection) |
 
 Paths are dotted: `agent.max_turns` walks mappings, `skills.dirs.0` indexes a list, `mcp_servers[name=context7].command` selects a named list entry. Unknown schema paths and values that make the config invalid are rejected at staging time, before anything is written.
 
@@ -45,22 +46,24 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 
 The active YAML file covers these areas (full field tables: `docs/config-reference.md`):
 
-- `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound. `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`foxxycode providers login <name>` / `foxxycode codex login` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$FOXXYCODE_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login;
-- `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: FoxxyCode then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default;
-- `agent` - ReAct loop model, max turns, LLM retry and pacing (`llm_retry_max` with `0` disabling retries, `llm_retry_base_ms`, `llm_min_interval_ms`, `llm_first_token_timeout_ms`), loop protection;
-- `prompts` - system prompt template overrides;
+- `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound. `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`foxxycode providers login <name>` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$FOXXYCODE_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login. For `neuraldeep`, `api_base` selects the deployment - `https://api.neuraldeep.ru/v1` (Russia, used when empty) or `https://api.neuraldeep.tech/v1` (the international mirror); any other value falls back to the first, and the choice also decides which hub signs the user in, so set it before login (`foxxycode providers login neuraldeep --api-base <url>`, which also moves an existing row to that endpoint). `codex` ignores api_base entirely;
+- `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: FoxxyCode then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default. `reasoning_levels` has three states: key absent auto-detects the levels from the model id (the default), an explicit `[]` hides the reasoning selector, and a non-empty list offers exactly those levels; `delete models.N.reasoning_levels` returns an entry to auto-detection, `set models.N.reasoning_levels=[]` opts out;
+- `agent` - ReAct loop model, max turns, LLM retry and pacing (`llm_retry_max` with `0` disabling retries, `llm_retry_base_ms`, `llm_min_interval_ms`, `llm_first_token_timeout_ms`), waiting out a failing provider (`llm_stall_timeout_ms`, `llm_stall_retry`, `llm_stall_retry_delays_ms`, `llm_stall_retry_max_wait_ms` with `0` meaning unbounded), loop protection (`loop_guard`, `loop_tool_repeat_limit`, `loop_stream_repeat_cycles`, `loop_tool_cycle_repeats`, `loop_nudge_max`, `loop_stuck_action`);
+- `prompts` - system prompt template overrides (`agent_prompt`, `plan_prompt`, `docs_prompt`, `ask_prompt` files inside `dir`);
+- `autocomplete` - inline code completion in the editor plugins (the greyed suggestion at the caret): `enabled` (off by default, because a suggestion is requested per keystroke), `model` (empty falls back to `agent.model`; pick a small fast entry), `mode` (`auto` = native fill-in-the-middle for Qwen-Coder / DeepSeek-Coder / CodeLlama / StarCoder / Codestral over `/v1/completions`, chat prompt otherwise; `chat`; `fim`), `temperature` (0 = greedy, the default), `trigger` (`auto` while typing / `manual` on the shortcut), `debounce_ms`, `max_tokens`, `timeout_ms`, `multi_line`, `related_files` (other open workspace files excerpted into the prompt; 0 disables), and the `max_prefix_bytes` / `max_suffix_bytes` context window around the caret;
 - `instructions` - project instruction files (AGENTS.md chain);
 - `skills` - discovery dirs, remote sources, `auto_discovery` for the model-driven `load_skill` tool;
-- `rules` - project rules discovery;
+- `rules` - project rules discovery: `auto_discover` scans `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` under the session workspace; `systems` narrows that to some of `foxxycode`, `agents-dir`, `cursor`, `claude`, `codex`, `agents`;
 - `mcp_servers` - MCP servers started per session (stdio command, args, env; url and headers for the http/sse transports; `insecure_skip_verify` to accept a self-signed TLS certificate; disabled flag);
 - `mcp` - trust policy for project-local `.foxxycode/mcp.json` declarations (`project_trust`);
-- `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;
+- `tools` - permission mode, command allowlist, permission prompt timeout (`permission_timeout_seconds`, 0 waits forever), background execution, output limits, SSH timeouts;
 - `commands` - command profiles: one fixed binary per entry with an argv template and typed params (`file`/`enum`/`int`/`flag`/`string`+pattern), `permission: ask|allow` (only `allow` runs inside Mini Apps), package-manager install coordinates; registered as `cmd_<name>` tools, executed argv-style without a shell (example: `set commands[name=ffmpeg_extract_audio]={"binary":"ffmpeg","permission":"allow","template":["-i","{input_path}","-vn","{output_path}"],"params":[{"name":"input_path","type":"file"},{"name":"output_path","type":"file"}]}`);
+- `hooks` - operator commands run at lifecycle points of a session (before and after a tool call: deny it, approve it past the permission prompt, rewrite its arguments, add context): the definition files (`files`, Claude Code's JSON shape, `~/.foxxycode/hooks.json` plus the workspace's `.foxxycode/hooks.json` and `.claude/settings*.json`), the trust policy for files found inside the workspace (`project_trust`: `ask` lists them but runs nothing until the file is approved on the machine running foxxycode with `foxxycode hooks trust <file>` there or `POST /foxxycode/hooks/trust`; `allow` runs them like the operator's own file; `deny` never reads them), the per-hook default timeout (`default_timeout_seconds`), the Stop-hook loop cap (`stop_loop_limit`) and the output cap (`max_output_chars`). To let a trusted checkout's hooks run without approvals, stage `set hooks.project_trust=allow`; to switch hooks off, `set hooks.enabled=false`;
 - `logger` - level, outputs, rotation;
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
-- `httpserver` - OpenAI-compatible HTTP API defaults, auth token, CORS, UI (tag `http`);
+- `httpserver` - OpenAI-compatible HTTP API defaults, auth token (plus `stream_tickets_only`, which forces EventSource clients to mint a single-use ticket instead of putting the durable token in a URL), CORS, UI (tag `http`);
 - `scheduler` - cron scheduler (tag `scheduler`);
 - `gateways` - messenger bots such as Telegram (tag `gateway`);
 - `browser` - interactive browser tools (tag `browser`): `enabled`, `headless`, `executable_path`, `timeout_seconds`, and `screenshots` - set `screenshots: false` to drive the browser text-only, which suits a model without vision and drops the base64 image from every request.
@@ -81,7 +84,7 @@ The selector forces the stored `name` to match. After the user confirms and `con
 
 ## Skills
 
-FoxxyCode discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${FOXXYCODE_HOME}/skills`, and `${CWD}/.foxxycode/skills`. `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them.
+FoxxyCode discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${FOXXYCODE_HOME}/skills`, and `${CWD}/.foxxycode/skills`. `${CWD}` stands for the workspace of each session and is resolved when that session loads its skills, so keep it literal when you stage `skills.dirs` (never replace it with the current absolute path: a `foxxycode http` server serves sessions rooted in different folders). `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them.
 
 Prefer FoxxyCode's installer for remote sources:
 

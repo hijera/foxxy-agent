@@ -40,8 +40,8 @@ func TestSessionDebugEndpoint(t *testing.T) {
 	// Before any trace is written, events is null.
 	rec := getDebug(t, srv, id)
 	var body struct {
-		Object   string            `json:"object"`
-		Events   []json.RawMessage `json:"events"`
+		Object string            `json:"object"`
+		Events []json.RawMessage `json:"events"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode empty trace: %v: %s", err, rec.Body.String())

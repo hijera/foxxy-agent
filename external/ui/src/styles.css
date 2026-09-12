@@ -1,5 +1,15 @@
 :root,
 [data-theme="dark"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #9ca3af;
+  --syntax-keyword: #c4b5fd;
+  --syntax-string: #6ee7b7;
+  --syntax-number: #93c5fd;
+  --syntax-title: #fcd34d;
+  --syntax-attribute: #7dd3fc;
+  --syntax-type: #67e8f9;
+  --syntax-meta: #f9a8d4;
+  --syntax-deletion: #fca5a5;
   --bg: #121212;
   --diff-add-bg: rgba(46, 160, 67, 0.13);
   --diff-del-bg: rgba(248, 81, 73, 0.13);
@@ -9,6 +19,7 @@
   --nav: rgba(37, 37, 37, 0.6);
   --sidebar: rgba(30, 30, 30, 0.7);
   --accent: #9333ea;
+  --foxxycode-todo-completed: #34c759;
   --foxxycode-skill-chip-bg: rgba(147, 51, 234, 0.14);
   --foxxycode-skill-chip-bd: rgba(147, 51, 234, 0.52);
   --foxxycode-skill-chip-text: rgba(237, 220, 255, 0.96);
@@ -95,6 +106,16 @@
   --foxxycode-status-ok: #248a3d;
   --foxxycode-status-error: #d70015;
   --foxxycode-status-warn: #b25000;
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #62626b;
+  --syntax-keyword: #6d28d9;
+  --syntax-string: #116931;
+  --syntax-number: #0d5cad;
+  --syntax-title: #79520c;
+  --syntax-attribute: #075985;
+  --syntax-type: #0e646e;
+  --syntax-meta: #93306a;
+  --syntax-deletion: #b91c1c;
   --bg: #f8f8fa;
   --diff-add-bg: rgba(46, 160, 67, 0.09);
   --diff-del-bg: rgba(248, 81, 73, 0.09);
@@ -104,6 +125,7 @@
   --nav: rgba(255, 255, 255, 0.92);
   --sidebar: #ffffff;
   --accent: #7c3aed;
+  --foxxycode-todo-completed: #248a3d;
   --foxxycode-skill-chip-bg: rgba(124, 58, 237, 0.1);
   --foxxycode-skill-chip-bd: rgba(124, 58, 237, 0.35);
   --foxxycode-skill-chip-text: rgba(76, 29, 149, 0.96);
@@ -164,6 +186,16 @@
 
 /* ── Midnight ── deep indigo-blue dark ─────────────────────────────────────── */
 [data-theme="midnight"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #9aa8c7;
+  --syntax-keyword: #c4b5fd;
+  --syntax-string: #86efac;
+  --syntax-number: #93c5fd;
+  --syntax-title: #fde68a;
+  --syntax-attribute: #a5b4fc;
+  --syntax-type: #67e8f9;
+  --syntax-meta: #f0abfc;
+  --syntax-deletion: #fda4af;
   --bg: #0d1117;
   --diff-add-bg: rgba(46, 160, 67, 0.13);
   --diff-del-bg: rgba(248, 81, 73, 0.13);
@@ -173,6 +205,7 @@
   --nav: rgba(13, 17, 28, 0.72);
   --sidebar: rgba(10, 13, 23, 0.8);
   --accent: #5865f2;
+  --foxxycode-todo-completed: #3fb950;
   --foxxycode-skill-chip-bg: rgba(88, 101, 242, 0.14);
   --foxxycode-skill-chip-bd: rgba(88, 101, 242, 0.52);
   --foxxycode-skill-chip-text: rgba(199, 204, 255, 0.96);
@@ -237,6 +270,16 @@
 
 /* ── Solarized Dark ─────────────────────────────────────────────────────────── */
 [data-theme="solarized-dark"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #93a1a1;
+  --syntax-keyword: #b6c44a;
+  --syntax-string: #2fc3b5;
+  --syntax-number: #d6a8e6;
+  --syntax-title: #e0b54a;
+  --syntax-attribute: #69b8e8;
+  --syntax-type: #a8c75a;
+  --syntax-meta: #ed9870;
+  --syntax-deletion: #f18483;
   --bg: #002b36;
   --diff-add-bg: rgba(133, 153, 0, 0.18);
   --diff-del-bg: rgba(220, 50, 47, 0.18);
@@ -246,6 +289,7 @@
   --nav: rgba(0, 36, 46, 0.72);
   --sidebar: rgba(0, 28, 36, 0.8);
   --accent: #268bd2;
+  --foxxycode-todo-completed: #859900;
   --foxxycode-skill-chip-bg: rgba(38, 139, 210, 0.14);
   --foxxycode-skill-chip-bd: rgba(38, 139, 210, 0.5);
   --foxxycode-skill-chip-text: rgba(147, 161, 161, 0.96);
@@ -310,6 +354,16 @@
 
 /* ── Monokai ── warm charcoal with orange/green ─────────────────────────────── */
 [data-theme="monokai"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #a6a69c;
+  --syntax-keyword: #f92672;
+  --syntax-string: #e6db74;
+  --syntax-number: #ae81ff;
+  --syntax-title: #a6e22e;
+  --syntax-attribute: #a6e22e;
+  --syntax-type: #66d9ef;
+  --syntax-meta: #fd971f;
+  --syntax-deletion: #ff6188;
   --bg: #272822;
   --diff-add-bg: rgba(166, 226, 46, 0.13);
   --diff-del-bg: rgba(249, 38, 114, 0.14);
@@ -319,6 +373,7 @@
   --nav: rgba(31, 32, 26, 0.72);
   --sidebar: rgba(25, 26, 21, 0.8);
   --accent: #fd971f;
+  --foxxycode-todo-completed: #a6e22e;
   --foxxycode-skill-chip-bg: rgba(253, 151, 31, 0.13);
   --foxxycode-skill-chip-bd: rgba(253, 151, 31, 0.5);
   --foxxycode-skill-chip-text: rgba(255, 220, 170, 0.96);
@@ -383,6 +438,16 @@
 
 /* ── Nord ── polar night cool blue-grey ─────────────────────────────────────── */
 [data-theme="nord"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #98a6bc;
+  --syntax-keyword: #81a1c1;
+  --syntax-string: #a3be8c;
+  --syntax-number: #b48ead;
+  --syntax-title: #88c0d0;
+  --syntax-attribute: #8fbcbb;
+  --syntax-type: #8fbcbb;
+  --syntax-meta: #ebcb8b;
+  --syntax-deletion: #e399a1;
   --bg: #2e3440;
   --diff-add-bg: rgba(163, 190, 140, 0.14);
   --diff-del-bg: rgba(191, 97, 106, 0.14);
@@ -392,6 +457,7 @@
   --nav: rgba(36, 41, 52, 0.72);
   --sidebar: rgba(30, 34, 44, 0.8);
   --accent: #88c0d0;
+  --foxxycode-todo-completed: #a3be8c;
   --foxxycode-skill-chip-bg: rgba(136, 192, 208, 0.13);
   --foxxycode-skill-chip-bd: rgba(136, 192, 208, 0.48);
   --foxxycode-skill-chip-text: rgba(216, 222, 233, 0.96);
@@ -456,6 +522,16 @@
 
 /* ── Rosé Pine ── warm plum dark ────────────────────────────────────────────── */
 [data-theme="rose-pine"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #908caa;
+  --syntax-keyword: #c4a7e7;
+  --syntax-string: #f6c177;
+  --syntax-number: #ebbcba;
+  --syntax-title: #9ccfd8;
+  --syntax-attribute: #ebbcba;
+  --syntax-type: #9ccfd8;
+  --syntax-meta: #c4a7e7;
+  --syntax-deletion: #eb6f92;
   --bg: #191724;
   --diff-add-bg: rgba(49, 116, 143, 0.15);
   --diff-del-bg: rgba(235, 111, 146, 0.15);
@@ -465,6 +541,7 @@
   --nav: rgba(21, 19, 32, 0.72);
   --sidebar: rgba(18, 16, 28, 0.8);
   --accent: #c4a7e7;
+  --foxxycode-todo-completed: #9ccfd8;
   --foxxycode-skill-chip-bg: rgba(196, 167, 231, 0.13);
   --foxxycode-skill-chip-bd: rgba(196, 167, 231, 0.48);
   --foxxycode-skill-chip-text: rgba(224, 222, 244, 0.96);
@@ -525,6 +602,187 @@
   --nav-floating-gutter: 2px;
   --rail-pill-track: 74px;
   --rail-pill-pad-inline: 10px;
+}
+
+/* SVN cards share the transcript's disclosure, theme tokens and bounded result viewport. */
+.svn-tool-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--muted);
+}
+.svn-action {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 10px;
+  background: var(--foxxycode-surface-raised);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.svn-action-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.svn-command {
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-state--failed,
+.svn-summary-error {
+  color: var(--text);
+  background: var(--diff-del-bg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.svn-summary-error {
+  font-size: 11px;
+}
+.svn-state--completed {
+  color: var(--text);
+  background: var(--diff-add-bg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.svn-action--failed {
+  border-left: 3px solid var(--diff-del-no);
+}
+.svn-arguments {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+.svn-scope {
+  color: var(--muted);
+}
+.svn-field {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: baseline;
+}
+.svn-field-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-field-value {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.svn-action .svn-path {
+  display: block;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.svn-field--message .svn-field-value {
+  border-left: 2px solid var(--foxxycode-glass-panel-border);
+  padding-left: 10px;
+  font-family: inherit;
+}
+.svn-action .svn-result {
+  border: 0;
+  border-top: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+}
+.svn-action .svn-info,
+.svn-action .svn-status-list {
+  padding: 12px;
+}
+.svn-info {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.svn-status-row {
+  display: grid;
+  grid-template-columns: 7ch minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.svn-status-row:last-child {
+  border-bottom: 0;
+}
+.svn-status-code {
+  white-space: pre;
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-status-path {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.svn-status-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-status-row--conflict {
+  background: var(--diff-del-bg);
+  border-radius: 4px;
+}
+.svn-status-row--conflict .svn-status-label {
+  color: var(--text);
+}
+.svn-diff-line {
+  display: inline;
+}
+.svn-diff-line--add {
+  background: var(--diff-add-bg);
+}
+.svn-diff-line--del {
+  background: var(--diff-del-bg);
+}
+.svn-diff-line--header {
+  color: var(--muted);
+}
+.svn-action .svn-diff {
+  white-space: pre;
+  width: max-content;
+  min-width: 100%;
+}
+.svn-truncated {
+  padding: 8px 12px;
+  border-top: 1px solid var(--foxxycode-glass-panel-border);
+  color: var(--muted);
+  font-size: 11px;
+}
+.svn-permission-preview .svn-action {
+  border: 0;
+  border-radius: 0;
+}
+@media (max-width: 600px) {
+  .svn-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .svn-status-row {
+    grid-template-columns: 7ch minmax(0, 1fr);
+    gap: 2px 8px;
+  }
+  .svn-status-label {
+    grid-column: 2;
+  }
 }
 
 @media (min-width: 761px) {
@@ -2176,6 +2434,51 @@ a.rail-brand {
   animation: chat-fade-in 0.22s ease-out both;
 }
 
+/* Long-transcript scroll optimization: off-screen rows skip layout and paint.
+   `contain-intrinsic-size: auto <fallback>` reuses the last rendered height, so
+   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up.
+   `content-visibility: auto` also turns on paint containment while the row is
+   visible, which clips anything drawn outside the row box. It is therefore
+   opted in per row type: only rows whose content stays inside their own box
+   (assistant markdown, thinking / tool / compaction / memory foldouts, system
+   notices). User rows keep the hover edit button at `left: -32px`, and the
+   permission, question and plan cards cast shadows past their wrapper, so
+   those rows stay uncontained. */
+.messages-inner > .msg-assistant-stack,
+.messages-inner > .thinking-row,
+.messages-inner > .msg-system-stack {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+  /* Paint containment clips at the padding edge. Focus rings on controls at
+     the row edge (2px outline + 2px offset on the copy buttons, the
+     edge-to-edge <summary> ring) need room inside the box: pad the row and
+     pull it back with a matching negative margin so nothing moves. */
+  padding: 4px;
+  margin: -4px;
+  /* Rows size as border-box, so widen by the padding to keep the content
+     width (and therefore line wrapping) exactly as without containment. */
+  width: calc(100% + 8px);
+}
+
+/* JCEF (the IntelliJ panel, Chromium 104) raises "ResizeObserver loop limit
+   exceeded" on every transcript open when the rows above use
+   content-visibility: auto with a placeholder size: that engine flips a row
+   between its placeholder and its real box inside the same resize-observation
+   loop, and the plugin paints the notice as an error overlay. index.html marks
+   the IDE embed on <html data-embed>, so the optimization is switched off
+   there and rows lay out plainly. Guarded by the plugin's uiTest
+   (BrowserPanelUiTest.anOldTranscriptOpensWithoutAResizeObserverLoop). */
+html[data-embed="intellij"] .messages-inner > .msg-assistant-stack,
+html[data-embed="intellij"] .messages-inner > .thinking-row,
+html[data-embed="intellij"] .messages-inner > .msg-system-stack {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
+
+.messages-inner > .thinking-row {
+  max-width: calc(720px + 8px);
+}
+
 .chat-scroll-tail {
   flex: none;
   height: var(--chat-composer-reserve, 220px);
@@ -2254,6 +2557,87 @@ a.rail-brand {
 
 .chat-bottom-inner .composer-wrap {
   pointer-events: auto;
+}
+
+/* Subagent transcript: the composer's slot holds a read-only notice that points
+   back at the parent chat. Same glass card tokens as the composer so the
+   bottom of the column keeps its weight. */
+.subagent-readonly-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 78%, var(--foxxycode-blend-base));
+}
+
+.subagent-readonly-text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.subagent-readonly-link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--foxxycode-blend-base));
+  background: color-mix(in srgb, var(--accent) 10%, var(--foxxycode-blend-base));
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.subagent-readonly-link:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--foxxycode-blend-base));
+}
+
+/* Approval offered under a refused spawn_agent row. It sits outside the row's
+   <details>, which is collapsed by default, because an approval nobody sees is
+   an approval nobody gives. Amber rather than accent: this is a gate, not a
+   suggestion. */
+.subagent-approval-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  margin: 6px 0 2px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  background: color-mix(in srgb, #ff9f0a 8%, var(--foxxycode-blend-base));
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
+}
+
+.subagent-approval-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  /* The declaring path can be long and must not stretch the transcript. */
+  overflow-wrap: anywhere;
+}
+
+.subagent-approval-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
 }
 
 .msg {
@@ -2759,6 +3143,10 @@ a.rail-brand {
   margin-top: 8px;
   min-height: 28px;
   box-sizing: border-box;
+  /* The row sits below the bordered card, not inside it: inset it by the
+     card's horizontal padding so the copy control lines up with the one
+     under an assistant row, which inherits that padding from its card. */
+  padding-left: 14px;
 }
 
 .msg-system-time {
@@ -3291,6 +3679,184 @@ a.rail-brand {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.browser-tool-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--muted);
+}
+.browser-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-field-label,
+.browser-content-head {
+  font-size: 12px;
+  color: var(--muted);
+}
+.browser-selector code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.browser-selector .hljs-selector-class,
+.browser-selector .hljs-selector-id,
+.browser-selector .hljs-selector-attr {
+  color: var(--accent);
+}
+.browser-content {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+}
+.browser-content-head .md-copy {
+  position: static;
+  flex-shrink: 0;
+}
+.browser-content-viewport {
+  max-height: 180px;
+  overflow-x: auto;
+}
+.browser-content-viewport--clip {
+  overflow-y: hidden;
+}
+.browser-content-viewport--scroll {
+  max-height: 360px;
+  overflow-y: auto;
+}
+.browser-content-viewport pre {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.browser-code .browser-content-viewport pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.browser-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 8px;
+}
+.browser-result .tool-call-result-head {
+  padding: 0;
+  border: 0;
+}
+.browser-result--failed {
+  border-color: var(--foxxycode-status-error);
+}
+.browser-result--failed .tool-call-result-head,
+.browser-log-line--error {
+  color: var(--foxxycode-status-error);
+}
+.browser-log-line--warning {
+  color: var(--foxxycode-status-warn);
+}
+.browser-permission-preview > .browser-action {
+  padding: 12px;
+  box-sizing: border-box;
+}
+.browser-result-note {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.browser-scroll-screen {
+  width: 260px;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--muted);
+  border-radius: 5px;
+  background: var(--foxxycode-surface-raised);
+  color: var(--accent);
+}
+.browser-scroll-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--muted);
+  background: var(--foxxycode-glass-panel-border);
+}
+.browser-scroll-window-dots {
+  display: flex;
+  gap: 4px;
+}
+.browser-scroll-window-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.browser-scroll-address {
+  flex: 1;
+  height: 10px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 3px;
+  background: var(--foxxycode-surface-raised);
+}
+.browser-scroll-screen svg {
+  display: block;
+  width: 100%;
+}
+.browser-scroll-screen text {
+  fill: var(--text);
+  font-size: 12px;
+  font-family: var(--foxxycode-md-inline-code-font);
+}
+.browser-scroll-guides {
+  stroke: var(--foxxycode-glass-panel-border);
+  stroke-dasharray: 3 5;
+  fill: none;
+}
+.browser-inspect-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  font-size: 12px;
+}
+.browser-inspect-table th,
+.browser-inspect-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--foxxycode-glass-panel-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.browser-inspect-table th {
+  font-weight: 500;
+  color: var(--muted);
+}
+.browser-inspect-table td {
+  white-space: pre-wrap;
 }
 
 .browser-action-line {
@@ -3307,10 +3873,10 @@ a.rail-brand {
   display: block;
   padding: 0;
   margin: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--foxxycode-glass-panel-border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--panel2, var(--panel));
+  background: var(--foxxycode-surface-raised);
   cursor: zoom-in;
   max-width: 100%;
   width: fit-content;
@@ -3560,80 +4126,75 @@ a.rail-brand {
   line-height: 1.5;
 }
 
-/* Minimal highlight theme */
-.hljs {
-  color: color-mix(in srgb, var(--text) 92%, var(--foxxycode-blend-base));
-}
-.hljs-comment,
-.hljs-quote {
-  color: rgba(156, 163, 175, 0.85);
-}
-.hljs-keyword,
-.hljs-selector-tag,
-.hljs-subst {
-  color: rgba(167, 139, 250, 0.95);
-}
-.hljs-string,
-.hljs-title,
-.hljs-section,
-.hljs-attribute,
-.hljs-literal,
-.hljs-template-tag,
-.hljs-template-variable,
-.hljs-type,
-.hljs-addition {
-  color: rgba(52, 211, 153, 0.95);
-}
-.hljs-number,
-.hljs-symbol,
-.hljs-bullet,
-.hljs-variable,
-.hljs-built_in,
-.hljs-builtin-name {
-  color: rgba(96, 165, 250, 0.95);
-}
-.hljs-deletion,
-.hljs-meta {
-  color: rgba(248, 113, 113, 0.9);
+/* Token colors inherit the active appearance without re-highlighting code. */
+.md-code .hljs,
+.md-code .hljs-subst {
+  color: var(--text);
 }
 
-[data-theme="light"] .hljs-comment,
-[data-theme="light"] .hljs-quote {
-  color: rgba(113, 113, 122, 0.92);
+.md-code .hljs-comment,
+.md-code .hljs-quote {
+  color: var(--syntax-comment);
 }
 
-[data-theme="light"] .hljs-keyword,
-[data-theme="light"] .hljs-selector-tag,
-[data-theme="light"] .hljs-subst {
-  color: rgba(109, 40, 217, 0.95);
+.md-code .hljs-keyword,
+.md-code .hljs-name,
+.md-code .hljs-selector-tag,
+.md-code .hljs-doctag {
+  color: var(--syntax-keyword);
 }
 
-/* Light theme: the dark-theme green/blue/red are too bright and low-contrast
-   on the pale code surface; use darker, less saturated tokens. */
-[data-theme="light"] .hljs-string,
-[data-theme="light"] .hljs-title,
-[data-theme="light"] .hljs-section,
-[data-theme="light"] .hljs-attribute,
-[data-theme="light"] .hljs-literal,
-[data-theme="light"] .hljs-template-tag,
-[data-theme="light"] .hljs-template-variable,
-[data-theme="light"] .hljs-type,
-[data-theme="light"] .hljs-addition {
-  color: rgba(17, 105, 49, 0.95);
+.md-code .hljs-string,
+.md-code .hljs-regexp,
+.md-code .hljs-addition {
+  color: var(--syntax-string);
 }
 
-[data-theme="light"] .hljs-number,
-[data-theme="light"] .hljs-symbol,
-[data-theme="light"] .hljs-bullet,
-[data-theme="light"] .hljs-variable,
-[data-theme="light"] .hljs-built_in,
-[data-theme="light"] .hljs-builtin-name {
-  color: rgba(13, 92, 173, 0.95);
+.md-code .hljs-number,
+.md-code .hljs-literal,
+.md-code .hljs-symbol,
+.md-code .hljs-bullet {
+  color: var(--syntax-number);
 }
 
-[data-theme="light"] .hljs-deletion,
-[data-theme="light"] .hljs-meta {
-  color: rgba(185, 28, 28, 0.95);
+.md-code .hljs-title,
+.md-code .hljs-section {
+  color: var(--syntax-title);
+}
+
+.md-code .hljs-attr,
+.md-code .hljs-attribute,
+.md-code .hljs-selector-id,
+.md-code .hljs-selector-class,
+.md-code .hljs-selector-attr,
+.md-code .hljs-selector-pseudo {
+  color: var(--syntax-attribute);
+}
+
+.md-code .hljs-type,
+.md-code .hljs-built_in,
+.md-code .hljs-builtin-name {
+  color: var(--syntax-type);
+}
+
+.md-code .hljs-meta,
+.md-code .hljs-operator,
+.md-code .hljs-variable,
+.md-code .hljs-template-tag,
+.md-code .hljs-template-variable {
+  color: var(--syntax-meta);
+}
+
+.md-code .hljs-deletion {
+  color: var(--syntax-deletion);
+}
+
+.md-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.md-code .hljs-strong {
+  font-weight: 700;
 }
 
 .md-copy {
@@ -3888,6 +4449,90 @@ a.rail-brand {
   cursor: default;
 }
 
+/* Line-range picker: the panel that replaces the @ file picker once a ":" is
+   typed. Rows are one logical line each (no wrapping), so the gutter numbers
+   line up with the code and long lines scroll sideways inside the panel. */
+.at-range-title-path {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.at-range-title-range {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.at-range-hint,
+.at-range-menu-hint {
+  padding-top: 0;
+  padding-bottom: 6px;
+}
+
+.at-range-menu-hint {
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.at-range-lines {
+  overflow-x: auto;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.at-range-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: max-content;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+}
+
+/* Desktop rows are buttons; mobile shells render plain rows with no pointer
+   affordance, since a range there is typed rather than dragged. */
+button.at-range-line {
+  cursor: pointer;
+}
+
+button.at-range-line:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--foxxycode-blend-base));
+}
+
+.at-range-line--sel,
+button.at-range-line--sel:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--foxxycode-blend-base));
+}
+
+.at-range-line-no {
+  flex: 0 0 auto;
+  min-width: 3ch;
+  text-align: right;
+  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.at-range-line-code {
+  flex: 1 1 auto;
+  white-space: pre;
+}
+
 .md .foxxycode-skill-chip {
   display: inline-flex;
   align-items: baseline;
@@ -3916,13 +4561,17 @@ a.rail-brand {
 }
 
 /*
- * IDE embedding (JCEF) — flatter, more native host look.
- * Triggered by ?embed=intellij which sets <html data-embed="intellij">.
+ * IDE embedding — flatter, more native host look.
+ * Triggered by ?embed=intellij (JCEF tool window) or ?embed=vscode (webview
+ * iframe), which set <html data-embed="intellij|vscode">. Both hosts share
+ * this chrome; only the Chromium-104 workarounds above (row containment
+ * opt-out) stay keyed on the intellij id.
  * Drops the frosted-glass halo, tightens corners, and uses a solid panel
  * background + 1px border so the composer reads as an IDE input field rather
  * than a floating glass card. Also flattens the docked vignette above it.
  */
-[data-embed="intellij"] .composer-card {
+[data-embed="intellij"] .composer-card,
+[data-embed="vscode"] .composer-card {
   border-radius: 6px;
   background: color-mix(in srgb, var(--text) 5%, var(--foxxycode-canvas-gradient-top));
   border: 1px solid color-mix(in srgb, var(--text) 18%, var(--foxxycode-blend-base));
@@ -3932,11 +4581,14 @@ a.rail-brand {
 }
 
 [data-embed="intellij"] .composer-wrap-docked .composer-card,
-[data-embed="intellij"] .hero-composer .composer-card {
+[data-embed="intellij"] .hero-composer .composer-card,
+[data-embed="vscode"] .composer-wrap-docked .composer-card,
+[data-embed="vscode"] .hero-composer .composer-card {
   box-shadow: none;
 }
 
-[data-embed="intellij"] .chat-bottom--docked::before {
+[data-embed="intellij"] .chat-bottom--docked::before,
+[data-embed="vscode"] .chat-bottom--docked::before {
   background: linear-gradient(
     to bottom,
     rgba(0, 0, 0, 0) 0%,
@@ -3944,11 +4596,13 @@ a.rail-brand {
   );
 }
 
-[data-embed="intellij"] .hero {
+[data-embed="intellij"] .hero,
+[data-embed="vscode"] .hero {
   padding-bottom: 12px;
 }
 
-[data-embed="intellij"] .hero-title {
+[data-embed="intellij"] .hero-title,
+[data-embed="vscode"] .hero-title {
   margin-bottom: 12px;
 }
 
@@ -4402,11 +5056,24 @@ textarea#composer {
   background: rgba(0, 0, 0, 0.45);
 }
 
+/* Column flex box with a height cap: the folder list below is its only
+   scrollport, everything else is flex: none. Safari keeps its dynamic browser
+   chrome inside vh but outside dvh, so a vh-only cap can push the action row
+   under the toolbar - the vh line stays as the fallback for engines without
+   dvh (issue #159). */
 .workspace-modal {
   display: flex;
   flex-direction: column;
   width: min(440px, calc(100vw - 32px));
+  /* Roomy body for a folder with few children: 262px is the 140px of head,
+     path row and actions plus the 120px of list the body used to claim through
+     the list's own min-height. Stated on the dialog, the floor leaves the list
+     free to shrink; clamped by the same viewport fraction as the cap below, it
+     can never exceed it. */
+  min-height: min(262px, 60vh);
+  min-height: min(262px, 60dvh);
   max-height: min(60vh, 520px);
+  max-height: min(60dvh, 520px);
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
   background: var(--bg);
@@ -4416,6 +5083,7 @@ textarea#composer {
 
 .workspace-modal-head {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px 8px;
@@ -4424,22 +5092,70 @@ textarea#composer {
   color: var(--text);
 }
 
+/* Editable path row: type or paste a path (a Windows user needs it to jump to
+   another drive). Shares the .mode-menu-filter token recipe so every theme is
+   covered; no direction: rtl here - it breaks the caret for LTR text. */
 .workspace-modal-path {
-  padding: 0 14px 8px;
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  flex: none;
+  width: calc(100% - 28px);
+  box-sizing: border-box;
+  margin: 0 14px 8px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
+  color: var(--text);
+  font-size: 11.5px;
+  outline: none;
 }
 
+.workspace-modal-path::placeholder {
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+}
+
+.workspace-modal-path:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
+/* The dialog's only scrollport. `min-height: 0` is what turns a column flex
+   child into one: with a positive floor here the head, the path row and the
+   action buttons are laid out past the dialog's max-height and clipped away by
+   its `overflow: hidden`, with nothing left to scroll them back into view
+   (issue #159, reported on Safari 26.6 in a short window). The dialog's own
+   min-height keeps the body roomy when the listing is short, and being a bound
+   on the dialog it yields to the cap instead of fighting it.
+   The explicit thin scrollbar below is the same recipe the settings lists use:
+   where the platform draws a scrollbar at all, this one is legible against the
+   dark panel instead of inheriting the default. It does not create a track on
+   platforms with overlay scrollbars (macOS), so it is an affordance, not the
+   fix. */
 .workspace-modal-list {
   flex: 1 1 auto;
-  min-height: 120px;
+  min-height: 0;
   overflow-y: auto;
+  /* A wheel gesture that runs past the last folder stays in the dialog instead
+     of scrolling the page behind it. */
+  overscroll-behavior: contain;
   padding: 0 8px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.workspace-modal-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.workspace-modal-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workspace-modal-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.workspace-modal-list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 34%, transparent);
 }
 
 .workspace-modal-row {
@@ -4468,11 +5184,67 @@ textarea#composer {
   color: var(--muted);
 }
 
+/* Inline "new folder" row: a name field on the folder-row metrics, directly
+   above the listing it will appear in. It is a form, not a destination, so it
+   takes no row hover - and it sits *outside* the scrollport below on purpose:
+   as a flex: none sibling it is always fully visible, where a child of the list
+   would scroll away under the operator, and on a short window (issue #159's
+   1024x300: a 38px scrollport) it would be taller than the port it lives in. */
+.workspace-modal-row--new {
+  flex: none;
+  gap: 6px;
+  /* Tighter than a folder row on purpose: the row is chrome, and chrome is
+     what a short dialog runs out of room for. At 1024x300 - the shortest
+     viewport webkit-scroll-check.mjs drives - the list has already shrunk to
+     zero, so every pixel here comes straight off the dialog's own height. */
+  padding: 2px 8px;
+  margin: 0 6px 2px;
+  width: auto;
+  cursor: default;
+  overflow: visible;
+}
+
+.workspace-modal-row--new:hover {
+  background: transparent;
+}
+
+.workspace-modal-new-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--foxxycode-blend-base));
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.workspace-modal-new-name::placeholder {
+  color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+}
+
+.workspace-modal-new-name:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
 .workspace-modal-actions {
   display: flex;
+  flex: none;
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 14px 12px;
+}
+
+/* New folder leads the footer, opposite the Cancel / Open pair. */
+.workspace-modal-btn--lead {
+  margin-right: auto;
+}
+
+.workspace-modal-btn--inline {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .workspace-modal-btn {
@@ -4916,6 +5688,62 @@ textarea#composer {
   box-shadow: var(--foxxycode-tip-shadow);
 }
 
+/* Provider account usage: the pill left of the context ring and the notice
+   above the composer (DESIGN.md, Context popover usage section and usage banner). */
+.usage-banner {
+  display: flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.usage-banner--error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.usage-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.usage-banner-dismiss {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.usage-banner-dismiss:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+@media (max-width: 1199px) {
+  /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
+  .usage-banner-dismiss {
+    width: 44px;
+    height: 44px;
+    margin: -10px -10px -10px 0;
+  }
+}
+
 .context-ring {
   position: relative;
   display: grid;
@@ -5143,6 +5971,114 @@ textarea#composer {
 
 .context-breakdown-value {
   font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
+/* Account usage under the context window (UsageSection.tsx): one meter per
+   metered window, the reset time and the percent used on its right, the
+   wallet below, a note for the states that change what the user can do. */
+.context-usage {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.context-usage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+}
+
+.context-usage-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.context-usage-note {
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-usage-note--warn {
+  color: #b45309;
+}
+
+.context-usage-note--error {
+  color: #dc2626;
+}
+
+/* Every dark canvas (the default and the five dark presets, keyed the way
+   color-scheme is) lifts the tone text for contrast; only light opts out. */
+html:not([data-theme="light"]) .context-usage-note--warn {
+  color: #fbbf24;
+}
+
+html:not([data-theme="light"]) .context-usage-note--error {
+  color: #f87171;
+}
+
+.context-usage-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.context-usage-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.context-usage-label {
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-usage-meta {
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.context-usage-pct {
+  margin-left: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.context-usage-track {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.context-usage-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.context-usage-rows li[data-tone="warn"] .context-usage-fill {
+  background: #f59e0b;
+}
+
+.context-usage-rows li[data-tone="error"] .context-usage-fill {
+  background: #ef4444;
+}
+
+.context-usage-foot {
+  margin-top: 10px;
   color: color-mix(in srgb, var(--text) 70%, transparent);
 }
 
@@ -6297,12 +7233,6 @@ textarea#composer {
   color: var(--muted);
 }
 
-.settings-field-desc-below-checkbox {
-  margin-top: 4px;
-  margin-bottom: 0;
-  padding-left: 28px;
-}
-
 .settings-btn {
   border: 1px solid var(--foxxycode-glass-panel-border);
   background: var(--foxxycode-glass-panel-bg);
@@ -6499,10 +7429,40 @@ textarea#composer {
   gap: 4px;
 }
 
-.settings-row-inline {
-  flex-direction: row;
+/* Boolean setting (SwitchField): shared Switch + label + optional description
+   on one two-column grid. The first column is the switch's own width, the
+   first-row cells centre on each other, and the description takes the label
+   column, so its left edge follows the label whatever the switch measures.
+   Contract: DESIGN.md, "Boolean switch fields". Never lay a switch and its
+   label out inline, and never indent the description with padding. */
+.settings-switch-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
   align-items: center;
-  gap: 8px;
+}
+
+/* A real <label for>: clicking the text toggles the switch. */
+.settings-switch-field-label {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+/* Chromium 104 (JCEF) has no :has(); SwitchField sets the marker class when disabled. */
+.settings-switch-field--disabled > .settings-switch-field-label {
+  cursor: default;
+}
+
+/* Child selector on purpose: it beats the shared .settings-field-desc margin
+   by specificity, not by source order. */
+.settings-switch-field > .settings-switch-field-desc {
+  grid-column: 2;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .settings-label {
@@ -6555,6 +7515,21 @@ textarea#composer {
   background: var(--foxxycode-surface-muted);
   color: var(--muted);
   cursor: not-allowed;
+}
+
+/* Reasoning levels: the action row sits above the level list, so it keeps the
+   model-field control metrics but wraps instead of squeezing its buttons. */
+.reasoning-levels-actions {
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.reasoning-levels-actions .settings-btn {
+  flex: 0 0 auto;
+}
+
+[data-testid="reasoning-levels-field"] .settings-array {
+  margin-top: 8px;
 }
 
 .settings-array {
@@ -7272,6 +8247,39 @@ textarea#composer {
   border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
 }
 
+/* Subagents tab: the definition catalog reuses the MCP list chrome, so only
+   what has no MCP counterpart is defined here.
+
+   Everything a receipt covers is long and unbreakable — an absolute definition
+   path, a digest, a comma-separated tool list. A <code> does not wrap on its
+   own, so without these rules one row widens the whole fieldset past the
+   settings panel, the row descriptions lose their ellipsis, and the approve
+   control is pushed out of sight. */
+.settings-subagents-section .subagents-catalog-box,
+.settings-subagents-section .subagents-list,
+.settings-subagents-section .mcp-list-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.subagents-workspace code,
+.settings-subagents-section .mcp-trust-note,
+.settings-subagents-section .mcp-trust-note code {
+  overflow-wrap: anywhere;
+}
+
+/* The MCP facts label column is sized for "transport" and "runs"; a subagent
+   declaration's labels are longer ("permissions", "инструменты"), and at 72px
+   they wrap mid-word. */
+.settings-subagents-section .mcp-trust-facts dt {
+  flex: 0 0 104px;
+}
+
+.subagents-badge-pending {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
 .mcp-command {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.74rem;
@@ -7729,6 +8737,170 @@ textarea#composer {
   color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
+}
+
+/* Todo tool previews use the active theme's accent for pending work and a
+   theme-specific success token for completion. The marks stay semantic even
+   when a theme's accent is not blue. */
+.todo-tool-preview-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-tool-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 12px;
+  color: color-mix(in srgb, var(--text) 82%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.todo-tool-preview-row + .todo-tool-preview-row {
+  border-top: 1px solid color-mix(in srgb, var(--text) 7%, var(--foxxycode-blend-base));
+}
+
+.todo-tool-preview-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  border: 2px solid color-mix(in srgb, var(--text) 25%, var(--foxxycode-blend-base));
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: var(--foxxycode-on-accent-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.todo-tool-preview-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todo-tool-preview-row--pending .todo-tool-preview-mark {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.todo-tool-preview-row--in_progress .todo-tool-preview-mark {
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 50%,
+    color-mix(in srgb, var(--accent) 10%, transparent) 50%
+  );
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-mark {
+  border-color: var(--foxxycode-todo-completed);
+  background: var(--foxxycode-todo-completed);
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-content {
+  color: color-mix(in srgb, var(--text) 57%, var(--foxxycode-blend-base));
+}
+
+.todo-tool-preview-row--failed .todo-tool-preview-mark {
+  border-color: var(--diff-del-no);
+  background: color-mix(in srgb, var(--diff-del-no) 14%, transparent);
+  color: var(--diff-del-no);
+}
+
+.todo-tool-preview-row--cancelled .todo-tool-preview-mark {
+  color: color-mix(in srgb, var(--text) 46%, var(--foxxycode-blend-base));
+}
+
+.todo-tool-preview-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* plan_exit makes a mode transition legible without relying on the raw tool
+   result. Its active state follows the theme accent; the completed state uses
+   the semantic success token shared with completed todo items. */
+.plan-exit-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--foxxycode-blend-base));
+}
+
+.plan-exit-preview-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.plan-exit-preview--completed .plan-exit-preview-icon {
+  border-color: var(--foxxycode-todo-completed);
+  background: var(--foxxycode-todo-completed);
+  color: var(--foxxycode-on-accent-fg);
+}
+
+.plan-exit-preview-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plan-exit-preview-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.plan-exit-preview-mode {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-exit-preview-arrow {
+  color: color-mix(in srgb, var(--text) 42%, var(--foxxycode-blend-base));
+}
+
+.plan-exit-preview-mode--agent {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.plan-exit-preview-message {
+  color: color-mix(in srgb, var(--text) 88%, var(--foxxycode-blend-base));
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .permission-preview-fade {
@@ -9614,6 +10786,37 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: #ff9f0a;
 }
 
+/* A detached subagent blocked on a permission prompt. The parent turn is over,
+   so this row is the only place the question can be asked - amber, and loud
+   enough that a closed drawer still advertises it through the chip. */
+.bgtask-card.is-awaiting,
+.bgtask-chip.is-awaiting {
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
+.bgtask-permission {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #ff9f0a 35%, transparent);
+  background: color-mix(in srgb, #ff9f0a 8%, var(--foxxycode-blend-base));
+}
+
+.bgtask-permission-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 85%, var(--foxxycode-blend-base));
+}
+
+.bgtask-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .bgtask-dot--muted {
   background: color-mix(in srgb, var(--text) 24%, transparent);
 }
@@ -9777,6 +10980,56 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .bgtask-detail-stop.scheduler-btn {
   min-height: 36px;
+}
+
+/* Agent rows: a subagent run in the pool, told apart from shell commands by a
+   small badge after the label (the label itself reads "agent <name>: ..."). */
+.bgtask-kind-badge {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  background: color-mix(in srgb, var(--accent) 14%, var(--foxxycode-blend-base));
+}
+
+/* Detail pane of an agent task: the subagent name stands where a command
+   would, next to the button that opens the child transcript. */
+.bgtask-detail-agent {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bgtask-detail-agent-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
+}
+
+.bgtask-detail-agent-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 95%, var(--foxxycode-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-open-transcript.scheduler-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1199px) {
@@ -11044,4 +12297,605 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .miniapps-commands-confirmation dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.spawn-agent-card {
+  min-width: 0;
+  padding: 6px 0;
+  color: var(--foxxycode-surface-code-fg);
+}
+
+.spawn-agent-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.spawn-agent-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.spawn-agent-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.spawn-agent-identity {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.spawn-agent-name {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.spawn-agent-description {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.spawn-agent-timeout {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.spawn-agent-timeout svg {
+  width: 14px;
+  height: 14px;
+}
+
+.spawn-agent-prompt {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--foxxycode-blend-base));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.foxxycode-tool-call-body .spawn-agent-card + .tool-result {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--foxxycode-blend-base));
+}
+
+/* --- Swarm screen ------------------------------------------------------ */
+.swarm-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  z-index: 50;
+  overflow: auto;
+  border-radius: var(--foxxycode-glass-panel-radius);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  background: var(--foxxycode-glass-panel-bg);
+  backdrop-filter: var(--foxxycode-glass-panel-backdrop);
+  box-shadow: var(--foxxycode-glass-panel-shadow);
+}
+.swarm-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+  color: var(--text);
+}
+.swarm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.swarm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.swarm-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.swarm-subtitle {
+  margin: 4px 0 0;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+  font-size: 13px;
+}
+.swarm-graph-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  /* Every --foxxycode-surface-* token is translucent on six of the seven themes.
+     A node painted in one shows the wires running behind it, and a label plate
+     knocks nothing out. These three flatten the same intent onto the canvas so
+     a card is a card and a plate hides what it covers. */
+  --swarm-ground: color-mix(in srgb, var(--text) 4%, var(--bg));
+  --swarm-plate: var(--bg);
+  --swarm-sunken: color-mix(in srgb, var(--text) 10%, var(--bg));
+
+  /* Work in flight is the accent, because that is the swarm doing what it is
+     for. Something waiting on a person is the one alarm hue every theme
+     declares, lifted against the text so it stays legible on all seven. */
+  --swarm-running: var(--accent);
+  --swarm-waiting: color-mix(in srgb, var(--diff-del-no) 62%, var(--text));
+}
+.swarm-graph-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.swarm-graph-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: var(--foxxycode-glass-panel-radius, var(--radius));
+  background: var(--swarm-ground);
+  padding: 10px;
+}
+.swarm-graph {
+  display: block;
+  margin: 0 auto;
+  font-family: inherit;
+}
+.swarm-spine-rule {
+  stroke: color-mix(in srgb, var(--text) 16%, var(--foxxycode-blend-base));
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+.swarm-tier-tick {
+  stroke: color-mix(in srgb, var(--text) 34%, var(--foxxycode-blend-base));
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.swarm-tier-label {
+  fill: color-mix(in srgb, var(--text) 72%, var(--foxxycode-blend-base));
+  font-size: 11px;
+  font-weight: 500;
+}
+.swarm-tier-count {
+  fill: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
+  font-size: 10px;
+}
+.swarm-tier.is-parked .swarm-tier-label {
+  font-style: italic;
+}
+.swarm-head-route {
+  fill: var(--accent);
+  stroke: none;
+}
+.swarm-head-idle {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.swarm-head-down {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 40%, var(--foxxycode-blend-base));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.swarm-head-dial {
+  fill: color-mix(in srgb, var(--text) 66%, var(--foxxycode-blend-base));
+  stroke: none;
+}
+.swarm-graph-edges {
+  pointer-events: none;
+}
+.swarm-edge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
+}
+.swarm-edge.is-dialled {
+  stroke-dasharray: 1.5 5;
+}
+.swarm-edge.is-alternate {
+  stroke: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
+  stroke-width: 1.6;
+  stroke-dasharray: 6 5;
+  opacity: 0.85;
+}
+.swarm-edge.is-down {
+  stroke: color-mix(in srgb, var(--text) 40%, var(--foxxycode-blend-base));
+  stroke-width: 1.5;
+  stroke-dasharray: 10 9;
+  opacity: 0.75;
+}
+.swarm-edge.is-live {
+  stroke: var(--accent);
+  stroke-width: 3.4;
+  stroke-dasharray: none;
+  opacity: 1;
+}
+.swarm-edge.is-preview {
+  stroke: var(--accent);
+  stroke-width: 2.6;
+  stroke-dasharray: none;
+  opacity: 0.72;
+}
+.swarm-graph-edges.is-tracing .swarm-edge:not(.is-live):not(.is-preview) {
+  opacity: 0.4;
+}
+.swarm-graph-edges.is-tracing
+  .swarm-edge-group:not(.is-traced)
+  .swarm-edge-chip {
+  opacity: 0.5;
+}
+.swarm-edge.is-busy {
+  stroke-dasharray: 12 10;
+  animation: swarm-edge-flow 1.4s linear infinite;
+}
+.swarm-edge-chip rect {
+  fill: var(--swarm-ground);
+  stroke: color-mix(in srgb, var(--text) 13%, var(--foxxycode-blend-base));
+  stroke-width: 1;
+}
+.swarm-edge-group.is-alternate .swarm-edge-chip rect {
+  stroke-dasharray: 4 3;
+}
+.swarm-edge-label {
+  fill: color-mix(in srgb, var(--text) 64%, var(--foxxycode-blend-base));
+  font-size: 10px;
+}
+.swarm-node-hit {
+  fill: transparent;
+  stroke: none;
+}
+.swarm-node-shadow {
+  fill: var(--swarm-sunken);
+  stroke: none;
+}
+.swarm-node-body {
+  fill: var(--swarm-plate);
+  stroke: var(--foxxycode-glass-panel-border);
+  stroke-width: 1.5;
+}
+.swarm-node-tile {
+  fill: color-mix(in srgb, var(--accent) 18%, var(--foxxycode-blend-base));
+  stroke: none;
+}
+.swarm-node-mark,
+.swarm-node-glyph {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.swarm-node-agent .swarm-node-glyph {
+  stroke: color-mix(in srgb, var(--text) 68%, var(--foxxycode-blend-base));
+}
+.swarm-node.is-root .swarm-node-body {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.swarm-node.is-root .swarm-node-tile {
+  fill: var(--accent);
+}
+.swarm-node.is-root .swarm-node-mark {
+  stroke: var(--foxxycode-on-accent-fg);
+}
+.swarm-node-meta {
+  fill: color-mix(in srgb, var(--text) 52%, var(--foxxycode-blend-base));
+  font-size: 10px;
+}
+.swarm-node-chip rect {
+  fill: var(--swarm-plate);
+  stroke: color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  stroke-width: 1;
+}
+.swarm-node-chip text {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+}
+.swarm-node-dot {
+  fill: var(--foxxycode-todo-completed);
+  stroke: var(--swarm-plate);
+  stroke-width: 2;
+}
+.swarm-node-dot-off circle {
+  fill: var(--swarm-plate);
+  stroke: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
+  stroke-width: 1.6;
+}
+.swarm-node-dot-off path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 50%, var(--foxxycode-blend-base));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.swarm-node-badge circle {
+  fill: var(--swarm-plate);
+  stroke: color-mix(in srgb, var(--text) 22%, var(--foxxycode-blend-base));
+  stroke-width: 1.2;
+}
+.swarm-node-badge path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.swarm-node.is-offline .swarm-node-body,
+.swarm-node.is-stranded .swarm-node-body {
+  stroke-dasharray: 5 4;
+}
+.swarm-node.is-offline .swarm-node-mark,
+.swarm-node.is-offline .swarm-node-glyph {
+  opacity: 0.45;
+}
+.swarm-node.is-offline .swarm-node-label,
+.swarm-node.is-offline .swarm-node-chip text {
+  opacity: 0.62;
+}
+.swarm-node-label {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.swarm-node-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.swarm-node[role="button"] {
+  cursor: pointer;
+}
+.swarm-node[role="button"]:hover .swarm-node-ring {
+  opacity: 0.45;
+}
+.swarm-node[role="button"].is-selected .swarm-node-ring,
+.swarm-node[role="button"]:focus-visible .swarm-node-ring {
+  opacity: 1;
+}
+.swarm-node.is-selected .swarm-node-body {
+  /* --swarm-plate is var(--bg); named directly so the build-time
+     color-mix resolver can see the theme token. */
+  fill: color-mix(in srgb, var(--accent) 18%, var(--bg));
+}
+.swarm-node.is-selected .swarm-node-ring {
+  opacity: 1;
+}
+.swarm-node:focus {
+  outline: none;
+}
+.swarm-node:focus-visible .swarm-node-ring {
+  opacity: 1;
+  stroke-dasharray: 5 4;
+}
+.swarm-node-halo {
+  fill: none;
+  stroke: none;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.swarm-node-halo.is-running {
+  stroke: var(--swarm-running);
+  stroke-width: 2.5;
+  animation: swarm-halo-running 2.6s ease-out infinite;
+}
+.swarm-node-halo.is-waiting {
+  stroke: var(--swarm-waiting);
+  stroke-width: 3;
+  animation: swarm-halo-waiting 0.9s ease-in-out infinite;
+}
+.swarm-node-work text {
+  fill: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 10px;
+}
+.swarm-node-work.is-running text {
+  fill: var(--swarm-running);
+  font-weight: 600;
+}
+.swarm-node-work.is-waiting text {
+  fill: var(--swarm-waiting);
+  font-weight: 600;
+}
+.swarm-node-work-dot {
+  fill: var(--swarm-running);
+  stroke: none;
+}
+.swarm-node.is-current .swarm-node-ring {
+  opacity: 1;
+  stroke-width: 3.2;
+  stroke-dasharray: none;
+}
+.swarm-node.is-current .swarm-node-body {
+  /* --swarm-plate is var(--bg); named directly so the build-time
+     color-mix resolver can see the theme token. */
+  fill: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.swarm-node.is-current .swarm-node-meta {
+  fill: var(--accent);
+  font-weight: 600;
+}
+.swarm-graph-nodes.is-tracing .swarm-node:not(.is-on-route) .swarm-node-label,
+.swarm-graph-nodes.is-tracing .swarm-node:not(.is-on-route) .swarm-node-meta,
+.swarm-graph-nodes.is-tracing
+  .swarm-node:not(.is-on-route)
+  .swarm-node-chip
+  text {
+  fill-opacity: 0.62;
+}
+.swarm-graph-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.swarm-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 62%, var(--foxxycode-blend-base));
+}
+.swarm-legend-mark {
+  width: 42px;
+  height: 12px;
+  flex: none;
+  overflow: visible;
+}
+.swarm-search {
+  width: 100%;
+  background: var(--foxxycode-surface-field);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+.swarm-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.swarm-warnings {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 10px;
+  background: var(--foxxycode-surface-muted);
+  border: 1px solid var(--foxxycode-glass-panel-border);
+  color: color-mix(in srgb, var(--text) 70%, var(--foxxycode-blend-base));
+  font-size: 12px;
+}
+.swarm-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--text);
+  font-size: 12px;
+}
+.swarm-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.swarm-result-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.swarm-result-hit:hover {
+  background: var(--foxxycode-surface-muted);
+}
+.swarm-result-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.swarm-result-title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swarm-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: color-mix(in srgb, var(--text) 58%, var(--foxxycode-blend-base));
+  font-size: 11px;
+  min-width: 0;
+}
+.swarm-result-route,
+.swarm-result-cwd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swarm-result-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+.swarm-result-waiting {
+  color: color-mix(in srgb, var(--diff-del-no) 62%, var(--text));
+  font-weight: 600;
+}
+.swarm-badge {
+  background: color-mix(in srgb, var(--text) 9%, var(--foxxycode-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--foxxycode-blend-base));
+  border-radius: 5px;
+  padding: 1px 6px;
+  flex: none;
+}
+.swarm-empty {
+  color: color-mix(in srgb, var(--text) 60%, var(--foxxycode-blend-base));
+  font-size: 13px;
+  padding: 12px 2px;
+}
+
+/* Mini Apps brought a reduced-motion block of their own after this file used to
+   end with the swarm rules, and a media query adds no specificity: the switches
+   below have to name the same state classes that turned the motion on. */
+@media (prefers-reduced-motion: reduce) {
+  .swarm-node-halo.is-running,
+  .swarm-node-halo.is-waiting,
+  .swarm-edge.is-busy {
+    animation: none;
+  }
 }

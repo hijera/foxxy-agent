@@ -34,6 +34,12 @@ type bddTitleProvider struct {
 	answer      string
 	cancelAfter func()
 	cancelFirst bool
+	// loopFirst makes the first response degenerate into repeating one passage, so
+	// the loop guard cuts it and nudges the model. That path continues before the
+	// turn ever reaches the answer, which is what pushes the real answer past the
+	// first loop iteration.
+	loopFirst   bool
+	streamCalls int
 }
 
 func (p *bddTitleProvider) Complete(_ context.Context, msgs []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
@@ -49,6 +55,21 @@ func (p *bddTitleProvider) Complete(_ context.Context, msgs []llm.Message, _ []l
 }
 
 func (p *bddTitleProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.mu.Lock()
+	p.streamCalls++
+	looping := p.loopFirst && p.streamCalls == 1
+	p.mu.Unlock()
+	if looping {
+		// Stream the same passage until the guard cancels, exactly as a real
+		// provider does: it stops on ctx and hands back what it produced.
+		const passage = "Still writing validation logic... "
+		var produced string
+		for i := 0; i < 500 && ctx.Err() == nil; i++ {
+			produced += passage
+			onChunk(llm.StreamChunk{TextDelta: passage})
+		}
+		return &llm.Response{Content: produced}, context.Canceled
+	}
 	if p.cancelFirst {
 		// Stopped before a single delta: the turn carries no assistant output.
 		if p.cancelAfter != nil {
@@ -122,6 +143,13 @@ func (s *titleFeatureState) reset() error {
 		Models:    []config.ModelEntry{{Model: "p/m", MaxTokens: 100, MaxContextTokens: 1000}},
 	}
 	cfg.Agent.Model = "p/m"
+	// The provider-silence guards run in milliseconds here, so a scenario can push
+	// the real answer past the first loop iteration without waiting out the real
+	// minute-scale schedule.
+	firstToken, retryWait := 60, 2000
+	cfg.Agent.LLMFirstTokenTimeoutMS = &firstToken
+	cfg.Agent.LLMStallRetryDelaysMS = []int{1}
+	cfg.Agent.LLMStallRetryMaxWaitMS = &retryWait
 	cfg.Agent.ApplyDefaults()
 	cfg.Prompts.ApplyDefaults()
 	cfg.Title.ApplyDefaults()
@@ -154,6 +182,13 @@ func (s *titleFeatureState) run() {
 }
 
 func (s *titleFeatureState) modelAnswersNormally() error {
+	s.provider.cancelAfter = nil
+	s.run()
+	return s.runErr
+}
+
+func (s *titleFeatureState) modelLoopsThenAnswers() error {
+	s.provider.loopFirst = true
 	s.provider.cancelAfter = nil
 	s.run()
 	return s.runErr
@@ -251,6 +286,7 @@ func initializeTitleScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a fresh session with the title pinned to "([^"]*)"$`, s.freshSessionPinned)
 	sc.Step(`^the user asks "([^"]*)"$`, s.userAsks)
 	sc.Step(`^the model answers normally$`, s.modelAnswersNormally)
+	sc.Step(`^the model's first response degenerates and it answers when nudged$`, s.modelLoopsThenAnswers)
 	sc.Step(`^the user stops the turn while the model is still writing$`, s.userStopsMidAnswer)
 	sc.Step(`^the user stops the turn before the model writes anything$`, s.userStopsBeforeAnyOutput)
 	sc.Step(`^the turn ends as cancelled$`, s.turnEndsCancelled)

@@ -2,6 +2,12 @@
 
 This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract.
 
+## SVN tool cards
+
+Subversion calls have localized operation headings, an explicit execution state and labeled arguments in both transcript and permission previews. Status lists retain SVN's seven columns, including property and tree conflicts; diffs highlight added/deleted lines without removing binary or property output; working copy info uses label/value rows. Commit previews show the message and affected scope before approval. Logs and other command output stay verbatim and copyable.
+
+An `error:` result is presented as failed even when the transport completed. Cancelled calls keep their partial output. Truncated argument previews recover through the existing full-call fetch, and truncated results carry a partial-output note and the existing load-more control. Long output has a bounded viewport; narrow screens wrap paths and stack field labels. The implementation uses the existing permission flow and does not change SVN tools or HTTP contracts.
+
 ## Constraints
 
 - UI ships as static assets embedded into the `foxxycode` binary (build tag `http`).
@@ -75,7 +81,22 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - **Paste** — an image on the clipboard is attached instead of pasted as text
   (**`onPaste`** in **`Composer.tsx`**). Browsers name every clipboard image the
   same, so pasted files are renamed **`pasted-<n>.<ext>`**. Plain-text pastes are
-  left to the browser.
+  left to the browser — except in an editor embed, where **paste-to-chip** runs
+  first (below).
+- **Paste-to-chip** (editor embeds only, Cursor-style) — a text paste is sent to
+  **`POST /foxxycode/ide/paste-classify`** (**`chat/pasteChip.ts`**, ~300 ms
+  budget). If the backend recognizes it as a fragment recently copied in the IDE
+  (the IDE reports copies via **`/foxxycode/ide/copy-buffer`** and selections via
+  editor-state), the composer inserts a mention token instead of the raw text:
+  **`@path:start-end`** for a file fragment (1-based inclusive lines) or
+  **`@terminal[:name]`** for a terminal fragment. The masked mirror renders the
+  token as a chip (**`listAtPathSpans`** absorbs the `:N-M` suffix and marks
+  terminal tokens). The pasted literal is captured in an App-held side-map
+  (`path:start-end` → text) and attached verbatim at send time as
+  **`attachments: [{path, source: {literal, startLine, endLine}}]`**; when the
+  map is gone (draft restored after reload) the backend reads the line range
+  from the file instead. Any non-match, error, or timeout degrades to a plain
+  text paste. Short single-line pastes (<16 chars) are never classified.
 - **Drop** — a file dropped anywhere on the page still inserts an **`@path`**
   mention (see the file-drop rule in **`.claude/rules/ui-spa.md`**); it does not
   attach the file. Use the paste path or the attach button for image uploads.
@@ -108,10 +129,17 @@ round-trips through the footer Save because the whole config doc is PUT back.
 
 ## Settings: NeuralDeep sign-in
 
-- In **Settings → LLM Providers**, a row with **`type: neuraldeep`** keeps the manual **API key** field and additionally renders **Sign In with NeuralDeep** below the read-only API base (**`NeuralDeepAuthField`**). Signing in is the no-paste alternative; an explicit key always wins and the widget says so instead of pretending the login is active (**`source`** from the status endpoint).
+- In **Settings → LLM Providers**, a row with **`type: neuraldeep`** replaces the free-text **API base URL** with a dropdown of the two official deployments - **`https://api.neuraldeep.ru/v1`** (Russia) and **`https://api.neuraldeep.tech/v1`** (the international mirror) - written to **`providers[].api_base`**; the pick also decides which hub the sign-in below talks to, and the sign-in follows the dropdown as it stands in the form (the device start carries the picked endpoint), so Save is not required first. A stored **`api_base`** that is not one of the two is flagged under the field and ignored by the server. The row keeps the manual **API key** field and renders **Sign In with NeuralDeep** below the endpoint picker (**`NeuralDeepAuthField`**). Signing in is the no-paste alternative; an explicit key always wins and the widget says so instead of pretending the login is active (**`source`** from the status endpoint).
 - The button starts **`POST /foxxycode/providers/{name}/neuraldeep-auth/device`** (the hub's RFC 8628 device flow for client **`foxxycode`** — the browser and the FoxxyCode server may be different machines), opens the returned portal page with the pre-filled code, displays the one-time code, and polls **`GET .../device/{loginID}`** until completion or failure.
-- Connected state comes from **`GET /foxxycode/providers/{name}/neuraldeep-auth`** (masked key only). **Sign Out** best-effort revokes the key on the hub, then deletes the local credential through **`DELETE`**.
+- Connected state comes from **`GET /foxxycode/providers/{name}/neuraldeep-auth`** (masked key only), read for the endpoint currently picked (**`?api_base=`**). When the stored login was issued by the other deployment's hub (**`hub`** differs from **`endpoint_hub`**), a note under the status says requests with it are rejected and asks to sign in again for this endpoint; the note is suppressed while an explicit key shadows the login. A login already in progress keeps polling if the endpoint is changed meanwhile (the key comes from the hub the flow started with), and the status read afterwards flags the mismatch. **Sign Out** best-effort revokes the key on the hub, then deletes the local credential through **`DELETE`**.
 - The key never enters the settings document or browser; it is stored by the server under **`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`**. Tier models are added under **Logical models** (the model picker fetches the provider catalog using this login); the CLI flow (**`foxxycode providers login neuraldeep`**) appends them to the config automatically.
+## Settings: boolean switch fields
+
+- Every on/off option in the settings forms renders through the shared **`SwitchField`** (**`external/ui/src/ui/settings/SwitchField.tsx`**): the **`Switch`** control, its label, and the optional description on one two-column grid (**`.settings-switch-field`**). This covers the schema-driven booleans of **`SchemaForm`** (for example **Logical models → Multimodal** and **Stream responses**, **Tools and permissions → Background tasks → Enabled**, **System** gateway flags) and the **Skills → Skill auto-discovery** row.
+- The label sits level with the switch (vertical centres match within 1px, 8px gap) and the description starts at the label's left edge, under the label, never under the switch. The indent comes from the grid column, not from padding, so it stays correct at every viewport and if the switch is ever resized.
+- The label is a real **`<label for>`**: clicking the text toggles the switch. The switch is named by that label (**`aria-labelledby`**); when the visible text is state copy (**Enabled** / **Disabled**) the row passes an explicit **`ariaLabel`**, which takes precedence.
+- Automated checks: **`SwitchField.test.tsx`** (structure and CSS rules), **`SchemaForm.switch.test.tsx`**, **`SkillsSection.autoDiscovery.test.tsx`**. Live check: open a model form at **1280px** and **390px**, and for each **`[role=switch]`** compare **`getBoundingClientRect()`** of the switch, **`.settings-switch-field-label`**, and **`.settings-switch-field-desc`** (centre delta ≤ 1px, description left equals label left).
+
 ## Layout
 
 Desktop layout
@@ -165,6 +193,7 @@ Narrow-rail tooltips (desktop)
 ### Parallel sessions and generation cancel
 
 - Several sessions may **stream at once**, each with its own **`POST /v1/responses`** and **`X-FoxxyCode-Session-ID`**. The app keeps a **per-session shadow** transcript so rapid hash switches do not mis-route SSE updates; see **`pickStreamMutationBase`** in **`external/ui/src/ui/chat/streamMutationBase.ts`**.
+- Shadow transcripts are **bounded**: an LRU of **3** non-pinned sessions (**`ShadowTranscriptCache`** in **`external/ui/src/ui/chat/sessionTranscriptCache.ts`**). The viewed session and any session with a live stream are never evicted; an evicted session is re-fetched on the next visit with no extra request compared to today. Message rows and **`Markdown`** are memoized (**`React.memo`**, **`useStableHandler`**), so unchanged rows skip re-rendering while a token streams (**`MessageList`** still maps the transcript; branch, plan, permission and question rows are not memoized), and **`content-visibility: auto`** on assistant, thinking / tool and system rows lets off-screen rows skip layout and paint. See **`DESIGN.md`** (**Multi-session streaming and Stop**).
 - **Stop** uses **`POST /foxxycode/sessions/{id}/cancel`** and **`AbortSignal`** on the streaming **`fetch`**. The server persists **partial** assistant **`content`** for that turn when tokens had already arrived. **`GET /foxxycode/sessions/{id}/messages`** may return an older snapshot briefly; the UI **merges** with local shadow or visible rows when the response is only a prefix (**`mergeTranscriptPreferLocalSuffix`**, **`keepLocalTranscriptIfServerEmpty`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). The transcript is cleared on fetch failure **only** when the failed load targets the **currently viewed** session so Stop does not wipe the chat.
 
 Session title
@@ -173,6 +202,17 @@ Session title
 - When the title is missing, UI shows `New chat`.
 - Title is editable inline. On blur the UI saves via `PATCH /foxxycode/sessions/{id}`.
 
+### Settings: reasoning levels for a logical model
+
+Functional checklist for **Settings -> Logical models -> Reasoning levels**
+(**`ReasoningLevelsField.tsx`**, **`useReasoningLevels.ts`**):
+
+- The field owns the three states of **`models[].reasoning_levels`** and names the current one in a status line: **key absent** (auto-detected from the model id), **`[]`** (the composer **Reasoning** selector is hidden for this model), and a **non-empty list** (exactly these levels are offered). The generic array editor cannot express the first state, so a model added through Settings could otherwise never go back to auto-detection.
+- **Fetch reasoning levels** calls **`GET /foxxycode/config/reasoning-levels?model=<id>&provider_type=<type>`** with the id currently in the form - the entry does not have to be saved yet - and fills the list with what the gateway detects, under the same Codex remap the composer applies (**`minimal`** becomes **`none`**). **`provider_type`** is the type of the provider row the id points at, taken from the settings document being edited rather than from the saved config, so a provider that is not saved yet or whose type was just changed resolves the way it will after **Save**. The button is disabled until a model id is present.
+- A model id with **no** reasoning family leaves the field untouched and says so. Writing **`[]`** there would read as the explicit opt-out and hide the selector, which is the opposite of what the button was asked for. A failed request reports the error inline and also leaves the field alone.
+- The status line describes the list the operator is looking at before it repeats fetch feedback: once a level is present (fetched or added by hand) it reads as the override, and the "nothing detected" / error messages only apply while the key is still absent. Retyping the model id, or editing the list by hand (add, change, remove a level), clears that feedback and abandons any answer still in flight; an answer that arrives after the id changed, after a manual edit, or after the row was deleted from the list, is dropped rather than written over the operator's newer choice, and an answer that does land is written through the field's newest `onChange`, so a sibling field edited while the request was pending (for example the **Stream responses** switch) keeps its new value (**`useReasoningLevels`** tickets every request, so one that answers after the field moved on resolves to **`null`**).
+- **Use auto-detected** appears whenever the key is present and removes it, so the next save omits **`reasoning_levels`** and detection resumes. Removing the last level by hand is the way to reach the **`[]`** opt-out on purpose.
+- The **`[]`** opt-out and the auto-detect default survive a Settings save in both directions: **`ModelEntry.ReasoningLevels`** and **`ModelJSON.ReasoningLevels`** are **`*[]string`**, so an omitted key stays omitted in the written **`config.yaml`** instead of being serialized as **`reasoning_levels: []`**.
 ### Per-session model
 
 - **New chat** defaults **Model** from cookie **`foxxycode_llm_model`**, then **`default_agent_model`** from **`GET /v1/models`**, then the first YAML row.
@@ -192,7 +232,9 @@ Session title
 - A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (workspace basename, full path in tooltip), **branch chip** (current git branch; only when the workspace is a git repository), a **worktree checkbox**, and — when an svn working copy is detected — an **SVN chip** plus its **branch-folder checkbox**.
 - Context loads from **`GET /foxxycode/workspace/context`** with **`X-FoxxyCode-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**.
-- **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /foxxycode/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. Picking calls **`POST /foxxycode/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, and slash commands re-derive from the new cwd.
+- **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`foxxycode_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /foxxycode/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses.
+- **New folder** (footer, left of **Cancel** / **Open**) opens an inline name row **between the path field and the list** - a sibling of the list, not a row inside it, so it never scrolls away under you and it stays whole on a short window where the list itself has shrunk to nothing. **Enter** or **Create folder** posts **`POST /foxxycode/workspace/folders`** **`{"path": <browsed folder>, "name"}`**; the dialog then shows the listing the server answers with, which is the **new folder**, so **Open** picks it straight away. **Escape** or the row's **×** abandons it. The button is disabled on the drive level (there is no directory to create in) and while the row is already open; **Create folder** stays disabled until a name is typed. A name that is already taken (**409**) keeps the row open with the typed text and says so, and so does any other failure - nothing is created and the browsed folder does not change.
+- **Leaving the drive (Windows)** — **`..`** from a drive root opens the **drive level** (**`?path=:drives:`**, **`drives:true`** in the response): one row per volume (**`C:`**, **`D:`**, …), no **`..`** above it, and **Open** disabled because it is a place to navigate, not a workspace. The **path row is an editable field** (**`workspace-modal-path`**): typing or pasting a path and pressing **Enter** jumps there, surrounding quotes from Explorer's *Copy as path* are stripped (**`cleanPathInput`**), and while the field holds an unvisited path the primary button reads **Go** instead of **Open**, so a pasted path is never mistaken for the folder being opened. The browser starts at **`pathParent(ctx.path)`**, which keeps the current drive (it used to collapse Windows paths to **`/`**). Picking calls **`POST /foxxycode/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, and slash commands re-derive from the new cwd.
 - **Branch chip** opens the branch list (current first, marked selected). Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, a dedicated worktree under **`<home>/worktrees/<repo>/`** when the checkbox is on, or a jump to the worktree that already has the branch checked out (including back to the main checkout).
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
 - **SVN chip** (**`composer-svn-chip`**) renders next to the git chip whenever **`is_svn_repo`** is true. Git and Subversion are detected independently, so a branch folder checked out from SVN that also holds a git repository shows both chips and each switches only its own VCS. The chip label is the svn branch (**`trunk`**, **`branches/<name>`**), with URL and revision in the tooltip; the menu lists the current branch first, then **`trunk`**, then the rest. Picking one posts **`{"branch", "worktree": <checkbox>, "vcs": "svn"}`**.
@@ -237,7 +279,10 @@ Mode selection
 
 - UI lets the user select the FoxxyCode profiles `agent`, `plan`, `docs`, `ask`, and `debug` from `GET /v1/models`.
 - Selected mode is sent as `model` field in `POST /v1/responses`.
-- Ask uses the green mode outline and remains non-mutating. **Settings → Tools → Disable extended Ask tools** is a schema-driven checkbox for `tools.ask_disable_extended_tools`; it is off by default. When enabled, Ask retains repository read/search/tree, question, and skill tools but hides shell, MCP, web, and scheduler inspection.
+- **Mode is session state, both ways.** Changing it `PATCH`es `mode` on `/foxxycode/sessions/{id}` right away, so a profile picked without sending a turn is not lost on reload; **opening a session** restores it from `GET /foxxycode/sessions/{id}/messages` field `mode`. A **new chat** always starts in `agent` (New chat and picking a local draft both reset it — there is no mode cookie).
+- **A switch the backend makes itself** — running a plan, or the model calling `plan_exit` — arrives as the named SSE event `mode` (payload `currentModeId`) and repaints the composer. Without it the pill kept saying `plan` while the session had moved to `agent`, and the next turn's top-level `model` wrote `plan` straight back onto the session. The post-turn transcript read adopts the session's mode as a fallback for a stream that was cut, but never over a mode the user switched while that turn was running.
+- The selection a session carries (mode, model, reasoning) is applied **once per session open**, not on every transcript reconcile: `loadMessages` also runs after each turn and on reconnect, and re-applying its snapshot reverted a pick the user had just made (see `shouldApplySessionSelection` in `chat/sessionSelectionApply.ts`).
+- Ask uses the green mode outline and remains non-mutating: the model is offered only repository read/search/tree, web research, question, and skill tools, and any other tool call is refused at execution time. No settings knob.
 - Debug uses the red mode outline and has the same full tool surface as Agent; only its system prompt differs (diagnose, validate, confirm, then fix minimally). No settings knob.
 
 SSE payloads
@@ -247,8 +292,11 @@ SSE payloads
   - `tool_call`
   - `tool_call_update`
   - `plan`
+  - `mode` (`currentModeId`; the backend switched the session profile itself — a plan run, or `plan_exit`)
   - `token_usage`
   - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
+  - `memory_phase`, `memory_chunk`, `compaction`, `mcp_phase`, `debug`, `available_commands`
+  - `permission`, `question`, and the terminal `foxxycode_meta` before `data: [DONE]`
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
 ## Composer primary action (`#btn-send`)
@@ -284,7 +332,8 @@ Regression
 - **Agent / plan turns**: the server writes each file to **`~/.foxxycode/sessions/<id>/assets/`** (permissions **`0o444`**) and injects a **`<foxxycode_session_assets>`** XML block into the user message so the agent can **`read`** or **`cp`** those paths. Duplicate asset names get **`_1`**, **`_2`** suffixes (see `internal/session/assets.go` **`SavePartsToAssets`**).
 - **Direct YAML model turns**: each file becomes an **`image_url`** content part sent inline to the provider.
 - The user bubble strips the XML annotation via **`stripFoxxyCodeAttachmentsForUserDisplay`** in **`stripFoxxyCodeAttachments.ts`** and shows file chips (**`msg-user-files`** / **`msg-user-file-chip`** CSS classes). **`parseSessionAssetFiles`** re-derives chip metadata on page reload.
-- After a **`PUT /foxxycode/config`** save in Settings, **`App.tsx`** bumps **`modelsEpoch`** → re-fetches **`/v1/models`** so the attachment button appears or disappears without a page reload.
+- After a **`PUT /foxxycode/config`** save in Settings, **`App.tsx`** bumps **`configEpoch`** → re-fetches **`/v1/models`** so the attachment button appears or disappears without a page reload. The onboarding probe (**`GET /foxxycode/onboarding/status`**) is deliberately *not* on that epoch: it runs once per page load, so a save never reopens a provider picker the user dismissed. The picker is gated on **`has_agent_credentials`** (the provider behind **`agent.model`** has a key, a key command, its **`NAME_API_KEY`** variable, or a stored login), not on the informational **`missing_api_keys`** list — a second, keyless provider row is fine. Re-entry is **Settings → Appearance → Restart onboarding**.
+- **`GET /foxxycode/events`** carries **`event: config_reloaded`** after every swap of the live configuration - a settings save, the agent's own **`config_commit`**, a skill install, an edit on disk that **`foxxycode serve`** picked up. **`subscribeServerEvents`** (**`chat/serverEvents.ts`**) turns it into the optional **`onConfigReloaded`** callback, and **`App.tsx`** bumps **`configEpoch`** on it, so every config-derived list re-reads without a page reload. Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one) and **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client).
 - **Setting `models[].multimodal` from the provider catalog** — in **Settings → Logical models**, **Fetch models** returns an advisory **`vision`** flag per entry (see `docs/http-api.md`). Options that carry it are suffixed **`· vision`** in the dropdown, and picking a listed model writes **`multimodal`** from that flag in the same document update as the id (**`ModelField`** reports the catalog entry through **`onChange`**; **`SettingsSection`** applies both keys via the **`FieldOverride`** **`patchParent`** seam, because **`multimodal`** is a sibling field rendered from the Go schema). A note under the field says where the value came from. Hub catalogs under-report vision (**`gpt-oss-120b`** advertises **`vision: false`** and still reads images), so the flag is a **default, never a gate** — the switch stays editable, and an id typed by hand leaves it alone.
 - **Same flag in onboarding** — the provider picker probes the catalog through **`POST /foxxycode/providers/models-probe`**, badges its vision entries the same way, and writes **`models[].multimodal`** from the picked entry instead of the per-provider **`preset.multimodal`** constant (**`catalogEntry`** in **`ProviderPickerDialog.tsx`** matches both the bare id the combobox writes and the prefixed id the fixed-endpoint presets pre-fill). The preset value is the fallback for a model the catalog does not list. A hint under the field says which way the flag will be saved.
 
@@ -317,7 +366,7 @@ Transcript vs composer
 
 - **`user_message`** bubbles render **plain text** only (**`msg-user-body`**, **`white-space: pre-wrap`**). No Markdown pipeline, no transcript skill chips (**`foxxycode-skill-span`**). Slash tokens such as **`/path/to`** and YAML blocks stay exactly as persisted, with line breaks preserved.
 - Composer mirror chips (**`composer-skill-chip`**) apply **only** while editing **`#composer`**, not in the transcript.
-- Persisted user turns may carry hydrated attachments as **`foxxycode_attachment`** XML with **`path`**, **`name`**, and CDATA file bodies (**`internal/agent`**). **`stripFoxxyCodeAttachmentsForUserDisplay`** replaces each XML block with a compact **`@path`** **only when** that path is **not** already present as an **`@`** mention in the surrounding text (**avoids duplication** because the persisted turn already repeats the **`@`** in the user text plus the hydrated block).
+- Persisted user turns may carry hydrated attachments as **`foxxycode_attachment`** XML with **`path`**, **`name`**, optional **`lines`** ("N-M" for a paste-to-chip fragment), and CDATA file bodies (**`internal/agent`**). **`stripFoxxyCodeAttachmentsForUserDisplay`** replaces each XML block with a compact **`@path`** (or **`@path:N-M`** when ranged) **only when** that path **with the same range** is **not** already present as an **`@`** mention in the surrounding text (**avoids duplication** because the persisted turn already repeats the **`@`** in the user text plus the hydrated block).
 
 Verification use cases
 
@@ -336,7 +385,7 @@ Verification use cases
 
 ## Composer **`@`** workspace files
 
-- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFilePathsFromText`** (**`internal/session/at_paths_extract.go`**) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
+- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFileRefsFromText`** (**`internal/session/at_paths_extract.go`**; **`ExtractAtFilePathsFromText`** keeps the range-free contract for **`@plans/...`** mentions) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
 - **`@`** menu uses **`GET /foxxycode/workspace/files`** with **`dirs=true`** so **`kind`** **`dir`** rows drill down. Choosing a **`dir`** inserts **`@`** + **`path_rel`** (often ending in **`/`**) without hydrating file body. Choosing a **`file`** inserts **`@`** + **`path_rel`** plus a trailing ASCII space where appropriate. **`Composer`** defers two **`updatePickerMenus`** ticks after a row choice so the workspace dropdown does not immediately reopen (trailing space and **`MENU_PATH_CHAR`** still satisfy **`atMenuDraftAtCaret`** until the user edits again).
 - Empty **`@`** prefix (caret right after **`@`**) loads recent rows from **`localStorage`** (**`workspaceAtRecents`**), keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), with no extra banner line (**`Type after @ to search`** only when the list is empty). Entries come from **`@`** row picks and **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-FoxxyCode-Session-ID`**).
 - Fenced code blocks and Markdown blockquote lines suppress **`@`** menu parity with **`draftSlash`** ( **`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`** ).
@@ -344,6 +393,23 @@ Verification use cases
 - **`@`** search with zero matches keeps the picker open (**`No files`**) instead of collapsing the menu (**`composer-at-chip-inline`** hides for **`atNoMatch`**, same **`atIdx`**, **`prefix`** as the stale filter).
 - Stacked-shell viewports (**`(max-width: 1199px)`**) render workspace and slash pickers as a **`slash-menu--sheet`** with **`slash-sheet-backdrop`** so the panel is usable on phones.
 - Picker subtitle uses **`workspacePickRowSubtitle`** - second column shows **`parent/`** only when **`path_rel`** is nested, root entries omit it (empty string).
+
+### Line ranges (**`@path:N-M`**)
+
+- A mention may narrow a file to a **1-based inclusive** line range: **`@Dockerfile:21-31`**. **`listAtPathSpans`** absorbs the suffix, so the mirror chips the whole token as one **`composer-at-chip-inline`**; the range must end the token (**`:21-31x`** stays prose) and **`1 <= start <= end`**. **`internal/session/at_paths_extract.go`** carries the same grammar for prompts hydrated server-side (**`ExtractAtFileRefsFromText`**), and the two test suites share their literals.
+- Only those lines reach the model. The range rides **`acp.Resource.URI`** as a **`#L<start>-<end>`** fragment (**`lineRangeURI`** / **`sliceLines`** in **`internal/session/promptfiles.go`**) and **`resourceBlockToXMLAttachment`** turns it into **`<foxxycode_attachment path="..." name="..." lines="21-31">`**. An end past the last line clamps. A range the file cannot honour (zero, inverted, or starting past the last line) is never widened into the whole file: an explicit **`attachments[]`** range or a client **`resource`** with such a **`#L`** fragment is refused (**`ErrLineRange`**, HTTP **400**), and a range typed into the prompt text stays prose and attaches nothing, like any other unresolvable **`@`** token. The **`lines`** label is written only for a body that really is the slice; a **`source.literal`** or byte-offset (**`source.start`** / **`end`**) body travels without it. The picker preview is a snapshot taken when the panel opened; the lines that reach the model are read from disk at send time, and a session switch drops the preview. **`stripFoxxyCodeAttachmentsForUserDisplay`** collapses such a block back to **`@path:N-M`**; a plain mention never covers a ranged one of the same path, nor the other way round.
+- Typing the **`:`** closes the file picker on its own (**`:`** is no **`MENU_PATH_CHAR`**) and opens the **line-range picker** in its place: **`atRangeDraftAtCaret`** / **`replaceAtRangeSuffix`** / **`highlightedRange`** in **`external/ui/src/ui/skills/draftAtRange.ts`**, panel **`data-testid="at-range-picker"`** rendered through the same portal / **`slash-menu--sheet`** chrome as the **`@`** menu. It previews the file (**`GET /foxxycode/workspace/file`**, one fetch per path) and highlights **`at-range-line--sel`** as the digits are typed; a start without an end highlights that one line.
+- The composer text stays the only input - there are no number fields. On desktop the rows are buttons: **`mousedown`** anchors the range, dragging over rows extends it, and each step rewrites the suffix through **`replaceAtRangeSuffix`** (**`preventDefault`** keeps focus in the textarea). On **`isMobileShell`** the rows render as plain **`div`**s with no pointer handlers - a phone has no mouse to drag with, so the range is typed.
+- A path that does not resolve leaves the panel closed, so **`@user:1-2`** in prose never opens an empty panel; the settled path is remembered so the next digit refetches nothing. **`Escape`** dismisses the panel and suppresses it for that mention until the draft moves on; **`Enter`** is left alone and still sends.
+
+| Case | Expected | Automated check |
+| --- | --- | --- |
+| AR1 | **`@f.go:21-31`** chips as one token and attaches only those lines | **`draftAt.test.ts`**, **`at_line_range_test.go`**, **`features/at_line_range_mention.feature`** |
+| AR2 | **`:21`**, **`:21-31x`**, **`:31-21`**, **`:0-5`** are not ranges | **`draftAt.test.ts`**, **`at_line_range_test.go`** |
+| AR3 | Colon opens the picker; digits move the highlight | **`Composer.test.tsx`**, **`draftAtRange.test.ts`** |
+| AR4 | Desktop drag writes the range; mobile rows are not buttons | **`Composer.test.tsx`** |
+| AR5 | Unresolvable path keeps the panel closed | **`Composer.test.tsx`** |
+| AR6 | User bubble shows **`@path:N-M`** instead of the attachment body | **`stripFoxxyCodeAttachments.test.ts`** |
 
 | Case | Expected | Automated check |
 | --- | --- | --- |
@@ -372,6 +438,10 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 
 ## Tool call card (bundled SPA, current)
 
+`spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the full multiline prompt. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Completed calls with truncated history arguments load the full arguments once; malformed arguments or failed fetches retain the plain argument preview. Result output and Load more / Hide behave as for other tools.
+
+The happy path is in `features/spawn_agent_card.feature`, run by the `http,ui` godog harness through the React DOM test in `SpawnAgentCard.test.tsx`. Edge cases cover invalid arguments, absent/invalid timeouts, escaped prompt text, and history fetch failure.
+
 Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklist.
 
 | Concern | Current behaviour |
@@ -379,7 +449,7 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | Component | **`ToolCallMessage.tsx`** - **`thinking-row foxxycode-tool-call-row`**, **`details.thinking-details.foxxycode-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
 | Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**, **`thinking-label`**, **`thinking-dur`**), **`aria-label="Tool summary"`** |
 | Args | Shared **`PermissionToolPreview`** (no copy / approval actions); large **write** / **write_file**, **apply_patch**, and **edit** bodies keep measured **More…** (**`data-testid="tool-preview-more"`**) / **Less** (**`data-testid="tool-preview-less"`**) overflow controls |
-| Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
+| Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`**; completed structured todo and **`plan_exit`** cards suppress redundant boilerplate results |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /foxxycode/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
 | Full text | First result **More…**, or automatic incomplete-args recovery for restored **`apply_patch`** / **`write`** / **`write_file`** / **`edit`** cards in any status - **`GET /foxxycode/sessions/{id}/tool-calls/{toolCallId}`**, using JSON **`result`** and **`args`** (same object includes **`meta`**). Transcript reconciles never replace complete args with the truncated 200-char **`argsPreview`** (**`pickRicherToolArgs`**), so live cards keep full previews across permission answers |
@@ -415,21 +485,50 @@ Automated checks:
 The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/foxxycode/sessions/{id}/background-tasks*` (see `docs/background-tasks.md`).
 
 - It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
-- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`.
-- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk. **Clear** drops the finished history for the session.
+- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`. A subagent run (`kind: "agent"`, started by `spawn_agent`) is the same card with an `agent` badge after its `agent <name>: <description>` label. Its timing line shows no exit code (the pool's code for an agent run is synthetic; the status already says how it ended), and the same `taskTimingLine` feeds the detail pane and the transcript chip.
+- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk; agent rows keep the badge. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, in both sections.
 - The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
 - On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
 - A transcript `run_command` row that started a task keeps a live chip in its **collapsed** summary and gains **Open in Tasks** / **Stop** when expanded, driven by the same poll.
+- The **detail pane** of an agent task shows the subagent name instead of a command and an **Open transcript** button (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
 
 Automated checks:
 
-- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping)
-- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, empty and error states)
+- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
+- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, agent badge and Open transcript, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
 - **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
-- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
+
+### Hooks
+
+**Settings > Hooks** is a schema-driven object tab like Subagents (`settings-tab-hooks`): the `hooks` config section (`enabled`, `files`, `project_trust`, `default_timeout_seconds`, `stop_loop_limit`, `max_output_chars`) with localized labels and blurbs (`settings.section.hooks.*`, `settings.schema.hooks.*`) and the defaults of `SchemaExampleConfigJSON` as placeholders. Definitions themselves live in JSON files (`docs/hooks.md`); the tab edits where they are read from and how project files are trusted.
+
+![Settings Hooks tab](assets/screenshot-fullhd-settings-hooks.png)
+
+A held project hooks file surfaces in the transcript as a **notice-level system row**: `GET /foxxycode/sessions/{id}/messages` carries it in `uiLog` with `level: "notice"`, the SPA renders it with the same `SystemNoticeMessage` as an error row (`system_notice` transcript item, `level: "notice"`) in a calmer blue palette, `role="status"` instead of `role="alert"`, the copy control, and **no retry control** even when the row is the last item. Rows with any other level stay invisible rather than mis-rendered.
+
+![Held hooks file notice](assets/screenshot-hooks-notice-dark.png)
+
+- **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
+- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
+
+### Subagent transcripts
+
+A child session (`sub_<hex>`) is read-only: `GET /foxxycode/sessions/{id}/messages` returns `subagent {parentSessionId, name, taskId}` and `readOnly: true`, and every prompt against it is refused with 409. The SPA reads those two fields (absent on an ordinary session), renders the transcript with the usual message renderer, and replaces the composer with a notice (`SubagentReadOnlyNotice`): "Read-only transcript of subagent `<name>`. Prompts go to the parent chat." with an **Open parent chat** link to `#/s/<parentSessionId>`. Retry, message editing and the plan card's **Run plan** / **Discard** are withheld for such a session (the handlers are not passed at all, so a `plan_document` card renders without its footer and its markdown editor is read-only), and the chat header reads "Subagent `<name>`" because a child has no History row to name it. Child sessions are hidden from History; the shell still fetches a `sub_*` id opened from the Tasks panel or by URL.
+
+Automated checks:
+
+- **external/ui/src/ui/chat/subagentTranscript.test.ts** (marker parsing, bare `readOnly`, `sub_*` id detection)
+- **external/ui/src/ui/chat/SubagentReadOnlyNotice.test.tsx** (copy with and without a name, parent link href, same-tab open vs modifier click)
+- **external/ui/src/ui/chat/ChatScreen.test.tsx** (notice replaces the composer in the docked and the hero layout)
+- **external/ui/src/ui/chat/subagentReadOnlyCss.test.ts** (notice and link use theme tokens)
+- **external/ui/src/ui/chat/PlanDocumentSection.test.tsx** (a card without action handlers has no footer, a read-only editor and no autosave)
+- **external/ui/src/ui/messages/MessageList.test.tsx** (plan card on a read-only transcript renders without Run plan and Discard)
+- **external/ui/src/ui/i18n/messagesParity.test.ts** (new keys exist in every dictionary)
+- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `subagents` config tab)
 
 ## Live token usage
 
@@ -458,6 +557,11 @@ Automated checks:
 
 - The row next to the typing dots (`TypingDotsMessage`, phrase from `chat/liveStatus.ts`) is
   derived from the transcript, so it is only as fresh as the transcript is.
+- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an
+  `in_progress` call beats a later announced `pending` one) → in-progress thinking → memory
+  copilot → waiting on the model. The two prompt states render **no** counter: nothing is
+  running while the operator decides. The console twin of the phrase table lives in
+  `external/cli/status.go`.
 - **While re-attaching, the transcript is stale by construction.** `rejoinComposerLiveStream`
   therefore keeps the session flagged through `markReconnecting` until the relay delivers its
   first byte, and only then calls `markConnected`; `deriveLiveStatus` shows
@@ -475,6 +579,9 @@ Automated checks:
 - **User** messages are plain text with preserved line breaks (**`UserMessage`**).
 - **Assistant** messages may contain Markdown.
 - UI renders Markdown with fenced code blocks and syntax highlighting.
+- `vue` fences highlight component markup and ordinary `<script>` / `<style>` contents as JavaScript / CSS. Vue interpolations and `lang="ts"`, SCSS, or other preprocessors do not have dedicated Vue-aware parsing.
+- Label fences with the language (for example `js`, `css`, `html`, `json`, `ts`, `python`, or `go`) to enable highlighting. Unlabelled or unsupported languages stay plain text. Highlighting also works while an answer is streaming.
+- Code colors follow all seven appearance themes immediately when switching themes. Each theme defines the shared `--syntax-*` palette in `external/ui/src/styles.css`; no separate syntax-theme setting is needed.
 - Each code block has a copy button that copies only that block content.
 
 ## Markdown line editor (shared)
@@ -522,6 +629,7 @@ UI requirements:
 Automated checks:
 
 - `external/ui/src/ui/chat/PlanDocumentSection.test.tsx`
+- `external/ui/src/ui/messages/MessageList.test.tsx` (plan card on a read-only transcript renders without Run plan and Discard)
 - `external/ui/src/ui/chat/planDocumentPlacement.test.ts`
 - `features/plan_card_placement.feature` (godog steps in `external/httpserver/bdd_plan_card_test.go`)
 
@@ -634,6 +742,20 @@ controls reuse the existing shell tokens, icon library, focus treatment, and
 - Build and sync embed assets with `npm --prefix external/ui run build:go`.
 - **`make build TAGS="http ui"`** runs the UI build step (**make ui-build**) before linking the embedded bundle.
 
+### Reproducing a Safari report without a Mac
+
+Playwright ships the WebKit build Safari is cut from, and its version tracks Safari's (**`playwright install webkit`** pulls WebKit **26.x** for Safari **26.x**), so a Safari layout report is reproducible on Linux. **`external/ui/scripts/webkit-scroll-check.mjs`** drives a running **`foxxycode http`** in that engine and asserts the scroll invariants of the folder browser dialog across short viewports: nothing laid out past the dialog's height cap, the action buttons inside the dialog, the list scrolling on a wheel gesture, and the overscroll staying in the dialog.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install webkit
+```
+
+```bash
+FOXXYCODE_URL=http://127.0.0.1:12345 FOXXYCODE_FOLDER=/a/folder/with/many/subdirs npm --prefix external/ui run check:webkit
+```
+
+**`FOXXYCODE_ENGINE=chromium`** runs the same assertions in Chromium, which separates a WebKit-only regression from a layout bug every engine shares. The script is not part of **`make test`**: it needs a browser download and a live server. **`npm ci`** and **`make ui-build`** prune the unsaved **`playwright`** install, so re-run the install line after a rebuild.
+
 ## Reference images
 
 Store the provided design reference images under `docs/assets/`.
@@ -653,6 +775,14 @@ When describing a specific element, link to the relevant image file.
 ## UI test scenarios
 
 These scenarios are intended to be automated via Playwright against the Vite dev server.
+Run `npm run test:panel` from `external/ui` to drive the real server with the embedded
+SPA in a headless Chrome the way the IDE panels do (`?embed=intellij`, 360px): it
+instruments `ResizeObserver` and proves the composer-reserve write never lands in the
+frame of the observation that measured it, and that the IntelliJ error overlay ignores
+the browser's ResizeObserver loop notice (`features/ide_panel_resize_loop.feature`).
+The Chromium 104 half lives in the plugin's `uiTest`
+(`BrowserPanelUiTest.anOldTranscriptOpensWithoutAResizeObserverLoop`).
+
 Run `npm run test:layout` from `external/ui` for the bounded 390px/1280px
 column-alignment smoke. The test owns Vite and headless Chrome, waits at most
 10 seconds for readiness, limits the browser phase to 20 seconds, and cleans up

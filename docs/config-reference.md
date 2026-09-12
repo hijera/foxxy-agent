@@ -5,12 +5,12 @@ Field-by-field reference for `~/.foxxycode/config.yaml`. For narrative documenta
 A machine-readable [JSON Schema](config.schema.json) accompanies this reference. Point your editor's YAML language server at it to get autocomplete and typo checking:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 ```
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${FOXXYCODE_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [config.md](config.md#environment-variable-references)).
 
 ## Agent self-configuration
 
@@ -45,14 +45,17 @@ The bundled `/configure-foxxycode` skill teaches the agent this syntax, the conf
 | [`providers`](#providers) | list | LLM API credentials and endpoints | — |
 | [`models`](#models) | list | Logical model entries selectable per session | — |
 | [`agent`](#agent) | object | ReAct loop model and safety caps | — |
+| [`autocomplete`](#autocomplete) | object | Inline code completion for the editor plugins | — |
 | [`prompts`](#prompts) | object | System prompt template overrides | — |
 | [`instructions`](#instructions) | object | Project instruction files (AGENTS.md) | — |
 | [`skills`](#skills) | object | Skill discovery directories | — |
 | [`rules`](#rules) | object | Project rules discovery | — |
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
 | [`mcp`](#mcp) | object | Trust policy for project-local MCP discovery | — |
+| [`subagents`](#subagents) | object | Subagent definitions, trust policy and pool bounds | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
-| [`commands`](#commands) | list | Command profiles: fixed-binary argv tools with typed params | - |
+| [`commands`](#commands) | list | Command profiles: fixed-binary argv tools with typed params | — |
+| [`hooks`](#hooks) | object | Lifecycle hook definition files, trust policy and runner bounds | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
 | [`memory`](#memory) | object | Long-term memory copilot | `memory` |
@@ -70,11 +73,12 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
-| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints; `neuraldeep` uses its fixed endpoint; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
-| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep` and `type: codex`, which use fixed official endpoints. |
+| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints; `neuraldeep` uses NeuralDeep's OpenAI-compatible endpoint, selected from its two official deployments with `api_base`; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
+| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. For `type: neuraldeep` it selects the deployment - `https://api.neuraldeep.ru/v1` (Russia, the default) or `https://api.neuraldeep.tech/v1` (the international mirror); any other value falls back to the default. Ignored for `type: codex`, which always uses a fixed official endpoint. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). For `type: neuraldeep`, when the key is empty from all three sources the key stored by `foxxycode providers login <name>` (`$FOXXYCODE_HOME/providers/<name>/neuraldeep-auth.json`) is used - an explicit key always wins over the stored login. |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | environment proxy | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Overrides a proxy inherited from the environment (`HTTP_PROXY`/`HTTPS_PROXY` — the IDE plugin forwards the editor's proxy this way); `NO_PROXY` is still honored and local addresses always connect directly. When empty, the environment proxy is used, or a direct connection when there is none. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
+| `usage_limits_panel` | bool | no | `true` | — | Shows the row's account usage panel (the console footer line and `/usage`, the usage section and banner in the web UI) and enables the reads behind it (the hub's `GET /v1/limits` for `type: neuraldeep`). `false` hides the panel on every surface and stops those reads for this row: `GET /foxxycode/providers/{name}/usage` answers `unsupported` with `disabled: true`, and nothing is published at session start or after a turn. Omitted means on. Only rows whose type has a usage source are affected; the key is accepted on any row. Settings → LLM Providers shows it as the **Usage limits panel** switch. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -87,6 +91,7 @@ providers:
     type: openai
     api_base: "http://localhost:11434/v1"
     api_key: "~"
+    # usage_limits_panel: false  # hide the account usage panel for this row
   - name: codex
     type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
@@ -103,12 +108,21 @@ llama.cpp builds through 2025 report mid-stream failures with a non-standard SSE
 For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or use the terminal flow:
 
 ```bash
-foxxycode codex login    # prints a URL and one-time code, then waits
-foxxycode codex status   # reports credential availability and source
-foxxycode codex logout   # removes only the FoxxyCode-managed credential
+foxxycode providers login codex    # prints a URL and one-time code, then waits
+foxxycode providers list           # reports credential availability, source and account
+foxxycode providers logout codex   # removes only the FoxxyCode-managed credential
 ```
 
-`--provider NAME` targets a particular Codex provider. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
+A login also writes the provider row, one `models[]` entry per model the
+subscription serves and an `agent.model` when none is set; it only ever adds, so a
+repeated login is a no-op and `--no-config` stores just the credential. Models Codex
+hides from its own picker are left out, and the model Codex ranks first is the one
+adopted.
+
+`foxxycode codex login|status|logout` is the older, deprecated form of the same
+sign-in; it prints a warning naming the command above and then does the same thing.
+Its `--provider NAME` still reaches a Codex provider that `config.yaml` does not list
+yet, which `providers login` synthesizes only for the conventional name `codex`. Refreshable credentials are stored at `$FOXXYCODE_HOME/providers/<provider-name>/codex-auth.json` and never enter `config.yaml`; a Codex CLI login at `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`) is used as a fallback. `api_key`, `api_key_command`, and `api_base` are ignored, while `proxy` applies to OAuth and provider requests. `FOXXYCODE_CODEX_BASE_URL` is the process-level backend override intended for tests and self-hosted gateways.
 
 Codex is only a model backend: FoxxyCode keeps its own system prompt, tools, permissions, and ReAct loop. Access tokens are refreshed shortly before expiry and written back to their source file. When a Codex provider is configured, `foxxycode acp` and `foxxycode http` log a non-secret credential status line at startup.
 
@@ -126,7 +140,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
 | `stream` | bool | no | `true` | Transport. Omitted or `true` streams the answer over SSE. `false` sends one blocking completion request and delivers the whole answer at once. Rejected for `type: codex` providers, whose backend is streaming-only. |
-| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series, `gpt-oss*`, `qwen3*` (qwen3, qwen3.5, qwen3.6, ...) and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. For `qwen3*` on OpenAI-compatible providers a selected level also sends `chat_template_kwargs` `{"enable_thinking": true}`. |
+| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; OpenAI o-series, `gpt-oss*`, `qwen3*`, and Claude extended-thinking models → `low,medium,high`). Explicit `[]` hides the selector. Both states survive a Settings save: the key is omitted from the written YAML when unset rather than serialized as `[]`. Settings → Logical models → **Fetch reasoning levels** fills this list from `GET /foxxycode/config/reasoning-levels`. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
 ```yaml
@@ -160,10 +174,18 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. A server-provided pause (`Retry-After-Ms` / `Retry-After` headers, `Limit resets at` / `retry in Ns` body phrases) overrides the exponential backoff, capped at 60s. |
 | `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms, retry attempts included (e.g. `12000` on strict free tiers). |
 | `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
-| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
+| `llm_stall_timeout_ms` | int | no | `300000` | How long a streamed LLM call that has **already produced output** may go without any sign of progress before the turn cuts it, keeping the partial answer and asking the model to continue. Covers what `llm_first_token_timeout_ms` cannot: that guard stops at the first token and never re-arms. An explicit `0` disables it; blocking (`stream: false`) transports are never guarded. Neither the continuation nor the retry counts against `max_turns` — a provider failure is not a reasoning step the model chose. |
+| `llm_stall_retry` | bool | no | `true` | When an LLM call fails **without producing any output** — a silent provider, a dropped connection (`unexpected EOF`), a provider-side timeout (`Client.Timeout`), a 5xx — wait and re-issue the same request instead of failing the turn. A request the endpoint **refused** (4xx) is not retried, and neither is a call that already streamed something, so no output can be duplicated. Complements `llm_retry_max`, which absorbs a hiccup in seconds; this absorbs an outage in minutes. A retry does **not** count against `max_turns`. |
+| `llm_stall_retry_delays_ms` | []int | no | `[60000, 180000, 300000]` | Pause before each such retry, ms. The last entry repeats for every later attempt, so the default is one minute, then three, then five minutes for every attempt after that. |
+| `llm_stall_retry_max_wait_ms` | int | no | `3600000` | Total time that may be spent waiting between retries of one call before the turn gives up and surfaces the error. An explicit `0` retries until the model answers or the user presses Stop. |
+| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through. |
 | `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
 | `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
-| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it stops the turn with a notice. |
+| `loop_tool_cycle_repeats` | int | no | `3` | Repetitions of the same *sequence* of tool calls before the guard steps in — what catches a model rotating through several calls instead of repeating one; `0` disables the check. Sequences of 2 to 8 calls are searched for, and because a lap is allowed to vary, a longer rotation is usually caught earlier through a shorter sub-pattern inside it. |
+| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it acts on a loop. |
+| `wait_for_limit_reset` | bool | no | `false` | Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error. The turn lock and the client stream stay open while it waits, and the client is told "Usage limit reached" with the reset time every 20 s. Unrelated to `llm_stall_retry`, which re-issues a call that produced no output at all. |
+| `wait_for_limit_reset_max_ms` | int | no | `14400000` (4 h) | Longest time one turn spends waiting for limits in total, the retry wrapper's own sleeps on a limit included; a pause beyond it ends the turn at once, and an explicit `0` never sleeps on a limit. |
+| `loop_stuck_action` | string | no | `quarantine` | What the guard does once a tool loop has survived every nudge. `quarantine` takes the looping calls away for the rest of the turn and lets it run on to a real answer, asking for that answer with the tools withheld if nothing else is left; `stop` ends the turn with a notice. A degenerate output stream always stops the turn regardless. |
 
 ## `prompts`
 
@@ -175,6 +197,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 | `agent_prompt` | string | no | `agent.md` | Template file name for agent mode, inside `dir`. |
 | `plan_prompt` | string | no | `plan.md` | Template file name for plan mode, inside `dir`. |
 | `docs_prompt` | string | no | `docs.md` | Template file name for docs mode, inside `dir`. |
+| `ask_prompt` | string | no | `ask.md` | Template file name for ask mode, inside `dir`. |
 | `per_provider.enabled` | bool | no | `true` | Select a system prompt tuned to the active model for the current mode. Custom files resolve most-specific first: configured model-reference slug (e.g. `openai/gpt-4o` -> `ask.openai-gpt-4o.md`), provider-neutral API-model slug (e.g. `local/gpt-oss-20b` -> `ask.gpt-oss-20b.md`), per-family `<mode>.<family>.md`, then shared `<mode>.md`. Families: `anthropic`, `openai`, `gemini`, `gpt-oss`, `qwen`, `gemma`, `neuraldeep`. Built-in prompts use the same key order at fragment level; gpt-oss-20b and gpt-oss-120b have distinct profiles in Agent, Plan, Ask, and Docs modes. |
 
 ## `instructions`
@@ -201,8 +224,8 @@ Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, and nested `**/AGENTS.md` under the session CWD. |
-| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `cursor`, `claude`, `codex`, `agents`. |
+| `auto_discover` | bool | no | `true` | Scan `.foxxycode/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `**/AGENTS.md` under the session CWD. `.mdc` files are read as Cursor rules, `.md` files as Claude Code rules. |
+| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `foxxycode`, `agents-dir` (`.agents/rules`), `cursor`, `claude`, `codex`, `agents` (nested `AGENTS.md`). |
 
 ## `mcp_servers`
 
@@ -212,11 +235,11 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 |---|---|---|---|---|
 | `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
-| `command` | string | stdio only | — | Executable for stdio transport. |
+| `command` | string | stdio only | — | Executable for stdio transport. `${CWD}` expands to the session cwd. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
-| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
+| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. `${CWD}` in a value expands to the session cwd. |
 | `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
-| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). `${CWD}` in a value expands to the session cwd. |
 | `insecure_skip_verify` | bool | no | `false` | Accept this http/sse server's TLS certificate without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks. Setting it changes the declaration digest, so a project-local entry needs approving again. |
 | `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
 | `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
@@ -258,9 +281,9 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 |---|---|---|---|---|
 | `permission_mode` | string | no | `ask` | `ask` — prompt for commands and file writes; `accept_edits` — auto-approve writes, prompt for commands; `bypass` — never ask (trusted environments only). Overridable per session via ACP `session/set_config_option`. |
 | `command_allowlist` | string list | no | `[]` | Commands that never require permission. Exact or prefix match (prefix + space + args). `"*"` allows everything. |
+| `permission_timeout_seconds` | int | no | `0` | How long a permission prompt may wait for the operator before the tool call is cancelled instead. `0` waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
 | `plan_no_self_run` | bool | no | `false` | Forbid the model from starting to execute a plan itself. In plan mode `plan_exit` is not offered and any tool outside the plan allowlist is refused instead of run, so only **Run plan** starts the implementation. The `-plan-no-self-run` flag on `foxxycode acp` / `foxxycode http` overrides this value; the IntelliJ and VS Code plugins pass it, so their panels are guarded by default. |
-| `ask_disable_extended_tools` | bool | no | `false` | Hide Ask mode's read-only shell, web, annotated MCP, and scheduler inspection tools. Basic repository read/search/tree, question, and skill tools remain available. |
 | `output_limits` | object | no | — | Per-tool line and byte ceilings for results and errors. |
 | `background` | object | no | — | Bounds for commands the agent runs detached in the session background task pool. See below. |
 
@@ -292,18 +315,68 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 | `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
 | `output_buffer_bytes` | int | no | `262144` | In-memory output window per task, used by the status ticker and `background_output`. The full log still goes to the session bundle. |
 
+## `subagents`
+
+Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /foxxycode/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/subagents.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Register `spawn_agent` and list the subagent catalog in the system prompt. |
+| `dirs` | string list | no | `["${FOXXYCODE_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.foxxycode/agents"]` | Definition directories, lowest priority first; later entries override earlier ones by name. `${FOXXYCODE_HOME}` expands at load time, `${CWD}` per session. A directory inside the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. |
+| `project_trust` | string | no | `ask` | Policy for project-scope definitions, which travel with the checkout. `ask` — load them, but refuse to spawn one until the operator approved that exact file for that workspace on the machine running foxxycode (`foxxycode agents trust <name>` there, or `POST /foxxycode/subagents/{name}/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own files; `deny` — never read them. |
+| `max_concurrent` | int | no | `4` | Subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued; the per-session `tools.background.max_concurrent` still applies to the task count. |
+| `max_depth` | int | no | `1` | Nesting: `1` (the value an omitted key gets) lets a session spawn subagents that cannot spawn further; an explicit `0` forbids spawning everywhere, so unlike the other integer keys `0` here is a setting, not the default. |
+| `default_timeout_seconds` | int | no | `1800` | Hard limit for one run whose definition and call give no timeout. Precedence: the call's `timeout_seconds`, the definition's `timeout_seconds`, `expected_seconds × 3` (floored at 60 s), then this default; every value is capped by `tools.background.max_timeout_seconds`. |
+| `max_turns` | int | no | `agent.max_turns` | ReAct rounds a child may take. |
+
+Approvals for project-scope definitions are recorded in `~/.foxxycode/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
+
+## `hooks`
+
+Hooks (`config.Hooks`, `internal/config/hooks.go`): operator commands run at lifecycle points of a session. A hook reads one JSON document on stdin and answers with an exit code plus optional JSON on stdout; a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, force the prompt, rewrite its arguments or add context, and a `PostToolUse` / `PostToolUseFailure` hook can add feedback. Definitions are JSON files in Claude Code's shape. `0` on every integer key means "use the default". See `docs/hooks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Load and run hooks at all. |
+| `files` | string list | no | `["${FOXXYCODE_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.foxxycode/hooks.json"]` | Definition files, lowest priority first; every matching hook runs, priority orders the catalog and the run order. `${FOXXYCODE_HOME}` expands at load time, `${CWD}` per session; a relative entry resolves against the session cwd. A file at or under the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. Only the `hooks` key of a Claude Code settings file is read. |
+| `project_trust` | string | no | `ask` | Policy for project-scope files, which travel with the checkout. `ask` — parse and list them, but run none of their hooks until the operator approved that exact file for that workspace on the machine running foxxycode (`foxxycode hooks trust <file>` there, or `POST /foxxycode/hooks/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own file; `deny` — never read them. |
+| `default_timeout_seconds` | int | no | `60` | Hard limit for one hook process whose definition gives no `timeout`; the whole process group is terminated past it. |
+| `stop_loop_limit` | int | no | `5` | How many times per turn a `Stop` hook may send the agent back to work. |
+| `max_output_chars` | int | no | `10000` | Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. |
+
+Approvals for project-scope files are recorded in `~/.foxxycode/hooks-trust.json`, keyed by the canonical workspace path, the workspace-relative file path and a digest of the file, so editing an approved file asks again.
+
 ## `logger`
 
 Logging (`config.Logger`, `internal/config/logger.go`). ACP flags `--log-level`, `--log-output`, `--log-file`, `--log-format` override these when set.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `level` | string | no | `info` | `debug`, `info`, `warn`, `error` (`warning` accepted as alias of `warn`). |
+| `level` | string | no | `info` | `debug`, `info`, `warn`, `error` (`warning` accepted as alias of `warn`). Applies to records that carry no component. |
+| `levels[].component` | string | **yes** (within an entry) | — | Dotted component name: `gateway`, `gateway.telegram`, `session`, `agent`, `scheduler`. Matched case-insensitively after trimming. |
+| `levels[].level` | string | **yes** (within an entry) | — | Minimum severity for that component; same values as `level`. |
 | `outputs` | string list | no | `["stderr"]` | Any combination of `stdout`, `stderr`, `file`. |
 | `file` | string | required when `outputs` includes `file` | `""` | Path for the file sink. Supports `${FOXXYCODE_HOME}`. |
 | `format` | string | no | `text` | `text` or `json`. |
 | `rotation.max_size_mb` | int | no | `0` | Rotate after this size in MB; `0` disables size-based rotation. |
 | `rotation.max_files` | int | no | `0` | Rotated backups to keep when `max_size_mb > 0`. |
+
+`levels` raises or lowers verbosity one subsystem at a time, so chasing a Telegram command that does not work no longer means turning the whole process to `debug` and reading it out of everything else:
+
+```yaml
+logger:
+  level: "info"
+  levels:
+    - component: "gateway.telegram"
+      level: "debug"
+```
+A component is the dotted name a subsystem tags its logger with, and it stays on every record that subsystem writes, so a file can also be filtered by subsystem after the fact. A parent name covers everything nested under it and the longest configured prefix wins: `gateway` reaches `gateway.telegram` unless that name carries its own entry. A record from an untagged part of the process has no component and follows `level`. Configuring one component twice is an error rather than a silent winner.
+
+`--log-level` accepts the same spec as a comma-separated list, which is how an operator running under systemd raises one subsystem for a single restart without editing the file:
+
+```bash
+foxxycode serve --log-level "info,gateway.telegram=debug"
+```
 
 ## `debug`
 
@@ -372,6 +445,31 @@ Unmarked large `read` and `grep` results collapse to short placeholders in later
 | `keep_recent` | int | no | `2` | Recent evictable results kept intact; `0` keeps none. |
 | `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted; `0` makes all results candidates. |
 
+## `autocomplete`
+
+LLM-backed inline code completion (`config.AutocompleteConfig`, `internal/config/autocomplete.go`; always compiled). This is the greyed suggestion the editor plugins draw ahead of the caret and accept with Tab. Editors fetch it over `POST /foxxycode/completion` — one single-shot LLM call with no tools, no session and no agent loop — and read `GET /foxxycode/completion/config` to learn when to ask. See [http-api.md](http-api.md).
+
+Unlike [`compaction`](#compaction) and [`title`](#title), this section is **off unless enabled explicitly**: a suggestion is requested as you type, so leaving it on by default would spend tokens on every keystroke. Point `model` at a small, fast `models[]` entry — speed beats cleverness here, because a suggestion is worthless once you have typed past it.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `false` | Turn on inline suggestions in the editor plugins. |
+| `model` | string | no | `""` (agent model) | Exact `models[].model` id used for the suggestion pass. |
+| `mode` | string | no | `auto` | How the hole reaches the model. `auto`: native fill-in-the-middle tokens through a raw completion (`POST /v1/completions`) when the model family is known (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and the provider is OpenAI-compatible, a chat prompt otherwise; a raw call that fails switches that model to chat for the rest of the process. `chat`: always a chat prompt. `fim`: always FIM tokens, and an error when that is not possible. |
+| `temperature` | number | no | `0` | Sampling temperature. Unlike `models[].temperature`, `0` here is the value rather than "unset": suggestions are greedy by default, so the same context yields the same suggestion and it survives the next keystroke. |
+| `max_tokens` | int | no | `128` | Completion token cap for one suggestion. Caps the model entry's own `max_tokens`, so sharing an entry with the agent cannot buy an 8k-token suggestion. |
+| `timeout_ms` | int | no | `4000` | How long one suggestion request may take before it is abandoned. |
+| `debounce_ms` | int | no | `350` | Typing pause before an automatic request goes out. Ignored when `trigger` is `manual`. |
+| `trigger` | string | no | `auto` | `auto` suggests while you type; `manual` suggests only on the editor shortcut. |
+| `multi_line` | bool | no | `true` | Allow a suggestion to span several lines. When `false`, only its first line is kept. Even when allowed, a block is only produced where the caret invites one: at the end of a line that opened a block, or on an empty line; with code to the right of the caret the suggestion never grows past the line. |
+| `related_files` | int | no | `3` | How many other open editor tabs (reported over `POST /foxxycode/ide/editor-state`, workspace files only) are excerpted — first 40 lines, up to 1500 bytes each — into the prompt so the model sees imports and signatures from neighbouring files. `0` disables it. |
+| `max_prefix_bytes` | int | no | `8000` | How much of the text before the caret is sent as context. |
+| `max_suffix_bytes` | int | no | `2000` | How much of the text after the caret is sent as context. |
+
+Retries are deliberately disabled for this pass regardless of `agent.llm_retry_max`: a retried suggestion lands after the user has typed past it. Qwen3-family thinking is pinned off (`chat_template_kwargs.enable_thinking: false`) regardless of the serving default, because a thinking model can spend the whole small budget inside its reasoning block and return nothing. Generation stops at sequences matched to the request — the line break for a single-line suggestion, the exact next suffix line and a blank-line run for a block — and, in chat mode, the streamed reply is cut the moment it dedents past the caret's scope. `GET /foxxycode/completion/stats` reports latency, token cost and the editor-reported acceptance rate.
+
+**Judging quality on a live hub.** `make e2e-autocomplete` with `NEURALDEEP_API_KEY` set runs `external/httpserver/e2e_neuraldeep_autocomplete_test.go`: a dozen caret positions across Go, Python, TypeScript, JavaScript and Kotlin, each with a loose acceptance rule (the idea the answer must contain, no fence, no re-typed suffix, single-line where the caret demands it), run against every model in `FOXXYCODE_E2E_MODELS` in every prompt mode in `FOXXYCODE_E2E_MODES` (default `auto,chat`, so native FIM and chat prompting can be compared per model). It prints a markdown report with the actual completions and latencies, writes it to `FOXXYCODE_E2E_REPORT` when set, and only fails below `FOXXYCODE_E2E_MIN_SCORE`. It is skipped without the key, so CI never talks to the hub.
+
 ## `title`
 
 Automatic session title generation (`config.TitleConfig`, `internal/config/title.go`; always compiled). After the first exchange in a fresh, non-pinned session, a hidden internal "title" agent generates a short thread title. It runs backend-side so every client (SPA, IntelliJ, VS Code, ACP, CLI) gets the title, pushed live over the session-update stream. A user-pinned title always wins and is never overwritten; the auto-title is generated at most once per session.
@@ -388,15 +486,53 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `host` | string | no | `""` → `0.0.0.0` | Default bind address when `foxxycode http` does not pass `-H/--host`. |
-| `port` | int | no | `0` → `12345` | Default listen port when `foxxycode http` does not pass `-P/--port`. Range 0–65535. |
+| `enabled` | bool | no | `true` | Serve the HTTP API (and the embedded SPA) in this `foxxycode serve` process. Set `false` on a node that should only poll a messenger or relay a swarm. Overridable per run with `--http` / `--http=false`. Ignored by `foxxycode http`, which is the API and nothing else. |
+| `host` | string | no | `""` → `0.0.0.0` for `foxxycode http`, `127.0.0.1` for `foxxycode serve` | Default bind address when the command does not pass `-H/--host`. The two fallbacks differ on purpose: `http` exists to serve the API, while one `serve` process starts every enabled subsystem, so asking for a Telegram bot there must not open the agent API to the network as a side effect. |
+| `port` | int | no | `0` → `12345` | Default listen port when the command does not pass `-P/--port`. Range 0–65535. |
 | `auth_token` | string | no | `""` | Optional bearer credential for the HTTP API. Empty = no auth. `${ENV}` expanded at load; prefer `--auth-token` / `FOXXYCODE_HTTP_TOKEN`. Redacted from `GET /foxxycode/config`. See [remote-control.md](remote-control.md). |
 | `public_docs` | bool | no | `false` | Keep `/docs` and `/openapi.*` reachable without a token when auth is enabled. |
+| `stream_tickets_only` | bool | no | `false` | Refuse the durable auth token in `?access_token=` on the SSE routes, so an EventSource must first mint a single-use ticket via `POST /foxxycode/stream-tickets`. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL. |
 | `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
 | `cors.enabled` | bool | no | `false` | Turn on CORS handling (preflight + `Access-Control-*` headers). |
 | `cors.allowed_origins` | []string | no | `[]` | Exact origins permitted to call the API. A single `"*"` allows any origin (bearer auth still applies). |
 | `remotes[].name` | string | no | — | Display name of a remote server in the UI environment selector. |
 | `remotes[].url` | string | no | — | Base URL of the remote `foxxycode http` server. Tokens are not stored here; the UI keeps them client-side. |
+
+## `swarm`
+
+Stateless relay that nodes register into and that chains into other relays (`config.SwarmConfig`, `internal/config/swarm.go`; `swarm` build tag for the server side, though `swarm.join` is honoured by every `foxxycode serve` process). See [swarm.md](swarm.md).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `false` | Run the relay in this `foxxycode serve` process. Independent of `swarm.join`: joining a parent relay is what an agent node does, running a relay is what a hub does, and one process may do both. Overridable per run with `--swarm` / `--swarm=false`. |
+| `host` | string | no | `""` → `0.0.0.0` | Bind address for the relay when the CLI does not pass `--swarm-host`. |
+| `port` | int | no | `0` → `12346` | Relay listen port when the CLI does not pass `--swarm-port`. Range 0–65535. It sits next to the API's 12345 so one process can serve both. |
+| `name` | string | no | `""` | Label for this relay in topology views and in a child's node path. |
+| `auth_token` | string | no | `""` | Bearer credential clients present. A relay reaches every node with that node's own credential, so binding off loopback without one refuses to start unless `allow_insecure` is set. Never returned by config reads. |
+| `pairing_tokens` | []string | no | `[]` | Credentials a node must present to register. Empty closes registration unless `insecure_open_registration`. Never returned by config reads. |
+| `allow_insecure` | bool | no | `false` | Permit binding off loopback without a client token. |
+| `insecure_open_registration` | bool | no | `false` | Let any caller register a node without a pairing token. Development only. |
+| `allow_private_upstreams` | []string | no | `[]` | Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network. |
+| `cors.enabled` | bool | no | `false` | Handle CORS preflight. The SPA is cross-origin to a relay by construction, so this usually has to be on. |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the relay. `*` allows any; bearer auth still applies. |
+| `tls.cert_file` | string | no | `""` | PEM certificate chain. Set with `key_file` or neither. Minimum TLS 1.2; rotating certificates needs a restart. |
+| `tls.key_file` | string | no | `""` | PEM private key. |
+| `lease_ttl_seconds` | int | no | `0` → `90` | How long a registration survives without a heartbeat. Nodes refresh at a third of it. |
+| `fanout_timeout_seconds` | int | no | `0` → `3` | Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. |
+| `upstreams[].name` | string | yes* | - | Node name for a node configured by hand (*required per entry). Becomes a URL path segment: letters, digits, underscore and hyphen only. |
+| `upstreams[].url` | string | yes* | - | Origin the relay dials to reach it. |
+| `upstreams[].kind` | string | no | `agent` | `agent` or `relay`. |
+| `upstreams[].token` | string | no | `""` | Credential the relay presents to this node. Never returned by config reads. |
+| `upstreams[].dial.proxy` | string | no | `""` | Route the connection through `http`, `https`, `socks5` or `socks5h`. Empty falls back to the standard environment variables. |
+| `upstreams[].dial.ca_file` | string | no | `""` | Authority for a peer whose certificate is signed privately. |
+| `upstreams[].dial.insecure_skip_verify` | bool | no | `false` | Accept any certificate. For a lab only; every use is logged. |
+| `join[].url` | string | yes* | - | Parent relay this process registers into (*required per entry). |
+| `join[].name` | string | no | host name | Name to claim in that relay. |
+| `join[].pairing_token` | string | no | `""` | Credential authorising the registration. Never returned by config reads. |
+| `join[].advertise_url` | string | no | `""` | Where the relay can reach this process. **Leave empty to dial out instead**, which is the only way in when the network accepts no inbound connections. |
+| `join[].token` | string | no | `""` | This process's own credential, handed to the relay so it can authenticate when it proxies. Prefer one minted for the relay alone. Never returned by config reads. |
+| `join[].labels` | map | no | `{}` | Free-form tags shown in topology views. |
+| `join[].dial.*` | object | no | - | Proxy and TLS settings for reaching the parent, same shape as `upstreams[].dial`. |
 
 ## `scheduler`
 

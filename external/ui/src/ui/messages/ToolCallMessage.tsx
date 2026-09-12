@@ -1,5 +1,6 @@
 import {
   type ReactElement,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -14,17 +15,23 @@ import {
 import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
+import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
+import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import {
+  agentTaskName,
+  agentTranscriptSessionId,
   taskStatusLabel,
   taskTimingLine,
   taskTone,
 } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
-import { BrowserAction } from "./BrowserAction";
-import {
-  isBrowserToolName,
-  parseBrowserActionResult,
-} from "./browserActionDisplay";
+import { BrowserAction, BrowserIcon } from "./BrowserAction";
+import { SpawnAgentCard } from "./SpawnAgentCard";
+import { SvnAction, SvnIcon } from "./SvnAction";
+import { svnOperation, svnFailed } from "./svnActionDisplay";
+import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
+import { isBrowserToolName, browserActionLabel } from "./browserActionDisplay";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -50,7 +57,10 @@ function QuestionToolTimelineReadout(props: {
 
   if (qs.length === 0) {
     return (
-      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+      <p
+        className="muted"
+        style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
+      >
         {props.t("messages.toolQuestionMirrorHint")}
       </p>
     );
@@ -84,7 +94,7 @@ function QuestionToolTimelineReadout(props: {
   );
 }
 
-export function ToolCallMessage(props: {
+export const ToolCallMessage = memo(function ToolCallMessage(props: {
   toolCallId: string;
   title?: string | undefined;
   kind?: string | undefined;
@@ -93,6 +103,8 @@ export function ToolCallMessage(props: {
   resultText?: string | undefined;
   fullResultText?: string | undefined;
   resultWasTruncated?: boolean | undefined;
+  /** Final todo state saved with this call, used by structured todo previews. */
+  todoPlan?: TodoPlanEntry[] | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
@@ -107,6 +119,10 @@ export function ToolCallMessage(props: {
   backgroundNowMs?: number | undefined;
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
+  /** Workspace of this session, for the approval offered on a refused spawn. */
+  workspacePath?: string | undefined;
+  /** Opens the child transcript of a subagent this call spawned. */
+  onOpenSubagentTranscript?: ((sessionId: string) => void) | undefined;
 }) {
   const { t } = useT();
   const preview = useMemo(
@@ -114,7 +130,11 @@ export function ToolCallMessage(props: {
     [props.resultText],
   );
   const full = props.fullResultText || "";
-  const rawName = (props.title || props.kind || t("messages.toolDefaultName")).trim();
+  const rawName = (
+    props.title ||
+    props.kind ||
+    t("messages.toolDefaultName")
+  ).trim();
   const toolPreview = useMemo(
     () =>
       buildToolCallPreview(
@@ -122,13 +142,27 @@ export function ToolCallMessage(props: {
           title: props.title,
           kind: props.kind,
           argsText: props.argsText,
+          todoPlan: props.todoPlan,
         },
         props.argsText || "",
       ),
-    [props.argsText, props.kind, props.title],
+    [props.argsText, props.kind, props.title, props.todoPlan],
   );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
+
+  // A spawn the runtime refused may have been refused for want of an approval;
+  // the notice below decides that against the catalog, not against the text.
+  const refusedAgentName = useMemo(
+    () =>
+      refusedSpawnAgentName({
+        title: props.title,
+        kind: props.kind,
+        status: props.status,
+        argsText: props.argsText,
+      }),
+    [props.argsText, props.kind, props.status, props.title],
+  );
 
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
@@ -156,10 +190,15 @@ export function ToolCallMessage(props: {
   }, [props.argsText]);
 
   const isBrowserTool = isBrowserToolName(rawName);
-  const browserInfo = useMemo(
-    () => (isBrowserTool ? parseBrowserActionResult(props.resultText) : null),
-    [isBrowserTool, props.resultText],
+  const isSpawnAgentTool =
+    rawName.toLowerCase() === "spawn_agent" ||
+    (props.kind || "").trim().toLowerCase() === "spawn_agent";
+  const spawnAgent = useMemo(
+    () => (isSpawnAgentTool ? parseSpawnAgentArgs(props.argsText) : null),
+    [isSpawnAgentTool, props.argsText],
   );
+  const svnOp = svnOperation(rawName);
+  const isSvnTool = svnOp !== null;
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -176,6 +215,14 @@ export function ToolCallMessage(props: {
   }, [isPatchTool, props.argsText]);
 
   const displayLabel = useMemo(() => {
+    if (svnOp) return t(`messages.svn.operation.${svnOp}`);
+    if (isBrowserTool)
+      return browserActionLabel(
+        rawName,
+        props.argsText,
+        /^error:/i.test(preview.trim()) ? "failed" : status,
+        t,
+      );
     if (isQuestionTool) {
       return t("messages.toolQuestionLabel");
     }
@@ -183,7 +230,17 @@ export function ToolCallMessage(props: {
     return pendingLike
       ? `${rawName || fallback}${t("messages.toolPendingSuffix")}`
       : rawName || fallback;
-  }, [isQuestionTool, pendingLike, rawName, t]);
+  }, [
+    isQuestionTool,
+    isBrowserTool,
+    svnOp,
+    props.argsText,
+    preview,
+    status,
+    pendingLike,
+    rawName,
+    t,
+  ]);
 
   const permissionWaiting = props.permissionWaiting === true;
 
@@ -275,7 +332,8 @@ export function ToolCallMessage(props: {
   useEffect(() => {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
-      ((isWriteTool || isEditTool) &&
+      (isSpawnAgentTool && !spawnAgent && !pendingLike) ||
+      ((isWriteTool || isEditTool || isBrowserTool || isSvnTool) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
@@ -287,6 +345,11 @@ export function ToolCallMessage(props: {
     isEditTool,
     isPatchTool,
     isWriteTool,
+    isBrowserTool,
+    isSpawnAgentTool,
+    spawnAgent,
+    pendingLike,
+    isSvnTool,
     patchContent,
     props.argsText,
     props.toolCallId,
@@ -356,18 +419,25 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showBrowserAction = isBrowserTool && !!browserInfo;
+  const showBrowserAction = isBrowserTool;
   const toolPreviewHasContent =
     toolPreview.header.trim() !== "" ||
     toolPreview.meta.length > 0 ||
     toolPreview.copyText.trim() !== "" ||
     (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
+    (toolPreview.kind === "todo" && toolPreview.entries.length > 0) ||
+    toolPreview.kind === "plan_exit" ||
     (toolPreview.kind === "move" &&
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
   // Browser calls keep their dedicated screenshot/console card as the only renderer.
+  // A spawn_agent call gets its own card instead of the generic preview.
   const showToolPreview =
-    !isQuestionTool && !isBrowserTool && toolPreviewHasContent;
+    !isQuestionTool &&
+    !isBrowserTool &&
+    !spawnAgent &&
+    !isSvnTool &&
+    toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
@@ -376,13 +446,26 @@ export function ToolCallMessage(props: {
     !isQuestionTool &&
     !isPatchTool &&
     !isBrowserTool &&
+    !isSvnTool &&
+    !(
+      status === "completed" &&
+      (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
+    ) &&
     !!(resultBody && resultBody.length > 0);
   const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const backgroundTask = props.backgroundTask;
+  // Present only for a spawn_agent row whose child session exists: the
+  // parent transcript shows the wait, the child's own transcript shows the
+  // work, and this is the link between them.
+  const subagentSessionId = backgroundTask
+    ? agentTranscriptSessionId(backgroundTask)
+    : null;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
   const hasBody =
+    !!spawnAgent ||
     isQuestionTool ||
     showBrowserAction ||
+    isSvnTool ||
     showToolPreview ||
     showPatchResult ||
     showResult ||
@@ -399,10 +482,20 @@ export function ToolCallMessage(props: {
         className="thinking-details foxxycode-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
       >
-        <summary className="thinking-summary" aria-label={t("messages.toolSummaryAriaLabel")}>
+        <summary
+          className="thinking-summary"
+          aria-label={t("messages.toolSummaryAriaLabel")}
+        >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
+            {isBrowserTool && <BrowserIcon />}
+            {isSvnTool && <SvnIcon />}
             <span className="thinking-label">{displayLabel}</span>
+            {isSvnTool && svnFailed(status, full || preview) && (
+              <span className="svn-summary-error">
+                {t("messages.svn.failed")}
+              </span>
+            )}
             {durationLabel.trim() !== "" ? (
               <span className="thinking-dur" aria-hidden="true">
                 {durationLabel}
@@ -424,6 +517,15 @@ export function ToolCallMessage(props: {
                   aria-hidden="true"
                 />
                 <span className="tool-bgtask-chip-text">
+                  {/*
+                    A delegated step is silent by construction: the child's
+                    progress goes to its own transcript, so the parent row is
+                    the only place the wait is visible. Naming the agent turns
+                    "something is running" into "explore is running".
+                  */}
+                  {agentTaskName(backgroundTask)
+                    ? `${agentTaskName(backgroundTask)} · `
+                    : ""}
                   {taskStatusLabel(backgroundTask.status)} ·{" "}
                   {taskTimingLine(backgroundTask, backgroundNowMs)}
                 </span>
@@ -436,7 +538,8 @@ export function ToolCallMessage(props: {
             className={[
               "thinking-body foxxycode-tool-call-body",
               isQuestionTool && "foxxycode-tool-call-body--question",
-              hasConnectedResult && "foxxycode-tool-call-body--connected-result",
+              hasConnectedResult &&
+                "foxxycode-tool-call-body--connected-result",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -450,17 +553,32 @@ export function ToolCallMessage(props: {
                 t={t}
               />
             ) : null}
-            {showBrowserAction && browserInfo ? (
+            {showBrowserAction ? (
               <BrowserAction
-                info={browserInfo}
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
                 sessionId={(props.sessionId || "").trim()}
               />
             ) : null}
+            {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
+            {isSvnTool && (
+              <SvnAction
+                name={rawName}
+                argsText={props.argsText}
+                resultText={resultBody}
+                status={status}
+                permissionWaiting={permissionWaiting}
+                truncated={props.resultWasTruncated && !(showExpanded && full)}
+              />
+            )}
             {showToolPreview ? (
               <PermissionToolPreview
                 preview={toolPreview}
                 interactive={false}
                 overflowControls={isLargePreviewTool}
+                toolStatus={status}
               />
             ) : null}
             {showPatchResult || showResult ? (
@@ -508,6 +626,19 @@ export function ToolCallMessage(props: {
                     {t("messages.toolBgTaskOpen")}
                   </button>
                 ) : null}
+                {subagentSessionId && props.onOpenSubagentTranscript ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-transcript-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onOpenSubagentTranscript?.(subagentSessionId);
+                    }}
+                  >
+                    {t("messages.toolSubagentOpenTranscript")}
+                  </button>
+                ) : null}
                 {backgroundTask.running && props.onStopBackgroundTask ? (
                   <button
                     type="button"
@@ -529,6 +660,18 @@ export function ToolCallMessage(props: {
           </div>
         ) : null}
       </details>
+      {/*
+        Outside the <details>: a refused spawn is only actionable if the user
+        sees it, and the row is collapsed by default. The notice renders
+        nothing unless the catalog confirms the definition is awaiting
+        approval, so an unrelated spawn failure adds no chrome.
+      */}
+      {refusedAgentName ? (
+        <SubagentApprovalNotice
+          agentName={refusedAgentName}
+          workspacePath={props.workspacePath}
+        />
+      ) : null}
     </div>
   );
-}
+});

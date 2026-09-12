@@ -229,7 +229,7 @@ func UISchemaMap() map[string]interface{} {
 			"description": "Wire protocol for this provider entry.",
 			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints."),
+		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
@@ -237,6 +237,12 @@ func UISchemaMap() map[string]interface{} {
 			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
 		"proxy": strProp("HTTP or SOCKS proxy",
 			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). It overrides any proxy inherited from the environment or the editor. NO_PROXY is still honored and local addresses always connect directly. Leave empty to use the environment/editor proxy (HTTP_PROXY/HTTPS_PROXY), or connect directly when there is none."),
+		// Defaults to true when the key is absent, like models[].stream: the
+		// form seeds new rows from schema defaults and renders an unset switch
+		// from them.
+		"usage_limits_panel": boolPropDefault("Usage limits panel",
+			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+			true),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
@@ -274,17 +280,17 @@ func UISchemaMap() map[string]interface{} {
 	mcpProps := map[string]interface{}{
 		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
 		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
-		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url)."),
+		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd."),
 		"args": map[string]interface{}{
 			"type":        "array",
 			"title":       "Arguments",
-			"description": "Argv passed after command for stdio MCP servers.",
+			"description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
 			"items":       map[string]interface{}{"type": "string"},
 		},
 		"env": map[string]interface{}{
 			"type":        "array",
 			"title":       "Environment",
-			"description": "Extra environment variables for the stdio child process.",
+			"description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
 			"items": map[string]interface{}{
 				"type":                 "object",
 				"properties":           envProps,
@@ -292,11 +298,11 @@ func UISchemaMap() map[string]interface{} {
 				"additionalProperties": false,
 			},
 		},
-		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server."),
+		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd."),
 		"headers": map[string]interface{}{
 			"type":        "array",
 			"title":       "HTTP headers",
-			"description": "Optional headers sent with MCP HTTP requests.",
+			"description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
 			"items": map[string]interface{}{
 				"type":                 "object",
 				"properties":           headerProps,
@@ -377,7 +383,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms"},
+				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -403,18 +409,90 @@ func UISchemaMap() map[string]interface{} {
 					"Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing)."),
 				"llm_first_token_timeout_ms": intProp("LLM first token timeout ms",
 					"How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard)."),
+				"llm_stall_timeout_ms": intProp("LLM stall timeout ms",
+					"How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it and keeps the partial answer (an explicit 0 disables the guard)."),
+				"llm_stall_retry": boolProp("Retry a failed provider call",
+					"When a model call fails without producing any output - silence, a dropped connection, a provider timeout, a 5xx - wait and send the same request again instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so nothing can be duplicated. Off restores the immediate error."),
+				"llm_stall_retry_delays_ms": map[string]interface{}{
+					"type":        "array",
+					"title":       "Retry delays ms",
+					"description": "Pause before each retry, in milliseconds. The last entry repeats for every later attempt, so 60000, 180000, 300000 means one minute, then three, then five minutes forever.",
+					"items":       map[string]interface{}{"type": "integer"},
+				},
+				"llm_stall_retry_max_wait_ms": intProp("Retry budget ms",
+					"Total time that may be spent waiting between retries of one call before the turn gives up and shows the error. An explicit 0 retries until the model answers or you press Stop."),
 				"loop_guard": boolProp("Loop guard",
-					"Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments."),
+					"Stop a response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through."),
 				"loop_tool_repeat_limit": intProp("Loop tool repeat limit",
 					"Consecutive identical tool calls before the loop guard steps in (0 disables the check)."),
 				"loop_stream_repeat_cycles": intProp("Loop stream repeat cycles",
 					"Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check)."),
+				"loop_tool_cycle_repeats": intProp("Loop tool cycle repeats",
+					"Repetitions of the same sequence of tool calls before the loop guard steps in, which is what catches a model rotating through several calls instead of repeating one (0 disables the check)."),
+				"loop_stuck_action": map[string]interface{}{
+					"type":  "string",
+					"title": "Loop stuck action",
+					"description": "What the guard does once a tool loop has survived every nudge. " +
+						"\"quarantine\" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; " +
+						"\"stop\" ends the turn with a notice.",
+					"enum": []string{AgentLoopStuckActionQuarantine, AgentLoopStuckActionStop},
+				},
 				"loop_nudge_max": intProp("Loop nudge max",
 					"How many times one turn may be nudged back on track before the loop guard stops it."),
+				"wait_for_limit_reset": boolProp("Wait for limit reset",
+					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
+				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
+					"Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits."),
 			},
 			[]string{
 				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
-				"llm_first_token_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
+				"llm_first_token_timeout_ms", "llm_stall_timeout_ms", "llm_stall_retry", "llm_stall_retry_delays_ms",
+				"llm_stall_retry_max_wait_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles",
+				"loop_tool_cycle_repeats", "loop_stuck_action", "loop_nudge_max",
+				"wait_for_limit_reset", "wait_for_limit_reset_max_ms",
+			},
+			nil),
+		"autocomplete": objectSchema("Autocomplete",
+			"LLM-backed inline code completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab.",
+			map[string]interface{}{
+				"enabled": boolProp("Enabled",
+					"Turns on inline suggestions in the editor plugins. Off by default, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke."),
+				"model": strProp("Completion model",
+					"Model override for the suggestion pass; empty uses the ReAct agent model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it."),
+				"mode": map[string]interface{}{
+					"type":  "string",
+					"title": "Prompt mode",
+					"description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and provider allow it, and a chat prompt otherwise. " +
+						"\"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and reports an error when that is not possible.",
+					"enum": []string{AutocompleteModeAuto, AutocompleteModeChat, AutocompleteModeFIM},
+				},
+				"temperature": numProp("Temperature",
+					"Sampling temperature for suggestions. 0 (the default) is greedy: the same context yields the same suggestion, which is what lets a suggestion survive the next keystroke."),
+				"max_tokens": intProp("Suggestion max tokens",
+					"Completion token cap for one suggestion. Small values keep suggestions short and quick (default 128)."),
+				"related_files": intProp("Related files",
+					"How many other open editor tabs are excerpted (first lines: imports and signatures) into the prompt, so the model sees symbols from neighbouring files. 0 disables it (default 3)."),
+				"timeout_ms": intProp("Request timeout ms",
+					"How long one suggestion request may take before the editor abandons it (default 4000)."),
+				"debounce_ms": intProp("Debounce ms",
+					"How long typing must pause before an automatic request goes out. Ignored when the trigger is manual (default 350)."),
+				"trigger": map[string]interface{}{
+					"type":  "string",
+					"title": "Trigger",
+					"description": "When to ask the model. \"auto\" suggests while you type, after the debounce pause. " +
+						"\"manual\" suggests only when you press the editor shortcut.",
+					"enum": []string{AutocompleteTriggerAuto, AutocompleteTriggerManual},
+				},
+				"multi_line": boolProp("Multi-line suggestions",
+					"Allow one suggestion to span several lines. When off, only the first line of a suggestion is kept, so completion never grows past the caret line (default on)."),
+				"max_prefix_bytes": intProp("Max prefix bytes",
+					"How much of the text before the caret is sent as context (default 8000)."),
+				"max_suffix_bytes": intProp("Max suffix bytes",
+					"How much of the text after the caret is sent as context (default 2000)."),
+			},
+			[]string{
+				"enabled", "model", "mode", "trigger", "debounce_ms", "max_tokens", "temperature", "timeout_ms",
+				"multi_line", "related_files", "max_prefix_bytes", "max_suffix_bytes",
 			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
@@ -431,10 +509,10 @@ func UISchemaMap() map[string]interface{} {
 					"description": "If non-empty, only these shell command prefixes may run without extra policy.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"permission_timeout_seconds": intProp("Permission timeout (s)",
+					"How long a permission prompt may wait for the operator before the tool call is cancelled instead (0 waits forever)."),
 				"plan_no_self_run": boolProp("Forbid the model from running the plan itself",
 					"In plan mode, hide plan_exit and refuse any tool outside the plan allowlist, so only you can start the implementation from the plan card. Off by default; editor plugins turn it on."),
-				"ask_disable_extended_tools": boolPropDefault("Disable extended Ask tools",
-					"In Ask mode, hide read-only shell commands, web research, read-only MCP tools, and scheduler inspection tools. Repository read, search, tree, question, and skill tools remain available. Off by default.", false),
 				"output_limits": objectSchema("Tool output limits",
 					"Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB per-call byte ceiling. 0 disables both limits; unset uses the built-in default.",
 					map[string]interface{}{
@@ -466,7 +544,60 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enabled", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
 					nil),
 			},
-			[]string{"permission_mode", "command_allowlist", "plan_no_self_run", "ask_disable_extended_tools", "output_limits", "background"},
+			[]string{"permission_mode", "command_allowlist", "permission_timeout_seconds", "plan_no_self_run", "output_limits", "background"},
+			nil),
+		"subagents": objectSchema("Subagents",
+			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+			map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Enabled",
+					"description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+				},
+				"dirs": map[string]interface{}{
+					"type":        "array",
+					"title":       "Definition directories",
+					"description": "Lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project definitions",
+					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+					"enum":        []string{SubagentsProjectTrustAsk, SubagentsProjectTrustAllow, SubagentsProjectTrustDeny},
+				},
+				"max_concurrent":          intProp("Max concurrent", "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued."),
+				"max_depth":               intProp("Max depth", "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere."),
+				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout."),
+				"max_turns":               intProp("Max turns", "ReAct rounds a child may take; 0 follows agent.max_turns."),
+			},
+			[]string{"enabled", "dirs", "project_trust", "max_concurrent", "max_depth", "default_timeout_seconds", "max_turns"},
+			nil),
+		"hooks": objectSchema("Hooks",
+			"Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
+			map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Enabled",
+					"description": "Load and run hooks at all (default true).",
+				},
+				"files": map[string]interface{}{
+					"type":        "array",
+					"title":       "Definition files",
+					"description": "Lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project hooks",
+					"description": "Hook files found inside the workspace travel with the checkout. \"ask\": list them but run nothing until the file is approved for this workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust). \"allow\": treat them like your own file. \"deny\": never read them.",
+					"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
+				},
+				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one hook process whose definition gives no timeout (default 60)."),
+				"stop_loop_limit":         intProp("Stop loop limit", "How many times per turn a Stop hook may send the agent back to work (default 5)."),
+				"max_output_chars":        intProp("Max output chars", "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000)."),
+			},
+			[]string{"enabled", "files", "project_trust", "default_timeout_seconds", "stop_loop_limit", "max_output_chars"},
 			nil),
 		"commands": map[string]interface{}{
 			"type":        "array",
@@ -538,7 +669,7 @@ func UISchemaMap() map[string]interface{} {
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Skill directories",
-					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
+					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${FOXXYCODE_HOME}/skills (foxxycode-specific), ${CWD}/.foxxycode/skills (project-local). ${FOXXYCODE_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"sources": map[string]interface{}{
@@ -611,6 +742,7 @@ func UISchemaMap() map[string]interface{} {
 				"dir":          strProp("Prompts directory", "Optional override directory for prompt markdown files."),
 				"agent_prompt": strProp("Agent prompt file", "Filename for the main agent system prompt."),
 				"plan_prompt":  strProp("Plan prompt file", "Filename for plan-mode system prompt."),
+				"ask_prompt":   strProp("Ask prompt file", "Filename for ask-mode system prompt."),
 				"per_provider": objectSchema("Per-provider prompts",
 					"Select a system prompt tuned to the active model family (falls back to the shared prompt).",
 					map[string]interface{}{
@@ -619,7 +751,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"enabled"},
 					nil),
 			},
-			[]string{"dir", "agent_prompt", "plan_prompt", "per_provider"},
+			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt", "per_provider"},
 			nil),
 		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
 			map[string]interface{}{
@@ -724,7 +856,7 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "commands", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
+		"providers", "models", "agent", "autocomplete", "tools", "commands", "subagents", "hooks", "mcp_servers", "skills", "memory", "compaction", "title", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "gateways", "browser", "vcs", "ui", "debug",
 	}
 
@@ -758,9 +890,13 @@ func toIfaceOrder(keys []string) []interface{} {
 //	             would let the page cut its own connection.
 //	mcp        - edited in the MCP servers tab (POST /foxxycode/mcp/project-trust),
 //	             next to the servers the policy governs.
+//	swarm      - a relay's own deployment: bind address, credentials for a whole
+//	             fleet, and the parents this process joins. It is set in the file
+//	             or on the command line, not from a page one of its nodes serves.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"httpserver": {},
 	"mcp":        {},
+	"swarm":      {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

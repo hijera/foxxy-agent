@@ -28,7 +28,8 @@ export type ParsedAppHash =
       createOpen: boolean;
       historyOpen: boolean;
     }
-  | { branch: "settings"; historyOpen: boolean; section: string | null };
+  | { branch: "settings"; historyOpen: boolean; section: string | null }
+  | { branch: "swarm"; historyOpen: boolean };
 
 export type SchedulerEditorRoute =
   | { mode: "create" }
@@ -99,6 +100,9 @@ export function parseAppHash(): ParsedAppHash {
   }
   if (h === "settings") {
     return { branch: "settings", historyOpen, section: null };
+  }
+  if (h === "swarm") {
+    return { branch: "swarm", historyOpen };
   }
   const settingsSec = /^settings\/(.+)$/.exec(h);
   if (settingsSec && settingsSec[1]) {
@@ -265,9 +269,7 @@ export function setSchedulerCreateHash(opts?: {
   }
 }
 
-export function setSettingsHash(opts?: {
-  historySidebar?: boolean;
-}): void {
+export function setSettingsHash(opts?: { historySidebar?: boolean }): void {
   const next = withHistoryQuery("#/settings", !!opts?.historySidebar);
   if (window.location.hash !== next) {
     history.replaceState(
@@ -410,6 +412,10 @@ export function setMiniAppsHash(appId?: string | null): void {
     );
     notifyHashAfterReplaceState();
   }
+}
+
+export function appNavHrefSwarm(): string {
+  return "#/swarm";
 }
 
 export function appNavHrefSettings(): string {
