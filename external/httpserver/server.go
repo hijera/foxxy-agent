@@ -79,8 +79,10 @@ type Server struct {
 
 	// miniAppsState is initialized lazily by the optional Mini Apps transport.
 	// It remains an any value so the lean http build does not import that tag.
-	miniAppsMu    sync.Mutex
-	miniAppsState any
+	// A struct field cannot carry a build tag, so in an http build without
+	// miniapps these two are genuinely unread — that is the design, not a leak.
+	miniAppsMu    sync.Mutex //nolint:unused // read only by the miniapps-tagged transport
+	miniAppsState any        //nolint:unused // read only by the miniapps-tagged transport
 
 	// events fans server-wide turn lifecycle events out to GET /foxxycode/events subscribers.
 	events             *serverEventsHub
