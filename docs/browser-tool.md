@@ -56,25 +56,58 @@ See [config-reference.md](config-reference.md#browser) for the full field list.
 
 ## Tools
 
-All tools require permission (except `screenshot` and `close`) — in an editor plugin
-that arrives as the usual ACP permission card — and act on one browser
-session per agent session (cookies/storage persist under
-`<sessionDir>/browser-profile/`). A screenshot is captured after each action and shown
-to the model.
+Mutating tools require permission — in an editor plugin that arrives as the usual
+ACP permission card; the read-only ones (`screenshot`, `read_page`, `page_log`,
+`find`, `inspect`, `network`, `wait_for`, `close`) do not. All of them act on one
+browser session per agent session (cookies/storage persist under
+`<sessionDir>/browser-profile/`). A screenshot is captured after each mutating
+action and shown to the model.
 
 | Tool | Arguments | Purpose |
 |---|---|---|
 | `foxxycode_browser_navigate` | `url` | Open an `http(s)` URL (localhost allowed). |
-| `foxxycode_browser_click` | `selector` | Click the first element matching a CSS selector. |
+| `foxxycode_browser_navigate_back` | `direction?` | Go back (or forward) one entry in the tab's history. |
+| `foxxycode_browser_click` | `selector` or `x`,`y` | Click the first element matching a CSS selector, or a viewport point (canvases, maps). |
 | `foxxycode_browser_fill` | `selector`, `text` | Set the value of an input/textarea. |
+| `foxxycode_browser_fill_form` | `fields[]` | Fill several fields (inputs, textareas, selects, checkboxes) in one call, one screenshot. |
+| `foxxycode_browser_press_key` | `key`, `selector?` | Send real key events: Enter, Escape, Tab, arrows, `Control+a`, single characters. |
+| `foxxycode_browser_select_option` | `selector`, `value?`/`label?` | List a `<select>`'s options, or pick one by value/label with input+change events. |
 | `foxxycode_browser_hover` | `selector` | Move the mouse over an element (triggers `:hover`). |
 | `foxxycode_browser_scroll` | `selector` or `x`,`y` | Scroll an element into view, or by a pixel offset. |
+| `foxxycode_browser_drag` | `from_selector`/`from_x,from_y`, `to_selector`/`to_x,to_y` | Mouse-event drag (sortable lists, sliders; native HTML5 dnd may not react). |
+| `foxxycode_browser_upload_file` | `selector`, `path`/`paths[]` | Attach local files to an `<input type=file>`. |
+| `foxxycode_browser_wait_for` | `text?`, `gone_text?`, `selector?`, `seconds?` | Wait for a page state instead of polling. No permission needed. |
+| `foxxycode_browser_handle_dialog` | `accept`, `prompt_text?` | Arm the answer for the next `alert`/`confirm`/`prompt`/`beforeunload`. Unarmed dialogs are auto-dismissed and logged, so nothing hangs. |
+| `foxxycode_browser_tabs` | `action`, `tab?`, `url?` | List, open, select and close tabs (including pages opened via `target=_blank`). |
+| `foxxycode_browser_resize` | `width`, `height` | Emulate a viewport size (390×844, 1280×800, …); `0,0` resets. |
 | `foxxycode_browser_screenshot` | — | Capture the current page. |
 | `foxxycode_browser_read_page` | `interactive_only?` | Outline the page as text: role, name, value and a CSS selector per element. No screenshot. |
+| `foxxycode_browser_find` | `query` | Search the page for elements whose role/text/value/selector contains the query; reports outline lines. No screenshot. |
 | `foxxycode_browser_page_log` | — | Console output, uncaught exceptions and failed / 4xx / 5xx responses since the last read. No screenshot. |
 | `foxxycode_browser_inspect` | `what` | Report `storage` (localStorage / sessionStorage / cookies), `timing` (load phases, slowest requests) or `memory` (JS heap, DOM size). No screenshot. |
+| `foxxycode_browser_network` | `what`, `filter?`, `id?` | Journal of all observed requests (method, status, size, id), and response bodies by id. No screenshot. |
+| `foxxycode_browser_route` | `action`, `url_substring?`, `status?`, `content_type?`, `body?` | Mock responses for matching URLs, remove/list mocks, or emulate offline/online. |
+| `foxxycode_browser_storage_set` | `scope`, `action`, `key?`, `value?` | Write localStorage / sessionStorage / cookies: set, delete, clear. |
 | `foxxycode_browser_evaluate` | `expression` | Evaluate JavaScript and return its JSON result. |
 | `foxxycode_browser_close` | — | Close the browser for this session. |
+
+### Dialogs never hang an action
+
+A `confirm()` or `alert()` blocks the page, which used to leave the triggering
+click waiting for its timeout. Now every dialog is answered automatically —
+dismissed by default, `beforeunload` accepted so navigation still works — and the
+page log records what appeared. To answer differently, call
+`foxxycode_browser_handle_dialog` **before** the action that triggers the dialog:
+the armed answer applies to the next dialog only.
+
+### Network mocks and the request journal
+
+`foxxycode_browser_network` sees every request the pages made — not just the
+failures the page log reports — and can return response bodies, which is how a
+"successful but wrong" API answer is diagnosed. `foxxycode_browser_route` mocks
+responses by URL substring across all tabs (`action=mock` / `unroute` / `list`)
+and toggles offline emulation (`action=offline` / `online`); mocks apply to
+future requests, so set them up before navigating or triggering the fetch.
 
 ## Driving it without screenshots
 
