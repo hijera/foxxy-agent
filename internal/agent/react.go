@@ -415,6 +415,30 @@ func (a *Agent) wireFileEditHook(env *tools.Env) {
 // preventing an unbounded empty-turn loop.
 const maxEmptyAssistantContinuations = 2
 
+// maxEmptyAssistantReissues bounds how many times an empty turn is answered by
+// replaying the identical request before the model is talked to in words. One
+// model name at a proxy is usually a group of interchangeable deployments, and
+// a member that returns reasoning with neither text nor a tool call fails that
+// way per attempt: the replay lands on another member and comes back with the
+// tool call the first one lost. Only after that is the model itself nudged,
+// which is the recovery that helps when the model, not the lane, is at fault.
+const maxEmptyAssistantReissues = 1
+
+// maxFirstTokenReissues bounds how many times a streamed call the first-token
+// guard cut with nothing produced is replayed immediately, before the stall
+// ladder takes over with its minute-scale waits. The two answer different
+// failures: a sick member of a load-balanced group fails per attempt and the
+// very next draw succeeds, while a saturated gateway is out for minutes and
+// only a wait helps. Trying the cheap one first costs one round trip and
+// spares the user the wait whenever the lane, not the provider, was at fault.
+// Safe by construction: the cut call emitted no chunk to the client and
+// appended no message, so the replay cannot show or store anything twice.
+//
+// It is the first rung of the same ladder, so it answers to the same switch:
+// llm_stall_retry off means a call that produced nothing ends the turn, as it
+// did before either recovery existed.
+const maxFirstTokenReissues = 1
+
 // emptyAssistantContinuationNudge is injected into the LLM-facing message slice (never
 // persisted to the transcript) to prompt the model to produce its answer or a tool call
 // after an empty turn.
@@ -517,6 +541,10 @@ func (a *Agent) runReActLoop(
 	// mid-turn stats write lands on the same row instead of appending a new one.
 	sessionTurnIndex := session.NextTurnIndex(sd)
 	var emptyContinuations int
+	// Replays of a request the lane, not the model, failed to answer. Both are
+	// reset alongside emptyContinuations once the model makes progress.
+	var emptyReissues int
+	var firstTokenReissues int
 	var lastInputTokens int
 
 	// Runaway-loop protection. The tool detector spans the whole user turn (a model
@@ -965,9 +993,24 @@ func (a *Agent) runReActLoop(
 			errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
 			if !hasAnyOutput {
 				// Nothing reached the caller, so re-issuing the identical request
-				// cannot duplicate anything. A saturated gateway is out for minutes,
-				// which is why this waits on its own schedule rather than leaning on
-				// the seconds-scale retries inside internal/llm.
+				// cannot duplicate anything.
+				//
+				// The cheap recovery goes first: behind one model name there is
+				// usually a group of deployments, and a member that sends no first
+				// byte fails that way per attempt, so the very next draw often
+				// answers. Only when that has not helped does the stall ladder
+				// below start waiting, which is the recovery a saturated gateway
+				// needs. The iteration is repeated, not counted, either way.
+				if stalls.enabled && firstTokenReissues < maxFirstTokenReissues {
+					firstTokenReissues++
+					a.log.Warn("no first token from the model; re-issuing the same request",
+						"timeout", firstTokenTimeout, "attempt", firstTokenReissues)
+					recoveryTurns++
+					continue
+				}
+				// A saturated gateway is out for minutes, which is why this waits on
+				// its own schedule rather than leaning on the seconds-scale retries
+				// inside internal/llm.
 				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "no output"); {
 				case retry:
 					recoveryTurns++
@@ -1172,6 +1215,19 @@ func (a *Agent) runReActLoop(
 		// Returning here would dead-end the conversation on a lone "thinking" bubble, so
 		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
+			// First recovery is the plain replay: drop the empty turn from the
+			// LLM-facing slice so the request going out is byte for byte the one
+			// that failed, and let the proxy hand it to another deployment. The
+			// transcript keeps that turn, because the user watched its reasoning
+			// stream in. Words come next, once a replay has not helped.
+			if strings.TrimSpace(response.Content) == "" && emptyReissues < maxEmptyAssistantReissues &&
+				len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant {
+				emptyReissues++
+				messages = messages[:len(messages)-1]
+				a.log.Warn("model answered with no text and no tool call; re-issuing the same request",
+					"attempt", emptyReissues)
+				continue
+			}
 			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations {
 				emptyContinuations++
 				// LLM-facing only; never persisted to the transcript.
@@ -1344,7 +1400,11 @@ func (a *Agent) runReActLoop(
 		// give-up notice is for CONSECUTIVE stalls (no answer and no tool call), not for a slow
 		// multi-step task that keeps acting between reasoning-only thoughts — otherwise a model
 		// that alternates thinking and tool calls (gpt-oss / harmony) is abandoned mid-task.
+		// The replay budgets follow the same rule: a lane that answered once earns a
+		// fresh one.
 		emptyContinuations = 0
+		emptyReissues = 0
+		firstTokenReissues = 0
 
 		// Inject any screenshots produced by browser tools this round as a user-role
 		// vision block so the model can see the page. This reuses the existing image
@@ -2032,6 +2092,7 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 // It is used by detached work such as title generation, which must not race a config reload.
 func (a *Agent) llmProviderInputForConfig(cfg *config.Config, rm *config.ResolvedLLM) llm.ProviderInput {
 	return llm.WithAgentResilience(llm.ProviderInput{
+		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,

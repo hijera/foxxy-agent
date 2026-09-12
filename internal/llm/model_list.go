@@ -71,11 +71,11 @@ const codexModelsClientVersion = "0.0.0"
 func defaultModelListBaseURL(providerType string) string {
 	switch providerType {
 	case "anthropic":
-		return "https://api.anthropic.com"
+		return anthropicDefaultAPIBase
 	case "neuraldeep":
 		return neuralDeepBaseURL
 	default: // openai and openai-compatible
-		return "https://api.openai.com/v1"
+		return openAIDefaultAPIBase
 	}
 }
 

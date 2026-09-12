@@ -49,6 +49,16 @@ func (s *stallFeatureState) modelAnswersNothingThenReplies() error {
 	})
 }
 
+// modelAnswersNothingTwiceThenReplies spends the free immediate re-issue on the
+// second silence, so the scenario reaches the waiting ladder behind it.
+func (s *stallFeatureState) modelAnswersNothingTwiceThenReplies() error {
+	return s.build([]stallBehaviour{
+		{silent: true},
+		{silent: true},
+		{answer: "Here is the answer."},
+	})
+}
+
 func (s *stallFeatureState) modelDiesWithTransportErrorThenReplies() error {
 	return s.build([]stallBehaviour{
 		{err: fmt.Errorf("openai stream: Post \"https://api.example/v1/chat/completions\": unexpected EOF")},
@@ -102,6 +112,16 @@ func (s *stallFeatureState) turnCompletesWithoutSystemError() error {
 func (s *stallFeatureState) modelWasCalled(n int) error {
 	if got := s.provider.callCount(); got != n {
 		return fmt.Errorf("the model was called %d times, want %d", got, n)
+	}
+	return nil
+}
+
+// waitsAnnounced is how many times the operator was told the turn is waiting on
+// the provider, which is what separates the free immediate re-issue from the
+// ladder behind it.
+func (s *stallFeatureState) waitsAnnounced(n int) error {
+	if got := s.harness.sender.waitingPhases(); got != n {
+		return fmt.Errorf("the operator was told to wait %d times, want %d", got, n)
 	}
 	return nil
 }
@@ -233,6 +253,7 @@ func initializeStallRetryScenario(t *testing.T, sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a model that answers nothing on its first call and then replies$`, s.modelAnswersNothingThenReplies)
+	sc.Step(`^a model that answers nothing on its first two calls and then replies$`, s.modelAnswersNothingTwiceThenReplies)
 	sc.Step(`^a model whose first call dies with a transport error and then replies$`, s.modelDiesWithTransportErrorThenReplies)
 	sc.Step(`^a model that stops mid-answer on its first call and then finishes$`, s.modelStopsMidAnswerThenFinishes)
 	sc.Step(`^a model that spends longer than the stall guard writing one tool call$`, s.modelWritesOneLongToolCall)
@@ -241,6 +262,9 @@ func initializeStallRetryScenario(t *testing.T, sc *godog.ScenarioContext) {
 	sc.Step(`^the turn completes without a system error$`, s.turnCompletesWithoutSystemError)
 	sc.Step(`^the model was called once$`, func() error { return s.modelWasCalled(1) })
 	sc.Step(`^the model was called twice$`, func() error { return s.modelWasCalled(2) })
+	sc.Step(`^the model was called three times$`, func() error { return s.modelWasCalled(3) })
+	sc.Step(`^the operator was never told to wait$`, func() error { return s.waitsAnnounced(0) })
+	sc.Step(`^the operator was told to wait once$`, func() error { return s.waitsAnnounced(1) })
 	sc.Step(`^the transcript holds exactly one answer$`, s.transcriptHoldsOneAnswer)
 	sc.Step(`^the partial answer survives in the transcript$`, s.partialAnswerSurvives)
 	sc.Step(`^the second request asked the model to continue$`, s.secondRequestAskedToContinue)
