@@ -17,38 +17,40 @@ import (
 )
 
 const (
-	bddIdeaModuleToken = "INTELLIJ_BDD_MODULE_TOKEN"
-	bddIdeaPluginToken = "INTELLIJ_BDD_PLUGIN_TOKEN"
+	bddIdeaModuleToken      = "INTELLIJ_BDD_MODULE_TOKEN"
+	bddIdeaPluginToken      = "INTELLIJ_BDD_PLUGIN_TOKEN"
+	bddVSCodeSettingToken   = "VSCODE_BDD_SETTING_TOKEN"
+	bddVSCodeTaskLabelToken = "VSCODE_BDD_TASK_TOKEN"
 )
 
-type bddIdeaContextProvider struct {
+type bddEditorContextProvider struct {
 	seen []llm.Message
 }
 
-func (p *bddIdeaContextProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
-	return nil, fmt.Errorf("Complete must not be used by the IntelliJ context suite")
+func (p *bddEditorContextProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, fmt.Errorf("Complete must not be used by the editor context suite")
 }
 
-func (p *bddIdeaContextProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+func (p *bddEditorContextProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.seen = append([]llm.Message(nil), messages...)
 	const answer = "Project metadata inspected."
 	onChunk(llm.StreamChunk{TextDelta: answer})
 	return &llm.Response{Content: answer, StopReason: "end_turn"}, nil
 }
 
-type intellijContextFeatureState struct {
+type editorContextFeatureState struct {
 	tmpDirs  []string
 	cwd      string
-	provider *bddIdeaContextProvider
+	provider *bddEditorContextProvider
 	agent    *Agent
 }
 
-func (s *intellijContextFeatureState) reset() error {
+func (s *editorContextFeatureState) reset() error {
 	s.close()
 	return nil
 }
 
-func (s *intellijContextFeatureState) close() {
+func (s *editorContextFeatureState) close() {
 	for _, dir := range s.tmpDirs {
 		_ = os.RemoveAll(dir)
 	}
@@ -58,8 +60,8 @@ func (s *intellijContextFeatureState) close() {
 	s.agent = nil
 }
 
-func (s *intellijContextFeatureState) tempDir() (string, error) {
-	dir, err := os.MkdirTemp("", "foxxycode-bdd-intellij-context-*")
+func (s *editorContextFeatureState) tempDir() (string, error) {
+	dir, err := os.MkdirTemp("", "foxxycode-bdd-editor-context-*")
 	if err != nil {
 		return "", err
 	}
@@ -67,7 +69,7 @@ func (s *intellijContextFeatureState) tempDir() (string, error) {
 	return dir, nil
 }
 
-func (s *intellijContextFeatureState) projectWithIntelliJMetadata() error {
+func (s *editorContextFeatureState) projectWithIntelliJMetadata() error {
 	cwd, err := s.tempDir()
 	if err != nil {
 		return err
@@ -83,16 +85,32 @@ func (s *intellijContextFeatureState) projectWithIntelliJMetadata() error {
 	return os.WriteFile(filepath.Join(modulesDir, "backend.iml"), []byte(`<module name="`+bddIdeaModuleToken+`" />`), 0o644)
 }
 
-func (s *intellijContextFeatureState) agentSession() error {
+func (s *editorContextFeatureState) projectWithVSCodeMetadata() error {
+	cwd, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	s.cwd = cwd
+	vscodeDir := filepath.Join(cwd, ".vscode")
+	if err := os.MkdirAll(vscodeDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(vscodeDir, "settings.json"), []byte(`{"go.lintTool": "`+bddVSCodeSettingToken+`"}`), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(vscodeDir, "tasks.json"), []byte(`{"tasks": [{"label": "`+bddVSCodeTaskLabelToken+`"}]}`), 0o644)
+}
+
+func (s *editorContextFeatureState) agentSession() error {
 	if s.cwd == "" {
-		return fmt.Errorf("no IntelliJ project prepared")
+		return fmt.Errorf("no project prepared")
 	}
 	sessionDir, err := s.tempDir()
 	if err != nil {
 		return err
 	}
 	state := &session.State{
-		ID:         "sess_bdd_intellij_context",
+		ID:         "sess_bdd_editor_context",
 		CWD:        s.cwd,
 		Mode:       session.ModeAgent,
 		SessionDir: sessionDir,
@@ -103,13 +121,13 @@ func (s *intellijContextFeatureState) agentSession() error {
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 2},
 	}
 	cfg.Prompts.ApplyDefaults()
-	s.provider = &bddIdeaContextProvider{}
+	s.provider = &bddEditorContextProvider{}
 	s.agent = NewAgent(cfg, state, resumePermissionSender{}, nil)
 	s.agent.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return s.provider, nil }
 	return nil
 }
 
-func (s *intellijContextFeatureState) userAsksAboutProjectSetup() error {
+func (s *editorContextFeatureState) userAsksAboutProjectSetup() error {
 	if s.agent == nil {
 		return fmt.Errorf("no agent prepared")
 	}
@@ -123,12 +141,12 @@ func (s *intellijContextFeatureState) userAsksAboutProjectSetup() error {
 	return nil
 }
 
-func (s *intellijContextFeatureState) firstRequestContainsMetadata() error {
+func (s *editorContextFeatureState) firstRequestContains(tokens ...string) error {
 	if len(s.provider.seen) == 0 || s.provider.seen[0].Role != llm.RoleSystem {
 		return fmt.Errorf("first request has no system message")
 	}
 	prompt := s.provider.seen[0].Content
-	for _, token := range []string{bddIdeaModuleToken, bddIdeaPluginToken, `.idea/modules/backend.iml`, `.idea/externalDependencies.xml`} {
+	for _, token := range tokens {
 		if !strings.Contains(prompt, token) {
 			return fmt.Errorf("system prompt is missing %q", token)
 		}
@@ -136,8 +154,16 @@ func (s *intellijContextFeatureState) firstRequestContainsMetadata() error {
 	return nil
 }
 
-func initializeIntelliJContextScenario(sc *godog.ScenarioContext) {
-	s := &intellijContextFeatureState{}
+func (s *editorContextFeatureState) firstRequestContainsIntelliJMetadata() error {
+	return s.firstRequestContains(bddIdeaModuleToken, bddIdeaPluginToken, `.idea/modules/backend.iml`, `.idea/externalDependencies.xml`)
+}
+
+func (s *editorContextFeatureState) firstRequestContainsVSCodeMetadata() error {
+	return s.firstRequestContains(bddVSCodeSettingToken, bddVSCodeTaskLabelToken, `.vscode/settings.json`, `.vscode/tasks.json`)
+}
+
+func initializeEditorContextScenario(sc *godog.ScenarioContext) {
+	s := &editorContextFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
 		return ctx, s.reset()
 	})
@@ -148,22 +174,27 @@ func initializeIntelliJContextScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a project with IntelliJ module and plugin metadata$`, s.projectWithIntelliJMetadata)
 	sc.Step(`^a foxxycode agent session in that IntelliJ project$`, s.agentSession)
+	sc.Step(`^the first model request contains the IntelliJ module and plugin metadata$`, s.firstRequestContainsIntelliJMetadata)
+
+	sc.Step(`^a project with VS Code workspace settings and tasks$`, s.projectWithVSCodeMetadata)
+	sc.Step(`^a foxxycode agent session in that VS Code project$`, s.agentSession)
+	sc.Step(`^the first model request contains the VS Code workspace settings and tasks$`, s.firstRequestContainsVSCodeMetadata)
+
 	sc.Step(`^the user asks about the project setup$`, s.userAsksAboutProjectSetup)
-	sc.Step(`^the first model request contains the IntelliJ module and plugin metadata$`, s.firstRequestContainsMetadata)
 }
 
-func TestIntelliJProjectContextFeature(t *testing.T) {
+func TestEditorProjectContextFeature(t *testing.T) {
 	suite := godog.TestSuite{
-		Name:                "intellij-project-context",
-		ScenarioInitializer: initializeIntelliJContextScenario,
+		Name:                "editor-project-context",
+		ScenarioInitializer: initializeEditorContextScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/intellij_project_context.feature"},
+			Paths:    []string{"../../features/editor_project_context.feature"},
 			TestingT: t,
 			Strict:   true,
 		},
 	}
 	if suite.Run() != 0 {
-		t.Fatal("IntelliJ project context feature suite failed")
+		t.Fatal("editor project context feature suite failed")
 	}
 }
