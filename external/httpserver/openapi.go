@@ -2245,7 +2245,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `foxxycode`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow. The client presented to the hub is `coddy`, the identifier NeuralDeep issued for this agent - it is the hub's name, not this fork's, and the hub refuses any other; the response echoes it as `hub_client` so a client can tell the user what the sign-in page will call them. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
 					"requestBody": map[string]interface{}{
 						"required": false,
 						"content": map[string]interface{}{
@@ -3383,6 +3383,11 @@ func openAPISpec() map[string]interface{} {
 						"user_code":        map[string]string{"type": "string"},
 						"status":           map[string]string{"type": "string", "example": "pending"},
 						"connected":        map[string]string{"type": "boolean"},
+						"hub_client": map[string]string{
+							"type":        "string",
+							"example":     "coddy",
+							"description": "What the hub's own sign-in page calls this agent, when that differs from the product name. Present on the NeuralDeep start; absent on the Codex one.",
+						},
 					},
 					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
 				},
