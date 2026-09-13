@@ -34,7 +34,7 @@ type HTTPServerConfig struct {
 	AllowInsecure bool `yaml:"allow_insecure"`
 	// CORS controls cross-origin access so a browser UI on another origin can call this API.
 	CORS HTTPCORSConfig `yaml:"cors"`
-	// Remotes lists remote foxxycode http servers the bundled UI may connect to (environment
+	// Remotes lists remote foxxycode serve servers the bundled UI may connect to (environment
 	// selector). Tokens are NOT stored here; the UI keeps them client-side per remote.
 	Remotes []HTTPRemote `yaml:"remotes"`
 }
@@ -48,7 +48,7 @@ type HTTPCORSConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
-// HTTPRemote is one remote foxxycode http server offered in the UI environment selector.
+// HTTPRemote is one remote foxxycode serve server offered in the UI environment selector.
 type HTTPRemote struct {
 	Name string `yaml:"name"`
 	URL  string `yaml:"url"`

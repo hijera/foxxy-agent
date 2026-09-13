@@ -130,7 +130,7 @@ export const messagesEn: Record<string, string> = {
   "composer.attachmentTooltip": "{fileName}\n{label} · {size}",
 
   "composer.env.ariaLabel": "Environment",
-  "composer.env.title": "Environment (local or remote foxxycode http)",
+  "composer.env.title": "Environment (local or remote foxxycode serve)",
   "composer.env.local": "Local",
   "composer.env.groupEnvironment": "Environment",
   "composer.env.groupRemote": "Remote",
@@ -867,7 +867,7 @@ export const messagesEn: Record<string, string> = {
   "scheduler.apiNotAvailable":
     "Scheduler API is not available in this build (rebuild with http,scheduler).",
   "scheduler.disabled":
-    "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).",
+    "Scheduler is disabled (set scheduler.enabled or run foxxycode serve --scheduler).",
 
   "messages.copyMessage": "Copy message",
   "messages.copyErrorMessage": "Copy error message",

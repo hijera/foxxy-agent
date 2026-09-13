@@ -128,7 +128,7 @@ export const messagesRu: Record<string, string> = {
   "composer.attachmentTooltip": "{fileName}\n{label} · {size}",
 
   "composer.env.ariaLabel": "Окружение",
-  "composer.env.title": "Окружение (локальный или удалённый foxxycode http)",
+  "composer.env.title": "Окружение (локальный или удалённый foxxycode serve)",
   "composer.env.local": "Локальное",
   "composer.env.groupEnvironment": "Окружение",
   "composer.env.groupRemote": "Удалённые",
@@ -895,7 +895,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.apiNotAvailable":
     "API планировщика недоступен в этой сборке (пересоберите с http,scheduler).",
   "scheduler.disabled":
-    "Планировщик отключён (включите scheduler.enabled или передайте -scheduler-enabled).",
+    "Планировщик отключён (включите scheduler.enabled или запустите foxxycode serve --scheduler).",
 
   "messages.copyMessage": "Копировать сообщение",
   "messages.copyErrorMessage": "Копировать сообщение об ошибке",
