@@ -186,10 +186,10 @@ jobs:
           # the release, and shipping a package whose binary differs from the
           # archive of the same tag would be worse than slow.
           for arch in amd64 arm64; do
-            scripts/build-packages.sh \r
-              --version "${VERSION}" \r
-              --arch "$arch" \r
-              --out "$DIST" \r
+            scripts/build-packages.sh \
+              --version "${VERSION}" \
+              --arch "$arch" \
+              --out "$DIST" \
               --binary "$DIST/_staging/foxxycode_${VERSION}_linux_${arch}/foxxycode"
           done
 
