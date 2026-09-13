@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -111,7 +112,7 @@ func TestRun_checkUpdateAvailable(t *testing.T) {
 
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.2",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -125,7 +126,7 @@ func TestRun_checkUpdateAvailable(t *testing.T) {
 func TestRun_checkUpToDate(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/hijera/foxxycode-agent/releases/latest" {
+		if r.URL.Path != "/repos/hijera/foxxy-agent/releases/latest" {
 			http.NotFound(w, r)
 			return
 		}
@@ -136,7 +137,7 @@ func TestRun_checkUpToDate(t *testing.T) {
 	var out bytes.Buffer
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.3",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -151,13 +152,56 @@ func TestRun_checkUpToDate(t *testing.T) {
 	}
 }
 
+// TestRun_withoutRepoAsksTheRepositoryReleasesArePublishedTo is the regression
+// for a bare `foxxycode update` answering 404 in every release up to 0.2.81:
+// DefaultRepo followed the Go module path (github.com/hijera/foxxycode-agent),
+// which names no repository, while the release workflows publish to
+// ${GITHUB_REPOSITORY}, hijera/foxxy-agent. Only --repo got an update through.
+func TestRun_withoutRepoAsksTheRepositoryReleasesArePublishedTo(t *testing.T) {
+	t.Parallel()
+	const want = "/repos/hijera/foxxy-agent/releases/latest"
+	asked := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case asked <- r.URL.Path:
+		default:
+		}
+		if r.URL.Path != want {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"tag_name":"0.9.3","assets":[]}`))
+	}))
+	defer srv.Close()
+
+	err := Run(context.Background(), Options{
+		APIBase:        srv.URL,
+		CurrentVersion: "0.9.3",
+		GOOS:           "linux",
+		GOARCH:         "amd64",
+		CheckOnly:      true,
+		Stdout:         io.Discard,
+	})
+	select {
+	case path := <-asked:
+		if path != want {
+			t.Fatalf("a bare update asked %s, not %s", path, want)
+		}
+	default:
+		t.Fatal("Run did not ask the release API at all")
+	}
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
 func TestRun_downloadAndInstall(t *testing.T) {
 	t.Parallel()
 	binBody := []byte("#!/bin/sh\necho release\n")
 	archive := mustTarGz(t, "foxxycode", binBody)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/hijera/foxxycode-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		url := "http://" + r.Host + "/asset.tar.gz"
 		body := `{"tag_name":"0.9.4","assets":[{"name":"foxxycode_0.9.4_linux_amd64.tar.gz","browser_download_url":"` + url + `"}]}`
 		_, _ = w.Write([]byte(body))
@@ -177,7 +221,7 @@ func TestRun_downloadAndInstall(t *testing.T) {
 	var out bytes.Buffer
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.2",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -326,5 +370,547 @@ func TestDownloadProgress_drawsNoBarOutsideATerminal(t *testing.T) {
 	p.Complete(100)
 	if !strings.Contains(out.String(), "Downloaded") {
 		t.Fatalf("output = %q", out.String())
+	}
+}
+
+// writeExtras lays out the installer's share directory under prefix with the
+// given body in every extra, and returns that directory.
+func writeExtras(t *testing.T, prefix string, body string, only ...string) string {
+	t.Helper()
+	share := filepath.Join(prefix, "share")
+	for _, e := range extraFiles {
+		if len(only) > 0 && !slices.Contains(only, e.Member) {
+			continue
+		}
+		path := filepath.Join(share, filepath.FromSlash(e.Rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return share
+}
+
+func readExtra(t *testing.T, share string, member string) string {
+	t.Helper()
+	for _, e := range extraFiles {
+		if e.Member != member {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(share, filepath.FromSlash(e.Rel)))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Label, err)
+		}
+		return string(b)
+	}
+	t.Fatalf("no extra named %q", member)
+	return ""
+}
+
+func mustReleaseTarGz(t *testing.T, members map[string][]byte) []byte {
+	t.Helper()
+	data, err := tarGzArchiveOf(members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestInstallRelease_refreshesOnlyTheExtrasThatAreInstalled(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	dest := filepath.Join(prefix, "bin", "foxxycode")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The user kept the zsh completion and nothing else - say, the install ran
+	// with --no-shell-setup and they wired one file up by hand.
+	share := writeExtras(t, prefix, "installed", "foxxycode.zsh")
+	archive := mustReleaseTarGz(t, map[string][]byte{
+		"foxxycode": []byte("release"), "foxxycode.1": []byte("man"), "foxxycode.bash": []byte("bash"), "foxxycode.zsh": []byte("zsh"),
+	})
+
+	var out bytes.Buffer
+	if err := installRelease(archive, "foxxycode_0.9.3_linux_amd64.tar.gz", dest, "0.9.3", &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := readExtra(t, share, "foxxycode.zsh"); got != "zsh" {
+		t.Fatalf("zsh completion = %q, want the release copy", got)
+	}
+	for _, member := range []string{"foxxycode.1", "foxxycode.bash"} {
+		for _, e := range extraFiles {
+			if e.Member != member {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(share, filepath.FromSlash(e.Rel))); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s was created, but the update must only refresh what the installer put there (stat: %v)", e.Label, err)
+			}
+		}
+	}
+	want := "Refreshed the zsh completion under " + share
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("output %q does not contain %q", out.String(), want)
+	}
+}
+
+func TestInstallRelease_keepsTheExtrasAReleaseDoesNotCarry(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	dest := filepath.Join(prefix, "bin", "foxxycode")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	share := writeExtras(t, prefix, "installed")
+	// A release from before the archives carried the extras: binary only.
+	archive := mustTarGz(t, "foxxycode", []byte("release"))
+
+	var out bytes.Buffer
+	if err := installRelease(archive, "foxxycode_0.9.3_linux_amd64.tar.gz", dest, "0.9.3", &out); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "release" {
+		t.Fatalf("executable = %q, want the release copy", got)
+	}
+	for _, e := range extraFiles {
+		if got := readExtra(t, share, e.Member); got != "installed" {
+			t.Errorf("%s = %q, want the installed copy kept", e.Label, got)
+		}
+	}
+	want := "Kept the man page, the bash completion and the zsh completion under " + share + ": release 0.9.3 does not carry them"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("output %q does not contain %q", out.String(), want)
+	}
+}
+
+func TestInstallRelease_leavesAnExecutableOutsideBinAlone(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	// A build tree: the binary is not under a bin directory, so no share
+	// directory pairs with it, whatever happens to sit next door.
+	dest := filepath.Join(prefix, "build", "foxxycode")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	share := writeExtras(t, prefix, "installed")
+	archive := mustReleaseTarGz(t, map[string][]byte{"foxxycode": []byte("release"), "foxxycode.1": []byte("man")})
+
+	var out bytes.Buffer
+	if err := installRelease(archive, "foxxycode_0.9.3_linux_amd64.tar.gz", dest, "0.9.3", &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := readExtra(t, share, "foxxycode.1"); got != "installed" {
+		t.Fatalf("man page = %q, want it untouched", got)
+	}
+	if strings.Contains(out.String(), "Refreshed") || strings.Contains(out.String(), "Kept") {
+		t.Fatalf("output mentions extras for an executable outside bin: %q", out.String())
+	}
+}
+
+func TestShareDirFor(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"/home/u/.local/bin/foxxycode": "/home/u/.local/share",
+		"/usr/local/bin/foxxycode":     "/usr/local/share",
+		"/opt/foxxycode/bin/foxxycode": "/opt/foxxycode/share",
+		"/home/u/src/build/foxxycode":  "",
+		"/home/u/foxxycode":            "",
+	}
+	for dest, want := range cases {
+		got := shareDirFor(filepath.FromSlash(dest))
+		if want != "" {
+			want = filepath.FromSlash(want)
+		}
+		if got != want {
+			t.Errorf("shareDirFor(%q) = %q, want %q", dest, got, want)
+		}
+	}
+}
+
+func TestJoinLabels(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"man page"}, "the man page"},
+		{[]string{"man page", "zsh completion"}, "the man page and the zsh completion"},
+		{[]string{"man page", "bash completion", "zsh completion"}, "the man page, the bash completion and the zsh completion"},
+	}
+	for _, c := range cases {
+		if got := joinLabels(c.in); got != c.want {
+			t.Errorf("joinLabels(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFilesFromTarGz_returnsOnlyTheMembersAsked(t *testing.T) {
+	t.Parallel()
+	archive := mustReleaseTarGz(t, map[string][]byte{
+		"foxxycode": []byte("bin"), "foxxycode.1": []byte("man"), "README": []byte("notes"),
+	})
+	files, err := filesFromTarGz(archive, map[string]bool{"foxxycode": true, "foxxycode.zsh": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(files["foxxycode"]) != "bin" {
+		t.Errorf("foxxycode = %q", files["foxxycode"])
+	}
+	if _, ok := files["foxxycode.zsh"]; ok {
+		t.Error("a member the archive lacks must be absent, not empty")
+	}
+	if _, ok := files["foxxycode.1"]; ok {
+		t.Error("a member nobody asked for was read")
+	}
+}
+
+// notesRelease is the JSON of one release the way GET /releases/latest and
+// /releases/tags/{tag} answer, with the notes and the page fields the report
+// reads and one linux/amd64 archive served from the same host.
+func notesRelease(host, tag, body string) string {
+	return fmt.Sprintf(`{"tag_name":%q,"name":%q,"html_url":"https://github.com/hijera/foxxy-agent/releases/tag/%s","published_at":"2026-09-11T10:00:00Z","body":%q,"assets":[{"name":"foxxycode_%s_linux_amd64.tar.gz","browser_download_url":"http://%s/asset.tar.gz"}]}`,
+		tag, tag, tag, body, tag, host)
+}
+
+// notesServer serves a release for tag, its archive, and - when list is not
+// empty - the release history at /releases. An empty list answers 404 there,
+// which is what a rate-limited or offline API looks like to the report.
+func notesServer(t *testing.T, tag string, archive []byte, list string) *httptest.Server {
+	t.Helper()
+	body := "## What's Changed\n* fix(update): the change in " + tag + " by @EvilFreelancer in https://github.com/hijera/foxxy-agent/pull/7\n\n**Full Changelog**: https://github.com/hijera/foxxy-agent/compare/prev..." + tag
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(notesRelease(r.Host, tag, body)))
+	})
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/tags/"+tag, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(notesRelease(r.Host, tag, body)))
+	})
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
+		if list == "" {
+			http.Error(w, `{"message":"API rate limit exceeded"}`, http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(list))
+	})
+	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func notesOptions(srv *httptest.Server, dest, current string) Options {
+	return Options{
+		APIBase:        srv.URL,
+		Repo:           "hijera/foxxy-agent",
+		CurrentVersion: current,
+		GOOS:           "linux",
+		GOARCH:         "amd64",
+		InstallPath:    dest,
+		Yes:            true,
+	}
+}
+
+func TestRun_reportsTheComparisonWhenTheReleaseListIsUnavailable(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", mustTarGz(t, "foxxycode", []byte("release")), "")
+	dest := filepath.Join(t.TempDir(), "foxxycode")
+
+	var out bytes.Buffer
+	opts := notesOptions(srv, dest, "0.9.2")
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Installed 0.9.4") {
+		t.Fatalf("the update did not go through: %q", got)
+	}
+	if !strings.Contains(got, "Full changelog: https://github.com/hijera/foxxy-agent/compare/0.9.2...0.9.4") {
+		t.Fatalf("output does not fall back to the comparison link: %q", got)
+	}
+	if strings.Contains(got, "Changes since") {
+		t.Fatalf("output opens a report it has no notes for: %q", got)
+	}
+}
+
+func TestRun_reportsTheInstalledReleaseNotesForADevBuild(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", mustTarGz(t, "foxxycode", []byte("release")), "")
+	dest := filepath.Join(t.TempDir(), "foxxycode")
+
+	var out bytes.Buffer
+	opts := notesOptions(srv, dest, "dev")
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"Release notes for 0.9.4:",
+		"- fix(update): the change in 0.9.4 (#7)",
+		"https://github.com/hijera/foxxy-agent/releases/tag/0.9.4",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output lacks %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "/compare/") {
+		t.Fatalf("a dev build has no release to compare from: %q", got)
+	}
+}
+
+func TestRun_reportsTheInstalledReleaseNotesOnADowngrade(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", mustTarGz(t, "foxxycode", []byte("release")), "")
+	dest := filepath.Join(t.TempDir(), "foxxycode")
+
+	var out bytes.Buffer
+	opts := notesOptions(srv, dest, "0.9.9")
+	opts.TargetVersion = "0.9.4"
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Release notes for 0.9.4:") {
+		t.Fatalf("output lacks the notes of the release installed: %q", got)
+	}
+	if strings.Contains(got, "/compare/") || strings.Contains(got, "Changes since") {
+		t.Fatalf("a downgrade has no range to report: %q", got)
+	}
+}
+
+func TestRun_reportsTheChangesBeforeTheWindowsHelperRuns(t *testing.T) {
+	t.Parallel()
+	list := `[{"tag_name":"0.9.4","published_at":"2026-09-11T10:00:00Z","body":"* feat(a): one by @x in https://github.com/hijera/foxxy-agent/pull/1"},` +
+		`{"tag_name":"0.9.3","published_at":"2026-09-10T10:00:00Z","body":"* fix(b): two by @x in https://github.com/hijera/foxxy-agent/pull/2"},` +
+		`{"tag_name":"0.9.2","published_at":"2026-09-09T10:00:00Z","body":"* fix(c): the running one by @x in https://github.com/hijera/foxxy-agent/pull/3"}]`
+	archive := mustZip(t, "foxxycode.exe", []byte("release"))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"tag_name":"0.9.4","assets":[{"name":"foxxycode_0.9.4_windows_amd64.zip","browser_download_url":"http://%s/asset.zip"}]}`, r.Host)
+	})
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(list))
+	})
+	mux.HandleFunc("/asset.zip", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	dest := filepath.Join(t.TempDir(), "foxxycode.exe")
+	var out bytes.Buffer
+	var staged string
+	err := Run(context.Background(), Options{
+		APIBase:        srv.URL,
+		Repo:           "hijera/foxxy-agent",
+		CurrentVersion: "0.9.2",
+		GOOS:           "windows",
+		GOARCH:         "amd64",
+		InstallPath:    dest,
+		Yes:            true,
+		Stdout:         &out,
+		windowsInstaller: func(req windowsUpdateRequest) error {
+			staged = req.StagedPath
+			return nil
+		},
+	})
+	if staged != "" {
+		_ = os.Remove(staged)
+	}
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	ready := strings.Index(got, "Update downloaded")
+	report := strings.Index(got, "Changes since 0.9.2:")
+	if ready < 0 || report < ready {
+		t.Fatalf("the report should follow the handoff line: %q", got)
+	}
+	for _, want := range []string{
+		"0.9.3 (2026-09-10)",
+		"  - fix(b): two (#2)",
+		"0.9.4 (2026-09-11)",
+		"  - feat(a): one (#1)",
+		"Full changelog: https://github.com/hijera/foxxy-agent/compare/0.9.2...0.9.4",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output lacks %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "the running one") {
+		t.Fatalf("the running release is not news: %q", got)
+	}
+	if strings.Index(got, "0.9.3 (") > strings.Index(got, "0.9.4 (") {
+		t.Fatalf("releases should read oldest first: %q", got)
+	}
+}
+
+func TestRun_upToDatePrintsNoNotes(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", nil, "")
+	var out bytes.Buffer
+	opts := notesOptions(srv, filepath.Join(t.TempDir(), "foxxycode"), "0.9.4")
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := out.String(); strings.Contains(got, "Release notes") || strings.Contains(got, "Changes since") || strings.Contains(got, "/compare/") {
+		t.Fatalf("nothing was installed, so nothing changed: %q", got)
+	}
+}
+
+func TestFetchReleasesBetween_walksThePagesAndKeepsTheRange(t *testing.T) {
+	t.Parallel()
+	// Two full pages of releases, newest first, the way GitHub pages them,
+	// with a draft and a prerelease inside the range that must not count.
+	page := func(from, to int) string {
+		var items []string
+		for n := from; n >= to; n-- {
+			extra := ""
+			switch n {
+			case 180:
+				extra = `,"draft":true`
+			case 170:
+				extra = `,"prerelease":true`
+			}
+			items = append(items, fmt.Sprintf(`{"tag_name":"0.9.%d","body":"change %d"%s}`, n, n, extra))
+		}
+		return "[" + strings.Join(items, ",") + "]"
+	}
+	var requests []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.RawQuery)
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = w.Write([]byte(page(200, 101)))
+		case "2":
+			_, _ = w.Write([]byte(page(100, 1)))
+		default:
+			_, _ = w.Write([]byte("[]"))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "hijera/foxxy-agent", "0.9.150", "0.9.190")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, rel := range got {
+		tags = append(tags, rel.TagName)
+	}
+	if len(tags) != 38 || tags[0] != "0.9.151" || tags[len(tags)-1] != "0.9.190" {
+		t.Fatalf("tags = %v", tags)
+	}
+	for _, skipped := range []string{"0.9.150", "0.9.170", "0.9.180", "0.9.191"} {
+		if slices.Contains(tags, skipped) {
+			t.Fatalf("%s should not be listed: %v", skipped, tags)
+		}
+	}
+	if len(requests) != 1 {
+		t.Fatalf("the first page already reached the running release, requests = %v", requests)
+	}
+
+	got, err = fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "hijera/foxxy-agent", "0.9.50", "0.9.52")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].TagName != "0.9.51" || got[1].TagName != "0.9.52" {
+		t.Fatalf("got %+v", got)
+	}
+	if len(requests) != 3 {
+		t.Fatalf("the range on the second page takes two requests, got %v", requests)
+	}
+}
+
+func TestNotesLines(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{
+			name: "generated notes lose the heading, the author trailer and the footer",
+			body: "## What's Changed\r\n* feat(config): --dry-run probes what config.yaml points at by @EvilFreelancer in https://github.com/hijera/foxxy-agent/pull/194\r\n\r\n\r\n**Full Changelog**: https://github.com/hijera/foxxy-agent/compare/1.0.36...1.0.37",
+			want: []string{"- feat(config): --dry-run probes what config.yaml points at (#194)"},
+		},
+		{
+			name: "hand-written notes keep their sections as plain text",
+			body: "FoxxyCode 1.1 is the week after 1.0.\n\n## One process for every surface\n\n- #174 feat(serve): run every enabled subsystem in one process\n- #178 feat(serve): keep the daemon alive\n\n### Swarm\n- #155 feat(swarm): a stateless relay\n",
+			want: []string{
+				"FoxxyCode 1.1 is the week after 1.0.",
+				"One process for every surface:",
+				"- #174 feat(serve): run every enabled subsystem in one process",
+				"- #178 feat(serve): keep the daemon alive",
+				"Swarm:",
+				"- #155 feat(swarm): a stateless relay",
+			},
+		},
+		{
+			name: "an issue reference at the start of a line is not a heading",
+			body: "#123 is fixed\n* @newcomer made their first contribution in https://github.com/hijera/foxxy-agent/pull/5",
+			want: []string{"#123 is fixed", "- @newcomer made their first contribution in https://github.com/hijera/foxxy-agent/pull/5"},
+		},
+		{
+			name: "empty notes",
+			body: "\n\n  \n",
+			want: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := notesLines(tc.body); !slices.Equal(got, tc.want) {
+				t.Fatalf("notesLines(%q)\n got %q\nwant %q", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCapLines(t *testing.T) {
+	t.Parallel()
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = strconv.Itoa(i)
+	}
+	kept, more := capLines(lines, 20)
+	if len(kept) != 20 || kept[19] != "19" || more != 5 {
+		t.Fatalf("kept %d (last %q), more %d", len(kept), kept[len(kept)-1], more)
+	}
+	kept, more = capLines(lines[:3], 20)
+	if len(kept) != 3 || more != 0 {
+		t.Fatalf("kept %d, more %d", len(kept), more)
+	}
+}
+
+func TestNotesDisabled(t *testing.T) {
+	t.Parallel()
+	for value, want := range map[string]bool{
+		"": false, "1": false, "true": false, "yes": false, "on": false,
+		"0": true, "false": true, "no": true, "off": true, " OFF ": true, "False": true,
+	} {
+		if got := notesDisabled(value); got != want {
+			t.Errorf("notesDisabled(%q) = %v, want %v", value, got, want)
+		}
 	}
 }

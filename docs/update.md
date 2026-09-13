@@ -1,6 +1,6 @@
 # Updating FoxxyCode Agent
 
-Use **`foxxycode update`** to download official release binaries from [GitHub Releases](https://github.com/hijera/foxxycode-agent/releases) and replace the **`foxxycode`** executable you are running.
+Use **`foxxycode update`** to download official release binaries from [GitHub Releases](https://github.com/hijera/foxxy-agent/releases) and replace the **`foxxycode`** executable you are running.
 
 On Windows, FoxxyCode starts a short-lived helper from the system temporary directory. The helper waits for `foxxycode update` to exit, keeps a backup of the installed executable, replaces it, and starts the updated FoxxyCode again. The helper's status lines continue in the same `cmd.exe` or PowerShell console after the `update` command returns, so `foxxycode update` reports success once the download is staged, not once the swap has happened.
 
@@ -28,6 +28,12 @@ Each binary is built with **`http`**, **`ui`**, **`scheduler`**, and **`memory`*
 - When you run **`./build/foxxycode update`**, it updates **`build/foxxycode`** in the repo.
 
 This differs from **`make install`**, which always copies to **`~/.local/bin`** or **`/usr/local/bin`**. To update the binary on **`PATH`**, invoke the same **`foxxycode`** that **`which foxxycode`** prints.
+
+## The man page and the completions beside it
+
+The Linux and macOS archives carry **`foxxycode.1`**, **`foxxycode.bash`** and **`foxxycode.zsh`** beside the binary, and the install script puts them into the **`share`** directory of the binary's prefix (**`~/.local/bin`** -> **`~/.local/share`**, **`/usr/local/bin`** -> **`/usr/local/share`**; see [Install](install.md)). **`foxxycode update`** refreshes every one of those files it finds there, right after the executable, so **`man foxxycode`** and Tab completion describe the release that is running. A completer left at the previous release keeps offering commands the binary no longer has - that is how a completer went on listing **`http`** and **`gateway`** without **`serve`** after the binary had moved on ([issue #188](https://github.com/hijera/foxxy-agent/issues/188)).
+
+Nothing is created: a file that was never installed (**`--no-shell-setup`**, a binary copied by hand) is left alone, and an executable outside a **`bin`** directory - a build tree, a bare download - has no **`share`** directory to pair with. A release from before the archives carried those files leaves the installed copies as they are and says so. A file it cannot write is reported after the binary is installed, and the command exits non-zero.
 
 ## Installations owned by a package manager
 
@@ -69,10 +75,10 @@ foxxycode update --version 0.9.3
 foxxycode update --version 0.9.3 -y
 ```
 
-Override the GitHub repository (default **`hijera/foxxycode-agent`**):
+Override the GitHub repository (default **`hijera/foxxy-agent`**):
 
 ```bash
-foxxycode update --repo hijera/foxxycode-agent
+foxxycode update --repo your-org/foxxy-agent
 ```
 
 Install on Windows without starting FoxxyCode again afterwards - useful from a script or a CI step, where the restarted process has no console to run in:
@@ -81,11 +87,39 @@ Install on Windows without starting FoxxyCode again afterwards - useful from a s
 foxxycode update -y --no-restart
 ```
 
+Install without the report of what changed (see [What changed](#what-changed)), for a script that only wants the install lines:
+
+```bash
+foxxycode update -y --no-notes
+FOXXYCODE_UPDATE_NOTES=0 foxxycode update -y
+```
+
 All flags:
 
 ```bash
 foxxycode update --help
 ```
+
+## What changed
+
+Once the update is in, **`foxxycode update`** says what it brought. It lists every release between the version that was running and the one it installed, oldest first, each with the day it was published and its release notes, and ends with the GitHub comparison for the whole range ([issue #195](https://github.com/hijera/foxxy-agent/issues/195)):
+
+```console
+Installed 1.0.37 (/home/user/.local/bin/foxxycode)
+
+Changes since 1.0.35:
+1.0.36 (2026-09-11)
+  - fix(update): refresh the man page and the shell completions beside the binary (#193)
+1.0.37 (2026-09-11)
+  - feat(config): --dry-run probes what config.yaml points at before anything starts (#194)
+Full changelog: https://github.com/hijera/foxxy-agent/compare/1.0.35...1.0.37
+```
+
+The notes are the release bodies GitHub holds, trimmed for a terminal: the generated *What's Changed* heading, the author trailer and the *Full Changelog* footer of each release go, the pull request number stays as **`(#N)`**, and a hand-written body keeps its sections as plain titles. The report is capped at 20 lines, so a long gap ends in **`... N more lines`** and the comparison link, which covers every release at once.
+
+The report is printed on every route that installs something - the archive, the Windows helper handoff, and the **`.deb`** / **`.rpm`** route as root - and never on **`--check`** or when FoxxyCode is already up to date. A build with no release to count from (**`foxxycode -v`** prints **`dev`**), and a **`--version`** that walks backwards, get the notes of the release just installed and the link to its page instead of a range.
+
+Fetching the list is a second request to the GitHub API, bounded to 15 seconds, and it cannot fail the update: offline, rate-limited or answered with anything but a list, the report shrinks to the **`Full changelog:`** line alone. **`--no-notes`** skips it entirely, and so does **`FOXXYCODE_UPDATE_NOTES=0`** (also **`false`**, **`no`** or **`off`**) in the environment, for scripts and CI steps that only want the install lines.
 
 ## Version comparison
 

@@ -6,9 +6,15 @@ FoxxyCode Agent is based on [coddy-agent](https://github.com/coddy-project/coddy
 ## Release archive
 
 Download the archive for your platform from
-**[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as
+**[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** (assets such as
 `foxxycode_X.Y.Z_linux_amd64.tar.gz`), unpack it, and put the **`foxxycode`** binary on `PATH`
 (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\foxxycode`).
+
+The Linux and macOS archives also carry **`foxxycode.1`**, **`foxxycode.bash`** and
+**`foxxycode.zsh`** beside the binary. Put them under the **`share`** directory that pairs with
+the **`bin`** you installed into (`~/.local/bin` -> `~/.local/share`) and **`foxxycode update`**
+refreshes them along with the binary, so **`man foxxycode`** and Tab completion never fall behind
+the release that is running (see [update.md](update.md#the-man-page-and-the-completions-beside-it)).
 
 Bootstrap the config when missing:
 

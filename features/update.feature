@@ -1,6 +1,11 @@
 Feature: FoxxyCode self-update
   FoxxyCode downloads an official release archive and replaces the executable it is
-  running with the binary inside it.
+  running with the binary inside it. The archive also carries the man page and
+  the shell completions, and where the installer put them beside the binary the
+  update refreshes them too, so a completer never offers commands the binary no
+  longer has. Once the update is in, FoxxyCode says what changed: every release
+  between the version that was running and the one just installed, with its
+  notes, and the GitHub comparison for the whole range.
 
   Scenario: Installing a newer release
     Given a newer FoxxyCode release is available
@@ -19,6 +24,29 @@ Feature: FoxxyCode self-update
     When FoxxyCode installs the update
     Then the installed executable is the one from the release
     And FoxxyCode reports that it resumed the download
+
+  Scenario: Refreshing the man page and the shell completions installed beside the binary
+    Given a newer FoxxyCode release is available
+    And the man page and the shell completions of the installed release sit beside the executable
+    When FoxxyCode installs the update
+    Then the installed executable is the one from the release
+    And the man page and the shell completions are the ones from the release
+    And FoxxyCode reports that it refreshed the man page and the shell completions
+
+  Scenario: Reporting what changed since the release that was running
+    Given a newer FoxxyCode release is available
+    And the releases since the installed version carry their notes
+    When FoxxyCode installs the update
+    Then the installed executable is the one from the release
+    And FoxxyCode lists every release since the installed version with its notes
+    And FoxxyCode links the full changelog between the two versions on GitHub
+
+  Scenario: Updating quietly from a script
+    Given a newer FoxxyCode release is available
+    And the releases since the installed version carry their notes
+    When FoxxyCode installs the update with --no-notes
+    Then the installed executable is the one from the release
+    And FoxxyCode prints no release notes
 
   Scenario: Scheduling a downloaded Windows update
     Given a newer Windows FoxxyCode release is available
