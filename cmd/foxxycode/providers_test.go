@@ -335,3 +335,35 @@ func TestProvidersLoginDeviceIsAcceptedForCompatibility(t *testing.T) {
 		t.Fatalf("a failed login must store nothing (stat err = %v)", statErr)
 	}
 }
+
+// TestProviderAimWarningOnlyForAnOpenAIProviderThatCannotAuthenticate covers the
+// shapes the warning must stay quiet about. The happy paths are in
+// features/provider_diagnostics.feature; these are the edges around them.
+func TestProviderAimWarningOnlyForAnOpenAIProviderThatCannotAuthenticate(t *testing.T) {
+	cases := []struct {
+		name string
+		prov config.ProviderConfig
+		env  string
+		warn bool
+	}{
+		{name: "no api_base and no credential", prov: config.ProviderConfig{Name: "p", Type: "openai"}, warn: true},
+		{name: "an api_base of its own", prov: config.ProviderConfig{Name: "p", Type: "openai", APIBase: "https://proxy.example/v1"}},
+		{name: "a key in config", prov: config.ProviderConfig{Name: "p", Type: "openai", APIKey: "sk-x"}},
+		{name: "a key command", prov: config.ProviderConfig{Name: "p", Type: "openai", APIKeyCommand: "pass show openai"}},
+		{name: "a key in the environment", prov: config.ProviderConfig{Name: "p", Type: "openai"}, env: "sk-from-env"},
+		{name: "another backend entirely", prov: config.ProviderConfig{Name: "p", Type: "anthropic"}},
+		{name: "an OAuth backend", prov: config.ProviderConfig{Name: "p", Type: "codex"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.ProviderAPIKeyEnvVarName(tc.prov.Name), tc.env)
+			got := providerAimWarning(&tc.prov)
+			if tc.warn && got == "" {
+				t.Fatal("want a warning, got none")
+			}
+			if !tc.warn && got != "" {
+				t.Fatalf("want no warning, got %q", got)
+			}
+		})
+	}
+}

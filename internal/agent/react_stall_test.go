@@ -266,9 +266,12 @@ func (h *stallHarness) assistantMessages() []llm.Message {
 }
 
 // TestSilentProviderIsWaitedOutAndRetried is the reported bug: the model answers
-// nothing, and instead of a red SYSTEM row the turn pauses and tries again.
+// nothing, and instead of a red SYSTEM row the turn pauses and tries again. The
+// first silence is spent on the free immediate re-issue, so the script needs a
+// second one to reach the ladder this test is about.
 func TestSilentProviderIsWaitedOutAndRetried(t *testing.T) {
 	p := &stallProvider{script: []stallBehaviour{
+		{silent: true},
 		{silent: true},
 		{answer: "Here is the answer."},
 	}}
@@ -281,8 +284,8 @@ func TestSilentProviderIsWaitedOutAndRetried(t *testing.T) {
 	if stop != string(acp.StopReasonEndTurn) {
 		t.Errorf("stop reason = %q, want end_turn", stop)
 	}
-	if got := p.callCount(); got != 2 {
-		t.Errorf("provider called %d times, want 2 (one silent, one answering)", got)
+	if got := p.callCount(); got != 3 {
+		t.Errorf("provider called %d times, want 3 (one silent, the free re-issue, one answering)", got)
 	}
 	if got := h.sender.waitingPhases(); got != 1 {
 		t.Errorf("emitted %d waiting phases, want 1", got)
@@ -356,8 +359,52 @@ func TestSilentRetryGivesUpWithinBudget(t *testing.T) {
 	if !strings.Contains(err.Error(), "gave up after 2 retries") {
 		t.Errorf("error = %q, want it to name the retries it spent", err)
 	}
-	if got := p.callCount(); got != 3 {
-		t.Errorf("provider called %d times, want 3 (initial plus two retries)", got)
+	if got := p.callCount(); got != 4 {
+		t.Errorf("provider called %d times, want 4 (initial, the free re-issue, plus two waited retries)", got)
+	}
+}
+
+// TestSilentReissueRunsBeforeTheWaitingLadder pins the order of the two
+// recoveries a silent call has. The cheap one goes first and says nothing,
+// because a sick member of a load-balanced group is gone by the next draw and a
+// minute of waiting would buy nothing; the ladder is what a saturated gateway
+// needs, and it is the only one the operator is told about.
+func TestSilentReissueRunsBeforeTheWaitingLadder(t *testing.T) {
+	p := &stallProvider{script: []stallBehaviour{
+		{silent: true},
+		{answer: "Here is the answer."},
+	}}
+	h := newStallHarness(t, p, nil)
+
+	if _, err := h.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := p.callCount(); got != 2 {
+		t.Errorf("provider called %d times, want 2 (one silent, one answering)", got)
+	}
+	if got := h.sender.waitingPhases(); got != 0 {
+		t.Errorf("emitted %d waiting phases, want 0: the free re-issue must not announce a wait", got)
+	}
+	// The replay is the same request, not a nudged one.
+	if len(p.request(2)) != len(p.request(1)) {
+		t.Errorf("the re-issue carried %d messages, the original %d: it must be the identical request",
+			len(p.request(2)), len(p.request(1)))
+	}
+}
+
+// TestSilentReissueObeysTheStallRetrySwitch keeps the free re-issue on the same
+// switch as the ladder it heads: llm_stall_retry off means a call that produced
+// nothing ends the turn, exactly as it did before either recovery existed.
+func TestSilentReissueObeysTheStallRetrySwitch(t *testing.T) {
+	off := false
+	p := &stallProvider{script: []stallBehaviour{{silent: true}, {answer: "Unreachable."}}}
+	h := newStallHarness(t, p, func(c *config.Agent) { c.LLMStallRetry = &off })
+
+	if _, err := h.run(t); err == nil {
+		t.Fatal("expected the turn to fail with the retry switch off")
+	}
+	if got := p.callCount(); got != 1 {
+		t.Errorf("provider called %d times, want 1 with llm_stall_retry off", got)
 	}
 }
 
