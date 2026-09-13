@@ -49,8 +49,11 @@ _foxxycode() {
         cli|acp)
             COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
             ;;
-        http|desktop)
-            COMPREPLY=($(compgen -W "--config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --scheduler-enabled --debug --project-trust" -- "${cur}"))
+        http)
+            COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --scheduler-enabled --plan-no-self-run --debug --mcp-project-trust" -- "${cur}"))
+            ;;
+        desktop)
+            COMPREPLY=($(compgen -W "--config --home --cwd --sessions-dir --session-id --log-level --scheduler-enabled" -- "${cur}"))
             ;;
         gateway)
             COMPREPLY=($(compgen -W "--config --home --cwd --log-level --log-output --log-file --log-format --debug" -- "${cur}"))

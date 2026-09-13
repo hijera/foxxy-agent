@@ -2,8 +2,9 @@
 // names, the servers it points at, the credentials it carries, the addresses
 // it would bind - without starting anything, and reports each finding next to
 // the place in the file it comes from. It is the --dry-run flag of the
-// console, foxxycode acp and foxxycode serve; the static half of that flag, the file
-// against the schema and the loader's rules, is config.Check and runs first.
+// console, foxxycode acp, foxxycode http and foxxycode serve; the static half of
+// that flag, the file against the schema and the loader's rules, is
+// config.Check and runs first.
 package dryrun
 
 import (
@@ -29,13 +30,15 @@ func AddFlag(fs *flag.FlagSet) *bool {
 	return fs.Bool(FlagName, false, FlagUsage)
 }
 
-// Surface names the command running the dry run. The console and acp skip
-// what only foxxycode serve starts: the swarm joins and upstreams.
+// Surface names the command running the dry run. The console, acp and http
+// (the server the editor plugins start) skip what only foxxycode serve
+// starts: the swarm joins and upstreams.
 type Surface string
 
 const (
 	SurfaceConsole Surface = "console"
 	SurfaceACP     Surface = "acp"
+	SurfaceHTTP    Surface = "http"
 	SurfaceServe   Surface = "serve"
 )
 
@@ -53,7 +56,8 @@ type Request struct {
 	Locator *config.Locator
 	Surface Surface
 	// Listeners are the addresses the command would bind; serve fills them
-	// from the subsystems the configuration and the flags enable.
+	// from the subsystems the configuration and the flags enable, http with
+	// the one address it listens on.
 	Listeners []Listener
 	// SubsystemErr is what serve.Resolve refused (a surface enabled but not
 	// built into this binary); it is reported as an error check.

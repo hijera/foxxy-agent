@@ -2,8 +2,8 @@ Feature: Checking config.yaml before anything starts
   An operator edits ~/.foxxycode/config.yaml by hand and learns about a typo only when a
   surface misbehaves, because the loader decodes the file leniently: a key it does not
   know is ignored, and a value of the wrong shape surfaces as a runtime error somewhere
-  else. The -t / --test-config flag of the console, of foxxycode acp and of foxxycode serve checks
-  the file the process would load against the published JSON Schema and the loader's own
+  else. The -t / --test-config flag of the console, of foxxycode acp, of foxxycode http and of
+  foxxycode serve checks the file the process would load against the published JSON Schema and the loader's own
   rules, then prints every problem with its line, what is wrong and how to fix it. It starts
   nothing and touches nothing: the backup recovery a normal load performs never runs.
 
@@ -12,6 +12,14 @@ Feature: Checking config.yaml before anything starts
     When I run foxxycode serve with --test-config
     Then the command succeeds
     And the report says the config is valid
+    And nothing was created under the home besides config.yaml
+
+  @http
+  Scenario: foxxycode http, the command the editor plugins start, checks the same way
+    Given a config.yaml whose logger.level is "verbose"
+    When I run foxxycode http with -t
+    Then the command fails
+    And the report points at the line of "verbose"
     And nothing was created under the home besides config.yaml
 
   Scenario: a misspelled key is reported with its line and the key that was meant

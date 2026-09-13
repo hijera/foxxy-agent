@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/project"
@@ -30,6 +32,10 @@ type CommandDeps struct {
 	NewServerRef func(**acp.Server, *config.Config, func() *config.Config) acp.UpdateSender
 	EnsureHome   func(string) error
 	OpenStore    func(string, *config.Config) (*session.FileStore, error)
+	// CheckOutput is where -t / --test-config and --dry-run print their
+	// report; nil means stdout. cmd/foxxycode passes the writer the console,
+	// acp and serve print to, so the report reads the same from every command.
+	CheckOutput io.Writer
 }
 
 // StartParams configures PrepareHTTP / StartHTTP.
@@ -107,28 +113,10 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	if params.SchedulerEnabled {
-		cfg.Scheduler.Enabled = true
-	}
-	if params.PlanNoSelfRun != nil {
-		v := *params.PlanNoSelfRun
-		cfg.Tools.PlanNoSelfRun = &v
-	}
-	if params.Debug != nil && *params.Debug {
-		cfg.Debug.Enabled = true
-	}
-	if strings.TrimSpace(params.ProjectTrust) != "" {
-		next := config.MCP{ProjectTrust: params.ProjectTrust}
-		if err := next.Validate(); err != nil {
-			return nil, fmt.Errorf("-%s: %w", config.ProjectTrustFlagName, err)
-		}
-		cfg.MCP = next
-	}
-	if err := cfg.Scheduler.Validate(cfg); err != nil {
-		return nil, fmt.Errorf("scheduler: %w", err)
+	if err := applyStartOverrides(cfg, params); err != nil {
+		return nil, err
 	}
 
-	cfg.Logger.ApplyOverrides(params.LoggerOverrides)
 	log, logLevel, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("log: %w", err)
@@ -194,15 +182,7 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		mgr.SetPreferredSessionID(pid)
 	}
 
-	listenAddr := strings.TrimSpace(params.ListenAddr)
-	if listenAddr == "" {
-		hostStr := strings.TrimSpace(params.Host)
-		portStr := strings.TrimSpace(params.Port)
-		listenAddr = net.JoinHostPort(hostStr, portStr)
-		if hostStr == "0.0.0.0" && portStr == "12345" {
-			listenAddr = net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
-		}
-	}
+	listenAddr := listenAddress(cfg, params)
 
 	s = New(cfg, mgr, log, paths.CWD, logLevel)
 
@@ -252,6 +232,49 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 		Config:     cfg,
 		httpSrv:    httpSrv,
 	}, nil
+}
+
+// applyStartOverrides applies what the operator decided on the command line
+// instead of in config.yaml. The start and --dry-run both go through it, so a
+// dry run checks the configuration this process would actually run with.
+func applyStartOverrides(cfg *config.Config, params StartParams) error {
+	if params.SchedulerEnabled {
+		cfg.Scheduler.Enabled = true
+	}
+	if params.PlanNoSelfRun != nil {
+		v := *params.PlanNoSelfRun
+		cfg.Tools.PlanNoSelfRun = &v
+	}
+	if params.Debug != nil && *params.Debug {
+		cfg.Debug.Enabled = true
+	}
+	if strings.TrimSpace(params.ProjectTrust) != "" {
+		next := config.MCP{ProjectTrust: params.ProjectTrust}
+		if err := next.Validate(); err != nil {
+			return fmt.Errorf("-%s: %w", config.ProjectTrustFlagName, err)
+		}
+		cfg.MCP = next
+	}
+	if err := cfg.Scheduler.Validate(cfg); err != nil {
+		return fmt.Errorf("scheduler: %w", err)
+	}
+	cfg.Logger.ApplyOverrides(params.LoggerOverrides)
+	return nil
+}
+
+// listenAddress is the address the server binds: StartParams.ListenAddr when
+// the caller fixed one, else -H/-P, where the two untouched flag defaults
+// defer to httpserver.host and httpserver.port.
+func listenAddress(cfg *config.Config, params StartParams) string {
+	if addr := strings.TrimSpace(params.ListenAddr); addr != "" {
+		return addr
+	}
+	hostStr := strings.TrimSpace(params.Host)
+	portStr := strings.TrimSpace(params.Port)
+	if hostStr == "0.0.0.0" && portStr == "12345" {
+		return net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
+	}
+	return net.JoinHostPort(hostStr, portStr)
 }
 
 // ListenAndServe blocks until the HTTP server stops.
@@ -350,6 +373,8 @@ func Run(args []string, deps CommandDeps) error {
 	planNoSelfRun := fs.Bool(config.PlanNoSelfRunFlagName, false, "forbid the model from leaving plan mode itself (hides plan_exit, refuses tools outside the plan allowlist); overrides tools.plan_no_self_run")
 	debugFlag := fs.Bool(config.DebugFlagName, false, "enable diagnostics: forces debug log level (sets debug.enabled=true)")
 	projectTrust := fs.String(config.ProjectTrustFlagName, "", config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -362,7 +387,7 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 
-	st, err := StartHTTP(deps, StartParams{
+	params := StartParams{
 		CLI: config.CLIPaths{
 			Home:   strings.TrimSpace(*homeDir),
 			CWD:    strings.TrimSpace(*httpCWD),
@@ -383,7 +408,31 @@ func Run(args []string, deps CommandDeps) error {
 		PlanNoSelfRun:    boolFlagIfPassed(fs, config.PlanNoSelfRunFlagName, planNoSelfRun),
 		Debug:            boolFlagIfPassed(fs, config.DebugFlagName, debugFlag),
 		ProjectTrust:     strings.TrimSpace(*projectTrust),
-	})
+	}
+	out := deps.CheckOutput
+	if out == nil {
+		out = os.Stdout
+	}
+	// A config check reports on the file and leaves: nothing is created under
+	// the home and no server starts. Next to --dry-run it asks for the full
+	// report instead of the problems-only one.
+	if *testConfig && !*dryRun {
+		return config.RunCheck(out, params.CLI)
+	}
+	// A dry run applies the flags as a start would and tries the address the
+	// server would bind, on top of everything the file names.
+	if *dryRun {
+		return dryrun.RunAndReport(out, params.CLI, *testConfig,
+			func(c *config.Config) error { return applyStartOverrides(c, params) },
+			func(prep *dryrun.Prepared) (dryrun.Request, error) {
+				return dryrun.Request{
+					Surface:   dryrun.SurfaceHTTP,
+					Listeners: []dryrun.Listener{{Path: "httpserver", Addr: listenAddress(prep.Cfg, params)}},
+				}, nil
+			})
+	}
+
+	st, err := StartHTTP(deps, params)
 	if err != nil {
 		return err
 	}

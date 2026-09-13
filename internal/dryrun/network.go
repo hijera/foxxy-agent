@@ -185,7 +185,7 @@ func (r *runner) remoteProbes() []probe {
 
 // swarmProbes reaches the relays this node joins and, for a relay, the
 // upstreams it mounts, through the dial settings each entry carries. Both
-// are foxxycode serve's business; the console and acp skip them.
+// are foxxycode serve's business; the console, acp and http skip them.
 func (r *runner) swarmProbes() []probe {
 	if !r.serveOnly() {
 		return nil

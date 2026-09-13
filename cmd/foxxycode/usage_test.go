@@ -173,6 +173,45 @@ func zshCommandWords(t *testing.T, zsh string) []string {
 	return out
 }
 
+// assertCompletionArmsOffer checks that every command of checkFlagCommands is
+// offered flag by its own case arm in both completions. The flag also sits in
+// the list offered after the bare binary, so counting it across the file would
+// pass with an arm missing.
+func assertCompletionArmsOffer(t *testing.T, flag string) {
+	t.Helper()
+	for _, file := range completionFiles {
+		script := readRepoFile(t, file)
+		for _, cmd := range checkFlagCommands {
+			if arm := completionArm(t, file, script, cmd); !strings.Contains(arm, flag) {
+				t.Errorf("%s does not offer %s for %s:\n%s", file, flag, cmd, arm)
+			}
+		}
+	}
+}
+
+// completionArm returns the case arm of a completion script that handles cmd:
+// from the label naming it ("http)", "cli|acp)") to the ";;" that closes it.
+func completionArm(t *testing.T, file, script, cmd string) string {
+	t.Helper()
+	lines := strings.Split(strings.ReplaceAll(script, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		label, ok := strings.CutSuffix(strings.TrimSpace(line), ")")
+		if !ok || !slices.Contains(strings.Split(label, "|"), cmd) {
+			continue
+		}
+		var arm []string
+		for _, body := range lines[i+1:] {
+			if strings.TrimSpace(body) == ";;" {
+				return strings.Join(arm, "\n")
+			}
+			arm = append(arm, body)
+		}
+		t.Fatalf("%s: the %s arm is not closed by ;;", file, cmd)
+	}
+	t.Fatalf("%s has no case arm for %s", file, cmd)
+	return ""
+}
+
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()
 	b, err := os.ReadFile(rel)
@@ -182,23 +221,28 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(b)
 }
 
+// checkFlagCommands are the subcommands that take -t / --test-config and
+// --dry-run, besides the bare binary. http is the fork's own addition: it is
+// the command the editor plugins start.
+var checkFlagCommands = []string{"cli", "acp", "http", "serve"}
+
+// completionFiles are the shell completions the packages install.
+var completionFiles = []string{
+	"../../packaging/completions/foxxycode.bash",
+	"../../packaging/completions/foxxycode.zsh",
+}
+
 // TestPackagingFilesCarryTheConfigTestFlag ties -t / --test-config to the same
-// three files: the flag is offered on the console, on acp and on serve, so the
-// completions must list it for each of them and the man page must explain it.
+// three files: the flag is offered on the console, on acp, on http and on
+// serve, so the completions must list it for each of them and the man page
+// must explain it.
 func TestPackagingFilesCarryTheConfigTestFlag(t *testing.T) {
 	var buf bytes.Buffer
 	printUsage(&buf)
 	if !strings.Contains(buf.String(), "--test-config") {
 		t.Error("usage does not mention --test-config")
 	}
-	completions := readRepoFile(t, "../../packaging/completions/foxxycode.bash")
-	if strings.Count(completions, "--test-config") < 2 {
-		t.Error("packaging/completions/foxxycode.bash must offer --test-config for cli|acp and for serve")
-	}
-	zsh := readRepoFile(t, "../../packaging/completions/foxxycode.zsh")
-	if strings.Count(zsh, "--test-config") < 2 {
-		t.Error("packaging/completions/foxxycode.zsh must offer --test-config for cli|acp and for serve")
-	}
+	assertCompletionArmsOffer(t, "--test-config")
 	man := readRepoFile(t, "../../packaging/man/foxxycode.1")
 	if !strings.Contains(man, `\-\-test\-config`) {
 		t.Error("packaging/man/foxxycode.1 does not document --test-config")
@@ -213,12 +257,7 @@ func TestPackagingFilesCarryTheDryRunFlag(t *testing.T) {
 	if !strings.Contains(buf.String(), "--dry-run") {
 		t.Error("usage does not mention --dry-run")
 	}
-	if strings.Count(readRepoFile(t, "../../packaging/completions/foxxycode.bash"), "--dry-run") < 2 {
-		t.Error("packaging/completions/foxxycode.bash must offer --dry-run for cli|acp and for serve")
-	}
-	if strings.Count(readRepoFile(t, "../../packaging/completions/foxxycode.zsh"), "--dry-run") < 2 {
-		t.Error("packaging/completions/foxxycode.zsh must offer --dry-run for cli|acp and for serve")
-	}
+	assertCompletionArmsOffer(t, "--dry-run")
 	if !strings.Contains(readRepoFile(t, "../../packaging/man/foxxycode.1"), `\-\-dry\-run`) {
 		t.Error("packaging/man/foxxycode.1 does not document --dry-run")
 	}

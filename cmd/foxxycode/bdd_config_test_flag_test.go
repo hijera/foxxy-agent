@@ -112,6 +112,7 @@ func (s *configTestFlagState) run(fn func([]string) error, flag string) error {
 func (s *configTestFlagState) runServeTest() error { return s.run(runServe, "--test-config") }
 func (s *configTestFlagState) runCLITest() error   { return s.run(runCLI, "-t") }
 func (s *configTestFlagState) runACPTest() error   { return s.run(runACP, "-t") }
+func (s *configTestFlagState) runHTTPTest() error  { return s.run(runHTTP, "-t") }
 
 func (s *configTestFlagState) commandSucceeds() error {
 	if s.runErr != nil {
@@ -214,6 +215,7 @@ func initializeConfigTestFlagScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I run foxxycode serve with --test-config$`, s.runServeTest)
 	sc.Step(`^I run foxxycode with -t$`, s.runCLITest)
 	sc.Step(`^I run foxxycode acp with -t$`, s.runACPTest)
+	sc.Step(`^I run foxxycode http with -t$`, s.runHTTPTest)
 	sc.Step(`^the command succeeds$`, s.commandSucceeds)
 	sc.Step(`^the command fails$`, s.commandFails)
 	sc.Step(`^the report says the config is valid$`, s.reportSaysValid)
@@ -226,12 +228,19 @@ func initializeConfigTestFlagScenario(sc *godog.ScenarioContext) {
 }
 
 func TestConfigTestFlagFeature(t *testing.T) {
+	// The @http scenario drives `foxxycode http`, which a build without the
+	// http tag does not have.
+	tags := ""
+	if !httpAvailable {
+		tags = "~@http"
+	}
 	suite := godog.TestSuite{
 		Name:                "config-test-flag",
 		ScenarioInitializer: initializeConfigTestFlagScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/config_test_flag.feature"},
+			Tags:     tags,
 			TestingT: t,
 			Strict:   true,
 		},

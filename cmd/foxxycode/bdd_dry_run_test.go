@@ -210,6 +210,10 @@ func (s *dryRunState) runCLIDryVerbose() error { return s.run(runCLI, "--dry-run
 func (s *dryRunState) runACPDry() error        { return s.run(runACP, "--dry-run") }
 func (s *dryRunState) runACPDryVerbose() error { return s.run(runACP, "--dry-run", "--test-config") }
 func (s *dryRunState) runServeDry() error      { return s.run(runServe, "--dry-run") }
+func (s *dryRunState) runHTTPDry() error       { return s.run(runHTTP, "--dry-run") }
+func (s *dryRunState) runHTTPDryVerbose() error {
+	return s.run(runHTTP, "--dry-run", "--test-config")
+}
 func (s *dryRunState) runServeDryVerbose() error {
 	return s.run(runServe, "--dry-run", "--test-config")
 }
@@ -323,6 +327,8 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I run foxxycode acp with --dry-run --test-config$`, s.runACPDryVerbose)
 	sc.Step(`^I run foxxycode serve with --dry-run$`, s.runServeDry)
 	sc.Step(`^I run foxxycode serve with --dry-run --test-config$`, s.runServeDryVerbose)
+	sc.Step(`^I run foxxycode http with --dry-run$`, s.runHTTPDry)
+	sc.Step(`^I run foxxycode http with --dry-run --test-config$`, s.runHTTPDryVerbose)
 	sc.Step(`^the report says the config is valid$`, s.reportSaysValid)
 	sc.Step(`^the report is a single status line starting with "([^"]*)"$`, s.singleStatusLine)
 	sc.Step(`^the command succeeds$`, s.commandSucceeds)

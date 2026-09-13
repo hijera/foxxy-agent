@@ -381,6 +381,25 @@ func TestSwarmTLSAndCAFiles(t *testing.T) {
 	}
 }
 
+// TestSwarmPeersAreProbedOnlyForServe pins the one surface split: joining a
+// relay is what foxxycode serve does, so a dry run of the console, acp or http
+// must not report a relay those commands never dial.
+func TestSwarmPeersAreProbedOnlyForServe(t *testing.T) {
+	body := "swarm:\n  enabled: true\n  auth_token: t\n  join:\n    - url: http://127.0.0.1:9\n      pairing_token: p\n"
+	for _, surface := range []Surface{SurfaceConsole, SurfaceACP, SurfaceHTTP} {
+		rep := run(t, body, func(r *Request) { r.Surface = surface })
+		for _, c := range rep.Checks {
+			if strings.HasPrefix(c.Path, "swarm.join") {
+				t.Errorf("%s probed a relay only foxxycode serve joins: %+v", surface, c)
+			}
+		}
+	}
+	rep := run(t, body, func(r *Request) { r.Surface = SurfaceServe })
+	if c := find(t, rep, "swarm.join[0]"); c.Status != StatusError || !strings.Contains(c.Message, "cannot reach") {
+		t.Errorf("serve join %+v", c)
+	}
+}
+
 func TestSubsystemErrorIsReported(t *testing.T) {
 	rep := run(t, "agent:\n  max_turns: 3\n", func(r *Request) {
 		r.SubsystemErr = errors.New("httpserver.enabled is true but this binary has no httpserver support")
