@@ -29,6 +29,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
+	"github.com/hijera/foxxycode-agent/internal/rules"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -592,6 +593,46 @@ func (s *cliTUIState) waitTurnEnd(timeout time.Duration) error {
 func (s *cliTUIState) aConsoleAppOverStubRunner() error { return s.buildApp() }
 
 func (s *cliTUIState) theConsoleAppStarts() error { return s.startApp("") }
+
+// workspaceHoldsANestedAgentsFile plants the file whose discovery used to cost
+// a walk of the whole workspace before the console drew anything.
+func (s *cliTUIState) workspaceHoldsANestedAgentsFile() error {
+	if s.cwd == "" {
+		return fmt.Errorf("no workspace prepared")
+	}
+	dir := filepath.Join(s.cwd, "pkg")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("notes no tool asked for"), 0o644)
+}
+
+// rulesDiscoveryIsOn puts the app on the path the bug was reported from: with
+// discovery off there is nothing to walk in the first place.
+func (s *cliTUIState) rulesDiscoveryIsOn() error {
+	if s.cfg == nil {
+		return fmt.Errorf("no config prepared")
+	}
+	on := true
+	s.cfg.Rules.AutoDiscover = &on
+	return nil
+}
+
+// sessionCatalogHoldsNoNestedAgents is the assertion the fix is for: start
+// resolved the rules catalog and no nested AGENTS.md is in it, because none was
+// looked for.
+func (s *cliTUIState) sessionCatalogHoldsNoNestedAgents() error {
+	st := s.app.mgr.SessionByID(s.app.sessionID)
+	if st == nil {
+		return fmt.Errorf("no live session")
+	}
+	for _, r := range st.GetRulesCatalog() {
+		if r != nil && r.Source == rules.SourceAgents {
+			return fmt.Errorf("start read a nested AGENTS.md: %s", r.FilePath)
+		}
+	}
+	return nil
+}
 
 func (s *cliTUIState) screenShowsVersionHeader() error {
 	return s.waitScreen("foxxycode v", 2*time.Second)
@@ -1159,6 +1200,9 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a foxxycode console app over a stub agent runner$`, s.aConsoleAppOverStubRunner)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
 	sc.Step(`^the screen shows the foxxycode version header$`, s.screenShowsVersionHeader)
+	sc.Step(`^the workspace holds a nested AGENTS\.md in a folder no tool has entered$`, s.workspaceHoldsANestedAgentsFile)
+	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryIsOn)
+	sc.Step(`^the session catalog holds no nested AGENTS\.md$`, s.sessionCatalogHoldsNoNestedAgents)
 	sc.Step(`^the screen shows the editor between horizontal borders$`, s.screenShowsEditorBorders)
 	sc.Step(`^the footer names the configured default model$`, s.footerNamesDefaultModel)
 	sc.Step(`^the operator submits the prompt "([^"]*)"$`, s.operatorSubmitsPrompt)

@@ -75,6 +75,16 @@ frame, synchronized output (`ESC[?2026h/l`), per-line SGR + OSC 8 reset, a
 zero-width APC cursor marker for IME hardware-cursor placement, 16 ms render
 throttle with immediate renders after keystrokes.
 
+Startup runs before the terminal enters raw mode: the config, the session
+store, the skills, the rule folders and the configured MCP servers, then the
+first frame. Nothing reads the workspace tree: nested `AGENTS.md` files are
+read on demand, from the folders a tool enters (see
+[`docs/rules.md`](rules.md)), so a console opened in a home directory (a macOS
+`~/Library` alone runs to hundreds of thousands of entries) draws its frame at
+once instead of looking hung. The git branch in the footer is read with a
+three-second bound for the same reason. A first ctrl+c during startup cancels
+it; a second one ends the process the default way instead of being swallowed.
+
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
@@ -318,6 +328,14 @@ and is visible via `foxxycode mcp list` (approve with `foxxycode mcp trust <name
 - Live e2e: `./examples/test_cli.sh` drives the real binary in a pty
   (pexpect + pyte, Linux-only) against `neuraldeep/qwen3.8-27b` by default —
   see `examples/README.md`.
+- Startup on a real terminal: `examples/cli/cli_e2e_startup.py` opens the
+  binary in a pty (pexpect + pyte), waits for the first frame, types into the
+  editor, clears it with ctrl+c and exits with the second one, then checks the
+  resume hint and the exit status. It contacts no model. CI runs it on
+  `ubuntu-latest` (in the `cli` job of the test matrix) and on `macos-latest`
+  (job `test-macos`, which also runs the platform packages and the console
+  suite there), because the Go suite never opens a pty and the console's
+  terminal path is exactly what differs between hosts.
 
 ## Known v1 divergences from pi
 
