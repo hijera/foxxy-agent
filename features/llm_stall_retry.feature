@@ -3,9 +3,13 @@ Feature: A provider that goes quiet is waited out, not surrendered to
   SYSTEM row that the operator had to restart by hand with "continue".
 
   A call can answer nothing at all - silence, a dropped connection, a
-  provider-side timeout, a 5xx. Nothing reached the transcript, so FoxxyCode
-  pauses and re-issues the identical request: one minute, then three, then five,
-  and five for every attempt after that, up to an hour of waiting in total.
+  provider-side timeout, a 5xx. Nothing reached the transcript, so the identical
+  request can go out again, and the first time it does so at once: one model name
+  at a proxy is usually a group of deployments, and a member that sends no first
+  byte fails that way per attempt, so the next draw often answers and nobody
+  waits. Only when that free attempt comes back empty too does FoxxyCode start
+  pausing: one minute, then three, then five, and five for every attempt after
+  that, up to an hour of waiting in total.
 
   Or a stream can deliver thousands of frames and then stop mid-answer, with no
   finish_reason, no [DONE] and the connection held open. There the partial answer
@@ -19,11 +23,20 @@ Feature: A provider that goes quiet is waited out, not surrendered to
   it is repeating itself and which steps have already run; if it keeps going, the
   tools come off for one request and it has to answer from what it gathered.
 
-  Scenario: A silent call is retried after a pause and the turn completes
+  Scenario: A silent call is re-issued at once and the turn completes
     Given a model that answers nothing on its first call and then replies
     When the operator sends a prompt
     Then the turn completes without a system error
     And the model was called twice
+    And the operator was never told to wait
+    And the transcript holds exactly one answer
+
+  Scenario: A lane that is still silent on the free attempt is waited out
+    Given a model that answers nothing on its first two calls and then replies
+    When the operator sends a prompt
+    Then the turn completes without a system error
+    And the model was called three times
+    And the operator was told to wait once
     And the transcript holds exactly one answer
 
   Scenario: A dropped connection is waited out like silence

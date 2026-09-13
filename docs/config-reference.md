@@ -108,7 +108,10 @@ For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and
 
 ```bash
 foxxycode providers login codex    # prints a URL and one-time code, then waits
-foxxycode providers list           # reports credential availability, source and account
+foxxycode providers list           # reports credential availability, source and account,
+                                   # plus a warning for an openai row that has neither
+                                   # api_base nor a credential (its requests leave for
+                                   # api.openai.com and come back 401)
 foxxycode providers logout codex   # removes only the FoxxyCode-managed credential
 ```
 
@@ -172,7 +175,7 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). An explicit `0` disables retries. |
 | `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. A server-provided pause (`Retry-After-Ms` / `Retry-After` headers, `Limit resets at` / `retry in Ns` body phrases) overrides the exponential backoff, capped at 60s. |
 | `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms, retry attempts included (e.g. `12000` on strict free tiers). |
-| `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
+| `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). A cut call that produced nothing is re-issued **at once** before the `llm_stall_retry` ladder starts pausing, so a mute deployment behind a load-balanced model name does not cost a minute of waiting; that free attempt is part of the same ladder and stops with it when `llm_stall_retry` is off. An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
 | `llm_stall_timeout_ms` | int | no | `300000` | How long a streamed LLM call that has **already produced output** may go without any sign of progress before the turn cuts it, keeping the partial answer and asking the model to continue. Covers what `llm_first_token_timeout_ms` cannot: that guard stops at the first token and never re-arms. An explicit `0` disables it; blocking (`stream: false`) transports are never guarded. Neither the continuation nor the retry counts against `max_turns` — a provider failure is not a reasoning step the model chose. |
 | `llm_stall_retry` | bool | no | `true` | When an LLM call fails **without producing any output** — a silent provider, a dropped connection (`unexpected EOF`), a provider-side timeout (`Client.Timeout`), a 5xx — wait and re-issue the same request instead of failing the turn. A request the endpoint **refused** (4xx) is not retried, and neither is a call that already streamed something, so no output can be duplicated. Complements `llm_retry_max`, which absorbs a hiccup in seconds; this absorbs an outage in minutes. A retry does **not** count against `max_turns`. |
 | `llm_stall_retry_delays_ms` | []int | no | `[60000, 180000, 300000]` | Pause before each such retry, ms. The last entry repeats for every later attempt, so the default is one minute, then three, then five minutes for every attempt after that. |
