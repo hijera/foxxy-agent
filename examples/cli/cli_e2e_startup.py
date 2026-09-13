@@ -21,9 +21,13 @@ import pexpect
 
 from cli_tui_driver import CTRL_C, FoxxyCodeTUI, ok
 
-# A provider row of the generated config that reports no account usage, so the
-# session start sends nothing over the network.
-STARTUP_MODEL = os.environ.get("MODEL", "neuraldeep/qwen3.8-27b")
+# A model row of examples/config.demo.yaml, which the driver renders into the
+# temporary home. It must be listed there - the loader refuses an agent.model
+# that is not - and its provider must report no account usage, so the session
+# start sends nothing over the network. Deliberately not MODEL: the other e2e
+# scripts default that to a neuraldeep row, which is neither in the demo config
+# nor quiet at start (it asks the hub for its limits).
+STARTUP_MODEL = "rpa/qwen3.6-35b-a3b"
 
 
 def first_frame_keys_and_exit() -> None:
