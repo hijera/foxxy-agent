@@ -12,7 +12,11 @@ import (
 )
 
 const (
-	DefaultRepo   = "hijera/foxxycode-agent"
+	// DefaultRepo is where the release workflows publish: ${GITHUB_REPOSITORY}
+	// of this repository. The Go module path spells the name differently
+	// (github.com/hijera/foxxycode-agent) on purpose, so this is not derived
+	// from it - that spelling names no repository, and GitHub answers 404.
+	DefaultRepo   = "hijera/foxxy-agent"
 	DefaultAPIURL = "https://api.github.com"
 )
 

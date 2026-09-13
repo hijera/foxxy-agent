@@ -1,6 +1,6 @@
 # Updating FoxxyCode Agent
 
-Use **`foxxycode update`** to download official release binaries from [GitHub Releases](https://github.com/hijera/foxxycode-agent/releases) and replace the **`foxxycode`** executable you are running.
+Use **`foxxycode update`** to download official release binaries from [GitHub Releases](https://github.com/hijera/foxxy-agent/releases) and replace the **`foxxycode`** executable you are running.
 
 On Windows, FoxxyCode starts a short-lived helper from the system temporary directory. The helper waits for `foxxycode update` to exit, keeps a backup of the installed executable, replaces it, and starts the updated FoxxyCode again. The helper's status lines continue in the same `cmd.exe` or PowerShell console after the `update` command returns, so `foxxycode update` reports success once the download is staged, not once the swap has happened.
 
@@ -75,10 +75,10 @@ foxxycode update --version 0.9.3
 foxxycode update --version 0.9.3 -y
 ```
 
-Override the GitHub repository (default **`hijera/foxxycode-agent`**):
+Override the GitHub repository (default **`hijera/foxxy-agent`**):
 
 ```bash
-foxxycode update --repo hijera/foxxycode-agent
+foxxycode update --repo your-org/foxxy-agent
 ```
 
 Install on Windows without starting FoxxyCode again afterwards - useful from a script or a CI step, where the restarted process has no console to run in:

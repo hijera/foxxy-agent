@@ -6,7 +6,7 @@ FoxxyCode Agent is based on [coddy-agent](https://github.com/coddy-project/coddy
 ## Release archive
 
 Download the archive for your platform from
-**[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as
+**[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** (assets such as
 `foxxycode_X.Y.Z_linux_amd64.tar.gz`), unpack it, and put the **`foxxycode`** binary on `PATH`
 (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\foxxycode`).
 

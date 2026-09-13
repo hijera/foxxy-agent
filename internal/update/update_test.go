@@ -112,7 +112,7 @@ func TestRun_checkUpdateAvailable(t *testing.T) {
 
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.2",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -126,7 +126,7 @@ func TestRun_checkUpdateAvailable(t *testing.T) {
 func TestRun_checkUpToDate(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/hijera/foxxycode-agent/releases/latest" {
+		if r.URL.Path != "/repos/hijera/foxxy-agent/releases/latest" {
 			http.NotFound(w, r)
 			return
 		}
@@ -137,7 +137,7 @@ func TestRun_checkUpToDate(t *testing.T) {
 	var out bytes.Buffer
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.3",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -152,13 +152,56 @@ func TestRun_checkUpToDate(t *testing.T) {
 	}
 }
 
+// TestRun_withoutRepoAsksTheRepositoryReleasesArePublishedTo is the regression
+// for a bare `foxxycode update` answering 404 in every release up to 0.2.81:
+// DefaultRepo followed the Go module path (github.com/hijera/foxxycode-agent),
+// which names no repository, while the release workflows publish to
+// ${GITHUB_REPOSITORY}, hijera/foxxy-agent. Only --repo got an update through.
+func TestRun_withoutRepoAsksTheRepositoryReleasesArePublishedTo(t *testing.T) {
+	t.Parallel()
+	const want = "/repos/hijera/foxxy-agent/releases/latest"
+	asked := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case asked <- r.URL.Path:
+		default:
+		}
+		if r.URL.Path != want {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"tag_name":"0.9.3","assets":[]}`))
+	}))
+	defer srv.Close()
+
+	err := Run(context.Background(), Options{
+		APIBase:        srv.URL,
+		CurrentVersion: "0.9.3",
+		GOOS:           "linux",
+		GOARCH:         "amd64",
+		CheckOnly:      true,
+		Stdout:         io.Discard,
+	})
+	select {
+	case path := <-asked:
+		if path != want {
+			t.Fatalf("a bare update asked %s, not %s", path, want)
+		}
+	default:
+		t.Fatal("Run did not ask the release API at all")
+	}
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
 func TestRun_downloadAndInstall(t *testing.T) {
 	t.Parallel()
 	binBody := []byte("#!/bin/sh\necho release\n")
 	archive := mustTarGz(t, "foxxycode", binBody)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/hijera/foxxycode-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		url := "http://" + r.Host + "/asset.tar.gz"
 		body := `{"tag_name":"0.9.4","assets":[{"name":"foxxycode_0.9.4_linux_amd64.tar.gz","browser_download_url":"` + url + `"}]}`
 		_, _ = w.Write([]byte(body))
@@ -178,7 +221,7 @@ func TestRun_downloadAndInstall(t *testing.T) {
 	var out bytes.Buffer
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.2",
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -540,7 +583,7 @@ func TestFilesFromTarGz_returnsOnlyTheMembersAsked(t *testing.T) {
 // /releases/tags/{tag} answer, with the notes and the page fields the report
 // reads and one linux/amd64 archive served from the same host.
 func notesRelease(host, tag, body string) string {
-	return fmt.Sprintf(`{"tag_name":%q,"name":%q,"html_url":"https://github.com/hijera/foxxycode-agent/releases/tag/%s","published_at":"2026-09-11T10:00:00Z","body":%q,"assets":[{"name":"foxxycode_%s_linux_amd64.tar.gz","browser_download_url":"http://%s/asset.tar.gz"}]}`,
+	return fmt.Sprintf(`{"tag_name":%q,"name":%q,"html_url":"https://github.com/hijera/foxxy-agent/releases/tag/%s","published_at":"2026-09-11T10:00:00Z","body":%q,"assets":[{"name":"foxxycode_%s_linux_amd64.tar.gz","browser_download_url":"http://%s/asset.tar.gz"}]}`,
 		tag, tag, tag, body, tag, host)
 }
 
@@ -549,15 +592,15 @@ func notesRelease(host, tag, body string) string {
 // which is what a rate-limited or offline API looks like to the report.
 func notesServer(t *testing.T, tag string, archive []byte, list string) *httptest.Server {
 	t.Helper()
-	body := "## What's Changed\n* fix(update): the change in " + tag + " by @EvilFreelancer in https://github.com/hijera/foxxycode-agent/pull/7\n\n**Full Changelog**: https://github.com/hijera/foxxycode-agent/compare/prev..." + tag
+	body := "## What's Changed\n* fix(update): the change in " + tag + " by @EvilFreelancer in https://github.com/hijera/foxxy-agent/pull/7\n\n**Full Changelog**: https://github.com/hijera/foxxy-agent/compare/prev..." + tag
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/hijera/foxxycode-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(notesRelease(r.Host, tag, body)))
 	})
-	mux.HandleFunc("/repos/hijera/foxxycode-agent/releases/tags/"+tag, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/tags/"+tag, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(notesRelease(r.Host, tag, body)))
 	})
-	mux.HandleFunc("/repos/hijera/foxxycode-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
 		if list == "" {
 			http.Error(w, `{"message":"API rate limit exceeded"}`, http.StatusForbidden)
 			return
@@ -575,7 +618,7 @@ func notesServer(t *testing.T, tag string, archive []byte, list string) *httptes
 func notesOptions(srv *httptest.Server, dest, current string) Options {
 	return Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: current,
 		GOOS:           "linux",
 		GOARCH:         "amd64",
@@ -599,7 +642,7 @@ func TestRun_reportsTheComparisonWhenTheReleaseListIsUnavailable(t *testing.T) {
 	if !strings.Contains(got, "Installed 0.9.4") {
 		t.Fatalf("the update did not go through: %q", got)
 	}
-	if !strings.Contains(got, "Full changelog: https://github.com/hijera/foxxycode-agent/compare/0.9.2...0.9.4") {
+	if !strings.Contains(got, "Full changelog: https://github.com/hijera/foxxy-agent/compare/0.9.2...0.9.4") {
 		t.Fatalf("output does not fall back to the comparison link: %q", got)
 	}
 	if strings.Contains(got, "Changes since") {
@@ -622,7 +665,7 @@ func TestRun_reportsTheInstalledReleaseNotesForADevBuild(t *testing.T) {
 	for _, want := range []string{
 		"Release notes for 0.9.4:",
 		"- fix(update): the change in 0.9.4 (#7)",
-		"https://github.com/hijera/foxxycode-agent/releases/tag/0.9.4",
+		"https://github.com/hijera/foxxy-agent/releases/tag/0.9.4",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output lacks %q: %q", want, got)
@@ -656,15 +699,15 @@ func TestRun_reportsTheInstalledReleaseNotesOnADowngrade(t *testing.T) {
 
 func TestRun_reportsTheChangesBeforeTheWindowsHelperRuns(t *testing.T) {
 	t.Parallel()
-	list := `[{"tag_name":"0.9.4","published_at":"2026-09-11T10:00:00Z","body":"* feat(a): one by @x in https://github.com/hijera/foxxycode-agent/pull/1"},` +
-		`{"tag_name":"0.9.3","published_at":"2026-09-10T10:00:00Z","body":"* fix(b): two by @x in https://github.com/hijera/foxxycode-agent/pull/2"},` +
-		`{"tag_name":"0.9.2","published_at":"2026-09-09T10:00:00Z","body":"* fix(c): the running one by @x in https://github.com/hijera/foxxycode-agent/pull/3"}]`
+	list := `[{"tag_name":"0.9.4","published_at":"2026-09-11T10:00:00Z","body":"* feat(a): one by @x in https://github.com/hijera/foxxy-agent/pull/1"},` +
+		`{"tag_name":"0.9.3","published_at":"2026-09-10T10:00:00Z","body":"* fix(b): two by @x in https://github.com/hijera/foxxy-agent/pull/2"},` +
+		`{"tag_name":"0.9.2","published_at":"2026-09-09T10:00:00Z","body":"* fix(c): the running one by @x in https://github.com/hijera/foxxy-agent/pull/3"}]`
 	archive := mustZip(t, "foxxycode.exe", []byte("release"))
 	mux := http.NewServeMux()
-	mux.HandleFunc("/repos/hijera/foxxycode-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"tag_name":"0.9.4","assets":[{"name":"foxxycode_0.9.4_windows_amd64.zip","browser_download_url":"http://%s/asset.zip"}]}`, r.Host)
 	})
-	mux.HandleFunc("/repos/hijera/foxxycode-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/repos/hijera/foxxy-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(list))
 	})
 	mux.HandleFunc("/asset.zip", func(w http.ResponseWriter, _ *http.Request) {
@@ -678,7 +721,7 @@ func TestRun_reportsTheChangesBeforeTheWindowsHelperRuns(t *testing.T) {
 	var staged string
 	err := Run(context.Background(), Options{
 		APIBase:        srv.URL,
-		Repo:           "hijera/foxxycode-agent",
+		Repo:           "hijera/foxxy-agent",
 		CurrentVersion: "0.9.2",
 		GOOS:           "windows",
 		GOARCH:         "amd64",
@@ -707,7 +750,7 @@ func TestRun_reportsTheChangesBeforeTheWindowsHelperRuns(t *testing.T) {
 		"  - fix(b): two (#2)",
 		"0.9.4 (2026-09-11)",
 		"  - feat(a): one (#1)",
-		"Full changelog: https://github.com/hijera/foxxycode-agent/compare/0.9.2...0.9.4",
+		"Full changelog: https://github.com/hijera/foxxy-agent/compare/0.9.2...0.9.4",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("output lacks %q: %q", want, got)
@@ -767,7 +810,7 @@ func TestFetchReleasesBetween_walksThePagesAndKeepsTheRange(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	got, err := fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "hijera/foxxycode-agent", "0.9.150", "0.9.190")
+	got, err := fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "hijera/foxxy-agent", "0.9.150", "0.9.190")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -787,7 +830,7 @@ func TestFetchReleasesBetween_walksThePagesAndKeepsTheRange(t *testing.T) {
 		t.Fatalf("the first page already reached the running release, requests = %v", requests)
 	}
 
-	got, err = fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "hijera/foxxycode-agent", "0.9.50", "0.9.52")
+	got, err = fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "hijera/foxxy-agent", "0.9.50", "0.9.52")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,7 +851,7 @@ func TestNotesLines(t *testing.T) {
 	}{
 		{
 			name: "generated notes lose the heading, the author trailer and the footer",
-			body: "## What's Changed\r\n* feat(config): --dry-run probes what config.yaml points at by @EvilFreelancer in https://github.com/hijera/foxxycode-agent/pull/194\r\n\r\n\r\n**Full Changelog**: https://github.com/hijera/foxxycode-agent/compare/1.0.36...1.0.37",
+			body: "## What's Changed\r\n* feat(config): --dry-run probes what config.yaml points at by @EvilFreelancer in https://github.com/hijera/foxxy-agent/pull/194\r\n\r\n\r\n**Full Changelog**: https://github.com/hijera/foxxy-agent/compare/1.0.36...1.0.37",
 			want: []string{"- feat(config): --dry-run probes what config.yaml points at (#194)"},
 		},
 		{
@@ -825,8 +868,8 @@ func TestNotesLines(t *testing.T) {
 		},
 		{
 			name: "an issue reference at the start of a line is not a heading",
-			body: "#123 is fixed\n* @newcomer made their first contribution in https://github.com/hijera/foxxycode-agent/pull/5",
-			want: []string{"#123 is fixed", "- @newcomer made their first contribution in https://github.com/hijera/foxxycode-agent/pull/5"},
+			body: "#123 is fixed\n* @newcomer made their first contribution in https://github.com/hijera/foxxy-agent/pull/5",
+			want: []string{"#123 is fixed", "- @newcomer made their first contribution in https://github.com/hijera/foxxy-agent/pull/5"},
 		},
 		{
 			name: "empty notes",
