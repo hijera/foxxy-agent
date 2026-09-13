@@ -1,4 +1,4 @@
-// Environment selector: lets the bundled UI talk to a remote foxxycode http server instead of
+// Environment selector: lets the bundled UI talk to a remote foxxycode serve server instead of
 // its own origin. A single global fetch shim rewrites same-origin API requests (/v1/*, /foxxycode/*,
 // /openapi*) to the selected remote base URL and attaches its bearer token, so every existing
 // call site becomes environment-aware without changes. The choice is persisted in localStorage.
@@ -178,7 +178,7 @@ export function connectLocal(): void {
   window.location.reload();
 }
 
-/** connectRemote points the UI at a remote foxxycode http (persisting its token) and reloads. */
+/** connectRemote points the UI at a remote foxxycode serve (persisting its token) and reloads. */
 export function connectRemote(url: string, token: string, name?: string): void {
   const base = normalizeBase(url);
   if (!base) return;

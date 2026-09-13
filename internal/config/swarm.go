@@ -75,8 +75,9 @@ type SwarmConfig struct {
 	// an agent that cannot run the join loop.
 	Upstreams []SwarmUpstream `yaml:"upstreams"`
 
-	// Join lists parent relays this process registers into on startup. Both
-	// `foxxycode http` and `foxxycode swarm` honour it, which is what lets relays chain.
+	// Join lists parent relays this process registers into on startup. Every
+	// `foxxycode serve` process honours it, relay or not, which is what lets
+	// relays chain; `foxxycode http` joins nothing.
 	Join []SwarmJoin `yaml:"join"`
 }
 
