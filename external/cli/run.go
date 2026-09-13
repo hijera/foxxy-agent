@@ -20,6 +20,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/agent"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/remote"
@@ -31,6 +32,12 @@ import (
 type CommandDeps struct {
 	EnsureHome func(home string) error
 	OpenStore  func(flagValue string, cfg *config.Config) (*session.FileStore, error)
+	// TestConfig runs the -t / --test-config check; nil falls back to
+	// config.RunCheck on stdout.
+	TestConfig func(cli config.CLIPaths) error
+	// DryRun runs --dry-run (verbose when --test-config is given as well);
+	// nil falls back to dryrun.RunConsole on stdout.
+	DryRun func(cli config.CLIPaths, verbose bool, remoteArg, remoteToken string, customize func(*config.Config) error) error
 }
 
 // Run parses flags, wires the manager, and drives the interactive console.
@@ -61,6 +68,8 @@ func Run(args []string, deps CommandDeps) error {
 	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of cli (interactive console, also the default for bare %s on a terminal):\n", os.Args[0])
 		fs.PrintDefaults()
@@ -72,6 +81,34 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 
+	cli := config.CLIPaths{
+		Home:   strings.TrimSpace(*homeDir),
+		CWD:    strings.TrimSpace(*cwdFlag),
+		Config: strings.TrimSpace(*cfgPath),
+	}
+	// A config check needs neither a terminal nor a session: it reports on
+	// the file and leaves. cmd/foxxycode supplies the runner so the report
+	// reads the same as from acp and serve.
+	if *testConfig && !*dryRun {
+		if deps.TestConfig != nil {
+			return deps.TestConfig(cli)
+		}
+		return config.RunCheck(os.Stdout, cli)
+	}
+	if *dryRun {
+		customize := func(c *config.Config) error {
+			if *schedulerEnabled {
+				c.Scheduler.Enabled = true
+			}
+			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+		}
+		if deps.DryRun != nil {
+			return deps.DryRun(cli, *testConfig, *remoteFlag, *remoteToken, customize)
+		}
+		return dryrun.RunConsole(os.Stdout, dryrun.SurfaceConsole, cli, *testConfig, *remoteFlag, *remoteToken, customize)
+	}
+
 	// One-shot print mode needs no terminal at all; only the interactive
 	// console insists on a tty.
 	printMode := strings.TrimSpace(promptFlag) != ""
@@ -79,11 +116,6 @@ func Run(args []string, deps CommandDeps) error {
 		return errors.New("the interactive console needs a terminal on stdin and stdout (or run one prompt with -p/--prompt)")
 	}
 
-	cli := config.CLIPaths{
-		Home:   strings.TrimSpace(*homeDir),
-		CWD:    strings.TrimSpace(*cwdFlag),
-		Config: strings.TrimSpace(*cfgPath),
-	}
 	paths, err := config.Resolve(cli)
 	if err != nil {
 		return err

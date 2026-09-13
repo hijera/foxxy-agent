@@ -16,6 +16,11 @@ foxxycode \- coding agent with a console, an editor protocol, an HTTP gateway an
 .B foxxycode
 .RB [ \-h | \-\-help ]
 .RB [ \-v | \-\-version ]
+.br
+.B foxxycode
+.RB [ \-t | \-\-test\-config ]
+.RB [ \-\-dry\-run ]
+.RI [ options ]
 .SH DESCRIPTION
 .B foxxycode
 is a coding agent built around a ReAct loop: the model reasons, calls tools, and
@@ -222,6 +227,29 @@ Console: run one prompt, print the answer, and exit.
 .TP
 .B \-\-resume
 Console: pick a session to resume.
+.TP
+.BR \-t ", " \-\-test\-config
+Check the config file this command would load against the embedded JSON Schema
+and the loader's own rules, print every problem as
+.IR file : line : col
+with a fix line and the field's description, then exit. Nothing is written and
+nothing starts: the backup recovery a normal load performs on a broken file
+does not run. Exit status 1 on errors; warnings never fail the check. Accepted
+bare and by
+.BR cli ", " acp ", " http " and " serve .
+.TP
+.B \-\-dry\-run
+Check the file, then probe what it points at: prompt and skill directories, MCP
+commands, model servers and the credentials they accept, the Telegram token,
+and the addresses the command would bind: the one
+.B http
+listens on, or those of the subsystems
+.B serve
+enables. Reports every problem with the place
+in config.yaml it comes from and exits without starting anything. On its own it
+prints only problems and one status line; with
+.B \-\-test\-config
+it shows the config report and every probe, the ones that passed included.
 .PP
 Flags shared by the long\-running commands
 .RB ( cli ", " acp ", " serve )

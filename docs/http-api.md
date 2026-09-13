@@ -4,6 +4,8 @@ The `foxxycode http` subcommand ships only when the binary is built with **`go b
 
 The bundled SPA is included only when you also set the **`ui`** tag (for example **`make build TAGS="http ui"`** or **`go build -tags=http,ui`**). With **http** only, **`GET /`** returns **404** with a plain-text hint.
 
+**Checking before starting.** **`foxxycode http -t`** (long form **`--test-config`**) checks the config file a start would load against the embedded schema and the loader's rules, then exits without creating anything under the home. **`foxxycode http --dry-run`** runs that check, probes what the file points at and binds the listen address once - the one **`-H`**/**`-P`** select, or **`httpserver.host`**/**`httpserver.port`** when the flags are left alone - so a port another process holds is reported before a start trips over it. The editor plugins start this command, so their bundled binary answers both flags. Both exit 1 when something is wrong; details and sample reports are in [config.md](config.md#checking-the-file-from-the-command-line).
+
 ## OpenAPI and Swagger UI
 
 Specs are regenerated on each request so they stay aligned with handlers.

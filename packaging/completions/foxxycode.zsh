@@ -31,6 +31,8 @@ _foxxycode() {
         '(-c --continue)'{-c,--continue}'[continue the latest session here]' \
         '(-p --prompt)'{-p,--prompt}'[run one prompt and exit]:prompt:' \
         '--resume[pick a session to resume]' \
+        '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
+        '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \
         '1: :->command' \
         '*:: :->argument'
 
@@ -65,8 +67,10 @@ _foxxycode() {
                         '--repo[GitHub repository to take releases from]:repo:' \
                         '--no-restart[Windows only: do not start FoxxyCode again]'
                     ;;
-                http|desktop)
+                http)
                     _arguments \
+                        '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
+                        '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \
@@ -75,6 +79,15 @@ _foxxycode() {
                         '-H[bind address for HTTP]:host:' \
                         '-P[listen port for HTTP]:port:' \
                         '--auth-token[bearer token for the HTTP API]:token:' \
+                        '--scheduler-enabled[run the cron scheduler in this process]'
+                    ;;
+                desktop)
+                    _arguments \
+                        '--config[path to config.yaml]:file:_files' \
+                        '--home[agent state directory]:directory:_files -/' \
+                        '--cwd[default session working directory]:directory:_files -/' \
+                        '--sessions-dir[sessions root]:directory:_files -/' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
                         '--scheduler-enabled[run the cron scheduler in this process]'
                     ;;
                 gateway)
@@ -95,6 +108,8 @@ _foxxycode() {
                     ;;
                 cli|acp)
                     _arguments \
+                        '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
+                        '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \
@@ -106,6 +121,8 @@ _foxxycode() {
                     _arguments \
                         '1: :((status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher"))' \
                         '(-d --daemon)'{-d,--daemon}'[run in the background under a dispatcher]' \
+                        '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
+                        '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \

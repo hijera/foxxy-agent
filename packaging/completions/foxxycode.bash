@@ -10,7 +10,7 @@ _foxxycode() {
     commands="cli acp http desktop gateway serve sessions skills plugin mcp codex providers rules agents hooks update"
 
     if [ "${COMP_CWORD}" -eq 1 ]; then
-        COMPREPLY=($(compgen -W "${commands} -h --help -v --version -c --continue -p --prompt --resume" -- "${cur}"))
+        COMPREPLY=($(compgen -W "${commands} -h --help -v --version -t --test-config --dry-run -c --continue -p --prompt --resume" -- "${cur}"))
         return
     fi
 
@@ -47,10 +47,13 @@ _foxxycode() {
             COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart" -- "${cur}"))
             ;;
         cli|acp)
-            COMPREPLY=($(compgen -W "--config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
+            COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
             ;;
-        http|desktop)
-            COMPREPLY=($(compgen -W "--config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --scheduler-enabled --debug --project-trust" -- "${cur}"))
+        http)
+            COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --scheduler-enabled --plan-no-self-run --debug --mcp-project-trust" -- "${cur}"))
+            ;;
+        desktop)
+            COMPREPLY=($(compgen -W "--config --home --cwd --sessions-dir --session-id --log-level --scheduler-enabled" -- "${cur}"))
             ;;
         gateway)
             COMPREPLY=($(compgen -W "--config --home --cwd --log-level --log-output --log-file --log-format --debug" -- "${cur}"))
@@ -60,7 +63,7 @@ _foxxycode() {
             [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--provider --no-config --home" -- "${cur}"))
             ;;
         serve)
-            COMPREPLY=($(compgen -W "status stop restart -d --daemon --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
+            COMPREPLY=($(compgen -W "status stop restart -d --daemon -t --test-config --dry-run --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
             ;;
     esac
 }

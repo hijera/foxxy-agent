@@ -17,6 +17,7 @@ import (
 	"github.com/hijera/foxxycode-agent/external/scheduler"
 	"github.com/hijera/foxxycode-agent/external/swarm"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/dryrun"
 	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/serve"
 	"github.com/hijera/foxxycode-agent/internal/version"
@@ -82,6 +83,8 @@ func runServe(args []string) error {
 
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of serve (runs every subsystem enabled in config.yaml):\n")
@@ -98,6 +101,12 @@ func runServe(args []string) error {
 		Home:   strings.TrimSpace(*homeDir),
 		CWD:    strings.TrimSpace(*serveCWD),
 		Config: strings.TrimSpace(*cfgPath),
+	}
+	// A config check reports on the file and leaves: nothing is created under
+	// the home and no subsystem starts. Next to --dry-run it asks for the full
+	// report instead of the problems-only one.
+	if *testConfig && !*dryRun {
+		return runConfigTest(cli)
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {
@@ -179,6 +188,11 @@ func runServe(args []string) error {
 	}
 	swarmListenAddr := func(c *config.Config) string {
 		return net.JoinHostPort(c.Swarm.Host, firstNonEmpty(strings.TrimSpace(*swarmPort), strconv.Itoa(c.Swarm.EffectivePort())))
+	}
+	// A dry run resolves the subsystems and their addresses as a start would,
+	// probes them together with everything the file names, and leaves.
+	if *dryRun {
+		return runServeDryRun(cli, *testConfig, applyProcessOverrides, httpListenAddr, swarmListenAddr)
 	}
 	httpAddr := httpListenAddr(cfg)
 	swarmAddr := swarmListenAddr(cfg)
@@ -316,7 +330,12 @@ func runServe(args []string) error {
 func typedServeFlags(fs *flag.FlagSet) []string {
 	var out []string
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "d" || f.Name == "daemon" {
+		switch f.Name {
+		case "d", "daemon":
+			return
+		// One-shot checks: a daemon restarted with these would report and exit
+		// instead of serving.
+		case config.CheckFlagName, config.CheckFlagShort, dryrun.FlagName:
 			return
 		}
 		out = append(out, "-"+f.Name+"="+f.Value.String())

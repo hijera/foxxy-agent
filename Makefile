@@ -1,4 +1,4 @@
-.PHONY: build build-acp build-desktop icon test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
+.PHONY: build build-acp build-desktop icon site-schema site-schema-check test test-matrix print-test-tag-sets test-opencode-rules ui-test check-windows lint lint-ui lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check intellij-build intellij-test intellij-run vscode-build vscode-build-target vscode-package vscode-package-target e2e-autocomplete
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -162,6 +162,28 @@ brew-check:
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:
 	node --test .opencode/tests/project-rules.test.js
+
+# ---- Config schema ----
+#
+# The schema lives at internal/config/config.schema.json, because that is the
+# only place go:embed can reach it from: the binary validates config.yaml
+# against it for `foxxycode -t`. Editors resolve it from
+# https://hijera.github.io/foxxy-agent/config.schema.json, the modeline
+# FoxxyCode writes into every config it saves, and GitHub Pages serves this
+# repository's docs/ folder - so docs/config.schema.json must stay a
+# byte-for-byte copy. `site-schema` republishes it; `site-schema-check` reports
+# drift without writing, and internal/config/docs_schema_test.go fails on it too.
+#
+# Do not publish a rename or a removal ahead of the release that understands it:
+# the schema sets "additionalProperties": false, so the new file marks the old
+# key as an error in every config already on disk. Adding an optional key is
+# safe to publish immediately.
+site-schema:
+	@cp internal/config/config.schema.json docs/config.schema.json
+	@echo "Published internal/config/config.schema.json -> docs/config.schema.json"
+
+site-schema-check:
+	@if cmp -s internal/config/config.schema.json docs/config.schema.json; then 		echo "config schema: docs/ copy is in sync"; 	else 		echo "config schema: docs/config.schema.json has drifted; run 'make site-schema'" >&2; 		exit 1; 	fi
 
 # ---- Tests ----
 #

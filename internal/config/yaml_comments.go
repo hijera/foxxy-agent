@@ -24,10 +24,16 @@ import (
 )
 
 // SchemaURL is the hosted JSON Schema for config.yaml. GitHub Pages serves this
-// repository's docs/ folder from main, so docs/config.schema.json IS the file at this
-// address - there is no mirror to keep in step - and any editor resolves it without a
-// checkout. A merge to main publishes it, which matters because the schema sets
+// repository's docs/ folder from main, so docs/config.schema.json IS the file at
+// this address, and any editor resolves it without a checkout. A merge to main
+// publishes it, which matters because the schema sets
 // "additionalProperties": false.
+//
+// The document itself lives at internal/config/config.schema.json, because that
+// is the only place go:embed can reach it from and -t / --test-config validates
+// against the embedded copy. docs/config.schema.json is a byte-for-byte
+// republication of it: `make site-schema` writes it and
+// TestPublishedSchemaMatchesTheEmbeddedOne fails when the two drift.
 const SchemaURL = "https://hijera.github.io/foxxy-agent/config.schema.json"
 
 // schemaModelineMarker is the directive a YAML language server looks for in a comment.
