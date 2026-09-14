@@ -15,7 +15,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
 | ctrl+p / ctrl+shift+p | cycle the configured models forward / backward |
-| shift+tab | cycle the reasoning level (models with `reasoning_levels`) |
+| shift+tab | cycle the reasoning level and store it on the session, as `/reasoning` does (models with `reasoning_levels`) |
 | ctrl+o | expand the header hints, the last tool output and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |

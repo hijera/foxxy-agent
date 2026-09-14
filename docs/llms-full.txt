@@ -2003,12 +2003,19 @@ it; a second one ends the process the default way instead of being swallowed.
 
 ## Commands and keys
 
-Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
-`/hotkeys`, `/quit`; server-driven `/compact`, `/export`, `/plugin`, and every
-loaded skill (from the ACP available-commands catalog). Enter on a slash
-suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
+Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
+`/new`, `/theme`, `/hotkeys`, `/quit`; server-driven `/compact`, `/export`,
+`/plugin`, and every loaded skill (from the ACP available-commands catalog).
+Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server.
+
+`/reasoning` without an argument opens a selector with the active model's
+available levels; selecting a value persists that level on the session.
+`/reasoning <level>` immediately selects and persists that level instead.
+`shift+tab` cycles through the same levels and persists its selection in the
+same way. Models without reasoning levels report that reasoning is unavailable;
+an unsupported direct value reports the levels that can be selected.
 
 Agent self-configuration works as it does over ACP and HTTP: every turn
 offers the staged config tools (`config_get`, `config_set`,
@@ -2028,7 +2035,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
 | ctrl+p / ctrl+shift+p | cycle configured models |
-| shift+tab | cycle reasoning level (models with `reasoning_levels`) |
+| shift+tab | cycle and persist the session reasoning level (models with `reasoning_levels`) |
 | ctrl+o | expand header hints + last tool output + last `!!` block |
 | ctrl+t | collapse/expand thinking blocks |
 | up / down | history at the first/last line; cursor movement otherwise |
@@ -2150,9 +2157,10 @@ profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
 server's session list (the local folder filter does not apply). The
 permission mode is governed by the remote server's configuration:
 `--permission-mode` and the `/permissions` option are rejected with a clear
-error. Reasoning-level cycling is unavailable remotely in v1. Sessions
-persist only on the server; the startup banner shows `remote: <url>` and the
-exit hint prints a reconnect command with `--remote` included.
+error. `/reasoning` and `shift+tab` persist the selected reasoning level on
+the server session. Sessions persist only on the server; the startup banner shows
+`remote: <url>` and the exit hint prints a reconnect command with `--remote`
+included.
 
 Subagents run on the remote host: the definitions, the trust receipts and the
 child sessions are the server's. Approve a project definition there (`foxxycode
@@ -4263,7 +4271,7 @@ Each remote shows a status dot probed on menu open with a cross-origin `GET /v1/
 | MCP servers, hooks, subagents and their trust receipts | permission and question prompts, answered through `POST /foxxycode/sessions/{id}/permission` and `.../question` |
 | the session bundles, the config file and the agent's self-configuration commits | cancel (`POST /foxxycode/sessions/{id}/cancel`), `ctrl+o` fetching full tool output |
 
-A session a remote console or ACP client creates lives in the server's default working directory (`foxxycode serve --cwd`, `FOXXYCODE_CWD`, else where the server was started); the remote console footer still shows the local folder. The web UI can move a session to another server-side folder from its folder chip. `/export` writes into the server's workspace. `/resume`, `-c` and `--session-id` operate on the server's session list, and the local folder filter does not apply. The permission mode is the server's: `--permission-mode` and the console's `/permissions` option are rejected with an error, while `/mode` still picks agent, plan or ask per turn. The startup banner shows `remote: <url>`, and the exit hint prints a reconnect command with `--remote` in it.
+A session a remote console or ACP client creates lives in the server's default working directory (`foxxycode serve --cwd`, `FOXXYCODE_CWD`, else where the server was started); the remote console footer still shows the local folder. The web UI can move a session to another server-side folder from its folder chip. `/export` writes into the server's workspace. `/resume`, `-c` and `--session-id` operate on the server's session list, and the local folder filter does not apply. The permission mode is the server's: `--permission-mode` and the console's `/permissions` option are rejected with an error, while `/mode` still picks agent, plan or ask per turn. The console's `/reasoning [level]` and `shift+tab` persist the selected reasoning level on the server session. The startup banner shows `remote: <url>`, and the exit hint prints a reconnect command with `--remote` in it.
 
 Trust decisions are the server's too. A project MCP server, hooks file or subagent definition is approved on that host, either with the CLI there (`foxxycode mcp trust`, `foxxycode hooks trust`, `foxxycode agents trust`) or over the API with the bearer token (`POST /foxxycode/mcp/{name}/trust`, `POST /foxxycode/hooks/trust`, `POST /foxxycode/subagents/{name}/trust`, each with the server-side workspace as `cwd`); the local subcommands do not take `--remote`. A subagent's permission prompt reaches the remote client under the parent session, prefixed `[subagent <name>]`, even when the server itself runs with `tools.permission_mode: bypass`. See [Subagents](../features/subagents.md#remote-mode).
 
@@ -4271,7 +4279,7 @@ Trust decisions are the server's too. A project MCP server, hooks file or subage
 
 - One bearer token per server, no users or roles: whoever holds it has the whole API, including the config editor and the workspace files.
 - No TLS inside `foxxycode serve`; encryption comes from a proxy or a tunnel.
-- Reasoning-level cycling is unavailable in the remote console; the permission mode cannot be changed from a remote client.
+- The permission mode cannot be changed from a remote client.
 - A dropped connection leaves the server turn, its children and any open prompt running; `/resume` shows the outcome once the turn ends, and an answer to a prompt the server has already withdrawn is ignored. Quitting the console mid-turn waits briefly for the cancel to reach the server.
 - A session is one turn at a time: a second client prompting the same session gets `409` while the first turn holds the lock.
 - The web UI reaches a remote only when that server lists the UI's origin in `cors.allowed_origins`; a red dot with a correct token usually means CORS.
@@ -8630,6 +8638,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | Command | Surfaces | What it does | Details |
 |---|---|---|---|
 | `/model [id]` | console; Telegram | Console: opens the model selector, or switches directly when a configured model id follows (`external/cli/slash.go`). Telegram: an inline keyboard over the configured `models`. | [Console](../surfaces/console.md#commands-and-keys), [Telegram gateway](../surfaces/gateway.md#commands) |
+| `/reasoning [level]` | console | Opens a selector over the reasoning levels of the active model, or selects the named level directly; the choice is stored on the session (on the server's session under `--remote`). A model without levels says reasoning is unavailable, and an unknown level is answered with the valid ones (`external/cli/slash.go`). | [Console](../surfaces/console.md#commands-and-keys) |
 | `/mode [agent\|plan\|docs\|ask\|debug]` | console; Telegram | Console: opens the mode selector, or switches directly when a valid mode follows. Telegram: an inline keyboard. | [Operating modes](../features/modes.md#switching-on-each-surface) |
 | `/resume` | console | Picker over the sessions of the current folder; the chosen one replaces the current session. | [Sessions](../features/sessions.md#resuming) |
 | `/new` | console | Starts a new session in the same folder. | [Console](../surfaces/console.md#commands-and-keys) |
@@ -8655,7 +8664,7 @@ Three boundaries follow from the code:
 
 | Surface | Source of the list | Notes |
 |---|---|---|
-| Console | A fixed client-side list (`model`, `mode`, `resume`, `new`, `theme`, `hotkeys`, `usage`, `quit`) merged with the rows the server advertises through the ACP `available_commands_update` notification (`slashCatalog` in `external/cli/app.go`). | Typing `/` opens the suggestion menu; Enter on a suggestion applies it and submits in one stroke. |
+| Console | A fixed client-side list (`model`, `reasoning`, `mode`, `resume`, `new`, `theme`, `hotkeys`, `usage`, `quit`) merged with the rows the server advertises through the ACP `available_commands_update` notification (`slashCatalog` in `external/cli/app.go`). | Typing `/` opens the suggestion menu; Enter on a suggestion applies it and submits in one stroke. |
 | Web UI | Two groups in the composer: the built-ins from `GET /foxxycode/commands`, loaded once when the composer mounts, and the skills from `GET /foxxycode/slash-commands`, paged and filtered by `prefix`, scoped to the session workspace through `X-FoxxyCode-Session-ID`. | Both lists are re-read when the server announces a configuration reload (`event: config_reloaded` on `GET /foxxycode/events`), so a skill installed by `/plugin` shows up without a page reload. Picking a row inserts the plain `/name` token and nothing else. |
 | ACP editors | `available_commands_update` after `session/new` and `session/load`: the built-ins first, then the skills sorted by name; rows carry `name` (without the slash) and `description` only. | The same function, `skills.BuiltinCommands` in `internal/skills/slash.go`, feeds the HTTP endpoint and the notification, so the two never disagree: `compact` only while compaction is enabled, `export` and `plugin` always. |
 | Telegram | `start`, `help`, `mode`, `model`, `context` and `clear`, registered with `setMyCommands` at startup. | They appear in the client's command menu; nothing else is offered. |
@@ -8713,7 +8722,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
 | ctrl+p / ctrl+shift+p | cycle the configured models forward / backward |
-| shift+tab | cycle the reasoning level (models with `reasoning_levels`) |
+| shift+tab | cycle the reasoning level and store it on the session, as `/reasoning` does (models with `reasoning_levels`) |
 | ctrl+o | expand the header hints, the last tool output and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
