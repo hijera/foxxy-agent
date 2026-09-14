@@ -2,6 +2,8 @@ package session
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -621,5 +623,55 @@ func TestStripContextBlocksIgnoresTagsInsideCDATA(t *testing.T) {
 		"<![CDATA[first ]]]]><![CDATA[> then </foxxycode_attachment> SECRET]]>\n</foxxycode_attachment>\ntail"
 	if got := StripContextBlocks(raw, TagAttachment); got != "ask\n\n\ntail" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// TestListSnapshotsMatchesWorkspaceSpelledDifferently covers the ACP
+// session/list filter: the console stores the logical $PWD spelling of a
+// symlinked checkout while an editor sends the physical one, and both name the
+// same folder (coddy-project/coddy-agent VS Code "sees no sessions" report).
+func TestListSnapshotsMatchesWorkspaceSpelledDifferently(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real", "project")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(filepath.Join(root, "real"), link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	fs := &FileStore{Root: filepath.Join(root, "sessions")}
+	dir, err := fs.EnsureLayout("sess_link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: "sess_link", CWD: filepath.Join(link, "project"), Mode: ModeAgent, SessionDir: dir}
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	for _, filter := range []string{
+		real,                                 // the physical path
+		real + string(filepath.Separator),    // a trailing separator
+		filepath.Join(real, "..", "project"), // an unclean path
+		filepath.Join(link, "project"),       // the stored spelling
+	} {
+		rows, err := fs.ListSnapshots(filter, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 || rows[0].SessionID != "sess_link" {
+			t.Fatalf("filter %q: rows = %+v, want the session stored under %q", filter, rows, st.CWD)
+		}
+	}
+	other := filepath.Join(root, "real", "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := fs.ListSnapshots(other, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("filter %q: rows = %+v, want none", other, rows)
 	}
 }

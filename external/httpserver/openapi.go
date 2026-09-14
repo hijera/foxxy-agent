@@ -216,9 +216,10 @@ func openAPISpec() map[string]interface{} {
 						"name":   "cwd",
 						"in":     "query",
 						"schema": map[string]string{"type": "string"},
-						"description": "Absolute directory. Keeps only sessions whose **cwd** is that directory or sits beneath it " +
-							"(case-insensitive on Windows), applied before **q** and paging. Used by the IntelliJ / VS Code plugins " +
-							"to scope History to the open project.",
+						"description": "Absolute directory. Keeps only sessions whose **cwd** is that directory or sits beneath it, " +
+							"compared as folders rather than strings (cleaned, symlinks resolved, case-insensitive on Windows and macOS), " +
+							"so a session the console stored under the logical path of a symlinked checkout is listed for the physical path an editor sends. " +
+							"Applied before **q** and paging. Used by the IntelliJ / VS Code plugins to scope History to the open project.",
 					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},

@@ -780,9 +780,10 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 	// project root so History does not mix every workspace the user ever opened.
 	// Applied before paging so hasMore/nextCursor describe the filtered list.
 	if scope := strings.TrimSpace(r.URL.Query().Get("cwd")); scope != "" {
+		inScope := session.NewWorkspaceScope(scope)
 		kept := rows[:0]
 		for _, row := range rows {
-			if session.CWDInScope(row.CWD, scope) {
+			if inScope(row.CWD) {
 				kept = append(kept, row)
 			}
 		}
