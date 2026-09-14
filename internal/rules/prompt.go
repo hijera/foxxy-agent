@@ -6,8 +6,14 @@ import (
 
 // RenderPrompt builds the {{.Rules}} markdown block.
 func RenderPrompt(cwd string, stickyAuto, mentioned []*Rule) string {
+	return RenderPromptWithDocs(LoadProjectDocs(cwd), stickyAuto, mentioned)
+}
+
+// RenderPromptWithDocs builds the {{.Rules}} block around project docs the
+// caller already loaded, so the caller knows which files the block carries and
+// can keep the other prompt blocks from repeating them.
+func RenderPromptWithDocs(docs []ProjectDoc, stickyAuto, mentioned []*Rule) string {
 	var parts []string
-	docs := LoadProjectDocs(cwd)
 	for _, d := range docs {
 		var b strings.Builder
 		b.WriteString("### ")

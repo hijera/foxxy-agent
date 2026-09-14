@@ -136,7 +136,7 @@ Override the built-in system prompt templates (Go text/template).
 
 ### `instructions`
 
-Files read from the session working directory and appended to the system prompt (AGENTS.md convention).
+Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The root AGENTS.md and DESIGN.md already enter it through the rules block, so listing them adds no second copy.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

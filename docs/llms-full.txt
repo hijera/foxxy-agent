@@ -5046,8 +5046,9 @@ From top to bottom in the rendered system message:
 2. Skills
 3. Plan context / todo list (mode-dependent)
 4. **Rules** (project docs + active rules)
-5. Session memory
-6. Current UTC time
+5. Project instructions (`instructions.files`, minus the project docs already in Rules)
+6. Session memory
+7. Current UTC time
 
 ## Discovery
 
@@ -5152,6 +5153,8 @@ On every turn, if present in session CWD:
 - **`DESIGN.md`** (subsection `### DESIGN.md`)
 
 These are unconditional; they do not use `alwaysApply` or `@mention`.
+
+They enter the prompt **once**. `instructions.files` (default `["AGENTS.md"]`) does not repeat a file this preamble already carries, so the default entry adds no second copy under **Project instructions**; other files in that list still load there. Files are compared on disk, not by name: `./AGENTS.md`, a differently cased name on a case-insensitive volume, and a link such as `CLAUDE.md` → `AGENTS.md` all count as the same file. The context breakdown counts both docs under `rules`.
 
 ## Generating rules
 
@@ -7730,7 +7733,7 @@ Override the built-in system prompt templates (Go text/template).
 
 ### `instructions`
 
-Files read from the session working directory and appended to the system prompt (AGENTS.md convention).
+Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The root AGENTS.md and DESIGN.md already enter it through the rules block, so listing them adds no second copy.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

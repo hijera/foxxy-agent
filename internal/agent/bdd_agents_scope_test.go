@@ -156,6 +156,9 @@ func (s *agentsScopeFeatureState) agentSessionInThatProject() error {
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 6},
 	}
 	cfg.Prompts.ApplyDefaults()
+	// A loaded config always names the root AGENTS.md as an instruction file
+	// (instructions.files defaults to it), so the session here does too.
+	cfg.Instructions.ApplyDefaults()
 	s.st.ReplaceRulesCatalog(session.DiscoverRules(cfg, s.cwd))
 	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
 	return nil
@@ -224,6 +227,22 @@ func (s *agentsScopeFeatureState) requestsAfterReadCarryNested(dir string) error
 	return nil
 }
 
+// everyRequestCarriesRootOnce counts the root file instead of looking for it:
+// both the rules block and instructions.files name it, and a second copy costs
+// its full size on every request.
+func (s *agentsScopeFeatureState) everyRequestCarriesRootOnce() error {
+	for n := range s.provider.seen {
+		sp, err := s.systemPrompt(n)
+		if err != nil {
+			return err
+		}
+		if c := strings.Count(sp, bddRootAgentsToken); c != 1 {
+			return fmt.Errorf("request %d carries the root AGENTS.md %d times, want exactly once", n, c)
+		}
+	}
+	return nil
+}
+
 func (s *agentsScopeFeatureState) noRequestCarriesSibling(dir string) error {
 	for n := range s.provider.seen {
 		sp, err := s.systemPrompt(n)
@@ -255,6 +274,7 @@ func initializeAgentsScopeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the first request carries the root AGENTS\.md but neither nested one$`, s.firstRequestHasRootOnly)
 	sc.Step(`^every request after the read carries the "([^"]*)" AGENTS\.md$`, s.requestsAfterReadCarryNested)
 	sc.Step(`^no request carries the "([^"]*)" AGENTS\.md$`, s.noRequestCarriesSibling)
+	sc.Step(`^every request carries the root AGENTS\.md exactly once$`, s.everyRequestCarriesRootOnce)
 }
 
 func TestAgentsMDScopingFeature(t *testing.T) {
