@@ -316,9 +316,45 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
+		}
+	}
+}
+
+// Remote clients (the console's --remote, internal/remote) read the built-in
+// command list and the session-scoped skills list, so both contracts belong in
+// the served spec: GET /foxxycode/commands exists, and GET /foxxycode/skills
+// names the 400 and 404 an X-FoxxyCode-Session-ID header can produce.
+func TestOpenAPISpecDocumentsCommandsAndSkillSessionErrors(t *testing.T) {
+	paths, ok := openAPISpec()["paths"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing paths map")
+	}
+	responsesOf := func(path, method string) map[string]interface{} {
+		t.Helper()
+		item, ok := paths[path].(map[string]interface{})
+		if !ok {
+			t.Fatalf("paths missing key %s", path)
+		}
+		op, ok := item[method].(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s has no %s operation", path, method)
+		}
+		responses, ok := op["responses"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("%s %s has no responses", method, path)
+		}
+		return responses
+	}
+	if _, ok := responsesOf("/foxxycode/commands", "get")["200"]; !ok {
+		t.Fatal("GET /foxxycode/commands does not document 200")
+	}
+	skillsList := responsesOf("/foxxycode/skills", "get")
+	for _, code := range []string{"200", "400", "404"} {
+		if _, ok := skillsList[code]; !ok {
+			t.Fatalf("GET /foxxycode/skills does not document %s", code)
 		}
 	}
 }

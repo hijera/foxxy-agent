@@ -782,6 +782,9 @@ export const messagesEn: Record<string, string> = {
   "settings.skills.deleteFailed": "Failed to delete",
   "settings.skills.updateFailed": "Update failed",
   "settings.skills.syncFailed": "Sync failed",
+  "settings.skills.installFailed": "Couldn't install {name}",
+  "settings.skills.installedStatus": "Installed {name}.",
+  "settings.skills.updatedStatus": "Updated {name}.",
   "settings.skills.autoDiscoveryLegend": "Skill auto-discovery",
   "settings.skills.autoDiscoveryDesc":
     "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name.",
@@ -790,6 +793,10 @@ export const messagesEn: Record<string, string> = {
   "settings.skills.searchPlaceholder": "Search marketplace skills to install…",
   "settings.skills.loadingMarketplaces": "Loading marketplaces…",
   "settings.skills.noMatches": "No matching marketplace skills.",
+  "settings.skills.noSourcesHint":
+    "Search lists the skills that the marketplaces under Remote skill sources publish. Add a source there, for example owner/repo, and save the settings.",
+  "settings.skills.marketplacesEmpty":
+    "The saved marketplaces list no skills. Just added a source? Save the settings and search again.",
   "settings.skills.install": "Install {name}",
   "settings.skills.moreResults": "+{count} more — refine your search",
   "settings.skills.syncedFrom": "Synced from {source}",

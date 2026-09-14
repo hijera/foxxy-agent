@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SchemaForm, IconTrash, type JsonSchema, type FieldOverride } from "./SchemaForm";
 import { SwitchField } from "./SwitchField";
 import { t } from "../i18n/i18n";
@@ -255,6 +255,9 @@ export function SkillsSection(props: {
   // Marketplace browse/install control.
   const [available, setAvailable] = useState<AvailablePlugin[] | null>(null);
   const [availableLoading, setAvailableLoading] = useState(false);
+  // Bumped whenever the cached list is dropped, so a fetch that was already on
+  // its way cannot bring back a list from before the change.
+  const availableRequest = useRef(0);
   const [installQuery, setInstallQuery] = useState("");
   const [installBusy, setInstallBusy] = useState<Record<string, boolean>>({});
   // Name of a just-installed skill to briefly highlight in the list. We do not
@@ -267,6 +270,27 @@ export function SkillsSection(props: {
     setFlash(key);
     window.setTimeout(() => setFlash((f) => (f === key ? null : f)), 1600);
   }, []);
+
+  // The search covers what the configured sources publish; with none there is
+  // nothing to ask the server for, and the tab says where sources are added.
+  const hasSources =
+    Array.isArray(value.sources) &&
+    value.sources.some((s) => typeof s === "string" && s.trim() !== "");
+
+  const invalidateAvailable = useCallback(() => {
+    availableRequest.current += 1;
+    setAvailable(null);
+    setAvailableLoading(false);
+  }, []);
+
+  // The installable list is fetched once and kept, but the server reads it from
+  // the *saved* sources. Settings replaces the whole document after Save (and an
+  // edit replaces the array), so a new `sources` array means the cached list may
+  // be stale: drop it, and the next focus or keystroke in the search fetches it
+  // again. Nothing is fetched here - a git source is cloned for every request.
+  useEffect(() => {
+    invalidateAvailable();
+  }, [value.sources, invalidateAvailable]);
 
   // firstLoad guards the "Loading…" placeholder so a refresh never unmounts the
   // list (which would collapse height and jump the scroll to the top).
@@ -303,7 +327,10 @@ export function SkillsSection(props: {
       const action = skill.enabled ? "disable" : "enable";
       const res = await apiSend(`/foxxycode/skills/${encodeURIComponent(skill.name)}/${action}`, "POST");
       if (!res.ok) {
-        setError(res.error || `Failed to ${action}`);
+        setError(
+          res.error ||
+            t(skill.enabled ? "settings.skills.disableFailed" : "settings.skills.enableFailed"),
+        );
       } else {
         await loadInstalled();
       }
@@ -334,7 +361,7 @@ export function SkillsSection(props: {
       if (!res.ok) {
         setError(res.error || t("settings.skills.updateFailed"));
       } else {
-        setStatus(`Updated ${skill.name}.`);
+        setStatus(t("settings.skills.updatedStatus", { name: skill.name }));
         await loadInstalled();
         await refreshUpdates();
       }
@@ -351,6 +378,8 @@ export function SkillsSection(props: {
       const res = await apiSend("/foxxycode/skills/sync", "POST");
       if (!res.ok) setError(res.error || t("settings.skills.syncFailed"));
       else {
+        // What is installed changed, so the installable list is stale too.
+        invalidateAvailable();
         await loadInstalled();
         await refreshUpdates();
         flashDone(SYNC_ALL_KEY);
@@ -370,6 +399,7 @@ export function SkillsSection(props: {
       const res = await apiSend(`/foxxycode/skills/sync?source=${encodeURIComponent(src)}`, "POST");
       if (!res.ok) setError(res.error || t("settings.skills.syncFailed"));
       else {
+        invalidateAvailable();
         await loadInstalled();
         await refreshUpdates();
         flashDone(src);
@@ -379,13 +409,18 @@ export function SkillsSection(props: {
   };
 
   // Lazily fetch the plugins advertised by configured marketplaces (network /
-  // git) the first time the install control is used; force to refresh after an
-  // install. Plain closure over `available` so the "already loaded" guard sees
-  // the current value.
+  // git) when the install control is used and no list is cached; force to
+  // refresh after an install. Plain closure over `available` so the "already
+  // loaded" guard sees the current value. A request that invalidateAvailable
+  // overtook is dropped on arrival.
   const loadAvailable = async (force = false) => {
-    if (available !== null && !force) return;
+    if (!hasSources) return;
+    if (!force && (available !== null || availableLoading)) return;
+    const request = ++availableRequest.current;
     setAvailableLoading(true);
-    setAvailable(await fetchAvailable());
+    const items = await fetchAvailable();
+    if (request !== availableRequest.current) return;
+    setAvailable(items);
     setAvailableLoading(false);
   };
 
@@ -395,9 +430,9 @@ export function SkillsSection(props: {
     setStatus(null);
     void (async () => {
       const res = await apiSend("/foxxycode/skills/install", "POST", { source: p.source, plugin: p.name });
-      if (!res.ok) setError(res.error || `Failed to install ${p.name}`);
+      if (!res.ok) setError(res.error || t("settings.skills.installFailed", { name: p.name }));
       else {
-        setStatus(`Installed ${p.name}.`);
+        setStatus(t("settings.skills.installedStatus", { name: p.name }));
         // Optimistically drop it from the dropdown right away, then refresh.
         setAvailable((av) => (av ? av.map((a) => (a.name === p.name ? { ...a, installed: true } : a)) : av));
         await loadInstalled();
@@ -478,19 +513,32 @@ export function SkillsSection(props: {
             type="text"
             placeholder={t("settings.skills.searchPlaceholder")}
             value={installQuery}
-            onChange={(e) => setInstallQuery(e.target.value)}
+            onChange={(e) => {
+              setInstallQuery(e.target.value);
+              // After an invalidation the list is fetched again on the next
+              // keystroke as well, not only on the next focus.
+              void loadAvailable();
+            }}
             onFocus={() => void loadAvailable()}
             data-testid="skills-install-input"
           />
-          {installQ ? (
+          {/* A dropped list hides the menu until the search is used again,
+              rather than showing "no matches" for a list nobody fetched. */}
+          {installQ && (!hasSources || availableLoading || available !== null) ? (
             <ul className="skills-install-results" data-testid="skills-install-results">
-              {availableLoading && available === null ? (
+              {!hasSources ? (
+                <li className="skills-install-empty settings-muted">
+                  {t("settings.skills.noSourcesHint")}
+                </li>
+              ) : available === null ? (
                 <li className="skills-install-empty settings-muted">
                   {t("settings.skills.loadingMarketplaces")}
                 </li>
               ) : installMatches.length === 0 ? (
                 <li className="skills-install-empty settings-muted">
-                  {t("settings.skills.noMatches")}
+                  {available.length === 0
+                    ? t("settings.skills.marketplacesEmpty")
+                    : t("settings.skills.noMatches")}
                 </li>
               ) : (
                 <>
@@ -531,6 +579,12 @@ export function SkillsSection(props: {
             </ul>
           ) : null}
         </div>
+
+        {!hasSources ? (
+          <p className="settings-field-desc" data-testid="skills-install-no-sources">
+            {t("settings.skills.noSourcesHint")}
+          </p>
+        ) : null}
 
         <p className="settings-field-desc">
           {t("settings.skills.installHintBefore")} <code>npx skills</code>{" "}

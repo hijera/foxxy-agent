@@ -812,6 +812,9 @@ export const messagesRu: Record<string, string> = {
   "settings.skills.deleteFailed": "Не удалось удалить",
   "settings.skills.updateFailed": "Не удалось обновить",
   "settings.skills.syncFailed": "Не удалось синхронизировать",
+  "settings.skills.installFailed": "Не удалось установить {name}",
+  "settings.skills.installedStatus": "Скил {name} установлен.",
+  "settings.skills.updatedStatus": "Скил {name} обновлён.",
   "settings.skills.autoDiscoveryLegend": "Автообнаружение скилов",
   "settings.skills.autoDiscoveryDesc":
     "Позволяет агенту самому подтягивать полные инструкции подходящего скила (инструмент load_skill), а не только когда вы вводите /имя.",
@@ -820,6 +823,10 @@ export const messagesRu: Record<string, string> = {
   "settings.skills.searchPlaceholder": "Поиск скилов для установки…",
   "settings.skills.loadingMarketplaces": "Загрузка маркетплейсов…",
   "settings.skills.noMatches": "Подходящих скилов не найдено.",
+  "settings.skills.noSourcesHint":
+    "Поиск показывает скилы маркетплейсов из раздела «Удалённые источники скилов». Добавьте туда источник, например owner/repo, и сохраните настройки.",
+  "settings.skills.marketplacesEmpty":
+    "В сохранённых маркетплейсах нет скилов. Если источник только что добавлен, сохраните настройки и повторите поиск.",
   "settings.skills.install": "Установить {name}",
   "settings.skills.moreResults": "+{count} ещё — уточните запрос",
   "settings.skills.syncedFrom": "Синхронизировано из {source}",

@@ -69,7 +69,7 @@ FoxxyCode is a distroless-friendly **harness**: drop it into minimal images (`sc
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
 - **Five operating modes** - `agent` (full tool access), `plan` (planning without implementation), `docs` (guarded Markdown documentation), `ask` (read-only answers and investigation), and `debug` (systematic root-cause diagnosis before a fix)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`** and **`.codex/rules/`** under the session cwd, and reads nested **`AGENTS.md`** ([agents.md](https://agents.md/)) on demand for the folders a tool enters - see [Rules](docs/rules.md)
-- **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
+- **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; later dirs override earlier), installable from any repository or marketplace with version tracking (**`skills.sources`**, **`/plugin`**, Settings → Skills) - see [Skills](docs/skills.md)
 - **Hooks** - your own commands at lifecycle points of a session: a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, rewrite its arguments or add context; `PostToolUse` / `PostToolUseFailure` see the result; `UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact` / `PostCompact`, `SubagentStart` / `SubagentStop` and `Notification` cover the rest of the turn. Definitions are JSON files in Claude Code's shape (**`~/.foxxycode/hooks.json`**, the workspace's **`.foxxycode/hooks.json`** and **`.claude/settings*.json`**); a file found inside the workspace runs nothing until it is approved there (**`foxxycode hooks trust <file>`**) - see [Hooks](docs/hooks.md)
 - **Session export** - the built-in `/export [md|html|json|jsonl|pdf|docx] [path]` writes the conversation to a file in the workspace, and the panel's download button renders the same document; `--no-tools` / `--no-thinking` trim it (the panel exports the conversation alone by default, the command keeps the tool calls) - see [Session export](docs/session-export.md)
 - **MCP server integration** - connect any MCP server for additional tools
@@ -443,14 +443,17 @@ Later directories override earlier ones when the same skill name appears in mult
 
 - **[skills.sh](https://skills.sh)** — community registry, install with `npx skills add <owner/repo@skill>`
 - **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — skillsbd registry curated for FoxxyCode, install with `npx skillsbd install <name>`
-- **Settings → Skills** in the web UI (`foxxycode http`) — browse and install from the skillsbd registry without leaving the browser
+- **Marketplaces** — FoxxyCode installs skills itself from a GitHub repo (`owner/repo[@ref]`), a git URL or an agents-standard `marketplace.json` (Claude Code plugin marketplaces included), no Node.js needed. List sources under **`skills.sources`** and install on demand from **Settings → Skills** (web UI and the IntelliJ and VS Code panels), the **`/plugin`** chat command or **`foxxycode plugin …`**; installed versions and updates are tracked
 
 **CLI:**
 
 ```bash
-foxxycode skills list              # list installed skills with enabled/disabled status
-foxxycode skills enable <name>     # enable a skill
-foxxycode skills disable <name>    # disable without uninstalling
+foxxycode skills list                              # list installed skills with enabled/disabled status
+foxxycode skills enable <name>                     # enable a skill
+foxxycode skills disable <name>                    # disable without uninstalling
+foxxycode plugin marketplace add <owner/repo>      # add a marketplace and install its skills
+foxxycode plugin marketplace list                  # configured marketplaces and their status
+foxxycode plugin install <owner/repo>              # install or update a source's skills
 ```
 
 See **[`docs/skills.md`](docs/skills.md)** for the full reference.

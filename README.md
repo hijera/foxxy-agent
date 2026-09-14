@@ -67,7 +67,7 @@ FoxxyCode — совместимая с distroless **среда выполнен
 - **Цикл ReAct** — LLM чередует рассуждение, действие (вызов инструментов) и наблюдение за результатами; профиль кодинг-агента доступен из коробки
 - **Пять режимов работы** — `agent` (полный доступ к инструментам), `plan` (планирование без реализации), `docs` (защищённое редактирование Markdown-документации), `ask` (ответы и исследование без изменений) и `debug` (системная диагностика первопричины до исправления)
 - **Правила** — автоматически находит **`.cursor/rules/`**, **`.foxxycode/rules/`**, **`.claude/rules/`** и **`.codex/rules/`** в рабочем каталоге сессии, а вложенные **`AGENTS.md`** (соглашение [agents.md](https://agents.md/)) читает по требованию — для тех каталогов, куда зашёл инструмент; подробнее в разделе [Правила](docs/rules.md)
-- **Навыки** — slash-команды и пакеты **`SKILL.md`** из **`skills.dirs`** (по умолчанию: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; более поздний каталог имеет приоритет); подробнее в разделе [Навыки](docs/skills.md)
+- **Навыки** — slash-команды и пакеты **`SKILL.md`** из **`skills.dirs`** (по умолчанию: **`~/.agents/skills`**, **`~/.foxxycode/skills`**, **`${CWD}/.foxxycode/skills`**; более поздний каталог имеет приоритет); ставятся из любого репозитория или маркетплейса (**`skills.sources`**, **`/plugin`**, Настройки → Навыки) с учётом версий; подробнее в разделе [Навыки](docs/skills.md)
 - **Фоновые задачи** — `run_command` умеет работать отдельно от хода (`background: true` плюс собственная оценка модели `expected_seconds`); `background_list` / `background_output` / `background_wait` / `background_stop` забирают результат позже, панель **Фоновые задачи** в UI показывает, что ещё выполняется, а диалог разрешений умеет расширить грант до целой программы (`curl`, `git status`), чтобы серия похожих вызовов спрашивала один раз; подробнее в разделе [Фоновые задачи](docs/background-tasks.md)
 - **Субагенты** — модель делегирует ограниченную самодостаточную задачу дочернему агенту со своим контекстным окном и сессией (`spawn_agent`, в foreground или отсоединённо); определения — markdown-файлы с YAML-frontmatter в **`~/.foxxycode/agents`** и **`.foxxycode/agents`** (файлы Claude Code из **`.claude/agents`** тоже загружаются), два встроенных (**`general`**, **`explore`**) вшиты в бинарь, проектные файлы требуют разового одобрения (**`foxxycode agents trust <name>`**), инструменты и режим разрешений можно только сужать, а каждый запуск — фоновая задача с read-only транскриптом ребёнка, доступным из панели **Задачи** — см. [Субагенты](docs/subagents.md)
 - **Хуки** — ваши собственные команды в точках жизненного цикла сессии: хук `PreToolUse` может запретить вызов инструмента при любом режиме разрешений, одобрить его в обход диалога, переписать аргументы или добавить контекст; `PostToolUse` / `PostToolUseFailure` видят результат; `UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact` / `PostCompact`, `SubagentStart` / `SubagentStop` и `Notification` покрывают остальной ход. Определения — JSON-файлы формата Claude Code (**`~/.foxxycode/hooks.json`**, **`.foxxycode/hooks.json`** и **`.claude/settings*.json`** в рабочей папке); файл, найденный внутри рабочей папки, ничего не запускает, пока не одобрен там (**`foxxycode hooks trust <файл>`**) — см. [Хуки](docs/hooks.md)
@@ -444,14 +444,17 @@ Slash-команды и пакеты **`SKILL.md`**, передаваемые ч
 
 - **[skills.sh](https://skills.sh)** — реестр сообщества; установка: `npx skills add <owner/repo@skill>`
 - **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — реестр skillsbd, отобранный для FoxxyCode; установка: `npx skillsbd install <name>`
-- **Настройки → Навыки** в веб-интерфейсе (`foxxycode http`) — просмотр и установка из реестра skillsbd прямо в браузере
+- **Маркетплейсы** — FoxxyCode сам ставит навыки из GitHub-репозитория (`owner/repo[@ref]`), git URL или `marketplace.json` по стандарту agents (подходят и маркетплейсы плагинов Claude Code), без Node.js. Источники перечисляются в **`skills.sources`**, устанавливаются по запросу: в **Настройки → Навыки** (веб-интерфейс и панели IntelliJ и VS Code), командой **`/plugin`** в чате или **`foxxycode plugin …`**; версии и обновления отслеживаются
 
 **CLI:**
 
 ```bash
-foxxycode skills list              # список установленных навыков и их состояние
-foxxycode skills enable <name>     # включить навык
-foxxycode skills disable <name>    # выключить навык без удаления
+foxxycode skills list                              # список установленных навыков и их состояние
+foxxycode skills enable <name>                     # включить навык
+foxxycode skills disable <name>                    # выключить навык без удаления
+foxxycode plugin marketplace add <owner/repo>      # добавить маркетплейс и установить его навыки
+foxxycode plugin marketplace list                  # маркетплейсы и их состояние
+foxxycode plugin install <owner/repo>              # установить или обновить навыки источника
 ```
 
 Полное описание см. в **[`docs/skills.md`](docs/skills.md)**.

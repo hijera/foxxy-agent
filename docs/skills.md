@@ -55,7 +55,74 @@ npx skillsbd list
 
 Skills from skillsbd are also installed into **`~/.agents/skills/`** by default, so FoxxyCode picks them up automatically via the default `skills.dirs`.
 
-You can also browse and install through the FoxxyCode web UI: **Settings → Skills → Registry**.
+FoxxyCode can also install skills on its own - from a GitHub repository, a git URL or a marketplace, without Node.js - see [Install from a repository or marketplace](#install-from-a-repository-or-marketplace-agents-standard).
+
+---
+
+## Install from a repository or marketplace (agents standard)
+
+FoxxyCode can fetch skills itself, without Node.js or any external CLI, from a **GitHub repo**, a **git URL**, or an **http(s) URL** to an [agents-standard](https://agents.md) `marketplace.json`. The manifest is read from `.agents/plugins/marketplace.json` or from Claude Code's `.claude-plugin/marketplace.json`, so a Claude Code plugin marketplace works as a source as it is. List sources under `skills.sources` and install from them on demand: nothing is fetched automatically, and adding a source installs nothing by itself.
+
+```yaml
+skills:
+  sources:
+    - "EvilFreelancer/rpa-skills"                    # owner/repo shorthand (GitHub)
+    - "artwist-polyakov/polyakov-claude-skills"      # a marketplace monorepo
+    - "owner/repo@v1.2"                              # pin a branch or tag
+    - "https://github.com/owner/single-skill.git"    # any git URL
+    - "https://example.com/skills/marketplace.json"  # an API marketplace URL
+    - "file:///srv/team-skills"                      # a local git repository (offline)
+```
+
+Installed skills are copied into **`${FOXXYCODE_HOME}/skills/<name>/`**. That directory is one of the default `skills.dirs`, so the loader picks the copies up like any other skill - keep it in the list when you override `skills.dirs`. Git sources need `git` on `PATH`.
+
+### Three surfaces, one set of operations
+
+- **Settings → Skills** in the web UI and in the IntelliJ and VS Code panels. **Remote skill sources** edits `skills.sources` (**Add**, remove, a **Sync** button per source and **Sync all**). The search field above the installed list shows the skills that the **saved** sources publish, with an install button on each row; with no source configured it points to **Remote skill sources** instead. Installed rows show the version, a *remote* badge with the source they came from, an **Update** button when a newer version is known, the enable switch and delete.
+- **Chat** - the built-in **`/plugin`** command, deterministic like `/compact`: it runs without an LLM turn.
+- **CLI** - `foxxycode plugin ...`, the same dispatcher as `/plugin`.
+
+```bash
+foxxycode plugin marketplace list                         # configured marketplaces + validity status
+foxxycode plugin marketplace add <owner/repo | url>       # register a marketplace and fetch its skills
+foxxycode plugin marketplace remove <owner/repo | url>    # drop a marketplace from config.yaml (installed skills stay)
+foxxycode plugin marketplace sync [owner/repo | url]      # re-fetch all marketplaces, or just one
+foxxycode plugin install <owner/repo | url>               # add the source if new, then sync
+foxxycode plugin remove <name>                            # delete an installed skill (bundled = read-only)
+foxxycode plugin enable <name>   |   plugin disable <name> # toggle a skill
+foxxycode plugin list                                     # installed skills with versions and origin
+```
+
+In chat the same words follow `/plugin`, e.g. `/plugin marketplace add EvilFreelancer/rpa-skills`, `/plugin install owner/repo`, `/plugin marketplace list`. `marketplace list` probes each source and reports whether it is a **valid marketplace** (with its name, version and plugin count), a repository with **no marketplace.json** (skills discovered directly), or **unreachable**.
+
+The lower-level `foxxycode skills` commands work on the same data:
+
+```bash
+foxxycode skills list                                      # all skills (with a VERSION column)
+foxxycode skills enable <name>  |  disable <name>
+foxxycode skills add <src>  |  sync  |  remove <name>      # add a source, sync all sources, remove a synced skill
+```
+
+The HTTP routes behind all three are listed under **`/foxxycode/skills*`** in [http-api.md](http-api.md).
+
+### Versions and updates
+
+A `marketplace.json` may declare a `version` per plugin (semantic version), and a skill's `SKILL.md` frontmatter may carry its own `version:`. FoxxyCode records the installed version in the **`${FOXXYCODE_HOME}/skills/.remote.json`** lockfile and shows it in `foxxycode skills list`, `foxxycode plugin list`, the HTTP skill rows and Settings → Skills.
+
+A sync installs whatever version a source publishes at that moment, so `plugin marketplace sync` (and **Sync** / **Sync all** in Settings) is also the update. To look before installing, `GET /foxxycode/skills/updates` compares each installed remote skill with its source and reports `update_available`, and `POST /foxxycode/skills/{name}/update` re-syncs only the source that skill came from - the **Update** button in Settings. Plugins without a version are shown without one and are never flagged for an update.
+
+### How a source is resolved
+
+1. `owner/repo` shorthands and git URLs are cloned shallow (`git clone --depth 1`) into a temporary directory on every sync; an API URL is downloaded as JSON (at most 4 MiB).
+2. If the repository (or API response) is a **marketplace** (`.agents/plugins/marketplace.json` or `.claude-plugin/marketplace.json`), each listed plugin is resolved:
+   - an **external** source (`{"source":"github","repo":"owner/repo"}` / `{"source":"url","url":"…","ref":"…"}`) is cloned;
+   - a **relative** source (`"./plugins/foo"`) is read from inside the marketplace repository.
+3. If there is **no manifest**, the repository is scanned directly for `SKILL.md`.
+4. Every discovered skill directory (root `SKILL.md`, `skills/<name>/`, `.claude/skills/<name>/`, or `plugins/<p>/skills/<s>/`) is copied - with its sibling `scripts/`, `references/`, `examples/` - into `${FOXXYCODE_HOME}/skills/<name>/`. The new copy is swapped in only once it is complete, so a failed sync never leaves a half-written skill.
+
+Because synced skills live in a normal skills directory, `enable` / `disable` work on them like on any other skill; `remove` deletes the copy, and the next sync installs it again unless the source is also dropped from `skills.sources`.
+
+Private repositories rely on your ambient `git` credentials. http(s) clone URLs - including the ones a marketplace manifest points at - and API URLs pass the same SSRF guard as the `webfetch` tool, so a manifest cannot make the server clone from loopback or private addresses; `file://` and `git@host:path` sources are the operator's own choice and are cloned as written.
 
 ---
 
@@ -68,7 +135,7 @@ Default directories (lowest → highest priority):
 | Priority | Path | Purpose |
 |----------|------|---------|
 | lowest | `~/.agents/skills/` | Global skills installed by `npx skills` / `npx skillsbd` — shared with all agents |
-| ↑ | `~/.foxxycode/skills/` | FoxxyCode-specific skills; may contain symlinks into `~/.agents/skills/` |
+| ↑ | `~/.foxxycode/skills/` | FoxxyCode-specific skills, including the ones installed from `skills.sources`; may contain symlinks into `~/.agents/skills/` |
 | highest | `${CWD}/.foxxycode/skills/` | Project-local skills — override anything from global/user directories |
 
 Override in `config.yaml`:
@@ -178,4 +245,5 @@ ACP clients receive `available_commands_update` after `session/new` and `session
 - Implementation: `internal/skills/`, wiring in `internal/session/`, `internal/agent/system_prompt.go`, `internal/agent/react.go`
 - Config reference: [config.md](config.md) → `skills`
 - Rules (separate mechanism): [rules.md](rules.md)
-- Registry UI: Settings → Skills (requires `foxxycode http`)
+- Settings UI: Settings → Skills (`foxxycode http` or `foxxycode serve`, and the IntelliJ and VS Code panels)
+- HTTP routes: [http-api.md](http-api.md) → `/foxxycode/skills*`, `/foxxycode/commands`
