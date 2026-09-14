@@ -1,0 +1,126 @@
+# Point the JetBrains plugin repository at a specific release, by hand.
+#
+# The release pipeline (intellij-plugin.yaml) already republishes updatePlugins.xml on every
+# tag, so this workflow is the lever for the cases it cannot cover:
+#
+#   - roll back: a release turned out bad and every IDE should be offered the previous one
+#     again (the document may move backwards only from here, never automatically);
+#   - re-sync: the document drifted from the releases — a publish step failed, someone edited
+#     docs/updatePlugins.xml, or the repository was set up after the release was cut.
+#
+# No plugin is rebuilt: the zip already attached to the chosen release is what gets advertised.
+
+name: IntelliJ plugin repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer tag the plugin repository should advertise (X.Y.Z)
+        required: true
+        type: string
+
+concurrency:
+  group: plugin-repository-main
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: Publish updatePlugins.xml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the document to main and re-attach it to the Release
+
+    steps:
+      # GitHub Pages serves docs/ from main, so this is both the source of the generator and
+      # the branch the document is published on.
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate the requested version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must match X.Y.Z (got ${VERSION})." >&2
+            exit 1
+          fi
+
+      - name: Download the plugin from its Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release download "$VERSION" \
+            --repo "${{ github.repository }}" \
+            --pattern 'foxxycode-intellij-*.zip' \
+            --dir "$RUNNER_TEMP" \
+            --clobber
+          ls -l "$RUNNER_TEMP"/foxxycode-intellij-*.zip
+
+      - name: Build the plugin repository generator
+        run: go build -o "${RUNNER_TEMP}/updateplugins" ./editors/intellij/updateplugins
+
+      # -force is what separates this workflow from the automatic one: a deliberate rollback
+      # is allowed to advertise an older version than the document currently does.
+      - name: Publish updatePlugins.xml to GitHub Pages
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          ZIP="$(ls "$RUNNER_TEMP"/foxxycode-intellij-*.zip)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch --depth 1 origin main
+            git reset --hard origin/main
+            "${RUNNER_TEMP}/updateplugins" \
+              -zip "$ZIP" \
+              -tag "$VERSION" \
+              -repo "${{ github.repository }}" \
+              -out docs/updatePlugins.xml \
+              -force
+            cat docs/updatePlugins.xml
+            # Staged, not working-tree: on a checkout where the document is not tracked yet
+            # "git diff" reports nothing and the publish would silently do nothing.
+            git add docs/updatePlugins.xml
+            if git diff --cached --quiet -- docs/updatePlugins.xml; then
+              echo "The plugin repository already advertises ${VERSION}; nothing to publish."
+              break
+            fi
+            git commit -m "chore(intellij): advertise ${VERSION} in the plugin repository"
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [ "$attempt" = "3" ]; then
+              echo "Could not publish updatePlugins.xml to main after 3 attempts." >&2
+              exit 1
+            fi
+            echo "main moved while publishing (attempt ${attempt}); retrying."
+          done
+
+      # The copy attached to the Release backs the .../releases/latest/download/ URL.
+      - name: Attach updatePlugins.xml to the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release upload "$VERSION" docs/updatePlugins.xml \
+            --repo "${{ github.repository }}" \
+            --clobber

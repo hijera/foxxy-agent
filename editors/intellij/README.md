@@ -24,6 +24,32 @@ IDE  ──tool window──▶  JBCefBrowser  ──http──▶  foxxycode ht
 - The bundled binary is a **full-feature build** (`http ui scheduler memory`), produced by the
   `foxxycodeGoBuild_*` Gradle tasks from the repo root.
 
+## Install
+
+The plugin is not on the JetBrains Marketplace. It ships from **its own plugin repository**, which
+is a single URL the IDE polls — so it installs and updates itself like any marketplace plugin.
+
+In **Settings | Plugins | ⚙ | Manage Plugin Repositories | +**, add:
+
+```text
+https://hijera.github.io/foxxy-agent/updatePlugins.xml
+```
+
+Then open the **Marketplace** tab, search for **FoxxyCode**, and install. From that point the IDE
+offers every new release on its own; the URL always points at the latest one.
+
+The same document is attached to each release, so this address works as well:
+
+```text
+https://github.com/hijera/foxxy-agent/releases/latest/download/updatePlugins.xml
+```
+
+To pin a specific version instead, download `foxxycode-intellij-<version>.zip` from
+[Releases](https://github.com/hijera/foxxy-agent/releases) and use **Install Plugin from Disk…**.
+
+How the repository is published — and how to roll it back — is in
+[docs/RELEASE_SETUP.md](../../docs/RELEASE_SETUP.md#5-репозиторий-плагина-для-intellij-автообновление).
+
 ## Requirements
 
 - An IntelliJ-platform IDE, **build 222 (2022.2) or newer** (no upper bound), running on a JetBrains
@@ -66,7 +92,8 @@ Binaries are placed under `<plugin>/foxxycode-bin/<os>-<arch>/foxxycode[.exe]` i
 and resolved at runtime by `FoxxyCodeBinaryResolver` for the running IDE's platform. Without
 `-Pproduction`, only the host target is built (fast local loop).
 
-Install the built zip via **Settings | Plugins | ⚙ | Install Plugin from Disk…**.
+Install the built zip via **Settings | Plugins | ⚙ | Install Plugin from Disk…** (for a released
+build, prefer the plugin repository above — it keeps updating itself).
 
 > **Gradle distribution.** The first build downloads Gradle 8.10.2 and the IntelliJ IDEA 2022.2.1 SDK,
 > then caches both. Easiest alternative: open `editors/intellij/` in IntelliJ IDEA as a Gradle
