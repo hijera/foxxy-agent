@@ -208,7 +208,7 @@ Project instruction files (`config.Instructions`, `internal/config/instructions.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `files` | string list | no | `["AGENTS.md"]` | Filenames relative to the session CWD, read and appended to the system prompt. |
+| `files` | string list | no | `["AGENTS.md"]` | Filenames relative to the session CWD, read and appended to the system prompt. The root `AGENTS.md` and `DESIGN.md` already enter it through the rules block ([project docs preamble](rules.md#project-docs-preamble)), so listing them adds no second copy. |
 
 ## `skills`
 
