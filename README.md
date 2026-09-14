@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxycode-agent" alt="Лицензия MIT" /></a>
-  <a href="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Тесты для PR" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="Лицензия MIT" /></a>
+  <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Тесты для PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="Среда ACP" /></a>
   <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="Готово для distroless" />
   <img src="https://img.shields.io/badge/single%20binary-252525" alt="Один исполняемый файл" />
@@ -101,8 +101,8 @@ FoxxyCode работает как **ACP-сервер** (`foxxycode acp`). **Obsi
 **Сборка из исходников** (рекомендуется; требования перечислены в разделе «Другие способы установки»):
 
 ```bash
-git clone https://github.com/hijera/foxxycode-agent
-cd foxxycode-agent
+git clone https://github.com/hijera/foxxy-agent
+cd foxxy-agent
 make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install   # копирует build/foxxycode в ~/.local/bin или /usr/local/bin
 ```
@@ -123,7 +123,7 @@ sudo apt-get install ./foxxycode_0.2.63_linux_amd64.deb   # или: sudo dnf ins
 brew install --cask https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode.rb
 ```
 
-Можно также скачать архив для своей платформы из **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** и добавить исполняемый файл **`foxxycode`** в **`PATH`**. Подробнее обо всех способах — **[`docs/getting-started/install.md`](docs/getting-started/install.md)**.
+Можно также скачать архив для своей платформы из **[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** и добавить исполняемый файл **`foxxycode`** в **`PATH`**. Подробнее обо всех способах — **[`docs/getting-started/install.md`](docs/getting-started/install.md)**.
 
 Создайте начальную конфигурацию: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
 
@@ -131,7 +131,7 @@ brew install --cask https://github.com/hijera/foxxy-agent/releases/latest/downlo
 
 Затем укажите ключ провайдера в **`~/.foxxycode/config.yaml`** (или переменную среды **`OPENAI_API_KEY`**) и запустите **`foxxycode http`** для веб-интерфейса либо **`foxxycode acp`** для клиента редактора.
 
-**Docker** — тот же полный исполняемый файл доступен в образе **`ghcr.io/hijera/foxxycode-agent`**: выполните **`docker compose up -d`** (см. [Docker](#docker)).
+**Docker** — тот же полный исполняемый файл доступен в образе **`ghcr.io/hijera/foxxy-agent`**: выполните **`docker compose up -d`** (см. [Docker](#docker)).
 
 В дальнейшем обновляйтесь командой **`foxxycode update -y`** (см. [Обновление](#обновление)).
 
@@ -203,7 +203,7 @@ make build-desktop
 
 ### Docker
 
-Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** под именем **`ghcr.io/hijera/foxxycode-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/contributing/build.md](docs/contributing/build.md#release-binaries-ci)**. Публикуемый образ собирается с тем же набором, что и **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** — включая **`gateway`** и **`swarm`**, так что команда по умолчанию (**`serve`**) поднимает те подсистемы, которые включены в примонтированном **`config.yaml`**, см. **[docs/getting-started/docker.md](docs/getting-started/docker.md)**.
+Образы релизов публикуются в **[GitHub Container Registry](https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent)** под именем **`ghcr.io/hijera/foxxy-agent`** (теги **`latest`**, **`X.Y.Z`** и другие; платформы **linux/amd64** и **linux/arm64**). Для каждого SemVer-тега также создаются архивы **GitHub Release** для Linux, Windows, macOS Intel и Apple Silicon; подробнее в **[docs/contributing/build.md](docs/contributing/build.md#release-binaries-ci)**. Публикуемый образ собирается с тем же набором, что и **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** — включая **`gateway`** и **`swarm`**, так что команда по умолчанию (**`serve`**) поднимает те подсистемы, которые включены в примонтированном **`config.yaml`**, см. **[docs/getting-started/docker.md](docs/getting-started/docker.md)**.
 
 **1. Конфигурация и рабочий каталог** (из корня репозитория или другого каталога, в котором хранится **`config.yaml`**):
 
@@ -287,7 +287,7 @@ export OPENAI_API_KEY="sk-..."
 
 ## Обновление
 
-Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
+Официальные CLI-сборки публикуются в **[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** (например, **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Каждый релиз содержит полный набор функций сборки **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
 
 Команда **`foxxycode update`** загружает архив для текущей ОС и архитектуры и заменяет запущенный исполняемый файл с разрешением символических ссылок. Обычно так обновляют установку после **`make install`** (**`~/.local/bin/foxxycode`**) или локальный артефакт командой **`./build/foxxycode update`**.
 
@@ -327,7 +327,7 @@ foxxycode http --help     # только если сборка содержит 
 | **`--check`** | Только проверить наличие обновления, ничего не загружая. |
 | **`-y`** / **`--yes`** | Установить без подтверждения. |
 | **`--version X.Y.Z`** | Установить конкретный релиз, а не только последний. |
-| **`--repo owner/name`** | Использовать другой GitHub-репозиторий (по умолчанию **`hijera/foxxycode-agent`**). |
+| **`--repo owner/name`** | Использовать другой GitHub-репозиторий (по умолчанию **`hijera/foxxy-agent`**). |
 
 **Примечания**
 
@@ -683,10 +683,10 @@ echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":
 
 | Сборка | Где взять | Что внутри | Кому подходит |
 |--------|-----------|------------|---------------|
-| **Настольное приложение** | `foxxycode-desktop_<версия>_windows_amd64.zip` в [Releases](https://github.com/hijera/foxxycode-agent/releases) | полный набор + `desktop` (окно WebView2, без консоли) | Тем, кому нужно обычное приложение с окном: чат, настройки, уведомления и звуковой сигнал, пошаговое знакомство при первом запуске. **Только Windows x64** |
-| **Релизный архив CLI** | `foxxycode_<версия>_<ос>_<арх>.{tar.gz,zip}` в [Releases](https://github.com/hijera/foxxycode-agent/releases) | `http ui scheduler memory cli browser gateway` | **Вариант по умолчанию для большинства.** Консоль в терминале (`foxxycode`), веб-интерфейс (`foxxycode http` → `http://127.0.0.1:12345/`), планировщик, память, браузерный инструмент, шлюз мессенджеров (`foxxycode gateway`). Linux, Windows, macOS (Intel и Apple Silicon) |
-| **Плагин IDE** | zip для IntelliJ и `.vsix` для VS Code приложены к тому же GitHub Release | тот же полный набор, без `cli` и `gateway` | Тем, кто работает внутри редактора: панель чата, контекст открытых файлов, `@terminal`, перетаскивание файлов, нативные inline-diff в IntelliJ. Исполняемый файл уже внутри плагина — ставить отдельно не нужно |
-| **Docker-образ** | `ghcr.io/hijera/foxxycode-agent` (`latest`, `X.Y.Z`; linux/amd64 и linux/arm64) | `http scheduler ui memory cli browser` | Серверу, команде и CI: один общий экземпляр с веб-интерфейсом, рабочий каталог монтируется томом. **Chrome в образе нет** — для браузерного инструмента соберите производный образ; тега `gateway` тоже нет |
+| **Настольное приложение** | `foxxycode-desktop_<версия>_windows_amd64.zip` в [Releases](https://github.com/hijera/foxxy-agent/releases) | полный набор + `desktop` (окно WebView2, без консоли) | Тем, кому нужно обычное приложение с окном: чат, настройки, уведомления и звуковой сигнал, пошаговое знакомство при первом запуске. **Только Windows x64** |
+| **Релизный архив CLI** | `foxxycode_<версия>_<ос>_<арх>.{tar.gz,zip}` в [Releases](https://github.com/hijera/foxxy-agent/releases) | `http ui scheduler memory cli browser gateway` | **Вариант по умолчанию для большинства.** Консоль в терминале (`foxxycode`), веб-интерфейс (`foxxycode http` → `http://127.0.0.1:12345/`), планировщик, память, браузерный инструмент, шлюз мессенджеров (`foxxycode gateway`). Linux, Windows, macOS (Intel и Apple Silicon) |
+| **Плагин IDE** | zip для IntelliJ и `.vsix` для VS Code приложены к тому же GitHub Release. Для IntelliJ есть [репозиторий плагинов](docs/contributing/release-setup.md#5-репозиторий-плагина-для-intellij-автообновление) с автообновлением: добавьте `https://hijera.github.io/foxxy-agent/updatePlugins.xml` в **Settings → Plugins → ⚙ → Manage Plugin Repositories** | тот же полный набор, без `cli` и `gateway` | Тем, кто работает внутри редактора: панель чата, контекст открытых файлов, `@terminal`, перетаскивание файлов, нативные inline-diff в IntelliJ. Исполняемый файл уже внутри плагина — ставить отдельно не нужно |
+| **Docker-образ** | `ghcr.io/hijera/foxxy-agent` (`latest`, `X.Y.Z`; linux/amd64 и linux/arm64) | `http scheduler ui memory cli browser` | Серверу, команде и CI: один общий экземпляр с веб-интерфейсом, рабочий каталог монтируется томом. **Chrome в образе нет** — для браузерного инструмента соберите производный образ; тега `gateway` тоже нет |
 | **Полная сборка из исходников** | `make build TAGS="http ui scheduler memory cli browser gateway"` | то же, что в релизном архиве | Тем, кто правит код форка или собирает под платформу, которой нет в релизах |
 | **Лёгкая сборка, только ACP** | `make build` (без тегов) | ACP-сервер, сессии, промпты, инструменты | Встраиванию в редактор или скрипт по ACP и минимальным контейнерам (`scratch`, distroless, ФС только для чтения): нет HTTP, SPA, планировщика и памяти — самый маленький исполняемый файл |
 | **Шлюз мессенджеров** | уже в релизном архиве CLI и настольном приложении; лёгкая своя сборка: `make build TAGS="http ui scheduler memory gateway.telegram"` либо `docker-compose.dev.yml` | подкоманда `foxxycode gateway` | Телеграм-боту с изолированными сессиями пользователей. Тега `gateway` нет только в публикуемом Docker-образе — для него соберите свой образ |

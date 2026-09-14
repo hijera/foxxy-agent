@@ -1247,7 +1247,7 @@ Fetching the list is a second request to the GitHub API, bounded to 15 seconds, 
 | **`foxxycode update`** | You already have a release binary on disk and want the next (or a specific) GitHub release. |
 | **`make install`** | You built from a clone and want **`build/foxxycode`** on **`PATH`**. |
 | **`make build TAGS="..."`** | You need custom tags or local changes not in releases. |
-| **Docker** | **`docker compose pull`** / image tag **`X.Y.Z`** on [GHCR](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent). |
+| **Docker** | **`docker compose pull`** / image tag **`X.Y.Z`** on [GHCR](https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent). |
 | **`go install ...@latest`** | Quick install without release assets; default module tags only (no **`http`** / UI unless you build from source). |
 
 ## Limitations
@@ -1271,18 +1271,18 @@ Run FoxxyCode as **`foxxycode http`** inside a minimal **`scratch`** image. The 
 Related files:
 
 - [`Dockerfile`](../../Dockerfile) - multi-stage build (**Node** UI bundle, **Go** binary, **`scratch`** runtime)
-- [`docker-compose.yml`](../../docker-compose.yml) - run **`ghcr.io/hijera/foxxycode-agent`** (default **`docker compose`**)
+- [`docker-compose.yml`](../../docker-compose.yml) - run **`ghcr.io/hijera/foxxy-agent`** (default **`docker compose`**)
 - [`docker-compose.dev.yml`](../../docker-compose.dev.yml) - build from source, publish port **12345**, volumes
 - [`.dockerignore`](../../.dockerignore) - keeps context small; never commit **`config.yaml`** with secrets
 - [`examples/httpserver/docker.sh`](../../examples/httpserver/docker.sh) - automated smoke test
 
-Published images: **[foxxycode-agent on GHCR](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** (`ghcr.io/hijera/foxxycode-agent`). CI builds **multi-arch** manifests (**`linux/amd64`**, **`linux/arm64`**) on SemVer tags and pushes floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../../.github/workflows/docker-build-push.yaml).
+Published images: **[foxxy-agent on GHCR](https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent)** (`ghcr.io/hijera/foxxy-agent`). CI builds **multi-arch** manifests (**`linux/amd64`**, **`linux/arm64`**) on SemVer tags and pushes floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../../.github/workflows/docker-build-push.yaml).
 
 On Apple Silicon or arm64 Linux hosts, pull the image as usual; Docker selects **`arm64`** automatically. To pin a platform explicitly:
 
 ```bash
-docker pull --platform linux/arm64 ghcr.io/hijera/foxxycode-agent:latest
-docker pull --platform linux/amd64 ghcr.io/hijera/foxxycode-agent:latest
+docker pull --platform linux/arm64 ghcr.io/hijera/foxxy-agent:latest
+docker pull --platform linux/amd64 ghcr.io/hijera/foxxy-agent:latest
 ```
 
 General build instructions without Docker - **[docs/contributing/build.md](../contributing/build.md)**.
@@ -1308,7 +1308,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 
 | Setting | Default compose | Dev compose |
 |---------|-----------------|-------------|
-| **Image** | **`${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxycode-agent:latest}`** | **`foxxycode-agent:${FOXXYCODE_VERSION:-dev}`** (built locally) |
+| **Image** | **`${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxy-agent:latest}`** | **`foxxycode-agent:${FOXXYCODE_VERSION:-dev}`** (built locally) |
 | **Command** | Image **`CMD`**: **`serve -H 0.0.0.0 -P 12345`**, overridable with **`FOXXYCODE_COMMAND`** | Same |
 | **Published port** | **`${FOXXYCODE_HTTP_PORT:-12345}:12345`** | Same |
 | **Working dir** | **`/workspace`** (**`FOXXYCODE_CWD`**) | Same |
@@ -1358,7 +1358,7 @@ docker compose down
 Pin a GHCR tag without editing YAML:
 
 ```bash
-export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxycode-agent:0.2.0
+export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxy-agent:0.2.0
 docker compose pull
 docker compose up -d
 ```
@@ -1416,7 +1416,7 @@ Create **`docker-compose.override.yml`** next to **`docker-compose.yml`** (Compo
 ```yaml
 services:
   foxxycode:
-    image: ghcr.io/hijera/foxxycode-agent:0.2.0
+    image: ghcr.io/hijera/foxxy-agent:0.2.0
     ports:
       - "8080:12345"
     environment:
@@ -1428,7 +1428,7 @@ Use overrides for machine-specific ports, pinned tags, or extra **`environment`*
 ### Upgrade and rollback
 
 ```bash
-export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxycode-agent:NEW_TAG
+export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxy-agent:NEW_TAG
 docker compose pull
 docker compose up -d
 ```
@@ -2538,7 +2538,7 @@ Mobile layout
 
 Header links
 
-- GitHub link to `https://github.com/hijera/foxxycode-agent` (**new tab**, `rel=noopener`).
+- GitHub link to `https://github.com/hijera/foxxy-agent` (**new tab**, `rel=noopener`).
 - API docs link to `/docs/` (**new tab**, `rel=noopener`).
 - Links live in the nav rail for this milestone.
 
@@ -3503,7 +3503,7 @@ Multiple gateways (Telegram today, Discord/Slack tomorrow) run in the same proce
 | `gateway.telegram` | Telegram adapter only |
 | `gateway` | all adapters (currently Telegram; a superset for future integrations) |
 
-The release CLI archives and the desktop app on [GitHub Releases](https://github.com/hijera/foxxycode-agent/releases) are built with the `gateway` tag, so no self-build is needed there. The published GHCR Docker image is the exception — see the note in [Running the gateway](#running-the-gateway).
+The release CLI archives and the desktop app on [GitHub Releases](https://github.com/hijera/foxxy-agent/releases) are built with the `gateway` tag, so no self-build is needed there. The published GHCR Docker image is the exception — see the note in [Running the gateway](#running-the-gateway).
 
 Build with one tag:
 
@@ -11773,7 +11773,7 @@ Mode switching:
 
 ## Directory Structure
 
-Top level after **`git clone`** (folder name is arbitrary; **`foxxycode-agent`** is common):
+Top level after **`git clone`** (folder name is arbitrary; **`foxxy-agent`** is common):
 
 ```
 .
@@ -13397,7 +13397,7 @@ Sessions list interactions
 
 ### Repo links
 
-Repo links appear as plain text links (**`GitHub | API docs`**) in a fixed footer at the bottom of the **start screen** (hero / empty state only — not shown once a chat is active). GitHub (**`https://github.com/hijera/foxxycode-agent`**) and **API docs** (**`/docs/`**) both open in a **new tab** (`target="_blank" rel="noopener"`). Implemented via **`.hero-footer`** (inside the `isEmpty` branch of `ChatScreen`) with `position: fixed; bottom: 16px` centered across the viewport.
+Repo links appear as plain text links (**`GitHub | API docs`**) in a fixed footer at the bottom of the **start screen** (hero / empty state only — not shown once a chat is active). GitHub (**`https://github.com/hijera/foxxy-agent`**) and **API docs** (**`/docs/`**) both open in a **new tab** (`target="_blank" rel="noopener"`). Implemented via **`.hero-footer`** (inside the `isEmpty` branch of `ChatScreen`) with `position: fixed; bottom: 16px` centered across the viewport.
 
 ### Tool timeline
 
@@ -14071,6 +14071,7 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
       ├─ Release binaries   → CLI-бинарники + desktop .exe + SHA256SUMS → GitHub Release
       ├─ Docker build&push  → образ в ghcr.io/hijera/foxxy-agent
       ├─ IntelliJ plugin    → zip плагина → GitHub Release
+      │                      + updatePlugins.xml → docs/ в main и ассет релиза (раздел 5)
       └─ VS Code extension  → universal .vsix → GitHub Release
 ```
 
@@ -14087,6 +14088,10 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
    (сейчас стоит `read`).
 
 2. **Actions включены** — уже да (проверка: `gh api repos/hijera/foxxy-agent/actions/permissions`).
+
+   **GitHub Pages** — тоже уже да: ветка `main`, папка `/docs`
+   (проверка: `gh api repos/hijera/foxxy-agent/pages`). Именно это раздаёт
+   `updatePlugins.xml` для IntelliJ (раздел 5), так что источник Pages менять нельзя.
 
 3. **(Опционально) продолжить нумерацию `0.9.x`.** Авто-бамп смотрит на теги
    **origin**, а там их нет → базой станет `0.1.0` и первый авто-релиз будет
@@ -14147,13 +14152,82 @@ GitHub Release (`hijera/foxxy-agent/releases`) с ассетами:
 | `SHA256SUMS` | контрольные суммы всех архивов |
 | `*.vsix` | расширение VS Code (universal) |
 | `*.zip` (IntelliJ) | плагин JetBrains |
+| `updatePlugins.xml` | документ репозитория плагинов (см. раздел 5) |
 
 Плюс Docker-образ в `ghcr.io/hijera/foxxy-agent` (теги `X.Y.Z`, `X.Y`, `X`,
 `latest`).
 
 ---
 
-## 5. Диагностика
+## 5. Репозиторий плагина для IntelliJ (автообновление)
+
+JetBrains-репозиторий плагинов — это **один URL, отдающий `updatePlugins.xml`**. Сам zip
+может лежать где угодно, поэтому отдельный сервер-зеркало не нужен: документ указывает
+прямо на ассет GitHub Release, а роль «сервера обновлений» играет GitHub Pages этого
+репозитория (ветка `main`, папка `docs/`).
+
+Адрес, который пользователь один раз добавляет в
+**Settings → Plugins → ⚙ → Manage Plugin Repositories → +**:
+
+```text
+https://hijera.github.io/foxxy-agent/updatePlugins.xml
+```
+
+Запасной адрес — тот же документ, приложенный к самому свежему релизу:
+
+```text
+https://github.com/hijera/foxxy-agent/releases/latest/download/updatePlugins.xml
+```
+
+После этого FoxxyCode ищется во вкладке **Marketplace** и обновляется штатным механизмом
+IDE, как любой плагин из маркетплейса.
+
+### Что делает пайплайн
+
+На каждом релизном теге job `intellij-plugin.yaml` — уже **после** того, как zip приложен к релизу
+(поэтому сбой этих шагов делает job красным, но не оставляет релиз без плагина):
+
+1. читает `META-INF/plugin.xml` **из собранного архива** (а не из исходников) —
+   `id`, `name`, `version`, `vendor`, `since-build`, `until-build`;
+2. проверяет, что id — `dev.foxxycode.intellij`, имя — `FoxxyCode`, а версия внутри
+   плагина совпадает с тегом; при расхождении job падает и документ не двигается;
+3. прикладывает `updatePlugins.xml` к релизу — документ появляется только рядом с уже
+   опубликованным zip и никогда не рекламирует ассет, которого ещё нет;
+4. коммитит `docs/updatePlugins.xml` в `main` — это то, что раздаёт Pages. Пуш повторяется
+   до трёх раз, если в `main` в этот момент влился соседний PR.
+
+Документ всегда описывает **одну** версию: JetBrains разрешает указывать id плагина в
+`updatePlugins.xml` только один раз. Старые версии никуда не деваются — они остаются
+ассетами своих релизов, и любую можно поставить через **Install Plugin from Disk**.
+
+Автоматически версия двигается только вперёд: пересборка старого тега
+(`workflow_dispatch` в `tag-on-merge.yaml`) документ не откатит.
+
+### Откат и ресинк вручную
+
+**Actions → IntelliJ plugin repository → Run workflow**, поле `version` — тег `X.Y.Z`.
+Плагин не пересобирается: берётся zip, уже приложенный к этому релизу. Это единственный
+способ указать документу на **более старую** версию — например, когда свежий релиз
+оказался плохим и всем нужно вернуть предыдущий.
+
+### Если IDE не видит обновление
+
+```bash
+curl -fsS https://hijera.github.io/foxxy-agent/updatePlugins.xml
+```
+
+- **версия не сдвинулась** — посмотрите job `Publish updatePlugins.xml to GitHub Pages` в
+  запуске `IntelliJ plugin`; Pages пересобирается ещё около минуты после коммита;
+- **`plugin ID mismatch` / `plugin version mismatch` в логе** — в собранном архиве не тот
+  `id` или версия не совпала с тегом; проверьте
+  `editors/intellij/src/main/resources/META-INF/plugin.xml` и передачу `PLUGIN_VERSION` в
+  Gradle;
+- **версия сдвинулась, а IDE молчит** — проверьте, что ссылка `url=` из документа
+  скачивается (`curl -I -L <url>`), и что `since-build` не выше сборки вашей IDE.
+
+---
+
+## 6. Диагностика
 
 ```bash
 gh run list     -R hijera/foxxy-agent --limit 10   # запуски workflow
