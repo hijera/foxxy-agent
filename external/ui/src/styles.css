@@ -6443,26 +6443,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: color-mix(in srgb, var(--text) 45%, var(--foxxycode-blend-base));
 }
 
-.scheduler-pill-on,
-.scheduler-pill-off {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.scheduler-pill-on {
-  background: rgba(34, 197, 94, 0.15);
-  color: rgba(187, 247, 208, 0.95);
-}
-
-.scheduler-pill-off {
-  background: rgba(248, 113, 113, 0.12);
-  color: rgba(254, 202, 202, 0.9);
-}
-
 .scheduler-btn {
   font: inherit;
   font-size: 12px;
@@ -6792,6 +6772,13 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: rgba(252, 165, 165, 0.95);
 }
 
+/* Light theme: the pale red the job editor uses for error text (this field
+   error, the cron hint and the save error below) is tuned for a dark canvas
+   and reads at about 1.7:1 on the light one, so each gets a readable red. */
+[data-theme="light"] .scheduler-field-err {
+  color: #b91c1c;
+}
+
 .scheduler-cron-hint {
   font-size: 12px;
   line-height: 1.35;
@@ -6825,9 +6812,18 @@ html:not([data-theme="light"]) .context-usage-note--error {
   background: rgba(248, 113, 113, 0.08);
 }
 
+[data-theme="light"] .scheduler-cron-hint-err {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.08);
+}
+
 .scheduler-save-err {
   font-size: 12px;
   color: rgba(252, 165, 165, 0.95);
+}
+
+[data-theme="light"] .scheduler-save-err {
+  color: #b91c1c;
 }
 
 .scheduler-editor-footer {
