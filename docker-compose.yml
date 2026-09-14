@@ -1,5 +1,5 @@
 # Run the published image from GitHub Container Registry (no local Dockerfile build).
-# See docs/docker.md and https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent
+# See docs/getting-started/docker.md and https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent
 #
 #   export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxycode-agent:TAG   # optional
 #   docker compose pull

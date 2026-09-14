@@ -167,7 +167,7 @@ func (r *runner) hookFile(path, file string) {
 		return
 	}
 	if _, perr := hooks.Parse(data); perr != nil {
-		r.rep.add(r.check(StatusError, path, path, file+" is invalid: "+perr.Error(), "fix the JSON (Claude Code's hooks shape, see docs/hooks.md)"))
+		r.rep.add(r.check(StatusError, path, path, file+" is invalid: "+perr.Error(), "fix the JSON (Claude Code's hooks shape, see https://github.com/hijera/foxxy-agent/blob/main/docs/features/hooks.md)"))
 		return
 	}
 	r.rep.add(r.check(StatusOK, path, path, file+" parses", ""))

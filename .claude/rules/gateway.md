@@ -78,6 +78,6 @@ Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGa
 
 ## References
 
-@docs/gateway.md
+@docs/surfaces/gateway.md
 @architecture.md
 @internal/config/gateway.go

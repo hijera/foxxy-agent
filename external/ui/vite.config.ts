@@ -36,7 +36,7 @@ export default defineConfig({
   plugins: [react(), syntaxLicensePlugin],
   css: {
     // Resolves color-mix() to Chromium-104-safe literals at build time
-    // (JCEF baseline, see docs/intellij-embedding.md). Applies in dev too.
+    // (JCEF baseline, see docs/contributing/intellij-embedding.md). Applies in dev too.
     postcss: {
       plugins: [resolveColorMix()],
     },
@@ -62,7 +62,7 @@ export default defineConfig({
   },
   build: {
     // Chromium 104 is the JCEF baseline for the IntelliJ/PhpStorm 2022.3.3
-    // plugin embedding (docs/intellij-embedding.md). Do not raise without
+    // plugin embedding (docs/contributing/intellij-embedding.md). Do not raise without
     // bumping the minimum supported IDE.
     target: "chrome104",
     cssTarget: "chrome104",

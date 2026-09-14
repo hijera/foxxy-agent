@@ -19,7 +19,7 @@ import (
 // long-lived API token to those routes therefore parks a working credential in
 // half a dozen places nobody audits.
 //
-// A stream ticket is the narrow alternative sketched in docs/remote-control.md
+// A stream ticket is the narrow alternative sketched in docs/plans/remote-control.md
 // §3.3: an already-authenticated client mints one, uses it for exactly one SSE
 // subscription, and by the time the URL reaches a log the value is spent. A
 // ticket is useless anywhere else — the auth gate accepts it only on the SSE
