@@ -353,7 +353,7 @@ Mode switching:
 
 ## Directory Structure
 
-Top level after **`git clone`** (folder name is arbitrary; **`foxxycode-agent`** is common):
+Top level after **`git clone`** (folder name is arbitrary; **`foxxy-agent`** is common):
 
 ```
 .

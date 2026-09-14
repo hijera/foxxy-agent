@@ -1,13 +1,13 @@
 # Run the published image from GitHub Container Registry (no local Dockerfile build).
-# See docs/docker.md and https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent
+# See docs/docker.md and https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent
 #
-#   export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxycode-agent:TAG   # optional
+#   export FOXXYCODE_IMAGE=ghcr.io/hijera/foxxy-agent:TAG   # optional
 #   docker compose pull
 #   docker compose up -d
 
 services:
   foxxycode:
-    image: ${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxycode-agent:latest}
+    image: ${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxy-agent:latest}
     # Default runs `foxxycode http`. Override to run another mode, e.g. the messenger gateway:
     #   FOXXYCODE_COMMAND="gateway --cwd /workspace" docker compose up -d
     # Note: the published GHCR image is built WITHOUT the `gateway` tag, so gateway mode
