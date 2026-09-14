@@ -386,16 +386,29 @@ Shape and glyphs
 - The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
 - **Play** (**idle**, draft non-empty): Unicode triangle **`▶`**, enlarged vs body text (**`~22px`** glyph via **`composer-send-glyph`**), slight horizontal nudge for optical centering.
 - **Stop** (**while streaming**): filled square **`.composer-stop-square`** (**14x14px**, centered in the **42px** circle). Stays in **`composer-bar-actions`** on the right, next to the context ring.
+- **Queue** (**while streaming, draft non-empty**): the **play** glyph returns on an accent fill (**`.composer-run-icon--queue`**, **`data-queue="true"`**), because a draft written during a turn is a follow-up rather than a Stop. Emptying the field brings **Stop** back, which is how a turn is still cancelled. See **Composer message queue** below.
 - **Disabled** idle state when textarea is whitespace-only (**`:disabled`** on **`composer-send-play`**).
 
 Behavior (unchanged summary)
 
-- **Enter** submits when idle and not generating; **`Shift+Enter`** newline. No submit while **`generating`**.
+- **Enter** submits when idle; **`Shift+Enter`** newline. While **`generating`** the same key queues the draft for the running turn instead of being swallowed (**Composer message queue**); under **`ui.send_mode: ctrl_enter`** that key is **Ctrl/Cmd+Enter**, and with **`off`** only the control queues.
 - **Stop**: **`POST /foxxycode/sessions/{id}/cancel`** + **`fetch`** **`AbortSignal`**. The server may append a **partial** assistant message for that turn. **`GET /foxxycode/sessions/{id}/messages`** can lag; the bundled UI merges server rows with local shadow or on-screen items (**`transcriptServerSnapshot.ts`**). Details in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/reference/http-api.md`**.
 
 Regression
 
 - Automated UI checks (**Playwright MCP** or **`@playwright/test`**) MAY assert **`#btn-send`** **`offsetWidth`** **≈** **`offsetHeight`** and computed **`border-radius`** **≥ half** **`min(width,height)`** (within sub-pixel tolerance).
+
+## Composer message queue
+
+The composer stays live while the agent works: what is typed during a turn is queued for that turn to read at its next step, rather than refused by the turn lock. Full behaviour: [Message queue](../features/message-queue.md).
+
+- **Queueing** — the send key of **`ui.send_mode`** (through **`handleSend`**) or the primary control (see above) calls **`POST /foxxycode/sessions/{id}/queue`** with **`{"text": ...}`** and clears the field. A **409** with code **`no_active_turn`** means the turn ended between the keystroke and the request: the SPA sends the same text through **`POST /v1/responses`** instead, so nothing typed is lost. Any other refusal puts the text back in the field and adds a system notice (**`composer.queueFull`**, **`composer.queueBusyElsewhere`** for a **409** **`session_busy`** when the turn runs in another FoxxyCode window, **`composer.queueFailed`**).
+- **The list** — queued rows render as **`.composer-queue-item`** (**`data-testid="composer-queue-item"`**) stacked **above** the composer card in reading order, text clamped to 3 lines, each with a round remove control at its right (**`data-testid="composer-queue-remove-<id>"`**, accessible name **`Remove from the queue`**) that calls **`DELETE /foxxycode/sessions/{id}/queue/{message_id}`**. Nothing waiting renders no list.
+- **Staying in step** — the list is server-owned and a session is shared. Every change arrives as **`event: message_queue`** carrying the whole queue and a **`version`**, down **two** paths: the turn's own stream (**`consumeComposerSse`**) and the server-wide **`GET /foxxycode/events`** (**`serverEvents.ts`**, **`onMessageQueue`**), so a tab that is not reading any turn stream still sees what someone else queued. They are separate connections: **`App.tsx`** keeps the highest version per session (**`queueVersionBySidRef`**) and drops older frames. A message the agent reads leaves the list as **`event: user_message`** puts it into the transcript where it was read, as a **`user_message`** row with **`queued: true`** (**`appendQueuedUserMessage`**: pending tool rows and an open thinking row land first, and the answer starts a bubble of its own). The queue is emptied when generation ends.
+- **Re-attaching** — a tab that attaches to a running turn (**`rejoinComposerLiveStream`**) reads **`GET /foxxycode/sessions/{id}/queue`**, since no stream it attaches to brings the list back, and trims the transcript to the last user message **without** **`queued`** (**`trimTranscriptForTurnReplay`**): the relay replays the follow-ups where the turn read them. Rows from **`GET .../messages`** carry the same **`queued`** flag.
+- **Placeholder** — while generating, the field reads **`composer.placeholderQueue`** instead of the idle placeholder.
+- **Attachments are not queued.** A queued follow-up is text; files attached to the composer stay there for the next prompt.
+- Vitest: **`composerQueue.test.tsx`**, **`messageQueueFork.test.tsx`** (send mode, the re-attach trim, where a read follow-up lands).
 
 ## Composer file attachments (multimodal)
 
