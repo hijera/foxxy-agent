@@ -201,6 +201,7 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		}
 		m.mu.Unlock()
 		state.CloseAll()
+		m.store.ForgetPersistedMessages(sessionPath)
 		if createdBundle {
 			_ = os.RemoveAll(sessionPath)
 			m.store.ForgetChildDir(id)
@@ -592,6 +593,9 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 	for i := len(nodes) - 1; i >= 0; i-- {
 		n := nodes[i]
 		m.ForgetLiveSession(n.ID)
+		// A node that was not live any more may still have its history
+		// remembered by the store from an earlier save.
+		m.store.ForgetPersistedMessages(m.store.SessionPath(n.ID))
 		if err := os.RemoveAll(m.store.SessionPath(n.ID)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove session %s: %w", n.ID, err)
 		}

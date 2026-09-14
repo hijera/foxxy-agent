@@ -589,12 +589,18 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 }
 
 // ForgetLiveSession disconnects MCP clients for the id and removes it from the active map (does not touch disk).
+// The store's remembered copy of the history it last wrote for the session goes with it, outside
+// the manager lock: that drop waits for a save of the same file already in flight.
 func (m *Manager) ForgetLiveSession(sessionID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if st, ok := m.sessions[sessionID]; ok {
+	st, ok := m.sessions[sessionID]
+	if ok {
 		st.CloseAll()
 		delete(m.sessions, sessionID)
+	}
+	m.mu.Unlock()
+	if ok && m.store != nil {
+		m.store.ForgetPersistedMessages(st.GetPersistedSessionDir())
 	}
 }
 
