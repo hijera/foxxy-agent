@@ -4,13 +4,13 @@ Run FoxxyCode as **`foxxycode http`** inside a minimal **`scratch`** image. The 
 
 Related files:
 
-- [`Dockerfile`](../Dockerfile) - multi-stage build (**Node** UI bundle, **Go** binary, **`scratch`** runtime)
-- [`docker-compose.yml`](../docker-compose.yml) - run **`ghcr.io/hijera/foxxycode-agent`** (default **`docker compose`**)
-- [`docker-compose.dev.yml`](../docker-compose.dev.yml) - build from source, publish port **12345**, volumes
-- [`.dockerignore`](../.dockerignore) - keeps context small; never commit **`config.yaml`** with secrets
-- [`examples/httpserver/docker.sh`](../examples/httpserver/docker.sh) - automated smoke test
+- [`Dockerfile`](../../Dockerfile) - multi-stage build (**Node** UI bundle, **Go** binary, **`scratch`** runtime)
+- [`docker-compose.yml`](../../docker-compose.yml) - run **`ghcr.io/hijera/foxxycode-agent`** (default **`docker compose`**)
+- [`docker-compose.dev.yml`](../../docker-compose.dev.yml) - build from source, publish port **12345**, volumes
+- [`.dockerignore`](../../.dockerignore) - keeps context small; never commit **`config.yaml`** with secrets
+- [`examples/httpserver/docker.sh`](../../examples/httpserver/docker.sh) - automated smoke test
 
-Published images: **[foxxycode-agent on GHCR](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** (`ghcr.io/hijera/foxxycode-agent`). CI builds **multi-arch** manifests (**`linux/amd64`**, **`linux/arm64`**) on SemVer tags and pushes floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml).
+Published images: **[foxxycode-agent on GHCR](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** (`ghcr.io/hijera/foxxycode-agent`). CI builds **multi-arch** manifests (**`linux/amd64`**, **`linux/arm64`**) on SemVer tags and pushes floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../../.github/workflows/docker-build-push.yaml).
 
 On Apple Silicon or arm64 Linux hosts, pull the image as usual; Docker selects **`arm64`** automatically. To pin a platform explicitly:
 
@@ -19,7 +19,7 @@ docker pull --platform linux/arm64 ghcr.io/hijera/foxxycode-agent:latest
 docker pull --platform linux/amd64 ghcr.io/hijera/foxxycode-agent:latest
 ```
 
-General build instructions without Docker - **[docs/build.md](build.md)**.
+General build instructions without Docker - **[docs/contributing/build.md](../contributing/build.md)**.
 
 ## Prerequisites
 
@@ -33,8 +33,8 @@ Compose is the recommended way to run the published GHCR image or a locally buil
 
 | File | When to use |
 |------|-------------|
-| [`docker-compose.yml`](../docker-compose.yml) | Pull a release from GHCR (**`docker compose pull`**) - day-to-day and production-like runs without building on the host |
-| [`docker-compose.dev.yml`](../docker-compose.dev.yml) | **`build:`** from the repo [`Dockerfile`](../Dockerfile) - hacking on FoxxyCode, reproducing CI, or running **`examples/httpserver/docker.sh`** |
+| [`docker-compose.yml`](../../docker-compose.yml) | Pull a release from GHCR (**`docker compose pull`**) - day-to-day and production-like runs without building on the host |
+| [`docker-compose.dev.yml`](../../docker-compose.dev.yml) | **`build:`** from the repo [`Dockerfile`](../../Dockerfile) - hacking on FoxxyCode, reproducing CI, or running **`examples/httpserver/docker.sh`** |
 
 Compose V2 merges an optional **`docker-compose.override.yml`** in the same directory (git-ignored by convention) so you can pin an image tag, change ports, or add **`environment`** without editing the tracked file.
 
@@ -122,11 +122,11 @@ export FOXXYCODE_BUILD_TAGS="http,scheduler,ui,memory,gateway"
 docker compose -f docker-compose.dev.yml build foxxycode
 ```
 
-**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway,swarm`** so the built image can run the messenger gateway and the swarm relay; drop either to trim it. That is a *subset* of the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default (**`http,scheduler,ui,memory,gateway,cli,browser`**) - add **`cli,browser`** if you also want the console TUI and the browser tools in the dev image.
+**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway,swarm`** so the built image can run the messenger gateway and the swarm relay; drop either to trim it. That is a *subset* of the [`Dockerfile`](../../Dockerfile) **`BUILD_TAGS`** default (**`http,scheduler,ui,memory,gateway,cli,browser`**) - add **`cli,browser`** if you also want the console TUI and the browser tools in the dev image.
 
 ### Run another mode (messenger gateway)
 
-Both compose files run **`foxxycode http`** by default. Override the subcommand with **`FOXXYCODE_COMMAND`** (shell-split into args) to run any other mode - for the [messenger gateway](gateway.md):
+Both compose files run **`foxxycode http`** by default. Override the subcommand with **`FOXXYCODE_COMMAND`** (shell-split into args) to run any other mode - for the [messenger gateway](../surfaces/gateway.md):
 
 ```bash
 # Build from source: the dev image already includes the `gateway` tag.
@@ -138,7 +138,7 @@ docker compose -f docker-compose.dev.yml logs -f foxxycode   # expect: "telegram
 
 Notes:
 
-- The **published GHCR image carries every surface** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,browser,gateway,swarm`**), so the default **`serve`** command runs whichever of them the mounted **`config.yaml`** enables, and **`FOXXYCODE_COMMAND=gateway`** works against it without a custom build.
+- The **published GHCR image carries every surface** (CI [`docker-build-push.yaml`](../../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,browser,gateway,swarm`**), so the default **`serve`** command runs whichever of them the mounted **`config.yaml`** enables, and **`FOXXYCODE_COMMAND=gateway`** works against it without a custom build.
 - The bot token is read from **`TELEGRAM_BOT_TOKEN`** (passed through by both compose files) or **`$FOXXYCODE_HOME/.env`**; keep it out of git.
 - If your **`gateways.telegram.proxy`** points at a host-local proxy (e.g. **`socks5://127.0.0.1:7890`**), it is unreachable from inside the container - use **`host.docker.internal`** or add **`network_mode: host`** in a **`docker-compose.override.yml`**.
 - Gateway mode uses no inbound port (Telegram long-polling); the mapped **`12345`** is simply unused.
@@ -233,16 +233,16 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 
 **`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,cli,browser,swarm`** (comma-separated, same meaning as **`go build -tags=`**).
 
-- **`http`** - **`foxxycode http`** and REST gateway (see **[docs/http-api.md](http-api.md)**).
+- **`http`** - **`foxxycode http`** and REST gateway (see **[docs/reference/http-api.md](../reference/http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
-- **`scheduler`** - scheduler subsystem (**[docs/scheduler.md](scheduler.md)**).
-- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../external/memory/README.md)**); toggle runtime behavior via **`memory.enabled`**.
-- **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/gateway.md](gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
-- **`browser`** - interactive browser tools (**[docs/browser-tool.md](browser-tool.md)**), off until **`browser.enabled`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
+- **`scheduler`** - scheduler subsystem (**[docs/operate/scheduler.md](../operate/scheduler.md)**).
+- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../../external/memory/README.md)**); toggle runtime behavior via **`memory.enabled`**.
+- **`gateway`** - messenger gateway mode (**`foxxycode gateway`**, see **[docs/surfaces/gateway.md](../surfaces/gateway.md)**); reachable by overriding the container command. Note the published GHCR image is built without this tag.
+- **`browser`** - interactive browser tools (**[docs/features/browser-tool.md](../features/browser-tool.md)**), off until **`browser.enabled`** is set. **The image ships no Chrome**, so enabling it in this container fails to launch one: derive an image that installs Chromium and point **`browser.executable_path`** at it, or run the tool outside Docker.
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 
-Volume and environment details for Compose are in [Docker Compose](#docker-compose). On a bare-metal install without **`FOXXYCODE_CONFIG`**, the loader prefers **`$FOXXYCODE_HOME/config.yaml`** (see **`docs/config.md`**).
+Volume and environment details for Compose are in [Docker Compose](#docker-compose). On a bare-metal install without **`FOXXYCODE_CONFIG`**, the loader prefers **`$FOXXYCODE_HOME/config.yaml`** (see **`docs/getting-started/configuration.md`**).
 
 ## How the Dockerfile stages work
 

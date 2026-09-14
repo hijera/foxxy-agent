@@ -1,6 +1,6 @@
 # Codex hooks for project rules
 
-This page is about **contributors running the Codex CLI against this repository**. It is not about FoxxyCode's own rules discovery, which is a product feature documented in [Rules](rules.md) - that one describes how the `foxxycode` binary injects `{{.Rules}}` into its system prompt.
+This page is about **contributors running the Codex CLI against this repository**. It is not about FoxxyCode's own rules discovery, which is a product feature documented in [Rules](../features/rules.md) - that one describes how the `foxxycode` binary injects `{{.Rules}}` into its system prompt.
 
 ## Why a hook is needed
 
@@ -47,7 +47,7 @@ Codex requires explicit approval before a non-managed command hook can run, and 
 - Run it again after **any** edit to `attach_rules.py` or `hooks.json`.
 - Project-local hooks load only when the `.codex/` layer is trusted. In an untrusted checkout Codex still loads user and system hooks, but not these.
 
-This mirrors the workspace trust gate FoxxyCode applies to project-local `.foxxycode/mcp.json` (see [MCP Integration](mcp-integration.md)): opening a repository must not by itself grant it code execution.
+This mirrors the workspace trust gate FoxxyCode applies to project-local `.foxxycode/mcp.json` (see [MCP Integration](../features/mcp.md)): opening a repository must not by itself grant it code execution.
 
 ## Verifying and debugging
 

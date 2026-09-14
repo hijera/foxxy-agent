@@ -279,7 +279,7 @@ FoxxyCode returns both **Session Config Options** (preferred by modern ACP clien
 }
 ```
 
-The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `agent.model` until the user picks another model in the client, as described in [Configuration](config.md). Each listed `value` matches the YAML `models[].model` string (`provider_name/api_model_id`).
+The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `agent.model` until the user picks another model in the client, as described in [Configuration](../getting-started/configuration.md). Each listed `value` matches the YAML `models[].model` string (`provider_name/api_model_id`).
 
 ### `session/load`
 
@@ -375,7 +375,7 @@ Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cance
 
 ### Subagent runs and child sessions (FoxxyCode-specific)
 
-Nothing protocol-level changes when the agent delegates to a subagent (`docs/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session (a `sub_…` id) and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
+Nothing protocol-level changes when the agent delegates to a subagent (`docs/features/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session (a `sub_…` id) and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
 
 Child sessions are read-only transcripts. `session/list` omits them, `session/load` replays one like any other bundle, and `session/prompt` against a `sub_…` id returns an error naming the parent (`subagent sessions are read-only transcripts: sub_… belongs to sess_…`); the run-plan `_meta` hook is covered by the same guard.
 
@@ -561,7 +561,7 @@ Emitted only when the diagnostics layer is on (**`debug.enabled`**, the **`--deb
 }
 ```
 
-Full guide: **[docs/debugging.md](debugging.md)**.
+Full guide: **[docs/operate/debugging.md](../operate/debugging.md)**.
 
 ### `current_mode_update` - Mode changed
 

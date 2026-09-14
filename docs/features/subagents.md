@@ -2,7 +2,7 @@
 
 A long investigation or a parallel fan-out (review three modules, run the test matrix per package, research four libraries) fills the one conversation the operator is watching. A **subagent** is a child agent run with its own context window, its own session bundle, and a role prompt the operator wrote in a markdown file. The parent hands it a self-contained task, keeps working, and gets back only the child's final report.
 
-A subagent run is a **task in the background task pool** (`docs/background-tasks.md`). Nothing about scheduling, timeouts, the Tasks panel, the REST surface, drain on shutdown, or persistence under `<session>/background/<task_id>/` is specific to subagents; what is new is a second kind of task (`kind: agent`), a child session behind it, and a tool that starts one.
+A subagent run is a **task in the background task pool** (`docs/features/background-tasks.md`). Nothing about scheduling, timeouts, the Tasks panel, the REST surface, drain on shutdown, or persistence under `<session>/background/<task_id>/` is specific to subagents; what is new is a second kind of task (`kind: agent`), a child session behind it, and a tool that starts one.
 
 ## When the model delegates
 
@@ -12,7 +12,7 @@ The section is rendered in `agent` and `plan` mode (a planner fans out investiga
 
 ## Hooks around a child
 
-Operator hooks (`docs/hooks.md`) follow the agent into its children. `SubagentStart` fires in the parent before a child starts (it can refuse the spawn, or hand the child context that is prepended to its task) and `SubagentStop` fires in the parent when the child's turn ended, with its outcome and report. Inside the child every ordinary event fires for the child's own turn, and the payload carries a `subagent` block naming the child, its parent session and its depth, so a hook can treat delegated work differently.
+Operator hooks (`docs/features/hooks.md`) follow the agent into its children. `SubagentStart` fires in the parent before a child starts (it can refuse the spawn, or hand the child context that is prepended to its task) and `SubagentStop` fires in the parent when the child's turn ended, with its outcome and report. Inside the child every ordinary event fires for the child's own turn, and the payload carries a `subagent` block naming the child, its parent session and its depth, so a hook can treat delegated work differently.
 
 ## Definition files
 
@@ -109,7 +109,7 @@ Rewriting an approved file changes its digest and the receipt stops matching, so
 Approval surfaces:
 
 - **CLI**: `foxxycode agents list [--cwd DIR]` prints the workspace, the effective policy and the catalog with scope, trust state and flags, followed by a hint when project definitions await approval; `foxxycode agents trust <name> [--cwd DIR]` prints the effective declaration first (file, model, mode, permission mode, tool lists, digest, receipt path) and then records a receipt for the file as it is on disk right now; `foxxycode agents untrust <name> [--cwd DIR]` withdraws it. A built-in or user-scope name needs no approval and the command says so. `--cwd` defaults to the process working directory, resolved like `foxxycode mcp`.
-- **HTTP** (`foxxycode http`): `GET /foxxycode/subagents?cwd=<dir>` returns the catalog; `POST /foxxycode/subagents/{name}/trust` and `POST /foxxycode/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the cwd a new session would get - the current project when one is set, else the server's own working directory - because that is the cwd `spawn_agent` decides trust against. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin`, `hidden`, and the bounds the definition declares (`tools`, `disallowed_tools`, `permission_mode`, `timeout_seconds`, `max_turns`, `background`, `role_bytes`) so an approval surface can show what it is approving. The role body itself is never served. Details in `docs/http-api.md`.
+- **HTTP** (`foxxycode http`): `GET /foxxycode/subagents?cwd=<dir>` returns the catalog; `POST /foxxycode/subagents/{name}/trust` and `POST /foxxycode/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the cwd a new session would get - the current project when one is set, else the server's own working directory - because that is the cwd `spawn_agent` decides trust against. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin`, `hidden`, and the bounds the definition declares (`tools`, `disallowed_tools`, `permission_mode`, `timeout_seconds`, `max_turns`, `background`, `role_bytes`) so an approval surface can show what it is approving. The role body itself is never served. Details in `docs/reference/http-api.md`.
 - **Settings → Subagents** (the web UI, and therefore the IntelliJ and VS Code panels, which embed it): the `subagents` config section as a form, plus the catalog of the viewed session's workspace. A project-scope row under `ask` carries a shield button that writes or withdraws the receipt at once, and expands the declaration it would cover - file, digest, model, mode, permission mode, tool lists, timeout, turn cap, whether it always runs detached, and the size of its role body. An unapproved row shows its name only: the description is where a hostile checkout would put instructions, so it is withheld here exactly as it is withheld from the model's prompt. The tab asks about the session's workspace (`SubagentsSection.tsx`, `subagentsApi.ts`), and the resolved workspace is printed above the list so the bucket a receipt lands in is visible.
 - **In the chat**: when the model's `spawn_agent` call is refused, the failed tool row carries an approval notice with an **Approve** button. It never parses the refusal text - the trigger is a failed call named `spawn_agent`, the agent name comes from the call's own JSON arguments, and whether that definition is really awaiting approval is decided by re-reading the catalog (`spawnAgentApproval.ts`, `SubagentApprovalNotice.tsx`). Approving does not retry the spawn: the user is told to ask again, so nothing starts on their behalf.
 - **Policy**: a checkout you already trust can run its definitions without receipts by setting `subagents.project_trust: allow`, in `config.yaml`, under **Settings → Subagents** in the web UI (the `subagents` config section: policy and pool bounds), or through the bundled `configure-foxxycode` skill, which documents the key so the agent can stage `set subagents.project_trust=allow` and commit it through the ordinary permission-gated config commit. The policy is part of the config document and applies when the form is saved; approving one definition is a receipt rather than configuration and takes effect at once - the tab says so.
@@ -124,7 +124,7 @@ Approval surfaces:
 | `background` | Return the task id at once instead of waiting for the report. Default `false`. A definition with `background: true` forces it on. |
 | `expected_seconds` | The model's own estimate; drives the status ticker and, when no timeout is given, the hard timeout - the same advisory semantics as a backgrounded `run_command`. |
 | `timeout_seconds` | Hard limit for the run. |
-| `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
+| `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/features/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
 
 The tool is registered when `subagents.enabled` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
 
@@ -237,7 +237,7 @@ agent: explore | task: bg_3 | session: sub_9f1c… | outcome: end_turn | turns: 
 
 ## Remote mode
 
-Subagents live where the session manager lives. With the console or `foxxycode acp` in `--remote` mode (`docs/cli.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `foxxycode http` host:
+Subagents live where the session manager lives. With the console or `foxxycode acp` in `--remote` mode (`docs/surfaces/console.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `foxxycode http` host:
 
 - definitions are read from the **server's** `subagents.dirs` (`${FOXXYCODE_HOME}/agents` of the server home and the `.claude/agents` / `.foxxycode/agents` of the session's cwd on the server);
 - a project definition is approved **on the server**: `foxxycode agents trust <name> --cwd <workspace>` on that host, or `POST /foxxycode/subagents/{name}/trust` with the bearer token. The local `foxxycode agents` subcommands read and write the local home only and know nothing about `--remote`;
@@ -259,7 +259,7 @@ The executable checks are the scenario "A subagent's permission prompt reaches t
 
 ## Configuration
 
-All knobs are ordinary `config.yaml` keys under `subagents:`; the field table is in `docs/config-reference.md` (section `subagents`), the web UI edits them under **Settings → Subagents**, and the bundled `configure-foxxycode` skill can change them through the staged config tools.
+All knobs are ordinary `config.yaml` keys under `subagents:`; the field table is in `docs/reference/config.md` (section `subagents`), the web UI edits them under **Settings → Subagents**, and the bundled `configure-foxxycode` skill can change them through the staged config tools.
 
 ```yaml
 subagents:
@@ -289,21 +289,3 @@ Follow-ups, deliberately not part of this change: resuming or messaging a runnin
 
 ## Screenshots
 
-Captured from the bundled SPA against a stub model (`docs/assets/`):
-
-- `tasks-panel-agent-running-dark.png`, `tasks-panel-agent-running-light.png`: the Tasks panel with a running subagent card and its `AGENT` badge.
-- `tasks-detail-agent-running-dark.png`, `tasks-detail-agent-running-light.png`: the detail pane of a running subagent with the live log and **Open transcript**.
-- `tasks-detail-agent-finished-dark.png`, `tasks-detail-agent-finished-light.png`, `tasks-detail-agent-narrow-dark.png`, `tasks-detail-agent-narrow-light.png`: the finished run with its report block, wide and narrow.
-- `tasks-panel-agent-finished-dark.png`, `tasks-panel-agent-finished-light.png`: the finished row under **Finished N**.
-- `child-transcript-readonly-dark.png`, `child-transcript-readonly-light.png`: the child session opened from the panel, with the read-only notice in place of the composer.
-- `settings-grid-dark.png`: Settings with the **Subagents** entry between Tools and permissions and MCP servers (the section comes from the config schema, `subagents` in `x-foxxycode-property-order`).
-- `settings-subagents-dark.png`, `settings-subagents-light.png`, `settings-subagents-ru-dark.png`, `settings-subagents-narrow-dark.png`: the schema-driven form for `subagents.*` (enabled, definition directories, project trust policy, max concurrent, max depth, default timeout, max turns), in English and Russian, wide and at 390px.
-
-The approval surfaces of this change, captured the same way (an unapproved `reviewer` in the workspace, a user-scope `writer`):
-
-- `subagents-trust-settings-1280-{dark,light}.png`, `subagents-trust-settings-390-dark.png`: Settings -> Subagents, the catalog under the generated form, with the shield on the project row and the declaration a receipt would cover.
-- `subagents-trust-chat-refused-1280-{dark,light}.png`, `subagents-trust-chat-refused-390-dark.png`: the notice under a refused `spawn_agent` row.
-- `subagents-trust-spawn-running-1280-dark.png`: a foreground spawn in flight, the row naming the agent and offering its transcript.
-- `subagents-trust-tasks-permission-1280-{dark,light}.png`, `subagents-trust-tasks-permission-390-dark.png`: a detached child's permission prompt on its task card, and the tasks chip saying so.
-
-The finished-run captures show no exit code for an agent task (a child run is a turn, not a process); the wide finished pane is the one to compare against the `bgtask` command detail in `docs/background-tasks.md`.

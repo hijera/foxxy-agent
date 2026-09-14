@@ -65,7 +65,7 @@ Cursor's `.mdc` headers are frequently not valid YAML: `globs: **/*.go` starts w
 ```markdown
 ---
 description: HTTP layer conventions
-globs: external/httpserver/**/*.go, docs/http-api.md
+globs: external/httpserver/**/*.go, docs/reference/http-api.md
 alwaysApply: false
 ---
 ```
@@ -75,7 +75,7 @@ alwaysApply: false
 description: HTTP layer conventions
 paths:
   - "external/httpserver/**/*.go"
-  - "docs/http-api.md"
+  - "docs/reference/http-api.md"
 ---
 ```
 

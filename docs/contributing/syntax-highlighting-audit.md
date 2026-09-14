@@ -102,3 +102,9 @@ The production JS bundle increased from approximately 308.64 kB to 419.16 kB gzi
 
 - Targeted HTTP/UI embedding and BDD tests pass, and the `http,ui` Go binary builds.
 - `make test` was rerun and stops on unchanged Windows failures in configuration log paths, transcript-export paths, swarm file permissions, and config staging/rollback. Later tag combinations are not reached.
+
+## Captures
+
+Captured from the running Vite build with the real ChatScreen and Markdown components and a deterministic JavaScript, CSS, HTML and JSON transcript, at 1280 x 900, after the change; no live provider or user conversation is used. All seven themes were also checked at 390 x 900: header, transcript column and composer edges align at both widths and the page does not overflow horizontally.
+
+The seven captures (one per theme, 1280 x 900) were taken for the upstream change and are not carried in this repository.

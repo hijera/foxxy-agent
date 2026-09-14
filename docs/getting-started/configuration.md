@@ -2,8 +2,8 @@
 
 This page is the narrative guide. Two companion artifacts cover the full key list:
 
-- **[config-reference.md](config-reference.md)** - field-by-field tables: type, default, env-var fallback, required/optional, examples.
-- **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation, published at **https://hijera.github.io/foxxy-agent/config.schema.json** so an editor resolves it without a checkout, and embedded into the binary (from `internal/config/config.schema.json`, which `make site-schema` republishes here) so `foxxycode -t` checks a file against the same document (see [Checking the file from the command line](#checking-the-file-from-the-command-line)). Any editor with a YAML language server (VS Code YAML extension, Zed, Neovim, Helix) validates keys and values as you type once the file carries this header line:
+- **[config.yaml reference](../reference/config.md)** - field-by-field tables: type, default, env-var fallback, required/optional, examples.
+- **[config.schema.json](../config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation, published at **https://hijera.github.io/foxxy-agent/config.schema.json** so an editor resolves it without a checkout, and embedded into the binary (from `internal/config/config.schema.json`, which `make site-schema` republishes here) so `foxxycode -t` checks a file against the same document (see [Checking the file from the command line](#checking-the-file-from-the-command-line)). Any editor with a YAML language server (VS Code YAML extension, Zed, Neovim, Helix) validates keys and values as you type once the file carries this header line:
 
 ```yaml
 # yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
@@ -36,7 +36,7 @@ Resolved locations use environment variables and flags (see README). In short:
 
 If no **`--config`** is given, the loader uses **`$FOXXYCODE_HOME/config.yaml`** (default home **`~/.foxxycode`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
-When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /foxxycode/config`** route (see **`docs/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
+When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /foxxycode/config`** route (see **`docs/reference/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
 The `foxxycode acp` subcommand also accepts **`--home`** (override `FOXXYCODE_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$FOXXYCODE_HOME/sessions`**).
 
@@ -302,7 +302,7 @@ skills:
 # Discovered from .foxxycode/rules, the shared .agents/rules, .cursor/rules,
 # .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
 # .mdc files are read as Cursor rules, .md files as Claude Code rules.
-# Injected into {{.Rules}} in the system prompt (separate from skills). See docs/rules.md.
+# Injected into {{.Rules}} in the system prompt (separate from skills). See docs/features/rules.md.
 rules:
   auto_discover: true
   systems: []   # optional: foxxycode, agents-dir, cursor, claude, codex, agents
@@ -339,7 +339,7 @@ tools:
   # ssh_connect_timeout: 30
 
 # Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
-# from markdown definitions; each run is a background task with its own child session. See docs/subagents.md.
+# from markdown definitions; each run is a background task with its own child session. See docs/features/subagents.md.
 # subagents:
 #   enabled: true
 #   dirs: ["${FOXXYCODE_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.foxxycode/agents"]
@@ -350,7 +350,7 @@ tools:
 #   max_turns: 0                  # 0 follows agent.max_turns
 
 # Hooks (Go: config.Hooks, internal/config/hooks.go). Your own commands at lifecycle points of a session,
-# defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/hooks.md.
+# defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/features/hooks.md.
 # hooks:
 #   enabled: true
 #   files: ["${FOXXYCODE_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.foxxycode/hooks.json"]
@@ -359,7 +359,7 @@ tools:
 #   stop_loop_limit: 5            # Stop-hook continuations per turn
 #   max_output_chars: 10000       # cap on what one hook hands to the model or the user
 
-# HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
+# HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/reference/http-api.md
 # httpserver:
 #   host: "127.0.0.1"
 #   port: 8080
@@ -405,7 +405,7 @@ debug:
 
 **`--debug`** on **`foxxycode acp`**, **`foxxycode http`**, and **`foxxycode gateway`** forces **`enabled: true`** for that process; it only ever turns the layer on, never off. **`foxxycode desktop`** and the console have no flag but honour **`debug.enabled`** from the config. **`PUT /foxxycode/config`** applies the toggle without a restart.
 
-The timeline is readable at **`GET /foxxycode/sessions/{id}/debug`** and streamed live as SSE **`event: debug`**. Full guide: **[docs/debugging.md](debugging.md)**.
+The timeline is readable at **`GET /foxxycode/sessions/{id}/debug`** and streamed live as SSE **`event: debug`**. Full guide: **[docs/operate/debugging.md](../operate/debugging.md)**.
 
 This is **not** the **`debug`** session mode (the diagnose-before-fixing persona selected with **`model: "debug"`**); the two are independent.
 
@@ -438,7 +438,7 @@ The tool requires user permission (same as `run_command`) and returns combined s
 
 ## HTTP gateway (optional build)
 
-The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`foxxycode http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
+The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`foxxycode http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/reference/http-api.md`**.
 
 ### MCP project trust
 
@@ -447,7 +447,7 @@ its servers: **`ask`** (default) holds them until the operator approves each dec
 **`allow`** starts them automatically, **`deny`** never loads them. Pass **`foxxycode acp --mcp-project-trust <value>`**
 or **`foxxycode http --mcp-project-trust <value>`** to override it for one process, which is what CI jobs and
 container entrypoints use instead of editing the config file. An unknown value fails the launch.
-Full guide in [docs/mcp-integration.md](mcp-integration.md).
+Full guide in [docs/features/mcp.md](../features/mcp.md).
 
 ## Scheduler (optional build)
 
@@ -457,7 +457,7 @@ Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${FOXXYCODE
 
 **`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
 
-When the scheduler is effectively enabled, **`foxxycode_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`foxxycode_scheduler_jobs_list`**, **`foxxycode_scheduler_job_get`**, **`foxxycode_scheduler_job_create`**, **`foxxycode_scheduler_job_replace`**, **`foxxycode_scheduler_job_patch`**, **`foxxycode_scheduler_job_delete`**, **`foxxycode_scheduler_job_pause`**, **`foxxycode_scheduler_job_resume`**, **`foxxycode_scheduler_job_run`**, **`foxxycode_scheduler_job_cancel`**, **`foxxycode_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/foxxycode/scheduler`** (see **`docs/http-api.md`**).
+When the scheduler is effectively enabled, **`foxxycode_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`foxxycode_scheduler_jobs_list`**, **`foxxycode_scheduler_job_get`**, **`foxxycode_scheduler_job_create`**, **`foxxycode_scheduler_job_replace`**, **`foxxycode_scheduler_job_patch`**, **`foxxycode_scheduler_job_delete`**, **`foxxycode_scheduler_job_pause`**, **`foxxycode_scheduler_job_resume`**, **`foxxycode_scheduler_job_run`**, **`foxxycode_scheduler_job_cancel`**, **`foxxycode_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/foxxycode/scheduler`** (see **`docs/reference/http-api.md`**).
 
 ## Messenger Gateway (`gateways`)
 
@@ -465,7 +465,7 @@ Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`
 
 ```yaml
 # Messenger gateways (external/gateway/; build with -tags gateway.telegram or -tags gateway).
-# Full guide: docs/gateway.md
+# Full guide: docs/surfaces/gateway.md
 gateways:
   telegram:
     # Set to true to activate the Telegram adapter when foxxycode gateway starts.
@@ -516,7 +516,7 @@ gateways:
 
 `token` is validated at startup when `enabled: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
-See **[docs/gateway.md](gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
+See **[docs/surfaces/gateway.md](../surfaces/gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
 ## `.env` file
 

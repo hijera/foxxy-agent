@@ -1,6 +1,6 @@
 # OpenCode hooks for project rules
 
-This page is for contributors running OpenCode against this repository. It does not describe FoxxyCode's own rule discovery: the `foxxycode` binary injects those rules through `{{.Rules}}`, as documented in [Rules](rules.md).
+This page is for contributors running OpenCode against this repository. It does not describe FoxxyCode's own rule discovery: the `foxxycode` binary injects those rules through `{{.Rules}}`, as documented in [Rules](../features/rules.md).
 
 ## Why a plugin is needed
 

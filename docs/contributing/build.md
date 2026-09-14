@@ -1,22 +1,22 @@
 # Building FoxxyCode from source
 
-This page is the detailed reference for local builds. For a short version, see [Installation](../README.md#installation) in the root **README**.
+This page is the detailed reference for local builds. For a short version, see [Installation](../../README.en.md#install) in the root **README**.
 
 ## Prerequisites
 
-- **Go** - match `go` in [`go.mod`](../go.mod) (currently **1.25**).
+- **Go** - match `go` in [`go.mod`](../../go.mod) (currently **1.25**).
 - **Git** - the Makefile embeds a version string from tags or `git describe` when available.
-- **Node.js and npm** - required only when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../Makefile)) to produce the assets that **`go:embed`** picks up.
+- **Node.js and npm** - required only when you build with both **`http`** and **`ui`**, because the Makefile runs **`ui-build`** (see [`Makefile`](../../Makefile)) to produce the assets that **`go:embed`** picks up.
 
 Optional:
 
 - **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`swarm`**, **`http,scheduler,memory,gateway,swarm`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
-- **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../scripts/build.py)); stdlib only, no `pip` packages.
+- **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../../scripts/build.py)); stdlib only, no `pip` packages.
 
 ## Interactive build wizard
 
 On **Windows** (and anywhere without GNU Make on `PATH`), use the Russian-language console wizard
-[`scripts/build.py`](../scripts/build.py). It wraps the same steps as **`make build`**, Gradle
+[`scripts/build.py`](../../scripts/build.py). It wraps the same steps as **`make build`**, Gradle
 **`buildPlugin`**, and VS Code **`vsce package`** without duplicating Go compile logic.
 
 **Interactive** (no arguments — step-by-step menus for target, platform, tags, IDE plugins):
@@ -70,7 +70,7 @@ requires **`http`**).
 Run **`python scripts/build.py --help`** for the full flag list (Russian descriptions).
 
 
-Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../external/memory/README.md)).
+Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../../external/memory/README.md)).
 
 The **HTTP gateway**, **embedded SPA**, **scheduler**, and **memory** are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
@@ -91,7 +91,7 @@ go build -tags=http,ui,scheduler,memory,cli,browser,gateway \
   ./cmd/foxxycode/
 ```
 
-The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
+The [**Dockerfile**](../../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
 ## Install on your PATH
 
@@ -110,7 +110,7 @@ make install
 
 ## Update from GitHub Releases
 
-See **[docs/update.md](update.md)** for **`foxxycode update`**, release asset names, and how that differs from **`make install`**.
+See **[docs/getting-started/update.md](../getting-started/update.md)** for **`foxxycode update`**, release asset names, and how that differs from **`make install`**.
 
 ## Lean build (ACP-focused, smaller binary)
 
@@ -166,20 +166,20 @@ Order does not matter for these tags.
 
 | Tag | Enables | Documentation |
 |-----|---------|----------------|
-| **`memory`** | Long-term memory copilot; with **`http`**, **`/foxxycode/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enabled`** | [`external/memory/README.md`](../external/memory/README.md) |
-| **`http`** | **`foxxycode http`**, OpenAI-shaped REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](http-api.md) · [`external/httpserver/`](../external/httpserver/) |
-| **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/ui.md`](ui.md) · [`DESIGN.md`](../DESIGN.md) |
-| **`scheduler`** | Scheduler daemon hooks, **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/scheduler.md`](scheduler.md) · [`external/scheduler/README.md`](../external/scheduler/README.md) |
-| **`gateway.telegram`** | **`foxxycode gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
-| **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
-| **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`**); combine with **`http`**, **`ui`** | [`docs/build.md`](build.md#desktop-windows-webview2) |
-| **`cli`** | Interactive console TUI (bare **`foxxycode`**, **`foxxycode cli`**) | [`docs/cli.md`](cli.md) · [`external/cli/`](../external/cli/) |
-| **`browser`** | Interactive browser tool (**`browser_action`**, chromedp) | [`docs/browser-tool.md`](browser-tool.md) |
-| **`swarm`** | Swarm relay served by **`foxxycode serve`**; agents register into it and relays chain | [`docs/swarm.md`](swarm.md) · [`external/swarm/`](../external/swarm/) |
+| **`memory`** | Long-term memory copilot; with **`http`**, **`/foxxycode/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enabled`** | [`external/memory/README.md`](../../external/memory/README.md) |
+| **`http`** | **`foxxycode http`**, OpenAI-shaped REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/reference/http-api.md`](../reference/http-api.md) · [`external/httpserver/`](../../external/httpserver) |
+| **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/surfaces/web-ui.md`](../surfaces/web-ui.md) · [`DESIGN.md`](../../DESIGN.md) |
+| **`scheduler`** | Scheduler daemon hooks, **`foxxycode_scheduler_*`** tools; with **`http`**, **`/foxxycode/scheduler`** REST | [`docs/operate/scheduler.md`](../operate/scheduler.md) · [`external/scheduler/README.md`](../../external/scheduler/README.md) |
+| **`gateway.telegram`** | **`foxxycode gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/surfaces/gateway.md`](../surfaces/gateway.md) · [`external/gateway/`](../../external/gateway) |
+| **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/surfaces/gateway.md`](../surfaces/gateway.md) |
+| **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`**); combine with **`http`**, **`ui`** | [`docs/contributing/build.md`](build.md#desktop-windows-webview2) |
+| **`cli`** | Interactive console TUI (bare **`foxxycode`**, **`foxxycode cli`**) | [`docs/surfaces/console.md`](../surfaces/console.md) · [`external/cli/`](../../external/cli) |
+| **`browser`** | Interactive browser tool (**`browser_action`**, chromedp) | [`docs/features/browser-tool.md`](../features/browser-tool.md) |
+| **`swarm`** | Swarm relay served by **`foxxycode serve`**; agents register into it and relays chain | [`docs/operate/swarm.md`](../operate/swarm.md) · [`external/swarm/`](../../external/swarm) |
 
 Tests come at two speeds. **`make test`** is the express run: the SPA assets and suite, then one
 **`go test`** over the whole tree with every optional module compiled in — what the shipped binary
-contains. The combinations themselves live in **`TEST_TAG_SETS`** ([`Makefile`](../Makefile)):
+contains. The combinations themselves live in **`TEST_TAG_SETS`** ([`Makefile`](../../Makefile)):
 **`make test-matrix`** walks them in sequence, and CI runs one job per combination —
 **`.github/workflows/tests-on-pr.yaml`** reads the list through **`make print-test-tag-sets`**, so
 it cannot drift from the Makefile. Locally, reach for a single combination instead:
@@ -200,7 +200,7 @@ Or cross-compile from Linux/macOS (pure Go, **`CGO_ENABLED=0`**):
 python scripts/build.py --target cli --preset desktop
 ```
 
-**Requirements:** Windows 10+, [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most Win10/11 images). Logs go to **`~/.foxxycode/desktop.log`** because **`-H=windowsgui`** hides stdout/stderr. Owning no console also means every console tool a turn runs (git, ripgrep, the shell behind **`run_command`**) would be given a console window of its own, so they are all started windowless through **`platform.HideConsoleWindow`**; see **`docs/architecture.md`**.
+**Requirements:** Windows 10+, [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on most Win10/11 images). Logs go to **`~/.foxxycode/desktop.log`** because **`-H=windowsgui`** hides stdout/stderr. Owning no console also means every console tool a turn runs (git, ripgrep, the shell behind **`run_command`**) would be given a console window of its own, so they are all started windowless through **`platform.HideConsoleWindow`**; see **`docs/contributing/architecture.md`**.
 
 **First run:** double-click opens **`/#/chat`** with a provider picker modal (pattern inspired by NeuralDeskApp). Save writes **`config.yaml`** via **`PUT /foxxycode/config`**.
 
@@ -289,15 +289,15 @@ channel and the formula is the submission. The formula builds the release tag se
 **`scripts/check-homebrew-submission.sh`** (**`make brew-check`**) is the preflight - token
 availability, notability thresholds, the release, and the rendered formula. It exits non-zero when
 something blocks the submission. The full path, including the notability arithmetic that blocks a
-self-submission today, is in [homebrew.md](homebrew.md).
+self-submission today, is in [homebrew.md](../getting-started/homebrew.md).
 
 What the packages install, and how they interact with **`foxxycode update`**, is documented in
-[install.md](install.md#linux-packages-deb-rpm) and
-[update.md](update.md#installations-owned-by-a-package-manager).
+[install.md](../getting-started/install.md#linux-packages-deb-rpm) and
+[update.md](../getting-started/update.md#installations-owned-by-a-package-manager).
 
 ## Release binaries (CI)
 
-On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binaries**](../.github/workflows/release-binaries.yaml) workflow (separate from Docker CI) uploads archives to the matching **GitHub Release**:
+On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binaries**](../../.github/workflows/release-binaries.yaml) workflow (separate from Docker CI) uploads archives to the matching **GitHub Release**:
 
 | Archive | Platform |
 |---------|----------|

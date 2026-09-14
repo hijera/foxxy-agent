@@ -324,7 +324,37 @@ services:
     restart: unless-stopped
 ```
 
-> The `Dockerfile` `BUILD_TAGS` default now includes `gateway`, so a from-source build (`docker-compose.dev.yml`) supports gateway mode out of the box. The **published GHCR image still ships without it** (CI sets `BUILD_TAGS=http,scheduler,ui,memory`), so with `docker-compose.yml` you must build a custom image (`BUILD_TAGS=http,ui,scheduler,memory,gateway`) and point `FOXXYCODE_IMAGE` at it. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/docker.md](docker.md#run-another-mode-messenger-gateway).
+> The `Dockerfile` `BUILD_TAGS` default now includes `gateway`, so a from-source build (`docker-compose.dev.yml`) supports gateway mode out of the box. The **published GHCR image still ships without it** (CI sets `BUILD_TAGS=http,scheduler,ui,memory`), so with `docker-compose.yml` you must build a custom image (`BUILD_TAGS=http,ui,scheduler,memory,gateway`) and point `FOXXYCODE_IMAGE` at it. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/getting-started/docker.md](../getting-started/docker.md#run-another-mode-messenger-gateway).
+
+---
+
+## Debugging a chat
+
+A command that appears to do nothing - a `/model` tap that leaves the model unchanged, a message the bot never answers - leaves no trace at `info`. That level carries what succeeded (connecting, sessions loaded and cleared, a model or mode applied) and what failed loudly enough to warn; an update that was quietly dropped, or a tap that never arrived, is in neither list. `gateway.telegram` at `debug` records the whole path instead: every update as it arrives, why one was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full worker queue), each recognised command, each menu the bot builds with the session it belongs to, and each callback with the model or mode it resolved to and whether it applied.
+
+Raise that one component and leave the rest of the process alone:
+
+```yaml
+logger:
+  level: "info"
+  levels:
+    - component: "gateway.telegram"
+      level: "debug"
+```
+
+For a single restart under systemd, the flag carries the same spec and needs no edit to the config file:
+
+```bash
+foxxycode serve --log-level "info,gateway.telegram=debug"
+```
+
+Every record keeps its `component` attribute, so a file that mixes subsystems still filters:
+
+```bash
+grep '"component":"gateway.telegram"' /var/log/foxxycode/foxxycode.log
+```
+
+A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, and `telegram: set model` when the manager refuses the change. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
 
 ---
 
@@ -467,6 +497,35 @@ Update the `start.go` / `start_stub.go` constraint to include the new tag.
 `hub.Start()` accepts any `[]gateway.Adapter`. No changes to Hub itself are needed — just `append` your adapter before calling `hub.Start(ctx)`.
 
 ---
+
+## The same session in the chat and in the browser
+
+With `httpserver.enabled` and `gateways.telegram.enabled` both on, a Telegram
+conversation and the web UI are two views of one session.
+
+- **The chat session appears in the browser.** Gateway sessions are stored the
+  way every other session is, so `GET /foxxycode/sessions` lists them (their ids
+  carry a `gw_` prefix) and opening one loads the same transcript.
+- **A chat turn streams into the browser while it runs.** The gateway publishes
+  its turn into the session's composer relay - the same mechanism a background
+  task's wake turn uses - so a tab watching that session sees the tokens as
+  they arrive, not after the fact.
+- **The browser watches; the chat answers.** Session updates fan out to both
+  surfaces, but permission requests and questions go only to the chat, because
+  it is the only one with somebody reading. A watcher is a spectator.
+- **Continuing works in either direction.** Reply in the browser and the next
+  `/context` in Telegram shows it; reply in Telegram and the browser has it on
+  the next load. Only one turn runs at a time: the session's turn lock is a
+  file lock, so a message that arrives while a browser turn is in flight is
+  answered with a busy notice instead of interleaving.
+- **A turn already being watched is left alone.** If a browser turn is running
+  on the session, an arriving chat message does not take over its stream - the
+  chat message gets the busy answer a moment later anyway.
+
+If a session is deleted from the browser, the chat's mapping in
+`gateway_sessions.json` still points at that id; the next message finds no
+bundle and starts a fresh transcript under it. The conversation resets, which
+is what deleting it meant.
 
 ## Session lifecycle
 

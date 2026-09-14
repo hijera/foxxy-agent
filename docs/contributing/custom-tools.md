@@ -7,7 +7,7 @@ action the agent can take â€” reading files, running commands, searching code â€
 a tool. This guide explains how to add new built-in tools directly to the agent binary.
 
 If you want to add tools without modifying the agent source, use
-[MCP servers](./mcp-integration.md) instead.
+[MCP servers](../features/mcp.md) instead.
 
 ---
 
@@ -44,7 +44,7 @@ decides to call a tool, the agent executes it and feeds the result back into the
 ## The `Tool` Struct
 
 Every tool is a value of type `tools.Tool`, a type alias for `tooling.Tool` defined in
-[`internal/tooling/tool.go`](../internal/tooling/tool.go):
+[`internal/tooling/tool.go`](../../internal/tooling/tool.go):
 
 ```go
 type Tool struct {
@@ -443,7 +443,7 @@ ACP-capable editors map plan states to their UI. Markdown markers map roughly to
 
 If you want to add tools without modifying the agent source (e.g. for project-specific tools,
 third-party integrations, or tools in other languages), use the
-[MCP server integration](./mcp-integration.md).
+[MCP server integration](../features/mcp.md).
 
 MCP tools are registered at runtime with the prefix `serverName__toolName` and follow the same
 `RequiresPermission`/plan allowlist model as built-in tools.

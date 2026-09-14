@@ -98,7 +98,7 @@ never reads as an agent approval or the reverse. A child agent that may use MCP 
 borrow the parent's connections: configured servers are re-resolved for the child's cwd
 **through this trust gate**, exactly as for a new session, and the parent's ACP client-supplied
 servers are redialed ungated, as the original connect was. A child whose tool set cannot contain
-MCP names (the built-in `explore`) never dials anything. See `docs/subagents.md`.
+MCP names (the built-in `explore`) never dials anything. See `docs/features/subagents.md`.
 
 Hook definition files found inside the workspace (`.foxxycode/hooks.json`, the Claude Code
 `.claude/settings.json` and `.claude/settings.local.json`) are the third kind of project-local
@@ -107,7 +107,7 @@ content that executes code, and they follow the same model with a third sibling 
 the canonical workspace path plus the workspace-relative file path and a digest of the file,
 approved with `foxxycode hooks trust <file>` or `POST /foxxycode/hooks/trust`. Under `ask` a held file is
 parsed and listed, but none of its hooks runs, and the session records a notice naming the
-approval commands. See `docs/hooks.md`.
+approval commands. See `docs/features/hooks.md`.
 
 ## Enable / disable switches
 
@@ -126,7 +126,7 @@ HTTP API / web UI below) also applies to **already running** sessions on their n
 ## Management API and UI
 
 The HTTP gateway (build tag `http`) exposes the merged server list with probed tool
-inventories and toggle endpoints under **`/foxxycode/mcp*`** (see `docs/http-api.md`), and the
+inventories and toggle endpoints under **`/foxxycode/mcp*`** (see `docs/reference/http-api.md`), and the
 bundled web UI shows them under **Settings -> MCP servers**: status dot per server, a
 `global` / `local` scope badge, expandable tool list with per-tool switches, and a
 Cursor-style JSON editor for mcp.json entries with a scope picker (global writes

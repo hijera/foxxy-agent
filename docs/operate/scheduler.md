@@ -1,6 +1,6 @@
-## Scheduler
+# Scheduler
 
-### Overview
+## Overview
 
 The scheduler is an optional cron-like runner. It scans a single job directory for flat `*.md` files (YAML frontmatter plus markdown body) and executes each job when due. It is compiled in only with the **`scheduler`** build tag.
 
@@ -16,18 +16,18 @@ The cron parser uses **five fields** (**minute hour day month weekday**) in **UT
 
 Changes to the **`schedule`** field in a job file are read on the next directory scan (no restart). When the schedule **string** changes, in-memory duplicate-launch bookkeeping for that job is cleared so the new expression is not skewed by the old cron stepping.
 
-### Build
+## Build
 
 - Scheduler only - `go build -tags=scheduler ./cmd/foxxycode`
 - HTTP and scheduler - `go build -tags=http,scheduler ./cmd/foxxycode` (add `,ui` with `http` for the embedded SPA)
 
-### Enabling
+## Enabling
 
 The scheduler daemon and tools are active when **`scheduler.enabled: true`** in config, or when you pass **`foxxycode acp -scheduler-enabled`** or **`foxxycode http -scheduler-enabled`**.
 
-REST routes under **`/foxxycode/scheduler`** require **`-tags=http,scheduler`**; see **`docs/http-api.md`**.
+REST routes under **`/foxxycode/scheduler`** require **`-tags=http,scheduler`**; see **`docs/reference/http-api.md`**.
 
-### Job directory
+## Job directory
 
 Jobs are **`*.md`** files **directly** under **`scheduler.dir`**. Nested subdirectories are not used for discovery.
 
@@ -42,7 +42,7 @@ The daemon writes **`.state`** as soon as a cron run is committed (after the sch
 
 Optional YAML frontmatter **`paused: true`** skips both cron ticks and **`POST …/run`** until resumed.
 
-### Job file format
+## Job file format
 
 Frontmatter fields:
 
@@ -55,7 +55,7 @@ Frontmatter fields:
 
 Body - markdown used as the one-shot user instruction for that scheduler run.
 
-### Runs and sessions
+## Runs and sessions
 
 Each execution persists a normal session directory under **`sessions.dir`** with **`schedulerRun`** metadata in **`session.json`** (job id, start or end timestamps, **`status`**). Completed runs older than **`scheduler.retain_sessions`** per **`job_id`** are pruned (default **5** when unset).
 
@@ -67,11 +67,11 @@ Inspect runs - **`GET /foxxycode/scheduler/jobs/{job_id}/runs`** or tool **`foxx
 
 Daemon process logging stays short (**`slog`**); full traces live in session storage.
 
-### HTTP API
+## HTTP API
 
 With **`-tags=http,scheduler`**, **`GET /foxxycode/scheduler/jobs`**, job CRUD, **`pause`** / **`resume`**, **`run`**, **`cancel`**, and **`…/runs`** mirror the **`schedservice`** layer. **`503`** if **`scheduler.enabled`** is false. OpenAPI merges these paths only when **scheduler** is linked (see **`external/httpserver/scheduler_http.go`** vs **`scheduler_http_stub.go`**).
 
-### Tools (when scheduler is enabled)
+## Tools (when scheduler is enabled)
 
 - **`foxxycode_scheduler_jobs_list`** - list jobs (**`include_body`** optional)
 - **`foxxycode_scheduler_job_get`** - one job JSON including **`body`**
@@ -84,7 +84,7 @@ With **`-tags=http,scheduler`**, **`GET /foxxycode/scheduler/jobs`**, job CRUD, 
 
 Legacy names **`foxxycode_scheduler_list`**, **`read`**, **`write`**, **`delete`**, **`validate`** are removed.
 
-### Example job (minute tick)
+## Example job (minute tick)
 
 ```md
 ---
@@ -99,4 +99,4 @@ In the session working directory run
 bash -lc 'date -u +%FT%TZ > tick.txt'
 ```
 
-See also **`docs/http-api.md`** (scheduler table), **`docs/config.md`** (**`scheduler`** key), and **`examples/README.md`** (Python harnesses **`http_e2e_scheduler_api`**, **`http_e2e_scheduler_agent`**, **`acp_e2e_scheduler_agent`**).
+See also **`docs/reference/http-api.md`** (scheduler table), **`docs/getting-started/configuration.md`** (**`scheduler`** key), and **`examples/README.md`** (Python harnesses **`http_e2e_scheduler_api`**, **`http_e2e_scheduler_agent`**, **`acp_e2e_scheduler_agent`**).

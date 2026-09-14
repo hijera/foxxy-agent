@@ -280,7 +280,7 @@ turn says something:
   roughly half the budget went to reasoning the user never saw.
 - **A stream abandoned mid-answer.** Bounded by **`agent.llm_stall_timeout_ms`** and the
   **`agent.llm_stall_retry`** family, which keep the partial answer and ask the model to
-  carry on rather than ending the turn. See `docs/config-reference.md` for the keys.
+  carry on rather than ending the turn. See `docs/reference/config.md` for the keys.
 - **A lane, not a model, that failed.** One model name at a proxy is usually a group of
   interchangeable deployments, and a sick member fails per attempt rather than per
   conversation. Two failures are therefore answered by re-issuing the identical request
@@ -375,7 +375,7 @@ Docs mode does not expose **`run_command`** or MCP tools because those surfaces 
 
 ### Ask Mode
 
-The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/subagents.md`**).
+The embedded ask sections (**`internal/prompts/sections/ask/`**, override file **`prompts.ask_prompt`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. Ask and docs turns never spawn subagents; agent, plan and debug turns may (**`docs/features/subagents.md`**).
 
 ## Built-in Tools Specification
 

@@ -117,7 +117,7 @@ crashed to a blank page when creating a chat draft.
 By default the embedded UI follows the IDE theme: a light IDE LAF maps to foxxycode's `light` theme,
 a dark LAF to `dark`. It is applied on the initial load via the `?theme=` URL parameter (no flash)
 and updated live through `window.foxxycodeUi.setTheme(...)` whenever you switch the IDE theme
-(see `FoxxyCodeThemeBridge` and `docs/intellij-embedding.md`). Uncheck *Match FoxxyCode UI theme to the IDE
+(see `FoxxyCodeThemeBridge` and `docs/contributing/intellij-embedding.md`). Uncheck *Match FoxxyCode UI theme to the IDE
 theme* to instead use whatever theme you pick inside foxxycode's own **Appearance** settings.
 
 ## Layout

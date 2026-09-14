@@ -26,8 +26,7 @@ continue: foxxycode cli --session-id sess_1a2b3c4d  (or: foxxycode -c)
 
 The layout replicates the pi coding agent's TUI (pi-mono `b1efcf7d7`,
 v0.84.2, MIT, Mario Zechner — see the attribution note below) with colors
-from the foxxycode SPA palette (`external/ui/src/styles.css`). Reference captures
-of the pi original live in `docs/assets/pi-tui-reference/`; this document is
+from the foxxycode SPA palette (`external/ui/src/styles.css`); this document is
 the visual contract for the foxxycode console.
 
 Top to bottom:
@@ -66,7 +65,7 @@ Top to bottom:
   hidden directories, `node_modules`, and `.foxxycode` are skipped), `tab` forces file completion.
   A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
   the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
-  those lines reach the model (see `docs/ui.md`, **Line ranges**).
+  those lines reach the model (see `docs/surfaces/web-ui.md`, **Line ranges**).
 - **Footer**: dim `cwd (git-branch) • title [• plan]`, then
   `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
 
@@ -79,7 +78,7 @@ Startup runs before the terminal enters raw mode: the config, the session
 store, the skills, the rule folders and the configured MCP servers, then the
 first frame. Nothing reads the workspace tree: nested `AGENTS.md` files are
 read on demand, from the folders a tool enters (see
-[`docs/rules.md`](rules.md)), so a console opened in a home directory (a macOS
+[`docs/features/rules.md`](../features/rules.md)), so a console opened in a home directory (a macOS
 `~/Library` alone runs to hundreds of thousands of entries) draws its frame at
 once instead of looking hung. The git branch in the footer is read with a
 three-second bound for the same reason. A first ctrl+c during startup cancels
@@ -91,13 +90,13 @@ Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
 `/hotkeys`, `/quit`; server-driven `/compact`, `/export`, `/plugin`, and every
 loaded skill (from the ACP available-commands catalog). Enter on a slash
 suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
-[path]` writes the transcript into the workspace (`docs/session-export.md`);
+[path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server.
 
 Agent self-configuration works as it does over ACP and HTTP: every turn
 offers the staged config tools (`config_get`, `config_set`,
 `config_changes`, `config_commit`, `config_revert`, `config_rollback`; see
-**Agent self-configuration** in `docs/config-reference.md`), and a commit or
+**Agent self-configuration** in `docs/reference/config.md`), and a commit or
 rollback hot-reloads the running console, so the model catalog (`ctrl+l`,
 `ctrl+p`), the footer, and the header's `[Context]`, `[Skills]`, `[Rules]`,
 and `[MCP]` sections follow the new file without a restart. `-p/--prompt`
@@ -184,7 +183,7 @@ session - so it also works in the lean build without the `cli` tag.
 model servers and their credentials, MCP commands, remotes); on its own it
 prints only problems and a status line, with `--test-config` the full report.
 Both exit 1 when something is wrong. See
-[docs/config.md](config.md#checking-the-file-from-the-command-line).
+[docs/getting-started/configuration.md](../getting-started/configuration.md#checking-the-file-from-the-command-line).
 
 `--config --home --cwd --sessions-dir` mirror the other subcommands.
 `--session-id <id>` reopens (or creates) that session and replays its
@@ -250,12 +249,12 @@ the console created). A dropped connection leaves the server turn and its
 child running; `/resume` shows the outcome once it ends, and an answer to a
 prompt the server has already withdrawn is ignored. Quitting the console
 mid-turn waits briefly for the remote cancel to reach the server. See
-`docs/subagents.md`, Remote mode.
+`docs/features/subagents.md`, Remote mode.
 
 ## Subagent definitions (`foxxycode agents`)
 
 Three subcommands manage the subagent definitions the agent may delegate to
-(`docs/subagents.md`). They need no build tag, like `foxxycode mcp` and
+(`docs/features/subagents.md`). They need no build tag, like `foxxycode mcp` and
 `foxxycode rules`:
 
 ```
@@ -289,7 +288,7 @@ the parent session.
 ## Hook definition files (`foxxycode hooks`)
 
 Three subcommands manage the hook definition files a session would load
-(`docs/hooks.md`). They need no build tag, like `foxxycode agents`:
+(`docs/features/hooks.md`). They need no build tag, like `foxxycode agents`:
 
 ```
 foxxycode hooks list [--cwd DIR]

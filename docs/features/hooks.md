@@ -96,10 +96,10 @@ One JSON object on stdin. The session fields come first, the event fields after 
 
 ```json
 {
-  "session_id": "20260906-131500-a1b2c3",
+  "session_id": "sess_5f1c0d2e9a7b4c3d8e6f1a2b",
   "hook_event_name": "PreToolUse",
   "cwd": "/home/op/project",
-  "transcript_path": "/home/op/.foxxycode/sessions/20260906-131500-a1b2c3/messages.json",
+  "transcript_path": "/home/op/.foxxycode/sessions/sess_5f1c0d2e9a7b4c3d8e6f1a2b/messages.json",
   "permission_mode": "ask",
   "mode": "agent",
   "model": "openai/gpt-5",
@@ -216,7 +216,7 @@ The first turn that finds a held file records a notice in the session (the SPA s
 
 | Dark | Light |
 |---|---|
-| ![Held hooks file notice, dark](assets/screenshot-hooks-notice-dark.png) | ![Held hooks file notice, light](assets/screenshot-hooks-notice-light.png) |
+| ![Held hooks file notice, dark](../assets/screenshot-hooks-notice-dark.png) | ![Held hooks file notice, light](../assets/screenshot-hooks-notice-light.png) |
 
 Approval surfaces:
 

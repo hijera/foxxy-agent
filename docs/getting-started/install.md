@@ -104,7 +104,7 @@ make deb
 make rpm
 ```
 
-See [build.md](build.md#distribution-packages).
+See [build.md](../contributing/build.md#distribution-packages).
 
 ## macOS (Homebrew)
 
@@ -150,7 +150,7 @@ The packages install no service unit, because FoxxyCode keeps its state per user
 **`~/.foxxycode`**. **`foxxycode serve --daemon`** is the built-in way to keep it running
 without one; under a supervisor that already owns process lifetimes (`systemd`, Docker)
 use the foreground form and let that supervisor restart it. See [the daemon
-guide](serve.md). **`foxxycode http`** is still there for the API alone.
+guide](../operate/serve.md). **`foxxycode http`** is still there for the API alone.
 
 ## Windows
 
@@ -188,7 +188,7 @@ Some harnesses spawn **`foxxycode acp`** via `cmd /c` or `sh -c` and do not inhe
 docker compose pull && docker compose up -d
 ```
 
-See [docker.md](docker.md) and the [README Docker section](../README.md#docker).
+See [Docker](docker.md).
 
 ## Upgrade
 
@@ -200,4 +200,4 @@ See [update.md](update.md).
 
 ## Build from source
 
-See [build.md](build.md) and the README section **Other installation methods**.
+See [build.md](../contributing/build.md) and the README section **Other installation methods**.

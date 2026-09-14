@@ -3,8 +3,8 @@
 `foxxycode serve` runs every subsystem the configuration enables - the HTTP API and the
 embedded web UI, the messenger gateway, the swarm relay, the cron scheduler - in one
 process over one session manager. Which of them start is decided by `config.yaml`; see
-the [configuration reference](config-reference.md) and the per-surface guides
-([HTTP API](http-api.md), [gateway](gateway.md), [swarm](swarm.md),
+the [configuration reference](../reference/config.md) and the per-surface guides
+([HTTP API](../reference/http-api.md), [gateway](../surfaces/gateway.md), [swarm](swarm.md),
 [scheduler](scheduler.md)).
 
 This page is about keeping that process running and keeping it current.
@@ -19,7 +19,7 @@ what the configuration names, resolves the subsystems it enables exactly as a
 start would (a surface this binary was not built with is an error, not a silent
 skip) and binds each listen address once to see whether it is free. Both exit 1 when something is wrong, which is what makes them useful in a
 deploy script right before `foxxycode serve restart`. Details and sample reports:
-[docs/config.md](config.md#dry-run-probing-what-the-file-points-at).
+[docs/getting-started/configuration.md](../getting-started/configuration.md#dry-run-probing-what-the-file-points-at).
 
 ## In the foreground
 
@@ -120,7 +120,7 @@ What happens next depends on what moved:
 
 | Change | Effect |
 |--------|--------|
-| models, providers, skills, permissions, most settings | the live configuration is swapped; `GET /foxxycode/events` carries `config_reloaded` and open clients re-read (see [the SPA notes](ui.md)) |
+| models, providers, skills, permissions, most settings | the live configuration is swapped; `GET /foxxycode/events` carries `config_reloaded` and open clients re-read (see [the SPA notes](../surfaces/web-ui.md)) |
 | the Telegram token, the scheduler's directory or timeout | that subsystem alone is rebuilt in place |
 | a subsystem's `enabled` | it is started or stopped |
 | a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart |
@@ -160,4 +160,4 @@ ordinary `Restart=on-failure`.
 
 The packages ship no service unit on purpose: FoxxyCode's state is per-user under
 `~/.foxxycode`, so a system daemon would need a home and a configuration nobody can edit.
-See [installation](install.md).
+See [installation](../getting-started/install.md).

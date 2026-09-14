@@ -181,7 +181,7 @@ Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks pane
 
 ## Configuration
 
-See `tools.background` in `docs/config-reference.md`:
+See `tools.background` in `docs/reference/config.md`:
 
 ```yaml
 tools:
@@ -193,7 +193,7 @@ tools:
     output_buffer_bytes: 262144
 ```
 
-Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
+Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/features/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
 
 ## Subagent runs
 
@@ -210,7 +210,7 @@ type Handle interface {
 type LaunchFunc func(taskID string, out io.Writer) (Handle, error)
 ```
 
-A **subagent run** (`docs/subagents.md`) is a task of kind `agent`, started through `Pool.Launch(spec, launch)`. `Launch` shares the single scheduling path with `Start` and `Adopt`: admission (the per-session limit, drain) happens first, so `ErrPoolFull` or `ErrDraining` guarantees the callback never ran and nothing was created; then the pool assigns and registers the task id and only then calls back with that id and the task's output sink, so the child session is created knowing which task it belongs to. The callback returns a `Handle` whose `Stop` cancels the child's context and whose `Wait` blocks until the run settled. `PID` is 0 and `ProcessStartedAt` is the zero time, which is why the survivor probe never mistakes such a task for a pid it may kill.
+A **subagent run** (`docs/features/subagents.md`) is a task of kind `agent`, started through `Pool.Launch(spec, launch)`. `Launch` shares the single scheduling path with `Start` and `Adopt`: admission (the per-session limit, drain) happens first, so `ErrPoolFull` or `ErrDraining` guarantees the callback never ran and nothing was created; then the pool assigns and registers the task id and only then calls back with that id and the task's output sink, so the child session is created knowing which task it belongs to. The callback returns a `Handle` whose `Stop` cancels the child's context and whose `Wait` blocks until the run settled. `PID` is 0 and `ProcessStartedAt` is the zero time, which is why the survivor probe never mistakes such a task for a pid it may kill.
 
 What that changes on the surface:
 
@@ -228,4 +228,4 @@ Everything else in this document applies unchanged: timeouts (the run arrives wi
 - Edge cases live in ordinary unit tests: timeout resolution, the concurrency cap, output-window truncation, orphan marking, id uniqueness across restarts (`internal/bgtask`), grant refusal for metacharacters (`internal/permission`), and the UI helpers (`external/ui/src/ui/tasks/`).
 - The liveness probe has its own tests in `internal/platform`: `procgroup_test.go` for what both platforms owe (a running process is found, an exited one is not, probing is repeatable), and `procgroup_windows_test.go` for what only Windows can get wrong — reporting a killed process alive because its handle is still open, accepting a creation time the record does not describe, and killing a pid on such a record. Reading a bundle written before `process_started_at` existed is pinned in `internal/bgtask` (`TestLoadPersistedLeavesALegacyRecordWithoutAProcessIdentity`).
 - End-to-end against a real model: `examples/httpserver/http_e2e_background.py`, `examples/httpserver/http_e2e_background_reap.py` (kills its own foxxycode mid-task and makes a fresh one clean up after it), and `examples/acp/acp_e2e_background.py`.
-- Subagent runs on the pool are specified in `features/subagents.feature` (`internal/agent/bdd_subagents_test.go`) and `features/subagents_http.feature` (`external/httpserver/bdd_subagents_test.go`); `Pool.Launch` ordering and `Snapshot.Agent` persistence are unit tests in `internal/bgtask`. See `docs/subagents.md`.
+- Subagent runs on the pool are specified in `features/subagents.feature` (`internal/agent/bdd_subagents_test.go`) and `features/subagents_http.feature` (`external/httpserver/bdd_subagents_test.go`); `Pool.Launch` ordering and `Snapshot.Agent` persistence are unit tests in `internal/bgtask`. See `docs/features/subagents.md`.

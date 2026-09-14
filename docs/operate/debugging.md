@@ -4,7 +4,7 @@ When a turn goes wrong the transcript rarely says why. The model asked for a too
 
 It is **off by default** and costs nothing when off.
 
-> **Not to be confused with Debug mode.** `debug` is also the name of a *session mode* — the diagnose-before-fixing persona selected with `model: "debug"` (see [`docs/react-agent.md`](react-agent.md) and the mode list in [`docs/architecture.md`](architecture.md)). The two are unrelated: the mode changes how the **model** behaves, the diagnostics layer changes what **FoxxyCode records**. Either works without the other — you can run a Debug-mode session with diagnostics off, and diagnose an Agent-mode session with diagnostics on.
+> **Not to be confused with Debug mode.** `debug` is also the name of a *session mode* — the diagnose-before-fixing persona selected with `model: "debug"` (see [`docs/contributing/react-agent.md`](../contributing/react-agent.md) and the mode list in [`docs/contributing/architecture.md`](../contributing/architecture.md)). The two are unrelated: the mode changes how the **model** behaves, the diagnostics layer changes what **FoxxyCode records**. Either works without the other — you can run a Debug-mode session with diagnostics off, and diagnose an Agent-mode session with diagnostics on.
 
 ## Turning it on
 
@@ -116,7 +116,7 @@ Two details matter:
 
 **"The turn was slow."** Compare `at` between `llm_request` and `llm_response` versus between `tool_start` and `tool_finish` to see whether the time went to the model or to a tool.
 
-**"Tokens ran away."** `llm_response.input_tokens` per turn shows the context growing round to round; a jump usually points at a large tool result that should have been paged or evicted (see result eviction in [`docs/react-agent.md`](react-agent.md)).
+**"Tokens ran away."** `llm_response.input_tokens` per turn shows the context growing round to round; a jump usually points at a large tool result that should have been paged or evicted (see result eviction in [`docs/contributing/react-agent.md`](../contributing/react-agent.md)).
 
 ## Where the code lives
 

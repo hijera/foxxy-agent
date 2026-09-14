@@ -31,7 +31,7 @@ with a notice naming the tag to rebuild with, instead of a switch that would sav
 `browser.enabled: true` and change nothing. That is driven by two schema annotations
 on `GET /foxxycode/config/schema` — `x-foxxycode-requires-build-tag` (always present,
 names the tag) and `x-foxxycode-build-tag-missing` (added by the responding process
-when it lacks that tag). See [http-api.md](http-api.md).
+when it lacks that tag). See [http-api.md](../reference/http-api.md).
 
 If you build your own trimmed binary, add the tag alongside your other ones:
 
@@ -52,7 +52,7 @@ browser:
   timeout_seconds: 30     # per-action timeout
 ```
 
-See [config-reference.md](config-reference.md#browser) for the full field list.
+See [config-reference.md](../reference/config.md#browser) for the full field list.
 
 ## Tools
 
@@ -152,7 +152,7 @@ Tool results are text‑only, so screenshots are delivered to the model as a
 **user‑role vision block** injected right after the browser tool round (reusing the
 same image path as pasted images). The screenshot is also saved to the session
 `assets/` directory and served to the UI via
-`GET /foxxycode/sessions/{id}/assets/{name}` (see [http-api.md](http-api.md)), where
+`GET /foxxycode/sessions/{id}/assets/{name}` (see [http-api.md](../reference/http-api.md)), where
 the transcript renders it inline in a browser‑action card.
 
 ## Security notes
