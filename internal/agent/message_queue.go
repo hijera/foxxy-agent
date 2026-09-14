@@ -31,6 +31,7 @@ func (a *Agent) readQueuedMessages(messages *[]llm.Message) bool {
 			Role:      llm.RoleUser,
 			Content:   q.Text,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			Queued:    true,
 		}
 		*messages = append(*messages, msg)
 		a.state.AddMessage(msg)

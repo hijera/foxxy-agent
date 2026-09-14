@@ -81,6 +81,8 @@ func TestQueuedFollowUpWaitsOutTheSilentReissue(t *testing.T) {
 	msgs := h.st.GetMessages()
 	if n := len(msgs); n < 2 || msgs[n-2].Content != followUp || msgs[n-1].Content != "Switched to staging." {
 		t.Errorf("transcript does not end with the follow-up and its answer: %+v", msgs)
+	} else if !msgs[n-2].Queued || msgs[0].Queued {
+		t.Errorf("only the follow-up may be marked queued: prompt=%v follow-up=%v", msgs[0].Queued, msgs[n-2].Queued)
 	}
 }
 

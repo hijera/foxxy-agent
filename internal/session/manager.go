@@ -1031,7 +1031,19 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if !more {
 			break
 		}
-		stopReason, err = m.runner(turnCtx, state, QueuedPromptBlocks(queued), sender)
+		prompt := QueuedPromptBlocks(queued)
+		// The clients watching this turn see the follow-up enter the
+		// conversation where it was read, as they do for one the loop reads
+		// between two steps, and its recorded prompt carries the same marker.
+		if sender != nil {
+			_ = sender.SendSessionUpdate(params.SessionID, acp.MessageChunkUpdate{
+				SessionUpdate: acp.UpdateTypeUserMessageChunk,
+				Content:       prompt[0],
+			})
+		}
+		state.MarkNextPromptQueued()
+		stopReason, err = m.runner(turnCtx, state, prompt, sender)
+		state.ClearNextPromptQueued()
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())

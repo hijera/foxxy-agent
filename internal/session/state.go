@@ -216,6 +216,11 @@ type State struct {
 	// after every mutation, with queueMu released.
 	queueNotify func()
 
+	// nextPromptQueued marks the next user message recorded as a queued
+	// follow-up: set by the manager for a run its turn boundary starts from the
+	// queue (MarkNextPromptQueued). Turn-scoped, never persisted.
+	nextPromptQueued bool
+
 	// turnSender is where the current turn publishes its updates, kept so a
 	// queue change made from outside the turn's goroutine reaches the clients
 	// watching that turn. Turn-scoped, never persisted.
@@ -651,6 +656,10 @@ func normalizeModelID(cfg *config.Config, id string) string {
 // AddMessage appends a message to the conversation history.
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
+	if msg.Role == llm.RoleUser && s.nextPromptQueued {
+		msg.Queued = true
+		s.nextPromptQueued = false
+	}
 	s.Messages = append(s.Messages, msg)
 	s.markMessagesAppended()
 	s.mu.Unlock()
@@ -849,6 +858,26 @@ func (s *State) GetSurfaceSystemPrompt() string {
 func (s *State) SetTurnSender(sender acp.UpdateSender) {
 	s.mu.Lock()
 	s.turnSender = sender
+	s.mu.Unlock()
+}
+
+// MarkNextPromptQueued says the next user message this session records is a
+// follow-up from the message queue. The manager's turn boundary answers late
+// follow-ups with a run of their own, and that run records its prompt the way
+// any run does; the marker makes it read in the transcript like a follow-up
+// the loop picked up between two steps (Queued).
+func (s *State) MarkNextPromptQueued() {
+	s.mu.Lock()
+	s.nextPromptQueued = true
+	s.mu.Unlock()
+}
+
+// ClearNextPromptQueued withdraws the marker when the run recorded no message,
+// for instance a prompt a UserPromptSubmit hook refused, so it cannot land on
+// the prompt of a later turn.
+func (s *State) ClearNextPromptQueued() {
+	s.mu.Lock()
+	s.nextPromptQueued = false
 	s.mu.Unlock()
 }
 

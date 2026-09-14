@@ -14,6 +14,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -85,5 +86,49 @@ func TestQueuePostIsBusyWhileAnotherBackendRunsTheTurn(t *testing.T) {
 	status, code = postQueue(t, ts, id, "also check the Windows path")
 	if status != http.StatusConflict || code != "no_active_turn" {
 		t.Fatalf("queue with no turn anywhere = %d %q, want 409 no_active_turn", status, code)
+	}
+}
+
+// A client re-attaching to a running turn trims the transcript back to the prompt
+// the turn started from and lets the relay replay the rest. Follow-ups the turn
+// read are in the transcript too, so the rows say which user messages they are.
+func TestMessagesMarkTheFollowUpsATurnRead(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "start the work"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "working"})
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "check the tests too", Queued: true})
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/foxxycode/sessions/"+created.SessionID+"/messages", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-FoxxyCode-Session-ID", created.SessionID)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		Messages []map[string]interface{} `json:"messages"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Messages) != 3 {
+		t.Fatalf("got %d rows", len(body.Messages))
+	}
+	if _, marked := body.Messages[0]["queued"]; marked {
+		t.Errorf("the prompt row is marked queued: %v", body.Messages[0])
+	}
+	if body.Messages[2]["queued"] != true {
+		t.Errorf("the follow-up row is not marked queued: %v", body.Messages[2])
 	}
 }

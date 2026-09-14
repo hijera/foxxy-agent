@@ -998,6 +998,11 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []
 		if m.Compacted {
 			item["compacted"] = true
 		}
+		// A follow-up from the message queue, so a client re-attaching to the
+		// running turn can find the prompt the turn started from.
+		if m.Queued && m.Role == llm.RoleUser {
+			item["queued"] = true
+		}
 		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))
 			for _, part := range m.ImageParts {
