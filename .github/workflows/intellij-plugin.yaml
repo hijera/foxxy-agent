@@ -111,10 +111,21 @@ jobs:
           path: editors/intellij/build/distributions/*.zip
           if-no-files-found: error
 
-      # A JetBrains custom plugin repository is nothing but a URL serving this one XML
-      # document, so no server is needed: the document points straight at the release asset.
-      # Built once here and reused below, because this job is checked out at the tag while
-      # the published copy lives on main.
+      - name: Attach plugin to GitHub Release
+        if: steps.ver.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          files: editors/intellij/build/distributions/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Everything below publishes the plugin repository document. A JetBrains custom plugin
+      # repository is nothing but a URL serving this one XML file, so no server is needed: the
+      # document points straight at the zip attached above. These steps run only after that
+      # attach, so a failure here marks the job red but can never cost a release its plugin.
+      # The generator is built once and reused, because this job is checked out at the tag
+      # while the published copy lives on main.
       - name: Build the plugin repository generator
         if: steps.ver.outputs.release == 'true'
         run: go build -o "${RUNNER_TEMP}/updateplugins" ./editors/intellij/updateplugins
@@ -131,17 +142,16 @@ jobs:
             -force
           cat "${RUNNER_TEMP}/updatePlugins.xml"
 
-      # The zip is listed first: the document must never advertise an asset that is not there.
-      - name: Attach plugin to GitHub Release
+      # Backs the .../releases/latest/download/updatePlugins.xml URL.
+      - name: Attach updatePlugins.xml to GitHub Release
         if: steps.ver.outputs.release == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.ver.outputs.version }}
-          files: |
-            editors/intellij/build/distributions/*.zip
-            ${{ runner.temp }}/updatePlugins.xml
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ steps.ver.outputs.version }}" "${RUNNER_TEMP}/updatePlugins.xml" \
+            --repo "${{ github.repository }}" \
+            --clobber
 
       # GitHub Pages serves docs/ from main, so publishing means committing there. A second,
       # shallow checkout keeps the tag checkout and its build tree untouched.
