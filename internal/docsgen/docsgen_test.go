@@ -186,6 +186,42 @@ func TestChecksReadACRLFCheckout(t *testing.T) {
 	}
 }
 
+// A committed symlink under docs/assets (foxxycode-favicon.svg) is a real link
+// on Linux and, with core.symlinks=false, a small text file holding the target
+// path on Windows. The inventory has to size both the same, by the link itself:
+// following it on Linux listed the target's bytes, and CI read the Windows-made
+// index as stale.
+func TestAssetInventorySizesASymlinkByTheLinkItself(t *testing.T) {
+	root := t.TempDir()
+	assets := filepath.Join(root, "docs", "assets")
+	if err := os.MkdirAll(assets, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := strings.Repeat("<svg/>", 100)
+	if err := os.WriteFile(filepath.Join(assets, "mark.svg"), []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assets, "INDEX.md"), []byte("# Assets index\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("mark.svg", filepath.Join(assets, "alias.svg")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	inventory, err := AssetInventory(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range inventory {
+		if a.Path == "alias.svg" {
+			if a.Size != int64(len("mark.svg")) {
+				t.Fatalf("alias.svg sized %d, want the %d bytes of the link itself", a.Size, len("mark.svg"))
+			}
+			return
+		}
+	}
+	t.Fatalf("alias.svg missing from the inventory: %+v", inventory)
+}
+
 func TestCheckLinksAcceptsExplicitHTMLAnchors(t *testing.T) {
 	root := t.TempDir()
 	page := filepath.Join(root, "README.md")

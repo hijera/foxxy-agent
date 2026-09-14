@@ -194,8 +194,12 @@ func humanSize(n int64) string {
 // same on every platform.
 var textAssets = map[string]bool{".svg": true, ".md": true, ".txt": true, ".html": true, ".json": true, ".yaml": true, ".yml": true}
 
+// assetSize is the size the inventory lists for one asset. A symlink is sized
+// by the link itself, never by what it points at: a Windows checkout under
+// core.symlinks=false holds the link as a text file with the target path, which
+// is the same number of bytes.
 func assetSize(path string, d os.DirEntry) (int64, error) {
-	if textAssets[strings.ToLower(filepath.Ext(path))] {
+	if d.Type()&os.ModeSymlink == 0 && textAssets[strings.ToLower(filepath.Ext(path))] {
 		data, err := readFile(path)
 		if err != nil {
 			return 0, err
