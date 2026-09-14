@@ -70,10 +70,14 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills)
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
 	rulesMD := ""
+	var projectDocs []string
 	if rs, ok := a.state.(rulesState); ok {
-		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText, a.agentsOnDemand())
+		rulesMD, projectDocs = buildRulesPromptMarkdown(rs, contextFiles, userText, a.agentsOnDemand())
 	}
-	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
+	// The rules block already carries the root AGENTS.md, which is also the
+	// default instructions.files entry; without the skip every request sends it
+	// twice. Without a rules block nothing is skipped.
+	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files, projectDocs...)
 	intellijContextMD := session.LoadIntelliJProjectContext(a.state.GetCWD())
 	vscodeContextMD := session.LoadVSCodeProjectContext(a.state.GetCWD())
 	var promptVariants []string

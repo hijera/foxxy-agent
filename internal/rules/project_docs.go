@@ -15,7 +15,10 @@ type ProjectDoc struct {
 	Content string
 }
 
-// LoadProjectDocs reads AGENTS.md and DESIGN.md from cwd when present.
+// LoadProjectDocs reads AGENTS.md and DESIGN.md from cwd when present. The
+// {{.Rules}} block is the one place these root files enter the prompt: the
+// nested AGENTS.md chain starts below the root (AgentsForPaths), and the
+// instruction files - whose default entry is AGENTS.md - skip them.
 func LoadProjectDocs(cwd string) []ProjectDoc {
 	var out []ProjectDoc
 	for _, spec := range []struct {

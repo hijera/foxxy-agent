@@ -499,6 +499,97 @@ func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
 	}
 }
 
+// The root AGENTS.md is both a project doc of the rules block and the default
+// instructions.files entry. Whatever that list says, it and DESIGN.md reach the
+// model once: a second copy costs the file's full size on every request.
+func TestBuildSystemPromptRootAgentsMDOnce(t *testing.T) {
+	tmp := t.TempDir()
+	for name, body := range map[string]string{
+		"AGENTS.md":       "ROOT_AGENTS_ONCE_TOKEN",
+		"DESIGN.md":       "DESIGN_ONCE_TOKEN",
+		"CONTRIBUTING.md": "EXTRA_INSTRUCTION_TOKEN",
+	} {
+		if err := os.WriteFile(filepath.Join(tmp, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name      string
+		files     []string
+		wantExtra int
+	}{
+		{name: "default instruction files", files: nil},
+		{name: "explicit empty list", files: []string{}},
+		{name: "AGENTS.md listed with another file", files: []string{"AGENTS.md", "CONTRIBUTING.md"}, wantExtra: 1},
+		{name: "only another file", files: []string{"CONTRIBUTING.md"}, wantExtra: 1},
+		{name: "DESIGN.md listed", files: []string{"DESIGN.md"}},
+		{name: "AGENTS.md spelled with a dot segment", files: []string{"./AGENTS.md"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Agent.ApplyDefaults()
+			cfg.Prompts.ApplyDefaults()
+			cfg.Instructions.Files = tc.files
+			// What loading a config does: an empty list becomes ["AGENTS.md"].
+			cfg.Instructions.ApplyDefaults()
+			st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+			st.ReplaceRulesCatalog(session.DiscoverRules(cfg, tmp))
+			a := NewAgent(cfg, st, nil, nil)
+			for _, mode := range []string{"agent", "plan", "docs", "ask", "debug"} {
+				prompt := a.buildSystemPrompt(mode, nil, nil, "", nil)
+				for token, want := range map[string]int{
+					"ROOT_AGENTS_ONCE_TOKEN":  1,
+					"DESIGN_ONCE_TOKEN":       1,
+					"EXTRA_INSTRUCTION_TOKEN": tc.wantExtra,
+				} {
+					if got := strings.Count(prompt, token); got != want {
+						t.Errorf("%s mode: %s appears %d times, want %d", mode, token, got, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The context popover reads this breakdown. The root AGENTS.md belongs to its
+// rules segment, once: the instruction files must not add a second copy to the
+// system prompt segment.
+func TestContextBreakdownCountsRootAgentsMDOnceUnderRules(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	cfg.Instructions.ApplyDefaults()
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	a := NewAgent(cfg, st, nil, nil)
+	breakdown := func() session.ContextBreakdown {
+		t.Helper()
+		_ = a.buildSystemPrompt("agent", nil, nil, "", nil)
+		b := st.GetLastContextBreakdown()
+		if b == nil {
+			t.Fatal("expected a context breakdown after building the system prompt")
+			return session.ContextBreakdown{}
+		}
+		return *b
+	}
+
+	before := breakdown()
+	body := strings.TrimSpace(strings.Repeat("root agents guidance line\n", 1600))
+	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after := breakdown()
+
+	bodyTok := session.EstimateTokens(body)
+	if grew := after.Rules - before.Rules; grew < bodyTok {
+		t.Fatalf("rules segment grew by %d tokens, want at least the %d-token AGENTS.md", grew, bodyTok)
+	}
+	if grew := after.SystemPrompt - before.SystemPrompt; grew > bodyTok/10 {
+		t.Fatalf("system prompt segment grew by %d tokens for a %d-token AGENTS.md: the file is counted twice", grew, bodyTok)
+	}
+}
+
 // --- system_prompt.go: per-provider prompt selection -----------------------
 
 func TestBuildSystemPromptPerProviderSelectsFamily(t *testing.T) {
