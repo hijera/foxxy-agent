@@ -405,9 +405,11 @@ func TestOutputSinkTailTrimsToLastLines(t *testing.T) {
 }
 
 func TestTaskOutputAndMetadataPersistUnderTheSessionDir(t *testing.T) {
+	// Claimed before the pool so the pool's cleanup runs first: a task that is
+	// still running keeps its output.log open, and Windows will not remove it.
+	sessionDir := t.TempDir()
 	runner := &stubRunner{}
 	p := newTestPool(t, runner, Config{})
-	sessionDir := t.TempDir()
 	p.SetSessionDir("s1", sessionDir)
 
 	snap, err := p.Start(Spec{SessionID: "s1", Command: "make build", Label: "writes"})
