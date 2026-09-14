@@ -103,7 +103,7 @@ foxxycode skills enable <name>  |  disable <name>
 foxxycode skills add <src>  |  sync  |  remove <name>      # add a source, sync all sources, remove a synced skill
 ```
 
-The HTTP routes behind all three are listed under **`/foxxycode/skills*`** in [http-api.md](http-api.md).
+The HTTP routes behind all three are listed under **`/foxxycode/skills*`** in [http-api.md](../reference/http-api.md).
 
 ### Versions and updates
 
@@ -324,4 +324,4 @@ ACP clients receive `available_commands_update` after `session/new` and `session
 - Config reference: [config.md](../getting-started/configuration.md) → `skills`
 - Rules (separate mechanism): [rules.md](rules.md)
 - Settings UI: Settings → Skills (`foxxycode http` or `foxxycode serve`, and the IntelliJ and VS Code panels)
-- HTTP routes: [http-api.md](http-api.md) → `/foxxycode/skills*`, `/foxxycode/commands`
+- HTTP routes: [http-api.md](../reference/http-api.md) → `/foxxycode/skills*`, `/foxxycode/commands`
