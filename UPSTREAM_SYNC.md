@@ -124,6 +124,21 @@ http,scheduler; UI: 680 vitest + build:go). Итоги:
     placeholder-ы формата (`provider/model-id`, примеры URL). Защита от повторения хвоста —
     `i18n/messagesParity.test.ts` (паритет ключей и `{param}`-слотов en/ru) и
     `i18n/noHardcodedStrings.test.ts` (скан JSX-текста и label-атрибутов с аллоулистом).
+- **Хвосты маркетплейса, найденные 2026-09-14** (ветка `claude/skills-marketplace-port-f13580`). Сверка
+  с upstream: код волны перенесён полностью (движок, `/plugin`, роуты, BDD побайтово совпадают), а вот
+  «follow-up нет» было неправдой про документацию — из-за неё фича выглядела отсутствующей:
+  - в `docs/skills.md` не было раздела об установке из источников, правило `core-modules` (`.md` и `.mdc`)
+    утверждало, что ставят только через `npx`, README — что Настройки ставят из реестра skillsbd. Раздел
+    перенесён и сверен с кодом, а не скопирован: синхронизация клонирует заново (без `pull`) и сама же
+    обновляет, кнопки Refresh в UI нет, `file://` работает;
+  - `GET /foxxycode/commands` не был описан в OpenAPI, у `GET /foxxycode/skills` не было 400/404, строки
+    `docs/http-api.md` были урезаны. Расхождение, пойманное живым прогоном: у форка
+    `/foxxycode/slash-commands` **начинается** со встроенных команд, у upstream их там нет — описания
+    исправлены под форк;
+  - 4 английские строки статуса и ошибок в `SkillsSection.tsx` — `noHardcodedStrings` их не видел и получил
+    правило для литералов в `setError` / `setStatus` / `setMessage`; не был перенесён `TestParsePluginCommand`;
+  - баг (есть и в upstream): список для поиска кэшировался на всю жизнь вкладки, и источник, сохранённый
+    после первого поиска, не находился до переоткрытия настроек. Плюс подсказка при пустом `skills.sources`.
 
 ---
 
@@ -2057,7 +2072,7 @@ upstream — починка релизного конвейера.
 | **Синхронизировано до `upstream/main`** | `6666606` (2026-07-22) |
 | **Ближайший upstream-тег** | `0.9.43` |
 | **Наш коммит-порт** | `f0a2506`, `60af986`, `305fc5a`, `3b3e812`, `0e75aa7` (ветка `sync/upstream-6666606`) |
-| **Отложенные follow-up** | нет — все три закрыты: exhaustive OpenAPI для skill-роутов и BDD `skills_marketplace`/`plugin_command`/`remote_api` в `f2f4682`, i18n `SkillsSection.tsx` в `f2f4682`+`3d2fa15`, остальной английский в SPA — `ea7095d` (PR #7) |
+| **Отложенные follow-up** | нет — все три закрыты: exhaustive OpenAPI для skill-роутов и BDD `skills_marketplace`/`plugin_command`/`remote_api` в `f2f4682`, i18n `SkillsSection.tsx` в `f2f4682`+`3d2fa15`, остальной английский в SPA — `ea7095d` (PR #7). Пропущенное тогда (раздел `docs/skills.md`, правило core-modules, `/foxxycode/commands` в OpenAPI, 4 строки, `TestParsePluginCommand`) догнано 2026-09-14 — см. «Хвосты маркетплейса» в разделе волны |
 
 ### Что портировано в этой волне
 - **Platform-aware shell** (upstream `2e979b7`) — новый пакет `internal/platform` (детект
