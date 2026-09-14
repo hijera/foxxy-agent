@@ -347,13 +347,13 @@
     "instructions": {
       "type": "object",
       "title": "Project instructions",
-      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The root AGENTS.md and DESIGN.md already enter it through the rules block, so listing them adds no second copy.",
+      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here; a file the rules block already carries, such as the root AGENTS.md or DESIGN.md, adds no second copy when it is listed. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.",
       "additionalProperties": false,
       "properties": {
         "files": {
           "type": "array",
-          "description": "Filenames relative to the session CWD.",
-          "default": ["AGENTS.md"],
+          "description": "Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD.",
+          "default": ["AGENTS.md", "DESIGN.md"],
           "items": { "type": "string" }
         }
       }
@@ -385,7 +385,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested **/AGENTS.md under the session CWD; .mdc files are read as Cursor rules and .md files as Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.",
+      "description": "Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -395,7 +395,7 @@
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all.",
+          "description": "Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all.",
           "default": [],
           "items": { "type": "string" }
         }

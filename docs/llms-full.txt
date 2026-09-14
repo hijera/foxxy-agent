@@ -772,14 +772,16 @@ skills:
     - "${FOXXYCODE_HOME}/skills"
     - "${CWD}/.foxxycode/skills"
 
-# Project rules (Go: config.Rules, internal/config/rules.go)
+# Rules (Go: config.Rules, internal/config/rules.go)
 # Discovered from .foxxycode/rules, the shared .agents/rules, .cursor/rules,
-# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
+# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD, plus
+# your own ~/.foxxycode/rules, which applies in every workspace. Your own
+# ~/.foxxycode/AGENTS.md is read too, ahead of the project's, and has no key here.
 # .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/features/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: foxxycode, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional: user, foxxycode, agents-dir, cursor, claude, codex, agents
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
@@ -3000,8 +3002,8 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 
 - `GET /foxxycode/mcp` backs the list: merged `config.yaml` + global `~/.foxxycode/mcp.json`
   + project `./.foxxycode/mcp.json` servers, each with `source` (`global` / `local`
-  scope badge), `origin` (`config` / `home` / `project` — drives the badge
-  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  scope badge), `origin` (`config` / `home` / `project`) and `source_path` (the
+  real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unknown transport type (amber, `unsupported`).
@@ -4666,7 +4668,7 @@ Each policy takes `ask` (the default: parsed and listed, held until approved), `
 
 Your own files are not gated: `config.yaml`, `~/.foxxycode/mcp.json`, `~/.foxxycode/hooks.json` and `~/.foxxycode/agents` are operator-authored, and so is an MCP server an ACP client declares in `session/new`. `foxxycode acp` and `foxxycode serve` take `--mcp-project-trust ask|allow|deny` to set the MCP policy for one process, which is what a CI job or a container entrypoint uses instead of editing the file. Full detail: [MCP servers](../features/mcp.md#workspace-trust-for-project-local-servers), [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
 
-Rules and skills from a checkout are a different kind of content and carry no receipt: `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, nested `AGENTS.md` files and the skills under `${CWD}/.foxxycode/skills` are text that steers the model, loaded from the workspace as soon as a session opens there. They can ask the model to run something; they cannot run it themselves, so whatever they ask for still meets the mode, the permission gate and your hooks. Read a checkout's rules the way you read its build scripts. See [Rules](../features/rules.md) and [Skills](../features/skills.md).
+Rules and skills from a checkout are a different kind of content and carry no receipt: `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, nested `AGENTS.md` files and the skills under `${CWD}/.foxxycode/skills` are text that steers the model, loaded from the workspace as soon as a session opens there. (`~/.foxxycode/AGENTS.md`, `~/.foxxycode/DESIGN.md` and `~/.foxxycode/rules` are read the same way but arrive from nowhere: they are your own files, next to your `config.yaml`, and no `git clone` writes them.) They can ask the model to run something; they cannot run it themselves, so whatever they ask for still meets the mode, the permission gate and your hooks. Read a checkout's rules the way you read its build scripts. See [Rules](../features/rules.md) and [Skills](../features/skills.md).
 
 A session that finds a held hooks file records a notice, so you learn that hooks exist and are held rather than silently skipped:
 
@@ -5030,13 +5032,18 @@ foxxycode sessions export <session-id> [--format md|html|json|jsonl] [--out <pat
 - Unit tests: `internal/session/filesystem_test.go` (the bundle layout and listing), `internal/session/branches_test.go` (fork slicing and `branches.json` bookkeeping), `external/cli/continue_test.go` (`-c` resolution), and in the SPA `external/ui/src/ui/chat/BranchNavigator.test.tsx`, `branchInject.test.ts` and `resolveLatestLeaf.test.ts`.
 
 
-# Features / Rules
+# Features / Rules and instructions
 
 Source: https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/features/rules.md
 
-# Project rules
+# Rules and instructions
 
-FoxxyCode discovers project rules from the session working directory and injects them into the system prompt via **`{{.Rules}}`**, separate from skills (**`{{.Skills}}`**).
+FoxxyCode reads standing instructions from two places and injects them into the system prompt, separate from skills (**`{{.Skills}}`**).
+
+- The **workspace**: the rule folders of the session working directory and its `AGENTS.md`, which travel with the checkout and apply to whoever opens it;
+- your **agent home** (`~/.foxxycode`): `AGENTS.md`, `DESIGN.md` and `rules/` next to `config.yaml`, which belong to the person running FoxxyCode and apply in every workspace.
+
+Nothing has to be configured for either: both `AGENTS.md` files and every rule folder reach the model through **`{{.Rules}}`**, yours first. **`{{.Instructions}}`** carries whatever else `instructions.files` names.
 
 ## Prompt order
 
@@ -5056,16 +5063,17 @@ When `rules.auto_discover` is true (default), FoxxyCode scans:
 
 | System | Path | Notes |
 |--------|------|-------|
+| `user` | `~/.foxxycode/rules/` | **Yours**, not the project's: read in every workspace, never part of a checkout. Lowest precedence, so a project file of the same name overrides it |
 | `foxxycode` | `.foxxyrules` / `.foxyrules` (single file **or** directory), and `.foxxycode/rules/` | FoxxyCode's own roots; the top-level single file is described below |
 | `agents-dir` | `.agents/rules/` | The tool-neutral `.agents/` tree, next to `.agents/skills`: rules meant for every agent that works on the project |
 | `cursor` | `.cursor/rules/` | |
 | `claude` | `.claude/rules/` | |
 | `codex` | `.codex/rules/` | Markdown only in v1; Codex's own `*.rules` policy files are not prompt rules |
-| `agents` | nested `**/AGENTS.md` | [agents.md](https://agents.md/) convention; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
+| `agents` | nested `**/AGENTS.md` and `**/DESIGN.md` | [agents.md](https://agents.md/) convention, plus the design note beside it; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
 
-Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **foxxycode > agents-dir > cursor > claude > codex > agents**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.foxxycode/rules/` overrides everything. Nested `AGENTS.md` files are keyed by full path, so they never collapse into each other.
+Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **foxxycode > agents-dir > cursor > claude > codex > agents > user**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.foxxycode/rules/` overrides everything. Nested documents are keyed by full path, so they never collapse into each other.
 
-Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every `AGENTS.md` on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md`, and `a/b/c/AGENTS.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
+Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in, and a `DESIGN.md` beside one is read with it - a folder that describes itself is read whichever of the two it wrote, the same pair the workspace root and the agent home are read for. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every such document on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md` and `a/b/c/AGENTS.md`, plus whichever of those folders also has a `DESIGN.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
 
 This is what keeps a repo with vendored sibling checkouts usable — 45 nested files loaded unconditionally cost ~131k tokens of system prompt before the first question — and what keeps a session anchored on a home directory from stalling: a walk over `~` (a macOS home carries hundreds of thousands of entries under `~/Library` alone, read cold and behind folder-access prompts) once held the console before its first frame. Bodies over 256 KB are truncated, as with the project docs preamble.
 
@@ -5079,7 +5087,7 @@ Cline-style top-level project rules. Each root is accepted as **either** a singl
 - **Directory** (`.foxxyrules/*.md`) loads its markdown files like the `.foxxycode/rules/` catalog.
 - `.foxyrules` (one `x`) is an exact alias of `.foxxyrules`. Both count as the **FoxxyCode** source and win basename ties over cursor/claude/codex/agents.
 
-CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
+CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
 
 ## Rule file formats
 
@@ -5141,20 +5149,58 @@ Rule files already on disk may change mode after this release; `foxxycode rules 
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
-| Nested `AGENTS.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every `AGENTS.md` on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
+| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every such document on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
 
 Mention-only rules use **`@name`** (file stem). They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
 ## Project docs preamble
 
-On every turn, if present in session CWD:
+Two directories describe themselves the same way, with the same pair of files, and both are read on every turn when present - yours first, so the operator speaks before the checkout:
 
-- **`AGENTS.md`** (subsection `### AGENTS.md`)
-- **`DESIGN.md`** (subsection `### DESIGN.md`)
+- **`~/.foxxycode/AGENTS.md`**, then **`~/.foxxycode/DESIGN.md`** - the agent home
+- **`AGENTS.md`**, then **`DESIGN.md`** - the session CWD
 
-These are unconditional; they do not use `alwaysApply` or `@mention`.
+Whichever of the four exists is read; a home with only a `DESIGN.md` contributes that one and nothing else.
 
-They enter the prompt **once**. `instructions.files` (default `["AGENTS.md"]`) does not repeat a file this preamble already carries, so the default entry adds no second copy under **Project instructions**; other files in that list still load there. Files are compared on disk, not by name: `./AGENTS.md`, a differently cased name on a case-insensitive volume, and a link such as `CLAUDE.md` → `AGENTS.md` all count as the same file. The context breakdown counts both docs under `rules`.
+These are unconditional; they do not use `alwaysApply` or `@mention`, and none of them is named in `config.yaml`. A file that enters the prompt here is not sent a second time as an instruction file, so the default `instructions.files` can name `AGENTS.md` without paying for it twice.
+
+## Your own instructions and rules
+
+A checkout describes itself: how it is built, what its conventions are, which commands are dangerous *in it*. What you want from every session - the language to answer in, the style you carry between projects, the commands you never want run - is not the project's business and does not belong in its files. Those live in your agent home, `~/.foxxycode`, and are read in every workspace:
+
+| File | Reaches the prompt as | Read when |
+|------|-----------------------|-----------|
+| `~/.foxxycode/AGENTS.md`, `~/.foxxycode/DESIGN.md` | **`{{.Rules}}`**, the first preamble sections, above the project's own pair | every turn, in every workspace |
+| `~/.foxxycode/rules/*.md`, `*.mdc` | **`{{.Rules}}`**, like any project rule | per their own frontmatter (always on, glob-gated or `@mention`) |
+
+Nothing is configured for either. Writing the file is the switch, deleting it is the off switch, and no key in `config.yaml` mentions them:
+
+```bash
+mkdir -p ~/.foxxycode/rules
+$EDITOR ~/.foxxycode/AGENTS.md
+```
+
+Your pair is read first, so what you want is in front of the model before the checkout starts describing itself, and the project's own `AGENTS.md` and `DESIGN.md` follow below - they join, neither replaces the other. Write one of the two or both; the file that is not there costs nothing.
+
+Your rules are ordinary rule files and follow the same dialects, globs and activation modes as a project's - a `go.mdc` with `globs: **/*.go` under `~/.foxxycode/rules/` waits for a Go file in whichever project the session opened, because globs are anchored at the workspace, not at the folder the rule came from. `foxxycode rules list` shows them with source `user`, and names the folder under the table. The project still has the last word: when a project file and one of yours share a file name, the project's wins.
+
+Nothing here is trusted differently from a project file: both are text that steers the model, and neither can run anything by itself (see [Security](../operate/security.md)). The difference is who wrote it - your own folder needs no trust receipt because nothing arrives in it with a `git clone`.
+
+### More instruction files
+
+`instructions.files` names what else a session reads into **`{{.Instructions}}`**, on top of the preamble above. It defaults to `["AGENTS.md", "DESIGN.md"]` - the workspace's own pair, which the preamble already carries, so out of the box that block is empty - and a team or a machine can add its own:
+
+```yaml
+instructions:
+  files:
+    - "AGENTS.md"                   # the project's own, relative to the workspace
+    - "DESIGN.md"
+    - "/srv/agents/house-style.md"  # an absolute path, shared by a fleet
+    - "${CWD}/docs/conventions.md"  # this workspace
+    - "${FOXXYCODE_HOME}/team.md"       # next to your config.yaml
+```
+
+A leading `~` expands, and so do the two placeholders the config understands: `${FOXXYCODE_HOME}` is the agent home (`~/.foxxycode`) and `${CWD}` the workspace of the session reading the file. An absolute entry is read as it stands and a relative one resolves against the session working directory. Files are read in the order listed, and one that does not exist is silently skipped - which is how a single list can serve workspaces that do not all carry the same files. A file the preamble already carries is not read twice, and neither is a file named twice in the list. Files are compared on disk, not by name: `./AGENTS.md`, a differently cased name on a case-insensitive volume, a hard link and a link such as `CLAUDE.md` → `AGENTS.md` all count as the same file. The context breakdown counts the preamble docs under `rules`.
 
 ## Generating rules
 
@@ -5169,9 +5215,18 @@ After each agent turn, FoxxyCode estimates tokens per category (`systemPrompt`, 
 ## Configuration
 
 ```yaml
+instructions:
+  # Read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and ~ expand;
+  # an absolute entry is read as it stands, a relative one resolves against the
+  # session working directory. This is the default; the agent home's own
+  # AGENTS.md and DESIGN.md need no entry, the preamble reads them.
+  files:
+    - "AGENTS.md"
+    - "DESIGN.md"
+
 rules:
   auto_discover: true
-  systems: []   # optional filter: foxxycode, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional filter: user, foxxycode, agents-dir, cursor, claude, codex, agents
 ```
 
 ## References
@@ -5179,8 +5234,9 @@ rules:
 - [Cursor Rules](https://cursor.com/docs/rules)
 - [Claude `.claude/rules`](https://code.claude.com/docs/en/memory#organize-rules-with-clauderules)
 - [Codex Rules](https://developers.openai.com/codex/rules)
-- Implementation: `internal/rules/*` (dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
-- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`
+- Implementation: `internal/rules/*` (roots in `factory.go`, dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), instruction files in `internal/session/instructions_load.go`, wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
+- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`, `features/global_instructions.feature`
+- End-to-end against a real model: `examples/cli/cli_e2e_rules.py` (a project glob rule through the console) and `examples/cli/cli_e2e_global_instructions.py` (an `AGENTS.md` and a rule in an isolated `FOXXYCODE_HOME`, a workspace with nothing in it)
 
 
 # Features / Skills
@@ -6146,8 +6202,9 @@ The agent supports connecting to external MCP (Model Context Protocol) servers, 
 additional tools and resources. MCP servers can be configured at these levels:
 
 1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
-   `~/.foxxycode/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`), connected for every
-   session; entries in `~/.foxxycode/mcp.json` override same-named `config.yaml` entries
+   `~/.foxxycode/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`; in the agent home,
+   so elsewhere if `FOXXYCODE_HOME` or `--home` moved it), connected for every
+   session; entries in that file override same-named `config.yaml` entries
 2. **Local** (scope `local`) - `<workspace>/.foxxycode/mcp.json`, merged over the global list for
    sessions in that workspace; a local entry with the same name overrides the global definition
 3. **Per-session** - provided by the ACP client in `session/new` parameters
@@ -7733,11 +7790,11 @@ Override the built-in system prompt templates (Go text/template).
 
 ### `instructions`
 
-Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The root AGENTS.md and DESIGN.md already enter it through the rules block, so listing them adds no second copy.
+Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here; a file the rules block already carries, such as the root AGENTS.md or DESIGN.md, adds no second copy when it is listed. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `instructions.files` | list of strings | ["AGENTS.md"] | Filenames relative to the session CWD. |
+| `instructions.files` | list of strings | ["AGENTS.md","DESIGN.md"] | Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. |
 
 ### `skills`
 
@@ -7751,12 +7808,12 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested **/AGENTS.md under the session CWD; .mdc files are read as Cursor rules and .md files as Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
+Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `rules.auto_discover` | boolean | true | Scan the session CWD rule roots automatically. |
-| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all. |
+| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. |
 
 ### `mcp_servers`
 
@@ -8152,7 +8209,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 
 ### `instructions`
 
-Project instruction files (`config.Instructions`, `internal/config/instructions.go`).
+Instruction files appended to the prompt (`config.Instructions`, `internal/config/instructions.go`). The default list is the operator's own `${FOXXYCODE_HOME}/AGENTS.md`, read in every workspace, followed by the project's `AGENTS.md`; writing a list replaces it. See [rules.md](../features/rules.md#your-own-instructions-and-rules).
 
 ### `skills`
 
@@ -8160,7 +8217,7 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 
 ### `rules`
 
-Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules.md](../features/rules.md).
+Rules discovery (`config.Rules`, `internal/config/rules.go`), from the workspace folders and from the operator's own `${FOXXYCODE_HOME}/rules`. See [rules.md](../features/rules.md).
 
 ### `mcp_servers`
 
@@ -8175,12 +8232,12 @@ mcp_servers:
 ```
 
 Servers can also be declared in Cursor-compatible mcp.json files: the user-global
-`~/.foxxycode/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
-`mcp_servers` list it forms the "global" scope) and the project-local
-`<workspace>/.foxxycode/mcp.json` ("local" scope). Each file holds a single
+`${FOXXYCODE_HOME}/mcp.json` (`~/.foxxycode/mcp.json` by default, like Cursor's
+`~/.cursor/mcp.json`; together with this `mcp_servers` list it forms the "global"
+scope) and the project-local `<workspace>/.foxxycode/mcp.json` ("local" scope). Each file holds a single
 `mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
 per-tool switches use `disabledTools`). Later levels override earlier ones by
-name: `mcp_servers` < `~/.foxxycode/mcp.json` < `./.foxxycode/mcp.json`. Entries from the
+name: `mcp_servers` < `${FOXXYCODE_HOME}/mcp.json` < `./.foxxycode/mcp.json`. Entries from the
 project-local file need a workspace approval before they are started - see
 [`mcp`](#mcp) and `docs/features/mcp.md`.
 
@@ -8817,7 +8874,7 @@ No authentication is enforced. Run behind appropriate network controls.
 | GET | `/openapi.yaml`, `/openapi.json` | Spec. |
 | GET | `/docs`, `/docs/` | Swagger UI. |
 | GET | `/v1/models` | Merged list: **`agent`**, **`plan`**, **`docs`**, **`ask`**, **`debug`** (each **`owned_by`**: **`foxxycode`**), then every YAML **`models[].model`** row (**`id`** is the selector; **`owned_by`** is the provider prefix). Ordering is **`agent`**, **`plan`**, **`docs`**, **`ask`**, **`debug`**, then **`models`** in configuration order. The JSON object also includes optional **`default_agent_model`**. Model rows carry **`max_context_tokens`**, **`multimodal`**, optional **`reasoning_levels`**, and optional **`reasoning_default`**. Codex-backed models report **`none`** where their model id would normally imply **`minimal`**, because the Codex backend rejects that tier. |
-| POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**). **`409`** when another **agent**, **plan**, **docs**, **ask**, or **debug** turn already holds the session turn lock (exclusive per persisted bundle); the body carries **`error.code: "session_busy"`** plus **`error.sessionId`** and **`error.turnActive: true`** so a client can re-attach to the running turn via **`GET /foxxycode/sessions/{id}/composer-stream`** instead of dropping the request. With **`stream: true`** the request first waits up to **3s** for the lock, so a send issued right after **`POST /foxxycode/sessions/{id}/cancel`** is accepted while the cancelled turn finishes unwinding instead of being refused. Every **agent** / **plan** / **docs** / **ask** / **debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it over **`GET /foxxycode/sessions/{id}/composer-stream`**; with **`stream: false`** the response body is unchanged. **`409`** also when **`X-FoxxyCode-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
+| POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**), optional **`stream_options.include_usage`**. With **`stream: true`** the body is the strict OpenAI **`chat.completion.chunk`** stream described under [Two stream dialects](#two-stream-dialects). **`409`** when another **agent**, **plan**, **docs**, **ask**, or **debug** turn already holds the session turn lock (exclusive per persisted bundle); the body carries **`error.code: "session_busy"`** plus **`error.sessionId`** and **`error.turnActive: true`** so a client can re-attach to the running turn via **`GET /foxxycode/sessions/{id}/composer-stream`** instead of dropping the request. With **`stream: true`** the request first waits up to **3s** for the lock, so a send issued right after **`POST /foxxycode/sessions/{id}/cancel`** is accepted while the cancelled turn finishes unwinding instead of being refused. Every **agent** / **plan** / **docs** / **ask** / **debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it over **`GET /foxxycode/sessions/{id}/composer-stream`**; with **`stream: false`** the response body is unchanged. **`409`** also when **`X-FoxxyCode-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
 | POST | **`/v1/responses`** | **`model`**, **`input`**, optional **`stream`**, optional **`attachments`** ( **`path`** workspace-relative under session cwd, **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; file bodies are hydrated as text — a file stored in another detected encoding, such as Windows-1251, is converted to UTF-8; server rejects traversal, oversized, non-text (binary or undetectable encoding), and folder **`path`**; optional **`source.startLine`** / **`source.endLine`** narrow a file to a 1-based inclusive line range that the model sees as **`lines="N-M"`**, and a range the file cannot honour is a **`400`**), optional **`inline_files`** (array of **`{name, data_url}`**; **`data_url`** is a `data:<mime>;base64,...` URI; accepted for all modes **only when the effective YAML model has `multimodal: true`** — entries for a non-multimodal model are ignored and never forwarded to its provider). For **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**: each file is saved to the session **`assets/`** directory (`~/.foxxycode/sessions/<id>/assets/`) with **`0o444`** (read-only) permissions; the model receives a `<foxxycode_session_assets>` annotation in the user message so it can `read` or `cp` the files without re-transmitting their bytes over the API. For direct YAML model: each entry becomes an image content part on the user message so multimodal models receive the file inline; it is persisted to the same **`assets/`** directory. Every decodable image also gets a bounded PNG thumbnail under **`assets/thumbnails/`**, which the transcript exposes as **`files[].preview_url`**. **`input`** remains the full composer text including **`@path`** echoes. Keeps history between turns when using headers. **`409`** when another **agent**, **plan**, **docs**, **ask**, or **debug** turn already holds the session turn lock; same **`error.code: "session_busy"`** / **`error.sessionId`** / **`error.turnActive`** envelope and the same up-to-**3s** wait for the lock on **`stream: true`** as **`/v1/chat/completions`**. Every **agent** / **plan** / **docs** / **ask** / **debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it over **`GET /foxxycode/sessions/{id}/composer-stream`**; with **`stream: false`** the response body is unchanged. A **`stream: false`** turn is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so a turn on a YAML model with **`stream: false`** - silent on the wire until the whole answer is generated - is not dropped by an idle-timeout proxy. Note the two unrelated meanings of **`stream`**: this request field selects the response shape for the client, while **`models[].stream`** in **config.yaml** selects the transport FoxxyCode uses to reach the LLM. **`409`** also when **`X-FoxxyCode-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
 | GET | `/v1/responses/{id}` | Session metadata snapshot. |
 | GET | **`/foxxycode/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). Optional **`q`** substring filter (**case-insensitive**) over **`session.json` title OR the **first persisted `user`** message **`content`** in `messages.json` order (`system`, `assistant`, `tool`, etc. before that first `user` are ignored). **`q` is not full-text search** over the transcript. Pagination applies **after** filtering. Rows sort by **`session.json` `updatedAt`** (newest first), then **`id`** for stable ties; **`updatedAt`** moves forward on persistence (new turns, title pin, etc.), not when the server only loads a bundle to serve **GET** requests. **`include_scheduler=true`** includes session bundles created for **scheduler runs** (they set **`schedulerRun`** in **`session.json`** and are **omitted** from the default composer list). **`include_activity=true`** adds **`turnActive`**, **`activitySeq`**, **`readActivitySeq`**, and **`unreadComplete`** to each row for multi-tab UI. Optional **`cwd`** (absolute directory) keeps only sessions whose **`cwd`** is that directory or lies beneath it, compared as folders rather than strings (cleaned, symlinks resolved, case-insensitive on Windows and macOS); it is applied **before** **`q`** and pagination. The IntelliJ / VS Code plugins pass the open project root here so History lists that project only — a session running in a **linked worktree outside the project root** (for example under **`<home>/worktrees/<repo>`**) is excluded and needs the unscoped call. **`include_subagents=true`** includes child sessions spawned by **`spawn_agent`** (**`sub_`** ids with **`subagentRun`** in **`session.json`**, hidden by default); each such row carries **`subagent`** **`{parentSessionId, name, taskId}`** read from its bundle, and the default listing opens no child bundle. |
@@ -8923,6 +8980,12 @@ No authentication is enforced. Run behind appropriate network controls.
 | POST | **`/foxxycode/sessions/{id}/plans/{slug}/open-in-ide`** | **Show in IDE** on the plan card: broadcasts **`event: open_file`** on **`/foxxycode/ide/events`** so the IntelliJ / VS Code plugin opens the plan file in its own editor. The absolute path is resolved server-side from the session bundle (callers cannot name a file); a plan missing on disk is **404** and nothing is broadcast. JSON **`{"object":"foxxycode.ide_open_file","path","delivered"}`** where **`delivered`** reports whether an editor client was subscribed. |
 
 After **`PUT`** **`/foxxycode/config`**, the next **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. **`mcp_servers`** changes are applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends. A reconnect that runs past the save's deadline leaves that session on the servers it already has and retries on its next turn, so one hanging server cannot strip the others.
+
+### Two stream dialects
+
+The two streaming endpoints carry the same turn in two shapes, chosen by who reads them. **`POST /v1/chat/completions`** with **`stream: true`** is the surface a third-party client points at (VS Code Copilot through `chatLanguageModels.json`, the openai SDKs, anything that parses `chat.completion.chunk` literally), so it is the strict OpenAI contract and nothing else: a first chunk with **`delta.role`** `assistant`; **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas, each choice with **`finish_reason: null`**; a final chunk whose **`finish_reason`** is **`stop`**, **`length`** when the turn ended on **`max_turns`** / **`max_tokens`**, or **`tool_calls`** when a direct model called one of the client's tools; with **`stream_options.include_usage: true`** one more chunk with an empty **`choices`** array and the turn's **`usage`** (**`prompt_tokens`**, **`completion_tokens`**, **`total_tokens`**, from the provider's own counters, zero when it reported none); then **`data: [DONE]`**. No named **`event:`** frame appears on it - such a client would read one as a chunk without choices - though each leaves an SSE comment in its place, so the connection stays as busy as the turn through a tool phase; a turn that produced no text still opens and finishes one choice, because a stream that never finishes a choice is what VS Code reports as "Response contained no choices." **`POST /v1/responses`** is foxxycode's own channel, read by the SPA, the remote console (**`--remote`**, **`foxxycode acp --remote`**) and the swarm relay: the same chunks plus every named event below, **`foxxycode_meta`** last.
+
+  A direct **`models[].model`** id on **`POST /v1/chat/completions`** is foxxycode standing in for the provider, and the client brings what it would bring to the provider. Its **`tools`** (OpenAI function tools) are offered to the model as they are; **`tool_choice`** `none` withholds them, and any other value leaves the choice to the model, because the providers take no forcing parameter. A call the model makes comes back as **`delta.tool_calls`** chunks on the stream - one chunk per call, arguments complete, **`index`** counting the calls - and as **`message.tool_calls`** on a JSON answer, with **`finish_reason`** **`tool_calls`**; the client runs the tool, replays the assistant message with its **`tool_calls`** and answers with a **`tool`** message under the **`tool_call_id`**, and that request may end on the tool message. Message **`content`** may be a string, `null` or an array of parts: **`text`** parts are joined, **`image_url`** parts (a data URL or an https address) reach a model whose **`models[].multimodal`** is true as images and are dropped for any other model, never flattened into text; they are accepted on user messages only, as at OpenAI, and refused with **`400`** on any other role, as are other part types. What a client may hand over is bounded: at most 128 tools, a tool's **`parameters`** up to 256 KiB, 16 images per message and 20 MiB per image URL string (a data URL carries the picture itself), past which the request is refused with **`400`**; an https image address is handed to the provider as it is, foxxycode never fetches it. A JSON answer made of tool calls has **`content`** `null`, as OpenAI renders it. The **agent** / **plan** / **ask** profiles run foxxycode's own tools and never read the client's, and take no trailing **`tool`** message, though the pictures of the last user message reach a multimodal profile model. An **agent** / **plan** / **ask** turn started over either endpoint is published to the composer relay in the rich shape whatever the caller received, so a browser watching the session sees its tool calls either way.
 
 ### Session memory REST (**`-tags=http,memory`**)
 
@@ -9960,6 +10023,8 @@ my-project/
 
 2. **Rules in `.foxxycode/rules/`.** A `.md` file is a Claude Code rule (`paths` gates it, and it is unconditional without them); a `.mdc` file is a Cursor rule (`description`, `globs`, `alwaysApply`). Both dialects are accepted in every rule folder, and `.foxxycode/rules` wins over `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` when two files share a name ([Rule file formats](../features/rules.md#rule-file-formats)). A gated rule enters the prompt the first time a matching file is attached or touched by a tool, then sticks for the session.
 
+   Everything in this tutorial is the project talking. What *you* want from every session, in every repository - the language to answer in, the commands you never want run - belongs to you rather than to this checkout: put it in `~/.foxxycode/AGENTS.md` and `~/.foxxycode/rules/` instead, where it applies everywhere and nobody else has to agree with it ([Your own instructions and rules](../features/rules.md#your-own-instructions-and-rules)).
+
    ```markdown
    ---
    description: Go coding standards
@@ -10114,6 +10179,70 @@ Source: https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/tutorials
 4. **Drive it from the browser.** The environment chip sits in the composer's workspace row and reads `Local` or the name of the remote in use. Its menu lists the remotes of the `foxxycode serve` that served the page (`httpserver.remotes`) and `+ Add remote…`, which takes a name, a URL and the bearer token; choosing an entry connects at once and reloads, and the token stays in the browser, never in a config file. The remote server has to allow the page's origin through `httpserver.cors`, which is what step 1 set; the dot on each entry turns green when a cross-origin `GET /v1/models` succeeds with the token ([Cross-origin access and the remote UI](../reference/http-api.md#authentication--cors), [Web UI](../surfaces/web-ui.md)). Opening the server's own address instead loads the SPA shell without a token, since the shell is public, and the page asks for the token before it calls the API.
 
 5. **Remember what stays on the server.** Sessions, the trust receipts and the child sessions of subagents are the server's, so a project file is approved there: `foxxycode mcp trust`, `foxxycode hooks trust` and `foxxycode agents trust` on the server itself, or `POST /foxxycode/mcp/{name}/trust`, `POST /foxxycode/hooks/trust` and `POST /foxxycode/subagents/{name}/trust` over the API. A dropped connection leaves the server turn running; `/resume` shows the outcome once it ends.
+
+
+# Tutorials / FoxxyCode as a model in VS Code Copilot
+
+Source: https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/tutorials/foxxycode-as-a-model-in-vs-code.md
+
+# FoxxyCode as a model in VS Code Copilot
+
+VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `chatLanguageModels.json` (Manage Models, then a custom endpoint). Pointing it at a running `foxxycode serve` puts FoxxyCode's models, and FoxxyCode's agent, in the model picker of Copilot Chat. The stream Copilot reads is the strict one described in [Two stream dialects](../reference/http-api.md#two-stream-dialects); the model ids are the ones `GET /v1/models` lists ([HTTP API](../reference/http-api.md)).
+
+1. **Serve on an address VS Code can reach.** The default bind is loopback on port 12345, enough for a VS Code on the same machine. For a VS Code elsewhere, bind and protect the server the way [A server driven from a laptop](server-driven-from-a-laptop.md) does, and hand the token to VS Code as `apiKey`.
+
+   ```bash
+   foxxycode serve
+   curl -s http://127.0.0.1:12345/v1/models | jq -r '.data[].id'   # the ids step 2 takes
+   ```
+
+2. **Register the endpoint.** One entry per model id. A `models[].model` id is FoxxyCode standing in for the provider: Copilot's own tools are offered to the model and its calls come back to Copilot, which runs them in the editor, so VS Code's Agent mode works the way it does against the provider directly; set `toolCalling` on, and `vision` when the entry has `multimodal: true` in `config.yaml`, which is what lets pictures through. The `agent` id is FoxxyCode's ReAct agent as a model: it reads and edits the workspace `foxxycode serve` was started in with its own tools, ignores the tools Copilot offers, and Copilot only sees the answer, so leave `toolCalling` off on that entry and use it from VS Code's Ask mode.
+
+   ```json
+   {
+     "name": "FoxxyCode",
+     "vendor": "customendpoint",
+     "apiKey": "foxxycode",
+     "apiType": "chat-completions",
+     "models": [
+       {
+         "id": "neuraldeep/qwen3.8-27b",
+         "name": "FoxxyCode · Qwen 3.8 27B",
+         "url": "http://127.0.0.1:12345/v1/chat/completions",
+         "toolCalling": true,
+         "vision": true,
+         "maxInputTokens": 128000,
+         "maxOutputTokens": 8192
+       },
+       {
+         "id": "agent",
+         "name": "FoxxyCode · agent",
+         "url": "http://127.0.0.1:12345/v1/chat/completions",
+         "toolCalling": false,
+         "maxInputTokens": 128000,
+         "maxOutputTokens": 8192
+       }
+     ]
+   }
+   ```
+
+   Bearer auth is off by default, and any `apiKey` string satisfies VS Code's form; with `httpserver.auth_token` set, the `apiKey` is that token. Copilot sends the whole conversation with every request, so each request is a session of its own on the server unless a `requestHeaders` entry on the model sets `X-FoxxyCode-Session-ID` to a fixed `sess_<hex>` id, which keeps the turns in one transcript.
+
+3. **Mind the agent's permission gate.** The `agent` model runs tools under `tools.permission_mode`, and a permission prompt cannot be answered from Copilot: the turn waits for an answer that never comes. Give the serving config `bypass` when the workspace is one you trust the agent with, or keep `ask` and answer the prompt in the web UI, where the turn is live under its session.
+
+   ```yaml
+   tools:
+     permission_mode: bypass
+   ```
+
+4. **Check that it worked.** Pick "FoxxyCode · Qwen 3.8 27B" in Copilot Chat and ask anything: the answer streams in, and with a reasoning model the thinking shows in Copilot's own foldout, because `reasoning_content` is a field it reads. The same request from a terminal shows the stream Copilot consumed, one choice finished with `stop` before `[DONE]`:
+
+   ```bash
+   curl -sN http://127.0.0.1:12345/v1/chat/completions -H 'Content-Type: application/json' \
+     -d '{"model":"neuraldeep/qwen3.8-27b","messages":[{"role":"user","content":"hello"}],"stream":true}' | tail -4
+   ```
+
+   "Response contained no choices." in Copilot means the server did not finish a choice: check that `foxxycode serve` is a version that streams `finish_reason` (`foxxycode -v`, later than 0.2.84), and that nothing between them rewrites the stream.
 
 
 # Tutorials / A skill of your own
@@ -11099,7 +11228,7 @@ Some features live under **`external/`** and define tools that are **not** regis
 ### MCP Client (`internal/mcp`)
 
 Connects to external MCP servers from three config levels (`config.yaml`
-`mcp_servers`, the global `~/.foxxycode/mcp.json`, the project `./.foxxycode/mcp.json`;
+`mcp_servers`, the global `${FOXXYCODE_HOME}/mcp.json`, the project `./.foxxycode/mcp.json`;
 later levels override by name) plus servers specified in `session/new`.
 Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
 - stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
@@ -11130,7 +11259,7 @@ Loads operator **lifecycle hooks** - commands that read one JSON document on std
 
 ### Rules engine (`internal/rules`)
 
-Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD; duplicates by file name resolve as foxxycode > agents-dir > cursor > claude > codex > agents. Injected into **`{{.Rules}}`** separately from skills; see **`docs/features/rules.md`**.
+Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` and `**/DESIGN.md` files ([agents.md](https://agents.md/) convention), under session CWD, and from the operator's own **`${FOXXYCODE_HOME}/rules`** (system id `user`), which applies in every workspace; duplicates by file name resolve as foxxycode > agents-dir > cursor > claude > codex > agents > user. Injected into **`{{.Rules}}`** separately from skills, together with the preamble documents: the agent home's **`AGENTS.md`** and **`DESIGN.md`** when they exist, first, then the workspace's pair, and a nested folder's pair when a tool enters it. The files of `instructions.files` go into **`{{.Instructions}}`**, minus whatever the preamble already carries. See **`docs/features/rules.md`**.
 
 The extension selects the dialect (**`markdown.go`**): `.mdc` is read as a Cursor rule (`description`, `globs` as a comma-separated string or list, `alwaysApply`, default manual), `.md` as a Claude Code rule (`paths`; unconditional without them). Headers are read as YAML first, then by a lenient line reader, because Cursor's own `globs: **/*.go` is not valid YAML. Globs use doublestar syntax anchored at the session cwd (`Rule.Root`, **`MatchGlob`**).
 
@@ -12589,12 +12718,12 @@ The **Settings** drawer (**`#/settings`**, **`Settings.tsx`**) is **tabbed**, no
   - **After install (no scroll)**: the list is **not scrolled** to the newly installed skill — the floating menu leaves the scroll position untouched. The new row briefly **flashes** (**`.skills-list-item.is-just-installed`**, **`justInstalled`** for ~2.4s), the **`Installed &lt;name&gt;.`** status line confirms, and the skill is usable from the composer **`/`** menu immediately because the server drops its slash cache on install (**`invalidateSlashCache`**). A just-installed plugin is dropped from the available dropdown optimistically.
   - **Empty states of the install control**: the server answers from the **saved** **`skills.sources`**, so the control explains an empty answer instead of printing **No matching marketplace skills.** With no source in the form, a muted **`.settings-field-desc`** under the field (**`data-testid="skills-install-no-sources"`**) and the dropdown's only row point to **Remote skill sources** and ask to save one, and no request is made. When the saved sources publish nothing, the row says so and suggests saving a just-added source (**`settings.skills.marketplacesEmpty`**); **No matching marketplace skills** stays for a query that misses a non-empty list.
   - **Stale list**: the fetched list is kept for the life of the tab, but it is **dropped** whenever **`skills.sources`** is replaced - an edit, or the document reload after **Save** (a new array, even with the same entries) - and after a successful **Sync** / **Sync all**. A dropped list closes the dropdown until the field is focused or typed into again, which fetches anew; nothing is fetched on the change itself, because every request clones each git source. A request overtaken by such a drop is ignored when it lands (**`availableRequest`**).
-- **MCP servers** tab (**`MCPSection`**, section kind **`mcp`** in **`settingsSections.ts`**) is **API-driven** (**`/foxxycode/mcp*`**), styled after Cursor's MCP settings; it never edits the settings document (**Save all** does not touch it). The list (**`.mcp-list`**) shows every merged server — **config.yaml `mcp_servers`** and the global **`~/.foxxycode/mcp.json`** (scope **`global`**), overlaid with the project **`./.foxxycode/mcp.json`** (scope **`local`**) — one row per server (**`.mcp-list-item`**): a **chevron** expander (**`.mcp-expand-btn`**, rotates 90° when open), a **status dot** (**`.mcp-status-dot`**: green **`is-connected`**, red **`is-error`**, gray **`is-disabled`**, amber **`is-unsupported`**; tooltip carries the probe error), a server glyph, the name with a **scope badge** (**`global`** / **`local`**, reusing **`.skills-list-item-badge`**; the tooltip names the owning file via **`originLabel`** — config.yaml, `~/.foxxycode/mcp.json`, or `./.foxxycode/mcp.json`) plus an uppercase transport badge for non-stdio entries, and a dimmed **monospace command line** (**`.mcp-command`**; shows the probe error text for error/unsupported rows). Trailing controls: the shared **`Switch`** (server-level enable via **`POST /foxxycode/mcp/{name}/enable|disable`**), a **pencil Edit** and **trash Delete** — both **disabled for `readonly` rows** (config.yaml-defined servers are edited in the config sections; tooltips say so). All trailing controls are **`flex: 0 0 auto`** (**`.mcp-list-item-head > button`**) so long command/error text cannot squeeze the 40px icon buttons.
+- **MCP servers** tab (**`MCPSection`**, section kind **`mcp`** in **`settingsSections.ts`**) is **API-driven** (**`/foxxycode/mcp*`**), styled after Cursor's MCP settings; it never edits the settings document (**Save all** does not touch it). The list (**`.mcp-list`**) shows every merged server — **config.yaml `mcp_servers`** and the global **`~/.foxxycode/mcp.json`** (scope **`global`**), overlaid with the project **`./.foxxycode/mcp.json`** (scope **`local`**) — one row per server (**`.mcp-list-item`**): a **chevron** expander (**`.mcp-expand-btn`**, rotates 90° when open), a **status dot** (**`.mcp-status-dot`**: green **`is-connected`**, red **`is-error`**, gray **`is-disabled`**, amber **`is-unsupported`**; tooltip carries the probe error), a server glyph, the name with a **scope badge** (**`global`** / **`local`**, reusing **`.skills-list-item-badge`**; the tooltip names the owning file via **`originLabel(row.origin, row.source_path)`**, which prints the **real path the API reported** (`source_path`) and falls back to the generic label — config.yaml, `~/.foxxycode/mcp.json`, or `./.foxxycode/mcp.json` — only when a row carries none) plus an uppercase transport badge for non-stdio entries, and a dimmed **monospace command line** (**`.mcp-command`**; shows the probe error text for error/unsupported rows). Trailing controls: the shared **`Switch`** (server-level enable via **`POST /foxxycode/mcp/{name}/enable|disable`**), a **pencil Edit** and **trash Delete** — both **disabled for `readonly` rows** (config.yaml-defined servers are edited in the config sections; tooltips say so). All trailing controls are **`flex: 0 0 auto`** (**`.mcp-list-item-head > button`**) so long command/error text cannot squeeze the 40px icon buttons.
 - **Logical Models** reasoning-levels field (**`ReasoningLevelsField`**, rendered through **`SchemaForm`**’s **`fieldOverride`** hook on path **`reasoning_levels`**) owns the three states that key can be in and names the current one in a status line (**`data-testid="reasoning-levels-status"`**): **key absent** = levels auto-detected from the model id, **`[]`** = the composer reasoning selector is hidden for this model, **non-empty** = exactly these levels. An action row above the list carries **Fetch reasoning levels** (**`data-testid="reasoning-levels-fetch"`**, **`GET /foxxycode/config/reasoning-levels?model=&provider_type=`** for the id currently in the form and the type of the provider row it points at in the unsaved document, so it works before either entry is saved) and, whenever the key is present, **Use auto-detected** (**`data-testid="reasoning-levels-auto"`**) which drops the key again. A fetch that detects nothing leaves the field untouched rather than writing **`[]`**, because that would hide the selector instead of restoring detection. The status line always describes the list on screen first (override / hidden) and only falls back to fetch feedback (nothing detected / error) while the key is absent; retyping the model id or editing the list by hand clears that feedback and abandons the request in flight, so an answer that lands after the id changed, after a manual edit, or after the row was removed is dropped; an answer that does land goes through the newest **`onChange`** the form handed the field, never the one captured when the request started, so sibling fields edited meanwhile keep their values.
   - **Per-tool switches**: expanding a row reveals **`.mcp-tools`** — indented rows (**`.mcp-tool-row`**, dashed separators) with the tool name in monospace, its description, and a **`Switch`** per tool (**`POST /foxxycode/mcp/{name}/tools/{tool}/enable|disable`**). Tool switches are disabled while the server itself is off. Disabled rows dim their text but keep the switch crisp (same rule as skills).
   - **MCP discovery fieldset** (**`.mcp-discovery-box`**) sits **above** the server list and carries **`mcp.project_trust`** (**`POST /foxxycode/mcp/project-trust`**): a **`select`** with **Ask** / **Allow** / **Deny**. It lives in this tab, not in a settings section of its own, because it governs exactly the servers listed below it, and it persists straight into **config.yaml** rather than joining **Save all**. A project-local row the gate holds back gets two extra pieces: the status dot turns amber (**`.mcp-status-dot.is-needs_approval`**; **`.is-denied`** is red) and a **trust note** (**`.mcp-trust-note`**) opens under the row listing the declaration an approval would cover (**`.mcp-trust-facts`**: transport, what it runs or contacts, env and header **names** — never values — and the workspace). A **shield** button (**`.settings-btn-approve`** while unapproved) toggles **`POST /foxxycode/mcp/{name}/trust|untrust`**, and renders **only** under the **Ask** policy: **Allow** and **Deny** leave no per-server decision, so an inert shield would misrepresent the state.
   - **Toolbar**: **Add server** (opens the editor card prefilled with **`MCP_SERVER_TEMPLATE`**) on the left, a **refresh** icon (**`GET /foxxycode/mcp?refresh=1`**, re-probes) on the right (**`.mcp-toolbar`**, space-between).
-  - **JSON editor card** (**`.mcp-editor`**, **`MCPEditorCard`**): Cursor-style editing of one mcp.json entry — a name input (only when adding; names with **`__`**, spaces, or path separators are rejected client-side, mirroring the server), a **scope radio picker** (**`.mcp-editor-scope`**, only when adding, default **Local**: local saves to `./.foxxycode/mcp.json`, global to `~/.foxxycode/mcp.json`; the footer note echoes the target file), a monospace **`<textarea>`** (**`.mcp-editor-json`**) holding the entry JSON (**`command`/`args`/`env` object/`disabled`/`disabledTools`**), validation via the pure helpers in **`mcpServerJson.ts`** (do **not** inline them), and **Save** (**`PUT /foxxycode/mcp/{name}?scope=`**) / **Cancel** actions. Editing an existing row renders the card inline beneath that row with the scope pinned to the row's owning file.
+  - **JSON editor card** (**`.mcp-editor`**, **`MCPEditorCard`**): Cursor-style editing of one mcp.json entry — a name input (only when adding; names with **`__`**, spaces, or path separators are rejected client-side, mirroring the server), a **scope radio picker** (**`.mcp-editor-scope`**, only when adding, default **Local**: local saves to `./.foxxycode/mcp.json`, global to the agent home's `mcp.json`; the footer note echoes the target file, taking the global path from **`globalMCPPath(servers)`** - the `source_path` of a listed home-scope row, or the default `~/.foxxycode/mcp.json` when the agent home holds no server yet), a monospace **`<textarea>`** (**`.mcp-editor-json`**) holding the entry JSON (**`command`/`args`/`env` object/`disabled`/`disabledTools`**), validation via the pure helpers in **`mcpServerJson.ts`** (do **not** inline them), and **Save** (**`PUT /foxxycode/mcp/{name}?scope=`**) / **Cancel** actions. Editing an existing row renders the card inline beneath that row with the scope pinned to the row's owning file.
   - **Scroll stability**: same **`loadServers(firstLoad)`** gating as skills — refreshes never unmount the list.
 - **Boolean switch fields** (**`SwitchField`**, **`external/ui/src/ui/settings/SwitchField.tsx`**): every on/off setting in a settings form - the schema-driven **`SchemaForm`** booleans (**`models[].multimodal`**, **`models[].stream`**, **`tools.background.enabled`**, **`memory.enabled`**, gateway **`enabled`** flags, ...) and the Skills **auto-discovery** row - renders through this one component, never as a bare **`Switch`** beside a **`<span>`**. It lays the shared **`Switch`** (**`.skill-switch`**, **38×22**, 16px thumb), the label (a real **`<label htmlFor>`**, **`.settings-switch-field-label`**, **0.9rem**, **`var(--text)`**, so clicking the text toggles the control) and the optional description (**`.settings-switch-field-desc`**, reusing **`.settings-field-desc`** typography) on a **two-column grid** (**`.settings-switch-field`**: **`grid-template-columns: auto minmax(0, 1fr)`**, **`column-gap: 8px`**, **`row-gap: 4px`**, **`align-items: center`**).
   - **Alignment contract**: the label's vertical centre matches the switch's centre (**within 1px**) and the label starts **8px** after the switch. The description lives in the **label column** (**`grid-column: 2`**), so its left edge equals the label's left edge at every viewport and never depends on the switch width or a hand-tuned indent. The checkbox-era **`padding-left: 28px`** rule (**`.settings-field-desc-below-checkbox`**) is gone and must not come back: an indent expressed as padding drifts the moment the control changes size, which is exactly how the description ended up under the switch instead of under its label.

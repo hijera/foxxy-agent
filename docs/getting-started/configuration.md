@@ -302,14 +302,16 @@ skills:
     - "${FOXXYCODE_HOME}/skills"
     - "${CWD}/.foxxycode/skills"
 
-# Project rules (Go: config.Rules, internal/config/rules.go)
+# Rules (Go: config.Rules, internal/config/rules.go)
 # Discovered from .foxxycode/rules, the shared .agents/rules, .cursor/rules,
-# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
+# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD, plus
+# your own ~/.foxxycode/rules, which applies in every workspace. Your own
+# ~/.foxxycode/AGENTS.md is read too, ahead of the project's, and has no key here.
 # .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/features/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: foxxycode, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional: user, foxxycode, agents-dir, cursor, claude, codex, agents
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
