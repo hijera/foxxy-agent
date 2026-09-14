@@ -1951,9 +1951,9 @@ upstream — починка релизного конвейера.
 
 - Сведение `.claude/rules` и `.cursor/rules` (расхождение старше волны).
 - Долг прошлых волн: четыре PNG `docs/assets/screenshot-tool-previews*.png`.
-- Остальные ссылки на несуществующий `hijera/foxxycode-agent`: README, `docs/`,
+- ~~Остальные ссылки на несуществующий `hijera/foxxycode-agent`: README, `docs/`,
   `docker-compose.yml`, ссылка на GHCR-пакет в `docs/update.md`. Строки про `foxxycode update`
-  исправлены в #88.
+  исправлены в #88.~~ — сделано в #98
 - Заведено отдельными задачами: гонка в `TestRequestPermissionDoesNotPersistARelayedPrompt`
   (файл ожидания пишется раньше, чем регистрируется ожидание), флейк `TempDir` в тестах
   браузера на Windows, корневой `AGENTS.md` попадает в промпт дважды — как преамбула правил и
