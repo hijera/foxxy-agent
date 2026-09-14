@@ -24,8 +24,14 @@ import (
 
 const (
 	layoutServerStartupTimeout = 10 * time.Second
-	layoutBrowserTimeout       = 20 * time.Second
-	layoutProcessStopTimeout   = 3 * time.Second
+	// Bounds the whole browser session: launching Chrome on a cold profile and
+	// then measuring both viewports. Twenty seconds covered that on a developer's
+	// machine, where the launch is under a second, and expired during the launch
+	// itself on a loaded runner - the narrow viewport spent the whole budget
+	// waiting for the DevTools socket and the wide one failed instantly with a
+	// dead context.
+	layoutBrowserTimeout     = 2 * time.Minute
+	layoutProcessStopTimeout = 3 * time.Second
 )
 
 type layoutDevServer struct {
@@ -50,29 +56,9 @@ func TestUILayoutColumnsAlign(t *testing.T) {
 	)
 	defer browserCancel()
 
-	allocatorOptions := append(
-		[]chromedp.ExecAllocatorOption{},
-		chromedp.DefaultExecAllocatorOptions[:]...,
-	)
-	allocatorOptions = append(
-		allocatorOptions,
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("disable-gpu-sandbox", true),
-		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("no-sandbox", true),
-		chromedp.NoFirstRun,
-		chromedp.NoDefaultBrowserCheck,
-		chromedp.UserDataDir(t.TempDir()),
-		chromedp.CombinedOutput(&browserLog),
-	)
-	if executable := strings.TrimSpace(os.Getenv("FOXXYCODE_UI_BROWSER")); executable != "" {
-		allocatorOptions = append(allocatorOptions, chromedp.ExecPath(executable))
-	}
-
 	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(
 		browserCtx,
-		allocatorOptions...,
+		headlessAllocatorOptions(t.TempDir(), &browserLog)...,
 	)
 	defer allocatorCancel()
 

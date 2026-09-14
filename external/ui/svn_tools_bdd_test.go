@@ -19,11 +19,7 @@ func TestSVNToolPresentationFeature(t *testing.T) {
 	t.Cleanup(func() { server.stop(t) })
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	opts := append([]chromedp.ExecAllocatorOption{}, chromedp.DefaultExecAllocatorOptions[:]...)
-	if executable := os.Getenv("FOXXYCODE_UI_BROWSER"); executable != "" {
-		opts = append(opts, chromedp.ExecPath(executable))
-	}
-	alloc, stopAlloc := chromedp.NewExecAllocator(ctx, opts...)
+	alloc, stopAlloc := chromedp.NewExecAllocator(ctx, headlessAllocatorOptions(t.TempDir(), nil)...)
 	defer stopAlloc()
 	tab, stopTab := chromedp.NewContext(alloc)
 	defer stopTab()

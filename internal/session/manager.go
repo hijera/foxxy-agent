@@ -32,6 +32,14 @@ type Manager struct {
 	cfgAt      atomic.Pointer[config.Config]
 	server     acp.UpdateSender
 	skillsLoad *skills.Loader
+	// cfgObservers are told whenever the live configuration is replaced, from
+	// whichever path replaced it (see config_observers.go).
+	cfgObserverMu  sync.Mutex
+	cfgObservers   map[int]func(*config.Config)
+	cfgObserverSeq int
+
+	// deleting marks sessions whose bundles are being removed by
+	// DeleteSessionTree, so a turn racing the delete is refused instead of
 	// usage is the provider usage cache and schedule (provider_usage.go).
 	usage  providerUsageState
 	runner AgentRunner
@@ -156,6 +164,7 @@ func (m *Manager) storeConfig(next *config.Config) *config.Config {
 	// snapshots and their pacing stay, and the fingerprint tells a changed
 	// credential apart on the next read.
 	m.pauseProviderUsage()
+	m.publishConfigReplaced(next)
 	return previous
 }
 

@@ -1,0 +1,1454 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hijera.github.io/foxxy-agent/config.schema.json",
+  "title": "FoxxyCode config.yaml",
+  "description": "Configuration file for the FoxxyCode agent (default location: ~/.foxxycode/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}. ${FOXXYCODE_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "providers": {
+      "type": "array",
+      "title": "LLM providers",
+      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter.",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_\\-]*$"
+          },
+          "type": {
+            "type": "string",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints, \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), or \"codex\" for ChatGPT OAuth against the official Codex backend.",
+            "enum": ["openai", "anthropic", "neuraldeep", "codex"]
+          },
+          "api_base": {
+            "type": "string",
+            "description": "Optional base URL override. For type \"openai\" include /v1; for type \"anthropic\" use an Anthropic-compatible gateway. For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for type \"codex\", which always uses a fixed official endpoint."
+          },
+          "api_key": {
+            "type": "string",
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY."
+          },
+          "api_key_command": {
+            "type": "string",
+            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY."
+          },
+          "proxy": {
+            "type": "string",
+            "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy). Overrides a proxy inherited from the environment (HTTP_PROXY/HTTPS_PROXY, e.g. forwarded by the IDE plugin); NO_PROXY is still honored and local addresses always connect directly. When empty, the environment proxy is used."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short.",
+            "default": 0,
+            "minimum": 0
+          },
+          "usage_limits_panel": {
+            "type": "boolean",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "default": true
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "title": "Logical models",
+      "description": "Named model entries the agent and UI can select.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "\"provider_name/api_model_id\": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes).",
+            "pattern": "^[^/]+/.+$"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens."
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Sampling temperature (0 = deterministic; higher = more random)."
+          },
+          "max_context_tokens": {
+            "type": "integer",
+            "description": "Optional UI hint for the composer context bar; 0 derives it from provider metadata when available.",
+            "default": 0
+          },
+          "multimodal": {
+            "type": "boolean",
+            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model.",
+            "default": false
+          },
+          "reasoning_levels": {
+            "type": "array",
+            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /foxxycode/config/reasoning-levels behind its Fetch reasoning levels button.",
+            "items": { "type": "string" }
+          },
+          "reasoning_default": {
+            "type": "string",
+            "description": "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored."
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only.",
+            "default": true
+          }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "title": "ReAct agent loop",
+      "description": "Defaults for the main agent loop (model id and safety caps).",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Default models[].model id used until the client overrides the model per session. Required when models is non-empty."
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "Hard cap on LLM calls per prompt turn.",
+          "default": 30,
+          "minimum": 0
+        },
+        "max_tokens_per_turn": {
+          "type": "integer",
+          "description": "Max tokens across all LLM calls in one turn.",
+          "default": 200000,
+          "minimum": 0
+        },
+        "llm_retry_max": {
+          "type": "integer",
+          "description": "Retries after retryable LLM errors such as HTTP 429. An explicit 0 disables retries.",
+          "default": 3,
+          "minimum": 0
+        },
+        "llm_retry_base_ms": {
+          "type": "integer",
+          "description": "Initial backoff between LLM retries, in milliseconds. A server-provided pause (Retry-After-Ms / Retry-After headers, \"Limit resets at\" / \"retry in Ns\" body phrases) overrides the exponential backoff, capped at 60s.",
+          "default": 1000,
+          "minimum": 0
+        },
+        "llm_min_interval_ms": {
+          "type": "integer",
+          "description": "Minimum gap between consecutive LLM calls in milliseconds, retry attempts included (0 disables pacing; e.g. 12000 on strict free tiers).",
+          "default": 0,
+          "minimum": 0
+        },
+        "llm_first_token_timeout_ms": {
+          "type": "integer",
+          "description": "How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
+          "default": 90000,
+          "minimum": 0
+        },
+        "llm_stall_timeout_ms": {
+          "type": "integer",
+          "description": "How long a streamed LLM call that has already produced output may go without any sign of progress before the turn cuts it, keeping the partial answer. Covers the case the first-token guard cannot: it stops at the first token and never re-arms. An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
+          "default": 300000,
+          "minimum": 0
+        },
+        "llm_stall_retry": {
+          "type": "boolean",
+          "description": "When an LLM call fails without producing any output - a silent provider, a dropped connection (unexpected EOF), a provider-side timeout (Client.Timeout), a 5xx - wait and re-issue the same request instead of failing the turn. A request the endpoint refused (4xx) is not retried, and neither is a call that already streamed something, so no output can be duplicated.",
+          "default": true
+        },
+        "llm_stall_retry_delays_ms": {
+          "type": "array",
+          "description": "Pause before each retry, in milliseconds. The last entry repeats for every later attempt, so [60000, 180000, 300000] means one minute, then three, then five minutes for every attempt after that.",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "default": [
+            60000,
+            180000,
+            300000
+          ]
+        },
+        "llm_stall_retry_max_wait_ms": {
+          "type": "integer",
+          "description": "Total time that may be spent waiting between retries of one LLM call before the turn gives up and surfaces the error. An explicit 0 retries until the model answers or the user stops the turn.",
+          "default": 3600000,
+          "minimum": 0
+        },
+        "loop_guard": {
+          "type": "boolean",
+          "description": "Runaway-loop protection: cut a streamed response that degenerates into repeating itself, block a tool called over and over with identical arguments, and block a sequence of calls the model keeps rotating through.",
+          "default": true
+        },
+        "loop_tool_repeat_limit": {
+          "type": "integer",
+          "description": "Consecutive identical tool calls (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check.",
+          "default": 3,
+          "minimum": 0
+        },
+        "loop_stream_repeat_cycles": {
+          "type": "integer",
+          "description": "Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check.",
+          "default": 5,
+          "minimum": 0
+        },
+        "loop_tool_cycle_repeats": {
+          "type": "integer",
+          "description": "Repetitions of the same sequence of tool calls before the loop guard steps in. This is what catches a model rotating through several calls (read A, read B, read A, ...) instead of repeating one; a lap that varies slightly still counts. 0 disables the cycle check.",
+          "default": 3,
+          "minimum": 0
+        },
+        "loop_stuck_action": {
+          "type": "string",
+          "description": "What the loop guard does once a tool loop has survived every nudge. \"quarantine\" (default) blocks the looping calls for the rest of the turn and lets it continue to a real answer; \"stop\" ends the turn with a notice. A degenerate output stream always stops the turn regardless.",
+          "enum": ["quarantine", "stop"],
+          "default": "quarantine"
+        },
+        "loop_nudge_max": {
+          "type": "integer",
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it with a notice.",
+          "default": 2,
+          "minimum": 0
+        },
+        "wait_for_limit_reset": {
+          "type": "boolean",
+          "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default.",
+          "default": false
+        },
+        "wait_for_limit_reset_max_ms": {
+          "type": "integer",
+          "description": "Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits.",
+          "default": 14400000,
+          "minimum": 0
+        }
+      }
+    },
+    "autocomplete": {
+      "type": "object",
+      "title": "Inline code autocomplete",
+      "description": "LLM-backed inline completion in the editor plugins: the greyed suggestion drawn ahead of the caret and accepted with Tab. Editors fetch it over POST /foxxycode/completion, one single-shot LLM call with no tools and no agent loop.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on inline suggestions. Unset defaults to false, unlike the other optional passes: a suggestion is requested as you type, so this spends tokens on every keystroke.",
+          "default": false
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used for the suggestion pass; empty falls back to agent.model. Speed matters more than cleverness here, because a suggestion is worthless once you have typed past it.",
+          "default": ""
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "chat", "fim"],
+          "description": "How the hole in the code reaches the model. \"auto\" uses native fill-in-the-middle tokens through a raw completion (POST /v1/completions) when the model family (Qwen-Coder, DeepSeek-Coder, CodeLlama, StarCoder, Codestral) and the provider allow it, and a chat prompt otherwise; a raw call that fails switches that model to chat for the rest of the process. \"chat\" always sends a chat prompt. \"fim\" always sends FIM tokens and errors when that is not possible.",
+          "default": "auto"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature for suggestions. Unlike models[].temperature, 0 here is the value rather than \"unset\": suggestions are greedy by default so the same context yields the same suggestion.",
+          "default": 0
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for one suggestion. Small values keep suggestions short and quick.",
+          "default": 128
+        },
+        "related_files": {
+          "type": "integer",
+          "description": "How many other open editor tabs (reported over POST /foxxycode/ide/editor-state, workspace files only) are excerpted into the prompt so the model sees symbols from neighbouring files. 0 disables it.",
+          "default": 3
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "How long one suggestion request may take before the editor abandons it.",
+          "default": 4000
+        },
+        "debounce_ms": {
+          "type": "integer",
+          "description": "How long typing must pause before an automatic request goes out. Ignored when trigger is manual.",
+          "default": 350
+        },
+        "trigger": {
+          "type": "string",
+          "enum": ["auto", "manual"],
+          "description": "When to ask the model: \"auto\" suggests while you type, after the debounce pause; \"manual\" suggests only on the editor shortcut.",
+          "default": "auto"
+        },
+        "multi_line": {
+          "type": "boolean",
+          "description": "Allow one suggestion to span several lines. When false only the first line of a suggestion is kept. Unset defaults to true.",
+          "default": true
+        },
+        "max_prefix_bytes": {
+          "type": "integer",
+          "description": "How much of the text before the caret is sent as context.",
+          "default": 8000
+        },
+        "max_suffix_bytes": {
+          "type": "integer",
+          "description": "How much of the text after the caret is sent as context.",
+          "default": 2000
+        }
+      }
+    },
+    "prompts": {
+      "type": "object",
+      "title": "System prompt templates",
+      "description": "Override the built-in system prompt templates (Go text/template).",
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Directory containing prompt template files. Empty uses embedded defaults. Supports ~ and ${CWD} (session cwd at render time).",
+          "default": ""
+        },
+        "agent_prompt": {
+          "type": "string",
+          "description": "File name inside prompts.dir for agent mode.",
+          "default": "agent.md"
+        },
+        "plan_prompt": {
+          "type": "string",
+          "description": "File name inside prompts.dir for plan mode.",
+          "default": "plan.md"
+        },
+        "docs_prompt": {
+          "type": "string",
+          "description": "File name inside prompts.dir for docs mode.",
+          "default": "docs.md"
+        },
+        "ask_prompt": {
+          "type": "string",
+          "description": "File name inside prompts.dir for ask mode.",
+          "default": "ask.md"
+        },
+        "per_provider": {
+          "type": "object",
+          "title": "Per-provider prompts",
+          "description": "Select a system prompt tuned to the active model family (agent.<family>.md), falling back to the shared prompt.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Use a per-family prompt file when one exists. Defaults to true.",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "instructions": {
+      "type": "object",
+      "title": "Project instructions",
+      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention).",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "description": "Filenames relative to the session CWD.",
+          "default": ["AGENTS.md"],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "title": "Skills",
+      "description": "Directories scanned for skills (SKILL.md and root .md/.mdc files).",
+      "additionalProperties": false,
+      "properties": {
+        "dirs": {
+          "type": "array",
+          "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${FOXXYCODE_HOME}/skills, ${CWD}/.foxxycode/skills. ${FOXXYCODE_HOME} and ${CWD} expand at runtime.",
+          "default": ["~/.agents/skills", "${FOXXYCODE_HOME}/skills", "${CWD}/.foxxycode/skills"],
+          "items": { "type": "string" }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Remote skill sources to install from: GitHub owner/repo[@ref], a git URL, or an http(s) URL to an agents-standard marketplace.json. Fetched on demand via Sync (never automatically) into the managed skills dir.",
+          "items": { "type": "string" }
+        },
+        "auto_discovery": {
+          "type": "boolean",
+          "description": "Offer the model-driven load_skill tool so the agent can pull a catalogued skill's instructions into a turn on its own. Unset defaults to true.",
+          "default": true
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "title": "Project rules",
+      "description": "Discovery of rule files from .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested **/AGENTS.md under the session CWD; .mdc files are read as Cursor rules and .md files as Claude Code rules. See docs/rules.md.",
+      "additionalProperties": false,
+      "properties": {
+        "auto_discover": {
+          "type": "boolean",
+          "description": "Scan the session CWD rule roots automatically.",
+          "default": true
+        },
+        "systems": {
+          "type": "array",
+          "description": "Restrict which rule systems are loaded: foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all.",
+          "default": [],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "mcp_servers": {
+      "type": "array",
+      "title": "MCP servers",
+      "description": "Model Context Protocol servers connected for every new session.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
+            "enum": [
+              "stdio",
+              "http",
+              "sse"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Stable id referenced by the agent; must be unique in this list."
+          },
+          "command": {
+            "type": "string",
+            "description": "Executable for stdio transport (leave empty when using an http url). ${CWD} expands to the session cwd."
+          },
+          "args": {
+            "type": "array",
+            "description": "Argv passed after command for stdio servers. ${CWD} expands to the session cwd.",
+            "items": { "type": "string" }
+          },
+          "env": {
+            "type": "array",
+            "description": "Extra environment variables for the stdio child process.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "value"],
+              "properties": {
+                "name": { "type": "string", "description": "Environment variable name." },
+                "value": { "type": "string", "description": "Environment variable value. ${CWD} expands to the session cwd." }
+              }
+            }
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTP(S) endpoint when type is \"http\". ${CWD} expands to the session cwd."
+          },
+          "headers": {
+            "type": "array",
+            "description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "value"],
+              "properties": {
+                "name": { "type": "string", "description": "HTTP header name." },
+                "value": { "type": "string", "description": "HTTP header value." }
+              }
+            }
+          },
+          "insecure_skip_verify": {
+            "type": "boolean",
+            "description": "Accept the TLS certificate of an \"http\"/\"sse\" server without verifying it, so a self-signed or expired certificate connects. Removes the protection against a man in the middle; use only on trusted networks."
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Skip connecting this server without removing its definition."
+          },
+          "disabled_tools": {
+            "type": "array",
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "title": "MCP discovery",
+      "description": "MCP settings that are not tied to a single server entry.",
+      "additionalProperties": false,
+      "properties": {
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for the project-local <cwd>/.foxxycode/mcp.json, which travels with the checkout: \"ask\" keeps its servers cold until the operator approves that exact declaration for that workspace; \"allow\" starts them automatically (trusted workspaces only); \"deny\" never loads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "title": "Tools and permissions",
+      "description": "Filesystem and shell policy for built-in tools.",
+      "additionalProperties": false,
+      "properties": {
+        "permission_mode": {
+          "type": "string",
+          "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only).",
+          "default": "ask",
+          "enum": ["ask", "accept_edits", "bypass"]
+        },
+        "command_allowlist": {
+          "type": "array",
+          "description": "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands.",
+          "items": { "type": "string" }
+        },
+        "permission_timeout_seconds": {
+          "type": "integer",
+          "description": "How long a permission prompt may wait for the operator before the tool call is cancelled instead. 0 (default) waits forever; a positive value keeps an unresponsive client from holding the session turn lock indefinitely.",
+          "minimum": 0,
+          "default": 0
+        },
+        "ssh_connect_timeout": {
+          "type": "integer",
+          "description": "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds.",
+          "default": 30
+        },
+        "plan_no_self_run": {
+          "type": "boolean",
+          "description": "Forbid the model from starting to execute a plan on its own: in plan mode plan_exit is not offered and any tool outside the plan allowlist is refused instead of run. Only the user can start the implementation (Run plan). Editor plugins pass --plan-no-self-run to turn it on by default.",
+          "default": false
+        },
+        "output_limits": {
+          "type": "object",
+          "title": "Tool output limits",
+          "description": "Maximum lines each tool result or error may return into the LLM context. Positive limits also apply a 64 KiB byte ceiling. 0 disables both limits; unset uses the built-in default.",
+          "additionalProperties": false,
+          "properties": {
+            "read": { "type": "integer", "default": 1000, "minimum": 0 },
+            "grep": { "type": "integer", "default": 200, "minimum": 0 },
+            "glob": { "type": "integer", "default": 300, "minimum": 0 },
+            "print_tree": { "type": "integer", "default": 400, "minimum": 0 },
+            "run_command": { "type": "integer", "default": 500, "minimum": 0 },
+            "ssh_run_command": { "type": "integer", "default": 500, "minimum": 0 },
+            "webfetch": { "type": "integer", "default": 800, "minimum": 0 },
+            "websearch": { "type": "integer", "default": 200, "minimum": 0 },
+            "default": { "type": "integer", "default": 1000, "minimum": 0 }
+          }
+        },
+        "background": {
+          "type": "object",
+          "title": "Background tasks",
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the foxxycode process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Offer the background option on run_command and expose the background task tools.",
+              "default": true
+            },
+            "max_concurrent": {
+              "type": "integer",
+              "description": "How many background tasks one session may run at once. 0 uses the default.",
+              "default": 5
+            },
+            "default_timeout_seconds": {
+              "type": "integer",
+              "description": "Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default.",
+              "default": 900
+            },
+            "max_timeout_seconds": {
+              "type": "integer",
+              "description": "Ceiling applied to any requested or estimate-derived timeout. 0 uses the default.",
+              "default": 3600
+            },
+            "output_buffer_bytes": {
+              "type": "integer",
+              "description": "How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default.",
+              "default": 262144
+            }
+          }
+        }
+      }
+    },
+    "subagents": {
+      "type": "object",
+      "title": "Subagents",
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See docs/subagents.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt.",
+          "default": true
+        },
+        "dirs": {
+          "type": "array",
+          "description": "Definition directories, lowest priority first; later entries override earlier ones by name. ${FOXXYCODE_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow project_trust.",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${FOXXYCODE_HOME}/agents",
+            "${CWD}/.claude/agents",
+            "${CWD}/.foxxycode/agents"
+          ]
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace on the machine running foxxycode (foxxycode agents trust there, or POST /foxxycode/subagents/{name}/trust with the session workspace as cwd); \"allow\" treats them like the operator's own files; \"deny\" never reads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "description": "How many subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued. 0 uses the default.",
+          "default": 4
+        },
+        "max_depth": {
+          "type": "integer",
+          "description": "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further; 0 forbids spawning everywhere. Omit for the default.",
+          "default": 1
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit for one run whose definition and call give no timeout. Capped by tools.background.max_timeout_seconds. 0 uses the default.",
+          "default": 1800
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "ReAct rounds a child may take. 0 follows agent.max_turns.",
+          "default": 0
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "title": "Hooks",
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.foxxycode/hooks.json, .foxxycode/hooks.json, .claude/settings*.json). See docs/hooks.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Load and run hooks at all.",
+          "default": true
+        },
+        "files": {
+          "type": "array",
+          "description": "Definition files, lowest priority first; every matching hook runs. ${FOXXYCODE_HOME} and ${CWD} expand; a relative entry resolves against the session cwd. Files inside the workspace are project scope and follow project_trust; only the hooks key of a Claude Code settings file is read.",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${FOXXYCODE_HOME}/hooks.json",
+            "${CWD}/.claude/settings.json",
+            "${CWD}/.claude/settings.local.json",
+            "${CWD}/.foxxycode/hooks.json"
+          ]
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for hook files found inside the workspace, which travel with the checkout: \"ask\" lists them but runs nothing until the operator approved that exact file for that workspace on the machine running foxxycode (foxxycode hooks trust there, or POST /foxxycode/hooks/trust with the session workspace as cwd); \"allow\" treats them like the operator's own file; \"deny\" never reads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit for one hook process whose definition gives no timeout. 0 uses the default.",
+          "default": 60
+        },
+        "stop_loop_limit": {
+          "type": "integer",
+          "description": "How many times per turn a Stop hook may send the agent back to work. 0 uses the default.",
+          "default": 5
+        },
+        "max_output_chars": {
+          "type": "integer",
+          "description": "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. 0 uses the default.",
+          "default": 10000
+        }
+      }
+    },
+    "logger": {
+      "type": "object",
+      "title": "Logging",
+      "description": "Process log level, outputs, format, and file rotation.",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "description": "Minimum severity written to the configured outputs (\"warning\" is accepted as an alias of \"warn\").",
+          "default": "info",
+          "enum": ["debug", "info", "warn", "warning", "error"]
+        },
+        "levels": {
+          "type": "array",
+          "description": "Per-component minimum severity. A component is the dotted name a record carries in its \"component\" attribute (gateway, gateway.telegram, session, agent, scheduler); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow \"level\".",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["component", "level"],
+            "properties": {
+              "component": {
+                "type": "string",
+                "description": "Dotted component name, for example \"gateway.telegram\".",
+                "pattern": "^[a-z0-9_\\-]+(\\.[a-z0-9_\\-]+)*$"
+              },
+              "level": {
+                "type": "string",
+                "description": "Minimum severity for this component.",
+                "enum": ["debug", "info", "warn", "warning", "error"]
+              }
+            }
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "description": "Where log records go; any combination of stdout, stderr, file. Empty means stderr only.",
+          "default": ["stderr"],
+          "items": {
+            "type": "string",
+            "enum": ["stdout", "stderr", "file"]
+          }
+        },
+        "file": {
+          "type": "string",
+          "description": "Path for the file sink; required when outputs includes \"file\". Supports ${FOXXYCODE_HOME}."
+        },
+        "format": {
+          "type": "string",
+          "description": "Log record format.",
+          "default": "text",
+          "enum": ["text", "json"]
+        },
+        "rotation": {
+          "type": "object",
+          "description": "Size-based rotation for the file sink.",
+          "additionalProperties": false,
+          "properties": {
+            "max_size_mb": {
+              "type": "integer",
+              "description": "Rotate after the file reaches this size in MB; 0 disables size-based rotation.",
+              "default": 0,
+              "minimum": 0
+            },
+            "max_files": {
+              "type": "integer",
+              "description": "Rotated backups to keep when max_size_mb > 0.",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "sessions": {
+      "type": "object",
+      "title": "Session storage",
+      "description": "Where persisted session bundles are stored.",
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Sessions root directory. Empty resolves to ${FOXXYCODE_HOME}/sessions. Supports ${FOXXYCODE_HOME} and ~.",
+          "default": ""
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "title": "Long-term memory copilot",
+      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enabled).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on the memory copilot.",
+          "default": false
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override.",
+          "default": ""
+        },
+        "dir": {
+          "type": "string",
+          "description": "Long-term memory root. Empty resolves to ${FOXXYCODE_HOME}/memory. Supports ${FOXXYCODE_HOME} and ~.",
+          "default": ""
+        },
+        "recall_max_turns": {
+          "type": "integer",
+          "description": "Bounds recall-side LLM rounds in the memory loop.",
+          "default": 6
+        },
+        "persist_max_turns": {
+          "type": "integer",
+          "description": "Bounds persist-side LLM rounds in the memory loop.",
+          "default": 12
+        },
+        "copilot_max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for memory copilot LLM calls.",
+          "default": 4096
+        },
+        "max_search_hits": {
+          "type": "integer",
+          "description": "Maximum snippets returned by memory_search.",
+          "default": 8
+        }
+      }
+    },
+    "compaction": {
+      "type": "object",
+      "title": "Automatic context compaction",
+      "description": "Summarize older turns when the conversation approaches the model's context window.",
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "type": "string",
+          "description": "Compaction implementation: \"coddy\" (default) keeps a summary row and replays only the window after it (supports /compact); \"opencode\" flags older turns and filters them from the payload.",
+          "enum": ["coddy", "opencode"],
+          "default": "coddy"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on auto-compaction. Unset defaults to true; set false to disable.",
+          "default": true
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used for the summarization pass; empty falls back to agent.model.",
+          "default": ""
+        },
+        "threshold_percent": {
+          "type": "integer",
+          "description": "Trigger when context usage exceeds this percent of the model context window. Default 80 (coddy) / 85 (opencode); the opencode engine clamps to 50..99.",
+          "default": 80,
+          "minimum": 1,
+          "maximum": 100
+        },
+        "keep_recent_turns": {
+          "type": "integer",
+          "description": "Number of most recent user turns preserved verbatim (never summarized). Default 2.",
+          "default": 2
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for the summary generation (opencode engine only).",
+          "default": 4096
+        },
+        "result_eviction": {
+          "type": "object",
+          "title": "Read/grep result eviction",
+          "description": "Collapses superseded read/grep results in the LLM projection while keeping the persisted transcript complete.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for result eviction.",
+              "default": true
+            },
+            "keep_recent": {
+              "type": "integer",
+              "description": "Most recent evictable results kept as a working window.",
+              "default": 2,
+              "minimum": 0
+            },
+            "min_result_bytes": {
+              "type": "integer",
+              "description": "Results at or below this size are never evicted.",
+              "default": 2000,
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "title": {
+      "type": "object",
+      "title": "Automatic session title generation",
+      "description": "Generate a short LLM thread title after the first exchange in a fresh, non-pinned session. Runs backend-side for all clients.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on auto-title generation. Unset defaults to true; set false to disable.",
+          "default": true
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used for the title pass; empty falls back to agent.model. A small, cheap model is a good choice.",
+          "default": ""
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for the title generation.",
+          "default": 64
+        }
+      }
+    },
+    "httpserver": {
+      "type": "object",
+      "title": "HTTP gateway",
+      "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See docs/http-api.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm."
+        },
+        "host": {
+          "type": "string",
+          "description": "Default bind address when foxxycode http does not pass -H/--host. Empty falls back to 0.0.0.0.",
+          "default": ""
+        },
+        "port": {
+          "type": "integer",
+          "description": "Default listen port when foxxycode http does not pass -P/--port. 0 falls back to 12345.",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "auth_token": {
+          "type": "string",
+          "description": "Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See docs/remote-control.md.",
+          "default": ""
+        },
+        "public_docs": {
+          "type": "boolean",
+          "description": "Keep /docs and /openapi.* reachable without a token even when auth is enabled.",
+          "default": false
+        },
+        "stream_tickets_only": {
+          "type": "boolean",
+          "description": "Refuse the durable auth token in ?access_token= on the SSE routes, so an EventSource must first mint a single-use ticket via POST /foxxycode/stream-tickets. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL.",
+          "default": false
+        },
+        "allow_insecure": {
+          "type": "boolean",
+          "description": "Silence the startup warning about a non-loopback bind without authentication.",
+          "default": false
+        },
+        "cors": {
+          "type": "object",
+          "description": "Cross-origin policy so a browser UI on another origin can call this API.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turn on CORS handling (preflight + Access-Control-* headers).",
+              "default": false
+            },
+            "allowed_origins": {
+              "type": "array",
+              "description": "Exact origins permitted to call the API. A single \"*\" allows any origin (bearer auth still applies).",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "remotes": {
+          "type": "array",
+          "description": "Remote foxxycode http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "description": "Display name in the environment selector." },
+              "url": { "type": "string", "description": "Base URL of the remote foxxycode http server." }
+            }
+          }
+        }
+      }
+    },
+    "swarm": {
+      "type": "object",
+      "title": "Swarm relay",
+      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enabled; the join list below is honoured by any foxxycode serve process, which is what makes an ordinary agent reachable through a relay. See docs/swarm.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay."
+        },
+        "host": {
+          "type": "string",
+          "description": "Bind address for the relay when the CLI does not pass --swarm-host. Empty falls back to 0.0.0.0.",
+          "default": ""
+        },
+        "port": {
+          "type": "integer",
+          "description": "Listen port for the relay. 0 falls back to 12346.",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "name": {
+          "type": "string",
+          "description": "Label for this relay in topology views and in a child's node path.",
+          "default": ""
+        },
+        "auth_token": {
+          "type": "string",
+          "description": "Bearer credential clients present to this relay. A relay reaches every node with that node's own credential, so an unauthenticated relay bound off loopback is a fleet-wide open door and the server refuses to start unless allow_insecure is set. Never echoed back.",
+          "default": ""
+        },
+        "pairing_tokens": {
+          "type": "array",
+          "description": "Credentials a node must present to register. Empty closes registration unless insecure_open_registration is set. Never echoed back.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "allow_insecure": {
+          "type": "boolean",
+          "description": "Permit binding off loopback without a client token.",
+          "default": false
+        },
+        "insecure_open_registration": {
+          "type": "boolean",
+          "description": "Let any caller register a node without a pairing token. Development only.",
+          "default": false
+        },
+        "allow_private_upstreams": {
+          "type": "array",
+          "description": "Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "cors": {
+          "type": "object",
+          "title": "CORS",
+          "description": "Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
+              "default": false
+            },
+            "allowed_origins": {
+              "type": "array",
+              "description": "Exact origins permitted to call the API, e.g. \"http://localhost:5173\". A single \"*\" allows any origin.",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "title": "Relay TLS",
+          "description": "Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart.",
+          "additionalProperties": false,
+          "properties": {
+            "cert_file": {
+              "type": "string",
+              "description": "PEM certificate chain.",
+              "default": ""
+            },
+            "key_file": {
+              "type": "string",
+              "description": "PEM private key.",
+              "default": ""
+            }
+          }
+        },
+        "lease_ttl_seconds": {
+          "type": "integer",
+          "description": "How long a registration survives without a heartbeat. 0 falls back to 90; nodes refresh at a third of it.",
+          "default": 0,
+          "minimum": 0
+        },
+        "fanout_timeout_seconds": {
+          "type": "integer",
+          "description": "Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. 0 falls back to 3.",
+          "default": 0,
+          "minimum": 0
+        },
+        "upstreams": {
+          "type": "array",
+          "description": "Nodes configured by hand rather than registered, for an agent that cannot run the join loop.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Node name; becomes a URL path segment, so letters, digits, underscore and hyphen only."
+              },
+              "url": {
+                "type": "string",
+                "description": "Origin the relay dials to reach the node."
+              },
+              "kind": {
+                "type": "string",
+                "description": "agent (default) or relay.",
+                "enum": ["", "agent", "relay"],
+                "default": ""
+              },
+              "token": {
+                "type": "string",
+                "description": "Bearer credential the relay presents to this node. Never echoed back.",
+                "default": ""
+              },
+              "dial": {
+                "type": "object",
+                "title": "Dial settings",
+                "description": "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here.",
+                "additionalProperties": false,
+                "properties": {
+                  "proxy": {
+                    "type": "string",
+                    "description": "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back.",
+                    "default": ""
+                  },
+                  "ca_file": {
+                    "type": "string",
+                    "description": "Certificate authority used to verify a peer whose certificate is signed privately.",
+                    "default": ""
+                  },
+                  "insecure_skip_verify": {
+                    "type": "boolean",
+                    "description": "Accept any certificate. For a lab only; every use is logged.",
+                    "default": false
+                  }
+                }
+              }
+            }
+          },
+          "default": []
+        },
+        "join": {
+          "type": "array",
+          "description": "Parent relays this process registers into on startup. Honoured whether or not this process runs a relay of its own, which is what lets relays chain.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Parent relay origin."
+              },
+              "name": {
+                "type": "string",
+                "description": "Name to claim in that relay. Empty falls back to the host name.",
+                "default": ""
+              },
+              "pairing_token": {
+                "type": "string",
+                "description": "Credential authorising the registration. Never echoed back.",
+                "default": ""
+              },
+              "advertise_url": {
+                "type": "string",
+                "description": "Where the relay can reach this process. Leave empty to select the tunnel transport: this process dials out and serves its API back over that connection, which is the only way in when the network accepts no inbound connections.",
+                "default": ""
+              },
+              "token": {
+                "type": "string",
+                "description": "This process's own bearer credential, handed to the relay so it can authenticate when it proxies. Prefer a credential minted for the relay alone. Never echoed back.",
+                "default": ""
+              },
+              "labels": {
+                "type": "object",
+                "description": "Free-form tags shown in topology views.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "dial": {
+                "type": "object",
+                "title": "Dial settings",
+                "description": "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here.",
+                "additionalProperties": false,
+                "properties": {
+                  "proxy": {
+                    "type": "string",
+                    "description": "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back.",
+                    "default": ""
+                  },
+                  "ca_file": {
+                    "type": "string",
+                    "description": "Certificate authority used to verify a peer whose certificate is signed privately.",
+                    "default": ""
+                  },
+                  "insecure_skip_verify": {
+                    "type": "boolean",
+                    "description": "Accept any certificate. For a lab only; every use is logged.",
+                    "default": false
+                  }
+                }
+              }
+            }
+          },
+          "default": []
+        }
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "title": "Cron scheduler",
+      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Run the scheduler daemon and expose the foxxycode_scheduler_* tools. Can also be forced per process with foxxycode acp|http -scheduler-enabled.",
+          "default": false
+        },
+        "dir": {
+          "type": "string",
+          "description": "Directory with *.md job definitions. Empty resolves to ${FOXXYCODE_HOME}/scheduler.",
+          "default": ""
+        },
+        "max_queue": {
+          "type": "integer",
+          "description": "Concurrent scheduled runs; when saturated, extra firings are skipped until a slot frees.",
+          "default": 10
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Wall-clock limit for one scheduled agent run, as a Go duration (e.g. \"30m\", \"1h30m\").",
+          "default": "30m"
+        },
+        "retain_sessions": {
+          "type": "integer",
+          "description": "Completed scheduler-run session directories kept per job_id under sessions.dir; older runs are pruned.",
+          "default": 5
+        }
+      }
+    },
+    "gateways": {
+      "type": "object",
+      "title": "Messenger gateways",
+      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; run with foxxycode gateway). See docs/gateway.md.",
+      "additionalProperties": false,
+      "properties": {
+        "telegram": {
+          "type": "object",
+          "description": "Telegram bot adapter.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Activate the Telegram adapter when foxxycode gateway starts.",
+              "default": false
+            },
+            "token": {
+              "type": "string",
+              "description": "Bot token from @BotFather. Leave empty to read the TELEGRAM_BOT_TOKEN environment variable (e.g. via ~/.foxxycode/.env).",
+              "default": ""
+            },
+            "proxy": {
+              "type": "string",
+              "description": "Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL.",
+              "default": ""
+            },
+            "rich_messages": {
+              "type": "boolean",
+              "description": "Use Bot API 10.1 Rich Messages (native Markdown, streamed thinking placeholder, collapsible tool list). Falls back to legacy formatting when unsupported.",
+              "default": false
+            },
+            "admins": {
+              "type": "array",
+              "description": "Telegram user IDs with elevated rights; admins always pass access checks.",
+              "items": { "type": "integer" }
+            },
+            "default_access": {
+              "type": "string",
+              "description": "Fallback access level for chats without an override: \"all\", \"admins\", or \"group:<name>\".",
+              "default": "all"
+            },
+            "default_isolation": {
+              "type": "string",
+              "description": "Fallback session isolation for group chats: \"individual\" (session per user), \"shared\" (one session for all), \"admin\" (admins only, shared session).",
+              "default": "individual",
+              "enum": ["individual", "shared", "admin"]
+            },
+            "user_groups": {
+              "type": "array",
+              "description": "Named sets of user IDs referenced from access fields as group:<name>.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "description": "Group name referenced as group:<name>." },
+                  "user_ids": {
+                    "type": "array",
+                    "description": "Telegram numeric user IDs in this group.",
+                    "items": { "type": "integer" }
+                  }
+                }
+              }
+            },
+            "chats": {
+              "type": "array",
+              "description": "Per-chat overrides; chat_id is negative for groups and supergroups.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["chat_id"],
+                "properties": {
+                  "chat_id": { "type": "integer", "description": "Telegram chat id (negative for groups/supergroups)." },
+                  "isolation": {
+                    "type": "string",
+                    "description": "Per-chat session isolation override.",
+                    "enum": ["individual", "shared", "admin"]
+                  },
+                  "access": {
+                    "type": "string",
+                    "description": "Per-chat access override: \"all\", \"admins\", or \"group:<name>\"."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "title": "UI",
+      "description": "Embedded SPA preferences for desktop and HTTP UI.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Serve the embedded web UI at GET /. Turn off to run foxxycode http as an API-only server; /v1/* and /foxxycode/* stay available. Unset defaults to true.",
+          "default": true
+        },
+        "locale": {
+          "type": "string",
+          "description": "UI locale for the embedded SPA. Empty means auto-detect from the system or browser locale.",
+          "enum": ["", "en", "ru"],
+          "default": ""
+        },
+        "send_mode": {
+          "type": "string",
+          "description": "How the main chat composer submits a message. \"enter\": Enter sends (Shift/Ctrl+Enter insert a newline). \"ctrl_enter\": Ctrl/Cmd+Enter sends (Enter inserts a newline). \"off\": disable keyboard send (Send button only).",
+          "enum": ["enter", "ctrl_enter", "off"],
+          "default": "enter"
+        },
+        "status_line": {
+          "type": "boolean",
+          "description": "Show a live status line next to the typing dots while the agent works: the current tool and its target, waiting for the model, and elapsed time. Set false to show only the animated dots. Unset defaults to true.",
+          "default": true
+        }
+      }
+    },
+    "browser": {
+      "type": "object",
+      "title": "Browser tool",
+      "description": "Interactive browser automation tool (requires the browser build tag; drives a local Chrome/Chromium via chromedp).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turns on the interactive browser tools (navigate, click, fill, screenshot, ...) for eligible builds.",
+          "default": false
+        },
+        "headless": {
+          "type": "boolean",
+          "description": "Run the browser without a visible window. Enabled by default; disable to watch the automated session.",
+          "default": true
+        },
+        "executable_path": {
+          "type": "string",
+          "description": "Optional path to a specific Chrome/Chromium binary. Empty lets chromedp auto-detect an installed browser.",
+          "default": ""
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Per-action timeout for navigation, clicks, and other browser operations.",
+          "default": 30
+        },
+        "screenshots": {
+          "type": "boolean",
+          "description": "Capture a screenshot after each browser action and show it to the model. Enabled by default. Turn it off to drive the browser text-only: actions still report the URL and the page log, and foxxycode_browser_read_page plus foxxycode_browser_evaluate read the page as text - which is all a model without vision can use anyway, and it saves the base64 image on every request.",
+          "default": true
+        }
+      }
+    },
+    "vcs": {
+      "type": "object",
+      "title": "Version control",
+      "description": "Version control integration. Git works out of the box; Subversion adds the SVN chip next to the git chip and the svn_* tools when a working copy is detected.",
+      "additionalProperties": false,
+      "properties": {
+        "svn": {
+          "type": "object",
+          "title": "Subversion",
+          "description": "Subversion support for SVN working copies and branch folders.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turns Subversion support on. Enabled by default; turning it off hides the SVN chip and removes every svn_* tool from the model.",
+              "default": true
+            },
+            "binary": {
+              "type": "string",
+              "description": "Optional path to the svn client. Empty resolves \"svn\" on PATH; set it when the client is installed outside PATH.",
+              "default": ""
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Per-command timeout for svn invocations such as update, commit, and merge.",
+              "default": 120
+            },
+            "branch_lookup": {
+              "type": "boolean",
+              "description": "Allows listing trunk and branches/ for the SVN chip menu. This contacts the server; turn it off on slow links.",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "title": "Debug",
+      "description": "Master switch for verbose diagnostics: debug-level logs, raw LLM HTTP capture, and per-session debug trace. The --debug CLI flag forces enabled=true at startup.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on the whole diagnostics layer: forces the process logger to debug level, captures raw LLM request/response bodies, and emits per-session debug trace events. Toggled at runtime through PUT /foxxycode/config.",
+          "default": false
+        },
+        "capture_llm": {
+          "type": "boolean",
+          "description": "Log raw LLM HTTP request/response bodies at debug level. Unset (default) follows enabled; set to false to keep debug logs while suppressing large bodies.",
+          "default": true
+        }
+      }
+    }
+  }
+}

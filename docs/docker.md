@@ -43,7 +43,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 | Setting | Default compose | Dev compose |
 |---------|-----------------|-------------|
 | **Image** | **`${FOXXYCODE_IMAGE:-ghcr.io/hijera/foxxycode-agent:latest}`** | **`foxxycode-agent:${FOXXYCODE_VERSION:-dev}`** (built locally) |
-| **Command** | Image **`CMD`**: **`http -H 0.0.0.0 -P 12345`**, overridable with **`FOXXYCODE_COMMAND`** | Same |
+| **Command** | Image **`CMD`**: **`serve -H 0.0.0.0 -P 12345`**, overridable with **`FOXXYCODE_COMMAND`** | Same |
 | **Published port** | **`${FOXXYCODE_HTTP_PORT:-12345}:12345`** | Same |
 | **Working dir** | **`/workspace`** (**`FOXXYCODE_CWD`**) | Same |
 
@@ -122,7 +122,7 @@ export FOXXYCODE_BUILD_TAGS="http,scheduler,ui,memory,gateway"
 docker compose -f docker-compose.dev.yml build foxxycode
 ```
 
-**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway`** so the built image can run the messenger gateway; drop **`gateway`** to trim it. That is a *subset* of the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default (**`http,scheduler,ui,memory,gateway,cli,browser`**) - add **`cli,browser`** if you also want the console TUI and the browser tools in the dev image.
+**`FOXXYCODE_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway,swarm`** so the built image can run the messenger gateway and the swarm relay; drop either to trim it. That is a *subset* of the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default (**`http,scheduler,ui,memory,gateway,cli,browser`**) - add **`cli,browser`** if you also want the console TUI and the browser tools in the dev image.
 
 ### Run another mode (messenger gateway)
 
@@ -138,7 +138,7 @@ docker compose -f docker-compose.dev.yml logs -f foxxycode   # expect: "telegram
 
 Notes:
 
-- The **published GHCR image is built without the `gateway` tag** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,browser`**), so **`docker-compose.yml`** with **`FOXXYCODE_COMMAND=gateway`** needs an image built with it - use the dev file or a custom **`FOXXYCODE_IMAGE`**.
+- The **published GHCR image carries every surface** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,browser,gateway,swarm`**), so the default **`serve`** command runs whichever of them the mounted **`config.yaml`** enables, and **`FOXXYCODE_COMMAND=gateway`** works against it without a custom build.
 - The bot token is read from **`TELEGRAM_BOT_TOKEN`** (passed through by both compose files) or **`$FOXXYCODE_HOME/.env`**; keep it out of git.
 - If your **`gateways.telegram.proxy`** points at a host-local proxy (e.g. **`socks5://127.0.0.1:7890`**), it is unreachable from inside the container - use **`host.docker.internal`** or add **`network_mode: host`** in a **`docker-compose.override.yml`**.
 - Gateway mode uses no inbound port (Telegram long-polling); the mapped **`12345`** is simply unused.
@@ -231,7 +231,7 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 
 ## What the image contains by default
 
-**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,cli,browser`** (comma-separated, same meaning as **`go build -tags=`**).
+**`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory,gateway,cli,browser,swarm`** (comma-separated, same meaning as **`go build -tags=`**).
 
 - **`http`** - **`foxxycode http`** and REST gateway (see **[docs/http-api.md](http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
@@ -248,7 +248,7 @@ Volume and environment details for Compose are in [Docker Compose](#docker-compo
 
 1. **`ui-builder` (Node)** - runs **`npm ci`** and **`npm run build:go`** under **`external/ui`**, producing the static bundle copied into the Go tree for **`go:embed`** when **`ui`** is in **`BUILD_TAGS`**.
 2. **`build` (Go)** - **`CGO_ENABLED=0`**, **`GOOS`/`GOARCH`** from BuildKit **`TARGETOS`/`TARGETARCH`** (CI builds **`linux/amd64`** and **`linux/arm64`**), **`go build -tags="$BUILD_TAGS"`** with **`-trimpath`** and **`-ldflags "-s -w -X ...Version=..."`**, writes **`/out/foxxycode`**, copies **`ca-certificates.crt`** for HTTPS clients.
-3. **`scratch`** - only the binary and CA bundle; **`ENTRYPOINT`** **`/bin/foxxycode`**, default **`CMD`** **`http -H 0.0.0.0 -P 12345`**.
+3. **`scratch`** - only the binary and CA bundle; **`ENTRYPOINT`** **`/bin/foxxycode`**, default **`CMD`** **`serve -H 0.0.0.0 -P 12345`**.
 
 ## Automated smoke test
 

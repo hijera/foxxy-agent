@@ -10,7 +10,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 Optional:
 
-- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`http,scheduler,memory,gateway`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
+- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**, which runs an untagged pass plus one per optional build tag (**`cli`**, **`browser`**, **`gateway`**, **`swarm`**, **`http,scheduler,memory,gateway,swarm`**); **`make lint-ui`** adds the embedded-SPA pass and **`make lint-windows`** the Windows one. CI installs the pinned version with **`go install`** and calls the same targets, so local and CI coverage cannot drift.
 - **Python 3.8+** - only for the interactive build wizard ([`scripts/build.py`](../scripts/build.py)); stdlib only, no `pip` packages.
 
 ## Interactive build wizard
@@ -28,7 +28,7 @@ python scripts/build.py
 **Non-interactive** (CI or scripts):
 
 ```bash
-# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory cli browser")
+# Full-feature CLI for the current host (same as make build TAGS="http ui scheduler memory cli browser gateway swarm")
 python scripts/build.py --target cli --preset full
 
 # Lean ACP-only binary (no npm step)
@@ -91,20 +91,20 @@ go build -tags=http,ui,scheduler,memory,cli,browser,gateway \
   ./cmd/foxxycode/
 ```
 
-The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
+The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via **`BUILD_TAGS`** (default **`http,scheduler,ui,memory,gateway,cli,browser,swarm`**) and strips debug symbols with **`-ldflags "-s -w ..."`** in addition to the version **`X`** flag.
 
 ## Install on your PATH
 
 **`make install`** copies **`build/foxxycode`** onto your **`PATH`**:
 
-- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory cli browser"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli browser"`** first.
+- If **`build/foxxycode`** already exists (for example after **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** first.
 
 - **root** - **`/usr/local/bin/foxxycode`**
 - **non-root** - **`~/.local/bin/foxxycode`** (ensure that directory is on **`PATH`**)
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install
 ```
 
@@ -151,7 +151,7 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory cli browser"
+make build TAGS="http ui scheduler memory cli browser gateway swarm"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
@@ -173,8 +173,17 @@ Order does not matter for these tags.
 | **`gateway.telegram`** | **`foxxycode gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
 | **`desktop`** | Windows WebView2 desktop app (**`foxxycode desktop`**); combine with **`http`**, **`ui`** | [`docs/build.md`](build.md#desktop-windows-webview2) |
+| **`cli`** | Interactive console TUI (bare **`foxxycode`**, **`foxxycode cli`**) | [`docs/cli.md`](cli.md) · [`external/cli/`](../external/cli/) |
+| **`browser`** | Interactive browser tool (**`browser_action`**, chromedp) | [`docs/browser-tool.md`](browser-tool.md) |
+| **`swarm`** | Swarm relay served by **`foxxycode serve`**; agents register into it and relays chain | [`docs/swarm.md`](swarm.md) · [`external/swarm/`](../external/swarm/) |
 
-**`make test`** exercises tag combinations (see **`test`** target in [`Makefile`](../Makefile)).
+Tests come at two speeds. **`make test`** is the express run: the SPA assets and suite, then one
+**`go test`** over the whole tree with every optional module compiled in — what the shipped binary
+contains. The combinations themselves live in **`TEST_TAG_SETS`** ([`Makefile`](../Makefile)):
+**`make test-matrix`** walks them in sequence, and CI runs one job per combination —
+**`.github/workflows/tests-on-pr.yaml`** reads the list through **`make print-test-tag-sets`**, so
+it cannot drift from the Makefile. Locally, reach for a single combination instead:
+**`go test -tags=<set> ./...`**.
 
 ## Desktop (Windows WebView2)
 
@@ -198,6 +207,93 @@ python scripts/build.py --target cli --preset desktop
 **Licensing note:** desktop builds link [`github.com/jchv/go-webview2`](https://github.com/jchv/go-webview2) (license **`Other/NOASSERTION`** in **`go.mod`**). Review before redistribution.
 
 **Manual smoke:** delete **`%USERPROFILE%\.foxxycode\config.yaml`**, run **`build\foxxycode-desktop.exe`**, complete onboarding, restart and confirm the modal stays closed.
+
+## Distribution packages
+
+**`make deb`** and **`make rpm`** build the Linux packages a release publishes; **`make brew`**
+renders the Homebrew cask for one.
+
+```bash
+make deb
+make rpm
+```
+
+Output: **`dist/foxxycode_<version>_linux_<arch>.deb`** and **`.rpm`**. Knobs:
+
+| Variable | Default | What |
+|----------|---------|------|
+| **`PKG_ARCHS`** | host **`GOARCH`** | architectures to package, e.g. **`"amd64 arm64"`** |
+| **`PKG_TAGS`** | **`FULL_TAGS`** (**`http ui scheduler memory cli browser gateway swarm`**) | build tags for the packaged binary |
+| **`DIST_DIR`** | **`dist`** | where the packages land |
+
+```bash
+make deb PKG_ARCHS="amd64 arm64"
+make rpm PKG_TAGS="http cli"      # lean binary, no npm step
+```
+
+The recipe is **`packaging/nfpm.yaml`**, driven by **`scripts/build-packages.sh`**, which stages the
+man page (**`packaging/man/foxxycode.1`**), the shell completions (**`packaging/completions/`**),
+**`config.example.yaml`** and **`LICENSE`** into one directory and runs
+[nfpm](https://nfpm.goreleaser.com/) over it. nfpm is not a module dependency: the script uses the
+**`nfpm`** on **`PATH`** when there is one and otherwise fetches the pinned version with
+**`go run`**, so there is nothing to install first.
+
+The package installs a binary and its documentation and nothing else - no service, no system
+account, no files under **`/etc`** - because FoxxyCode's state lives in the invoking user's
+**`~/.foxxycode`**.
+
+Version strings are normalised for the two formats by **`scripts/package-version.sh`** - rpm forbids
+**`-`** in a version and dpkg reads the last one as the start of the Debian revision, so
+**`0.2.59-5-gb6b7d31-dirty`** is packaged as **`0.2.59+5.gb6b7d31.dirty`**, which both accept and both
+sort after **`0.2.59`**.
+
+### Homebrew cask
+
+```bash
+make brew VERSION=0.2.63
+```
+
+**`scripts/build-homebrew-cask.sh`** fills **`packaging/homebrew/foxxycode.rb.tmpl`** with the version
+and the SHA-256 of both macOS archives, writing **`dist/foxxycode.rb`**. It takes those archives from
+**`DIST_DIR`** when they are there (which is the case in the release job, right after the
+cross-compile) and downloads them from the GitHub release otherwise - a cask pins checksums, so it
+can only be rendered for a version whose archives exist.
+
+Install the rendered file to try it:
+
+```bash
+brew install --cask dist/foxxycode.rb
+```
+
+The cask links **`foxxycode`**, **`foxxycode.1`** and both completion scripts, which is why the release
+**`darwin`** and **`linux`** archives carry those files beside the binary. Each release publishes
+**`foxxycode.rb`** as an asset, and **`brew install --cask <url>`** installs from it.
+
+### Homebrew formula
+
+```bash
+make brew-formula VERSION=0.2.63
+make brew-check VERSION=0.2.63
+```
+
+**`scripts/build-homebrew-formula.sh`** fills **`packaging/homebrew/foxxycode-formula.rb.tmpl`** with the
+version and the SHA-256 of that tag's **source** archive, writing **`dist/formula/foxxycode.rb`**. It
+downloads the archive to hash it, so the version has to be a published tag.
+
+That file is the artefact a [homebrew/core](https://github.com/Homebrew/homebrew-core) pull request
+carries. Homebrew routes open-source command-line software there as a formula built from source and
+keeps homebrew/cask for native applications and binary-only software, so the cask above is our own
+channel and the formula is the submission. The formula builds the release tag set, which is why
+**`node`** joins **`go`** as a build dependency: the embedded SPA is generated rather than committed.
+
+**`scripts/check-homebrew-submission.sh`** (**`make brew-check`**) is the preflight - token
+availability, notability thresholds, the release, and the rendered formula. It exits non-zero when
+something blocks the submission. The full path, including the notability arithmetic that blocks a
+self-submission today, is in [homebrew.md](homebrew.md).
+
+What the packages install, and how they interact with **`foxxycode update`**, is documented in
+[install.md](install.md#linux-packages-deb-rpm) and
+[update.md](update.md#installations-owned-by-a-package-manager).
 
 ## Release binaries (CI)
 
@@ -224,4 +320,4 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/hijera/foxxycode-agent/cmd/foxxycode@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory cli browser"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`** (or **`go build -tags=...`** as above).

@@ -102,6 +102,10 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { ProviderUsage } from "./chat/providerUsage";
+import { connectSwarmNode, getEnv, returnToSwarm } from "./env/remoteEnv";
+import { EnvironmentChip } from "./chat/EnvironmentChip";
+import { probeSwarm } from "./swarm/api";
+import { SwarmView } from "./swarm/SwarmView";
 import { useProviderUsage } from "./chat/useProviderUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import {
@@ -200,6 +204,7 @@ import {
   setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
+  appNavHrefSwarm,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
@@ -913,7 +918,13 @@ export function App() {
     turnStarted: (sid: string) => void;
     turnEnded: (sid: string) => void;
     providerUsage: (usage: ProviderUsage) => void;
-  }>({ turnStarted: () => {}, turnEnded: () => {}, providerUsage: () => {} });
+    configReloaded: () => void;
+  }>({
+    turnStarted: () => {},
+    turnEnded: () => {},
+    providerUsage: () => {},
+    configReloaded: () => {},
+  });
   /** Set once the editor-embed last-session probe finished (or was skipped). */
   const lastSessionRestoreDoneRef = useRef(false);
   /** Last value sent to the last-session record; null until the first write. */
@@ -1106,7 +1117,14 @@ export function App() {
     new Map(),
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
-  const [modelsEpoch, setModelsEpoch] = useState(0);
+  /**
+   * Bumped whenever the server's configuration moved: a settings save here, or a
+   * `config_reloaded` event from a swap made elsewhere (the agent's `config_commit`,
+   * a skill install, another tab, an edit on disk that `serve` picked up). Everything
+   * derived from the config re-reads on it, so a model added mid-session reaches the
+   * picker without a page reload.
+   */
+  const [configEpoch, setConfigEpoch] = useState(0);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -1123,6 +1141,18 @@ export function App() {
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
+  const [swarmRoute, setSwarmRoute] = useState(false);
+  // The Swarm entry only appears when the environment answers as a relay: on a
+  // plain agent there is no swarm to show.
+  const [isSwarmEnv, setIsSwarmEnv] = useState(false);
+  /**
+   * True when this page IS the relay, not an agent reached through one.
+   *
+   * A relay holds no sessions and serves no /foxxycode/* at all, so a chat
+   * box and a history drawer there are furniture for a room nobody can
+   * enter. What it does have is the swarm, so that is what it shows.
+   */
+  const [atSwarmRoot, setAtSwarmRoot] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [schedulerEditor, setSchedulerEditor] =
@@ -1925,6 +1955,17 @@ export function App() {
       setTasksSelectedId(null);
       return;
     }
+    if (p.branch === "swarm") {
+      setSwarmRoute(true);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
+      setSessionsOpen(false);
+      return;
+    }
+    setSwarmRoute(false);
     if (p.branch === "settings") {
       setSettingsRoute(true);
       setSettingsSection(p.section);
@@ -2148,7 +2189,8 @@ export function App() {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-  }, []);
+    // Slash commands are derived from skills.dirs, so a config swap moves them too.
+  }, [configEpoch]);
 
   // Background tasks outlive the SSE stream of the turn that started them, so
   // the drawer and the nav badge are kept honest by polling rather than by the
@@ -2285,11 +2327,12 @@ export function App() {
         );
       }
     })();
-    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+    // configEpoch bumps after every config swap, so a model added to models[] - and the
+    // multimodal flag on one already there - reaches the picker without a page reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelsEpoch]);
+  }, [configEpoch]);
 
-  // Onboarding is decided once per page load. It used to re-run on modelsEpoch,
+  // Onboarding is decided once per page load. It used to re-run on configEpoch,
   // so every Settings save re-fetched the status and reopened a picker the user
   // had already dismissed. Re-entry is the "Restart onboarding" button
   // (restartOnboarding below), not a save.
@@ -3838,6 +3881,7 @@ export function App() {
       void refreshSessionStats(key);
     },
     providerUsage: providerUsageState.applyPushed,
+    configReloaded: () => setConfigEpoch((e) => e + 1),
   };
 
   useEffect(() => {
@@ -3847,6 +3891,7 @@ export function App() {
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
+      onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onConnectedChange: setServerEventsConnected,
       signal: ctl.signal,
     });
@@ -4960,6 +5005,78 @@ export function App() {
     }
   };
 
+  useEffect(() => {
+    const env = getEnv();
+    // Inside a node the relay's own routes are no longer under the base URL, so
+    // asking again would say "not a swarm" and take away the way back. What we
+    // came through is remembered instead.
+    if (env.mode === "remote" && env.swarmRelay) {
+      setIsSwarmEnv(true);
+      setAtSwarmRoot(false);
+      return undefined;
+    }
+    const ac = new AbortController();
+    void probeSwarm(ac.signal).then((info) => {
+      setIsSwarmEnv(!!info);
+      setAtSwarmRoot(!!info);
+    });
+    return () => ac.abort();
+  }, []);
+
+  // Entering a node points the whole app at that node's mount, so every screen
+  // that already existed works against it with a relay in the middle.
+  const openSwarmNode = useCallback((nodePath: string[], hash?: string) => {
+    const env = getEnv();
+    // Served by the relay from its own root, the environment is plain
+    // same-origin: the relay is then this page's origin. Without that fallback
+    // the one entry point this screen exists for silently did nothing.
+    const relay =
+      env.mode === "remote"
+        ? (env.swarmRelay ?? env.baseUrl)
+        : window.location.origin;
+    if (!relay) {
+      return;
+    }
+    connectSwarmNode(
+      relay,
+      nodePath,
+      env.mode === "remote" ? env.token : "",
+      hash,
+    );
+  }, []);
+
+  /**
+   * Where the app has been in this swarm, as a route.
+   *
+   * Inside a node it is that node; back on the relay it is whatever
+   * `returnToSwarm` remembered. The map marks it and draws the path to it, so
+   * the screen can say where we are rather than only what exists.
+   */
+  const swarmCurrentNode = useMemo(() => {
+    const env = getEnv();
+    if (env.mode !== "remote") {
+      return [] as string[];
+    }
+    const route = env.swarmNode || env.swarmFrom || "";
+    return route.split("/").filter(Boolean);
+  }, []);
+
+  const openSwarmFromNav = useCallback(() => {
+    const env = getEnv();
+    // Inside a node, going to the swarm means going back out to its relay.
+    if (env.mode === "remote" && env.swarmRelay) {
+      returnToSwarm();
+      return;
+    }
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    setSessionsOpen(false);
+    setSettingsRoute(false);
+    window.location.hash = appNavHrefSwarm();
+  }, []);
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -5033,7 +5150,8 @@ export function App() {
   const shellBackdropOpen =
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
-    settingsRoute;
+    settingsRoute ||
+    swarmRoute;
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -5155,9 +5273,13 @@ export function App() {
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
-        showScheduler={schedulerHttpLinked === true}
+        showHistory={!atSwarmRoot}
+        showScheduler={schedulerHttpLinked === true && !atSwarmRoot}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
+        showSwarm={isSwarmEnv}
+        onOpenSwarm={openSwarmFromNav}
+        swarmOpen={swarmRoute}
         settingsOpen={settingsRoute}
         onOpenSettings={openSettingsFromNav}
         canWidenRail={viewportXL}
@@ -5256,11 +5378,23 @@ export function App() {
           </div>
         ) : null}
 
+        {swarmRoute || (atSwarmRoot && !settingsRoute) ? (
+          <div className="swarm-dock-cluster">
+            <SwarmView
+              onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
+              onOpenSession={(s) => openSwarmNode(s.node_path, `#/s/${s.id}`)}
+              {...(swarmCurrentNode.length > 0
+                ? { currentNode: swarmCurrentNode }
+                : {})}
+              {...(atSwarmRoot ? { headerSlot: <EnvironmentChip /> } : {})}
+            />
+          </div>
+        ) : null}
         {settingsRoute ? (
           <div className="settings-dock-cluster">
             <Settings
               onClose={onCloseSettings}
-              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
+              onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
               onRestartOnboarding={restartOnboarding}
               // Subagent approvals are keyed by workspace, and spawn_agent
@@ -5311,177 +5445,179 @@ export function App() {
             }}
           />
         ) : null}
-        <ChatScreen
-          title={currentTitle}
-          sessionId={sessionId}
-          onOpenChangesViewer={() => setChangesViewerOpen(true)}
-          onOpenSessionChanges={(path?: string) => {
-            setChangesPath(path || "");
-            setChangesOpen(true);
-          }}
-          backgroundTasks={backgroundTasks}
-          onOpenBackgroundTasks={openTasksFromNav}
-          backgroundTasksByToolCallId={backgroundTasksByToolCallId}
-          backgroundNowMs={backgroundNowMs}
-          onOpenBackgroundTask={openBackgroundTask}
-          onStopBackgroundTask={handleStopBackgroundTask}
-          subagentTranscript={subagentTranscript}
-          onOpenSession={openSessionInPlace}
-          workspaceCtx={workspaceCtx}
-          worktreePref={worktreePref}
-          svnFolderPref={svnFolderPref}
-          workspaceLocked={items.length > 0}
-          onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
-          onWorkspacePickBranch={(b: string, wt: boolean) =>
-            void switchWorkspace({ branch: b, worktree: wt })
-          }
-          onWorktreeToggle={() => setWorktreePref((v) => !v)}
-          onWorkspacePickSvnBranch={(b: string, folder: boolean) =>
-            void switchWorkspace({ branch: b, worktree: folder, vcs: "svn" })
-          }
-          onSvnFolderToggle={() => setSvnFolderPref((v) => !v)}
-          sessionLoading={sessionLoading}
-          sessionFadingOut={sessionFadingOut}
-          heroAccentVerb={heroAccentVerb}
-          heroComposerFocusEpoch={heroHomeGeneration}
-          onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
-          onExportSession={(f: ExportFormat) => void exportSession(f)}
-          exportBusy={exportBusy}
-          items={items}
-          draft={draft}
-          tokenUsage={tokenUsage}
-          providerUsage={providerUsageState.usage}
-          usageBannerDismissedKey={providerUsageState.dismissedKey}
-          onUsageBannerDismiss={providerUsageState.dismissBanner}
-          contextPct={contextPct}
-          maxContextTokens={maxContextTokens}
-          contextBreakdown={contextBreakdown}
-          mode={mode}
-          modes={[...PROFILE_MODES]}
-          {...(llmModelIds.length > 0
-            ? {
-                llmModels: llmModelIds,
-                llmModel,
-                onLlmModelChange,
-                llmModelMultimodal,
-                ...(llmReasoningLevels.length > 0
-                  ? {
-                      llmReasoningLevels,
-                      llmReasoning,
-                      onLlmReasoningChange,
+        {atSwarmRoot ? null : (
+          <ChatScreen
+            title={currentTitle}
+            sessionId={sessionId}
+            onOpenChangesViewer={() => setChangesViewerOpen(true)}
+            onOpenSessionChanges={(path?: string) => {
+              setChangesPath(path || "");
+              setChangesOpen(true);
+            }}
+            backgroundTasks={backgroundTasks}
+            onOpenBackgroundTasks={openTasksFromNav}
+            backgroundTasksByToolCallId={backgroundTasksByToolCallId}
+            backgroundNowMs={backgroundNowMs}
+            onOpenBackgroundTask={openBackgroundTask}
+            onStopBackgroundTask={handleStopBackgroundTask}
+            subagentTranscript={subagentTranscript}
+            onOpenSession={openSessionInPlace}
+            workspaceCtx={workspaceCtx}
+            worktreePref={worktreePref}
+            svnFolderPref={svnFolderPref}
+            workspaceLocked={items.length > 0}
+            onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
+            onWorkspacePickBranch={(b: string, wt: boolean) =>
+              void switchWorkspace({ branch: b, worktree: wt })
+            }
+            onWorktreeToggle={() => setWorktreePref((v) => !v)}
+            onWorkspacePickSvnBranch={(b: string, folder: boolean) =>
+              void switchWorkspace({ branch: b, worktree: folder, vcs: "svn" })
+            }
+            onSvnFolderToggle={() => setSvnFolderPref((v) => !v)}
+            sessionLoading={sessionLoading}
+            sessionFadingOut={sessionFadingOut}
+            heroAccentVerb={heroAccentVerb}
+            heroComposerFocusEpoch={heroHomeGeneration}
+            onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+            onExportSession={(f: ExportFormat) => void exportSession(f)}
+            exportBusy={exportBusy}
+            items={items}
+            draft={draft}
+            tokenUsage={tokenUsage}
+            providerUsage={providerUsageState.usage}
+            usageBannerDismissedKey={providerUsageState.dismissedKey}
+            onUsageBannerDismiss={providerUsageState.dismissBanner}
+            contextPct={contextPct}
+            maxContextTokens={maxContextTokens}
+            contextBreakdown={contextBreakdown}
+            mode={mode}
+            modes={[...PROFILE_MODES]}
+            {...(llmModelIds.length > 0
+              ? {
+                  llmModels: llmModelIds,
+                  llmModel,
+                  onLlmModelChange,
+                  llmModelMultimodal,
+                  ...(llmReasoningLevels.length > 0
+                    ? {
+                        llmReasoningLevels,
+                        llmReasoning,
+                        onLlmReasoningChange,
+                      }
+                    : {}),
+                }
+              : {})}
+            onModeChange={onModeChange}
+            onDraftChange={setDraft}
+            generating={generating}
+            onContextRingOpen={() => {
+              const sid = sessionId.trim();
+              if (sid) {
+                void refreshSessionStats(sid);
+              }
+            }}
+            onStop={() => stopActiveGeneration()}
+            onQuestionPromptResolved={resolveQuestionPrompt}
+            onPermissionPromptResolved={resolvePermissionPrompt}
+            onPlanDocumentExpanded={(itemId, expanded) => {
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === itemId && x.type === "plan_document"
+                    ? { ...x, expanded }
+                    : x,
+                ),
+              );
+            }}
+            // A subagent transcript is read-only: like onEdit below, Run plan and
+            // Discard are withheld rather than stubbed, so the plan card renders
+            // without its footer and its editor is read-only.
+            {...(subagentTranscript
+              ? {}
+              : {
+                  onPlanDocumentRun: (slug: string) => {
+                    if (
+                      sessionId.trim() &&
+                      activeComposerSidRef.current.has(sessionId.trim())
+                    ) {
+                      return;
                     }
-                  : {}),
-              }
-            : {})}
-          onModeChange={onModeChange}
-          onDraftChange={setDraft}
-          generating={generating}
-          onContextRingOpen={() => {
-            const sid = sessionId.trim();
-            if (sid) {
-              void refreshSessionStats(sid);
-            }
-          }}
-          onStop={() => stopActiveGeneration()}
-          onQuestionPromptResolved={resolveQuestionPrompt}
-          onPermissionPromptResolved={resolvePermissionPrompt}
-          onPlanDocumentExpanded={(itemId, expanded) => {
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, expanded }
-                  : x,
-              ),
-            );
-          }}
-          // A subagent transcript is read-only: like onEdit below, Run plan and
-          // Discard are withheld rather than stubbed, so the plan card renders
-          // without its footer and its editor is read-only.
-          {...(subagentTranscript
-            ? {}
-            : {
-                onPlanDocumentRun: (slug: string) => {
-                  if (
-                    sessionId.trim() &&
-                    activeComposerSidRef.current.has(sessionId.trim())
-                  ) {
-                    return;
-                  }
-                  void streamResponses(t("chat.runPlanMessage"), {
-                    modeOverride: "agent",
-                    runPlanSlug: slug,
-                  });
-                },
-                onPlanDocumentDiscard: async (itemId: string, slug: string) => {
-                  const sid = sessionId.trim();
-                  if (!sid) return;
-                  try {
-                    await fetch(
-                      `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
-                      {
-                        method: "DELETE",
-                        headers,
-                      },
+                    void streamResponses(t("chat.runPlanMessage"), {
+                      modeOverride: "agent",
+                      runPlanSlug: slug,
+                    });
+                  },
+                  onPlanDocumentDiscard: async (itemId: string, slug: string) => {
+                    const sid = sessionId.trim();
+                    if (!sid) return;
+                    try {
+                      await fetch(
+                        `/foxxycode/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                        {
+                          method: "DELETE",
+                          headers,
+                        },
+                      );
+                    } catch {
+                      return;
+                    }
+                    setItems((prev) =>
+                      prev.map((x) =>
+                        x.id === itemId && x.type === "plan_document"
+                          ? { ...x, discarded: true }
+                          : x,
+                      ),
                     );
-                  } catch {
-                    return;
-                  }
-                  setItems((prev) =>
-                    prev.map((x) =>
-                      x.id === itemId && x.type === "plan_document"
-                        ? { ...x, discarded: true }
-                        : x,
-                    ),
-                  );
-                },
-              })}
-          {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
-          {...(editingFiles.length > 0 ? { editingFiles } : {})}
-          onBranchSwitch={(sid) => switchBranch(sid)}
-          {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
-          onPasteChipCaptured={(key, literal) => {
-            const m = pasteLiteralsRef.current;
-            m.set(key, literal);
-            // Bound the map: drop oldest entries past 32 (Map keeps insertion order).
-            while (m.size > 32) {
-              const oldest = m.keys().next().value;
-              if (oldest == null) {
-                break;
+                  },
+                })}
+            {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
+            {...(editingFiles.length > 0 ? { editingFiles } : {})}
+            onBranchSwitch={(sid) => switchBranch(sid)}
+            {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+            onPasteChipCaptured={(key, literal) => {
+              const m = pasteLiteralsRef.current;
+              m.set(key, literal);
+              // Bound the map: drop oldest entries past 32 (Map keeps insertion order).
+              while (m.size > 32) {
+                const oldest = m.keys().next().value;
+                if (oldest == null) {
+                  break;
+                }
+                m.delete(oldest);
               }
-              m.delete(oldest);
-            }
-          }}
-          onSend={(text: string, files?: File[]) => {
-            // A subagent transcript is read-only: the server answers 409.
-            if (subagentTranscript) {
-              return;
-            }
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            setDraft("");
-            if (editingUserMsgIdx !== null) {
-              const idx = editingUserMsgIdx;
-              const note = editingAssetNote;
-              setEditingUserMsgIdx(null);
-              setEditingAssetNote("");
-              setEditingFiles([]);
-              const textWithAssets = note ? `${text}\n${note}` : text;
-              void handleBranchSend(textWithAssets, idx);
-            } else {
-              void streamResponses(text, files ? { files } : undefined);
-            }
-          }}
-          onFetchToolCallFull={handleFetchToolCallFull}
-        />
+            }}
+            onSend={(text: string, files?: File[]) => {
+              // A subagent transcript is read-only: the server answers 409.
+              if (subagentTranscript) {
+                return;
+              }
+              if (
+                sessionId.trim() &&
+                activeComposerSidRef.current.has(sessionId.trim())
+              ) {
+                return;
+              }
+              setDraft("");
+              if (editingUserMsgIdx !== null) {
+                const idx = editingUserMsgIdx;
+                const note = editingAssetNote;
+                setEditingUserMsgIdx(null);
+                setEditingAssetNote("");
+                setEditingFiles([]);
+                const textWithAssets = note ? `${text}\n${note}` : text;
+                void handleBranchSend(textWithAssets, idx);
+              } else {
+                void streamResponses(text, files ? { files } : undefined);
+              }
+            }}
+            onFetchToolCallFull={handleFetchToolCallFull}
+          />
+        )}
         <ProviderPickerDialog
           open={showProviderPicker}
           onSaved={() => {
             setShowProviderPicker(false);
-            setModelsEpoch((e) => e + 1);
+            setConfigEpoch((e) => e + 1);
             maybeStartTour();
           }}
           onSkip={() => {

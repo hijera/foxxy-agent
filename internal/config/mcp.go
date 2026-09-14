@@ -22,9 +22,10 @@ const (
 	ProjectTrustDeny = "deny"
 )
 
-// ProjectTrustFlagName is the CLI flag (on `foxxycode acp` / `foxxycode http`)
-// that overrides mcp.project_trust for one process, so a trusted checkout or a
-// CI job can opt in without editing config.yaml.
+// ProjectTrustFlagName is the CLI flag (on `foxxycode cli`, `foxxycode acp`,
+// `foxxycode http` and `foxxycode serve`) that overrides mcp.project_trust for
+// one process, so a trusted checkout or a CI job can opt in without editing
+// config.yaml.
 const ProjectTrustFlagName = "mcp-project-trust"
 
 // ProjectTrustFlagUsage is the shared flag help text.

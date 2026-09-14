@@ -906,7 +906,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically, and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically over its current content - comments, commented-out keys and the existing key order survive the save, a file with no **`# yaml-language-server: $schema=`** header gets the published one (**`https://hijera.github.io/foxxy-agent/config.schema.json`**), and a header naming another schema is left alone - and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "foxxycodeConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -1904,7 +1904,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/events": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to server-wide session events",
-					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /foxxycode/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. It also emits **event: config_reloaded** after every swap of the live configuration - a settings save, the agent's own **config_commit**, a skill install, an edit on disk that **foxxycode serve** picked up - so a client re-reads its config-derived lists (the model picker, the slash commands) without a page reload. Like the composer stream, this route also accepts a credential as **`?access_token=`**: either a single-use ticket from **POST /foxxycode/stream-tickets** (preferred - a query string ends up in access logs) or, unless **`httpserver.stream_tickets_only`** is set, the bearer token itself.",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
 						"500": errorResponseRef(),
@@ -2465,7 +2465,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `foxxycode`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow. The client presented to the hub is `coddy`, the identifier NeuralDeep issued for this agent - it is the hub's name, not this fork's, and the hub refuses any other; the response echoes it as `hub_client` so a client can tell the user what the sign-in page will call them. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
 					"requestBody": map[string]interface{}{
 						"required": false,
 						"content": map[string]interface{}{
@@ -3603,6 +3603,11 @@ func openAPISpec() map[string]interface{} {
 						"user_code":        map[string]string{"type": "string"},
 						"status":           map[string]string{"type": "string", "example": "pending"},
 						"connected":        map[string]string{"type": "boolean"},
+						"hub_client": map[string]string{
+							"type":        "string",
+							"example":     "coddy",
+							"description": "What the hub's own sign-in page calls this agent, when that differs from the product name. Present on the NeuralDeep start; absent on the Codex one.",
+						},
 					},
 					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
 				},

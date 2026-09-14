@@ -253,6 +253,10 @@ func (s *Server) foxxycodeProviderNeuralDeepAuthDevicePost(w http.ResponseWriter
 		VerificationURL: login.VerificationTarget(),
 		UserCode:        login.UserCode,
 		Status:          "pending",
+		// The hub's page names the client by the identifier we present, which
+		// is the hub's own and not this fork's name; the UI says so rather than
+		// letting the user wonder whose sign-in they are approving.
+		HubClient: llm.NeuralDeepClientID,
 	})
 }
 

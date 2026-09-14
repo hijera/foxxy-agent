@@ -5,6 +5,12 @@ func boolPtr(v bool) *bool { return &v }
 // SchemaExampleConfigJSON returns representative defaults for JSON Schema "default"
 // and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
 // and field semantics where possible.
+//
+// Each value is the placeholder of its own field, not part of a coherent row:
+// attachNodeDefaults walks the tree and attaches a "default" per property. So
+// the temperature here is what a new models[] row offers for temperature
+// whatever model it names - including a reasoning id such as the one below,
+// which would not send it (see the reasoning branch in internal/llm/openai.go).
 func SchemaExampleConfigJSON() *ConfigJSON {
 	perProviderEnabled := true
 	compactionEnabled := true
@@ -25,6 +31,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 	loopStreamRepeatCycles := AgentDefaultLoopStreamRepeatCycles
 	loopToolCycleRepeats := AgentDefaultLoopToolCycleRepeats
 	loopNudgeMax := AgentDefaultLoopNudgeMax
+	waitForLimitResetMaxMS := AgentDefaultWaitForLimitResetMaxMS
 	llmRetryMax := AgentDefaultLLMRetryMax
 	llmFirstTokenTimeoutMS := AgentDefaultLLMFirstTokenTimeoutMS
 	llmStallTimeoutMS := AgentDefaultLLMStallTimeoutMS
@@ -36,14 +43,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Models: []ModelJSON{
 			{
-				Model:            "openai/gpt-4o",
+				Model:            "openai/gpt-5.6-terra",
 				MaxTokens:        4096,
 				Temperature:      0.2,
 				MaxContextTokens: 0,
 			},
 		},
 		Agent: AgentJSON{
-			Model:                  "openai/gpt-4o",
+			Model:                  "openai/gpt-5.6-terra",
 			MaxTurns:               AgentDefaultMaxTurns,
 			MaxTokensPerTurn:       AgentDefaultMaxTokensPerTurn,
 			LLMRetryMax:            &llmRetryMax,
@@ -59,6 +66,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			LoopToolCycleRepeats:   &loopToolCycleRepeats,
 			LoopStuckAction:        AgentDefaultLoopStuckAction,
 			LoopNudgeMax:           &loopNudgeMax,
+			WaitForLimitResetMaxMS: &waitForLimitResetMaxMS,
 		},
 		Autocomplete: AutocompleteJSON{
 			Enabled:        &autocompleteEnabled,
@@ -109,14 +117,6 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			DefaultTimeoutSeconds: SubagentsDefaultTimeoutSeconds,
 			MaxTurns:              0,
 		},
-		Hooks: HooksJSON{
-			Enabled:               boolPtr(true),
-			Files:                 DefaultHookFiles(),
-			ProjectTrust:          ProjectTrustAsk,
-			DefaultTimeoutSeconds: HooksDefaultTimeoutSeconds,
-			StopLoopLimit:         HooksDefaultStopLoopLimit,
-			MaxOutputChars:        HooksDefaultMaxOutputChars,
-		},
 		Logger: LoggerJSON{
 			Level:    LogLevelInfo,
 			Outputs:  []string{LogOutputStderr},
@@ -146,6 +146,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Enabled:   &titleEnabled,
 			Model:     "",
 			MaxTokens: TitleDefaultMaxTokens,
+		},
+		Hooks: HooksJSON{
+			Enabled:               boolPtr(true),
+			Files:                 DefaultHookFiles(),
+			ProjectTrust:          ProjectTrustAsk,
+			DefaultTimeoutSeconds: HooksDefaultTimeoutSeconds,
+			StopLoopLimit:         HooksDefaultStopLoopLimit,
+			MaxOutputChars:        HooksDefaultMaxOutputChars,
 		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,

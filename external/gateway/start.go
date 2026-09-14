@@ -9,6 +9,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/external/gateway/telegram"
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/logger"
 	"github.com/hijera/foxxycode-agent/internal/session"
 )
 
@@ -22,7 +23,10 @@ func Start(ctx context.Context, cfg *config.Config, mgr *session.Manager, log *s
 				config.TelegramBotTokenEnvVar + " environment variable")
 		} else {
 			storePath := filepath.Join(cfg.ResolvedSessionsRoot(), "gateway_sessions.json")
-			bot := telegram.New(&cfg.Gateways.Telegram, mgr, defaultCWD, log, storePath)
+			// The standalone `foxxycode gateway` command has no turn mirror: it is
+			// the one process, and nothing else is watching its turns.
+			bot := telegram.New(&cfg.Gateways.Telegram, mgr, defaultCWD,
+				logger.Component(log, logger.ComponentGatewayTelegram), storePath, nil)
 			adapters = append(adapters, bot)
 		}
 	}

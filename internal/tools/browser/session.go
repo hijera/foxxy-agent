@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/chromedp/chromedp"
 
 	"github.com/hijera/foxxycode-agent/internal/config"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 )
 
 // Manager owns one Browser per agent session, keyed by session id. A single
@@ -79,6 +81,10 @@ type Browser struct {
 	ctx         context.Context
 	ctxCancel   context.CancelFunc
 	timeout     time.Duration
+	// chromePID is the Chrome process chromedp started, or 0 if it never did.
+	// close needs it to find the children Chrome spawned, which outlive the
+	// browser process itself by a short but unbounded moment.
+	chromePID int
 	// captureScreens mirrors browser.screenshots. When false no image is taken and
 	// none is handed to the model; every action still reports URL and page log.
 	captureScreens bool
@@ -112,6 +118,15 @@ func launch(cfg *config.BrowserConfig, profileDir string) (*Browser, error) {
 	if execPath != "" {
 		opts = append(opts, chromedp.ExecPath(execPath))
 	}
+	// Learn which process Chrome ends up being. chromedp keeps it to itself, and
+	// this is the only hook it offers onto the command - which is also why
+	// applyChromeCmdDefaults is here: chromedp's own setup of the command is the
+	// else branch of this option, so passing one replaces it.
+	var chromeCmd *exec.Cmd
+	opts = append(opts, chromedp.ModifyCmdFunc(func(cmd *exec.Cmd) {
+		applyChromeCmdDefaults(cmd)
+		chromeCmd = cmd
+	}))
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	// Route chromedp's own diagnostics into the configured log; see cdpLogf.
@@ -136,10 +151,19 @@ func launch(cfg *config.BrowserConfig, profileDir string) (*Browser, error) {
 	// that ListenTarget below attaches to, and enables the Network and Runtime
 	// domains: without them Chrome emits no response, failure or console events at
 	// all, and the listener sees nothing however correct it looks.
-	if err := chromedp.Run(ctx, network.Enable(), runtime.Enable()); err != nil {
-		ctxCancel()
-		allocCancel()
-		return nil, fmt.Errorf("launch browser: %w", err)
+	runErr := chromedp.Run(ctx, network.Enable(), runtime.Enable())
+	// Safe to read only now, and read before the error is handled: chromedp
+	// allocates the browser inside that first Run, on this goroutine, so the
+	// option above has been called by the time it returns - and a Run that failed
+	// after Chrome started is exactly the case where knowing its pid matters.
+	if chromeCmd != nil && chromeCmd.Process != nil {
+		b.chromePID = chromeCmd.Process.Pid
+	}
+	if runErr != nil {
+		// Through close, so a browser that started but could not be set up leaves
+		// no more behind than one that is closed normally.
+		b.close()
+		return nil, fmt.Errorf("launch browser: %w", runErr)
 	}
 
 	// Capture what the page reports about itself so the tools can surface it without
@@ -177,13 +201,41 @@ func (b *Browser) run(actions ...chromedp.Action) error {
 	return chromedp.Run(ctx, actions...)
 }
 
-// close tears the browser down.
+// browserExitGrace bounds how long close waits for Chrome's children to follow
+// it out. They go on their own within a few hundred milliseconds even on a busy
+// machine, so this is the point at which one of them is stuck rather than slow.
+const browserExitGrace = 5 * time.Second
+
+// close tears the browser down and does not return until Chrome and everything
+// it spawned are actually gone.
+//
+// Cancelling the chromedp contexts kills the browser process and waits for that
+// one process, which is not the same thing: Chrome's renderers, GPU process and
+// crashpad handler are separate processes that notice the browser is gone and
+// exit a moment later. On Windows that moment is visible, because the crashpad
+// handler keeps CrashpadMetrics-active.pma mapped in the profile directory until
+// it does - so a close that returns early leaves a profile that cannot be
+// deleted and, if the session reopens straight away, a profile still held by the
+// browser that was supposed to be closed.
 func (b *Browser) close() {
+	// Captured first, while Chrome is still running: after it exits, which of the
+	// processes naming it as their parent are really its children can no longer
+	// be told apart from a stranger that was handed its pid.
+	tree := platform.CaptureProcessTree(b.chromePID)
+	defer tree.Release()
+
 	if b.ctxCancel != nil {
 		b.ctxCancel()
 	}
 	if b.allocCancel != nil {
 		b.allocCancel()
+	}
+
+	if !tree.WaitExit(browserExitGrace) {
+		// Something below Chrome outlived the browser itself by five seconds. It
+		// is not going to leave on its own, and it belongs to a session that is
+		// over either way.
+		tree.TerminateSurvivors()
 	}
 }
 

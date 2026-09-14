@@ -114,7 +114,7 @@
           "type": "integer"
         },
         "model": {
-          "default": "openai/gpt-4o",
+          "default": "openai/gpt-5.6-terra",
           "description": "Logical model id from the models list used when the client omits a model.",
           "title": "Default model",
           "type": "string"
@@ -125,6 +125,7 @@
           "type": "boolean"
         },
         "wait_for_limit_reset_max_ms": {
+          "default": 14400000,
           "description": "Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits.",
           "title": "Wait for limit reset max ms",
           "type": "integer"
@@ -907,7 +908,7 @@
       "default": [
         {
           "max_tokens": 4096,
-          "model": "openai/gpt-4o",
+          "model": "openai/gpt-5.6-terra",
           "temperature": 0.2
         }
       ],
@@ -927,7 +928,7 @@
             "type": "integer"
           },
           "model": {
-            "default": "openai/gpt-4o",
+            "default": "openai/gpt-5.6-terra",
             "description": "Logical id in the form provider/api-model-id; must match a provider name prefix.",
             "title": "Model id",
             "type": "string"

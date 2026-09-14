@@ -166,3 +166,12 @@ Captured from headless Chrome (dark, ru) against a `make build TAGS="http ui"` b
 - `mode-sync-after-reload-{1280,390}.png` - the same session on this branch: the pill comes back as **План**
 - `mode-sync-before-planexit-1280.png` - after the model called `plan_exit`, the backend is in `agent` while the pill still says **План**; the next turn would post `plan` and drag the session back
 - `mode-sync-after-planexit-1280.png` - the same turn on this branch: the `event: mode` frame flips the pill to **Агент**, matching the session
+
+## Swarm tier caption and scheduler hint (September 2026)
+
+Captured from headless Chrome (dark, ru) against a `-tags "http ui scheduler memory gateway swarm"` build: a relay on loopback with one agent joined to it over the tunnel transport (#89). The `before` binary embeds the bundle from `main` at 0.2.82, the `after` one this branch's.
+
+- `pr-swarm-gutter-before-1280-dark.png` - the relay's map: the first tier's caption «релей подключения» starts 22px left of the canvas (`getBBox().x` is -22 in a 320-wide SVG) and is painted as «…й подключения»
+- `pr-swarm-gutter-after-1280-dark.png` - `GUTTER` 164: the same caption starts at x 18 in a 360-wide SVG and is whole
+- `pr-scheduler-disabled-before-1280-dark.png` - the scheduler panel of an agent with the scheduler off: «…или передайте -scheduler-enabled»
+- `pr-scheduler-disabled-after-1280-dark.png` - the same panel on this branch: «…или запустите foxxycode serve --scheduler»

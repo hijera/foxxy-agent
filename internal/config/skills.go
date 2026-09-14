@@ -7,8 +7,9 @@ import (
 	"strings"
 )
 
-// SkillsAutoDiscoveryFlagName is the CLI flag (on `foxxycode acp` / `foxxycode http`)
-// that overrides skills.auto_discovery.
+// SkillsAutoDiscoveryFlagName is the CLI flag (on `foxxycode cli`, `foxxycode acp`
+// and `foxxycode serve`; `foxxycode http` does not take it) that overrides
+// skills.auto_discovery.
 const SkillsAutoDiscoveryFlagName = "skills-auto-discovery"
 
 // ApplySkillsAutoDiscoveryFlag overrides skills.auto_discovery only when the

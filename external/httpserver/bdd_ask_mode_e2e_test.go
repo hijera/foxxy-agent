@@ -196,6 +196,11 @@ func (s *askModeE2EState) startServer(script string) error {
 		Providers: []config.ProviderConfig{{Name: "local", Type: "openai", APIBase: s.backendTS.URL, APIKey: "test-key"}},
 		Models:    []config.ModelEntry{{Model: "local/stub"}},
 		Agent:     config.Agent{Model: "local/stub"},
+		// A generated title is one more request to the same stub backend, and it
+		// arrives after the turn, so modelRepromptedWithRefusal - which reads the
+		// last request - would find the title prompt instead of the re-prompt.
+		// The other BDD fixtures in this tree switch it off for the same reason.
+		Title: config.TitleConfig{Enabled: new(bool)},
 	}
 	cfg.Tools.PermissionMode = config.PermModeBypass
 	log := slog.Default()

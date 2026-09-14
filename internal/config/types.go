@@ -18,6 +18,7 @@ type Config struct {
 	Tools        Tools              `yaml:"tools"`
 	Subagents    Subagents          `yaml:"subagents"`
 	Hooks        Hooks              `yaml:"hooks"`
+	Swarm        SwarmConfig        `yaml:"swarm"`
 	Logger       Logger             `yaml:"logger"`
 	Sessions     Sessions           `yaml:"sessions"`
 	Memory       MemoryConfig       `yaml:"memory"`

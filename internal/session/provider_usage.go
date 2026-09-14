@@ -482,8 +482,8 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 		delivered := m.usageDeliverableLocked(e, fetchedAt)
 		// Every session that asked while the fetch ran gets the result: the
 		// one that started it and the ones that joined it, each through the
-		// manager sender and through the observers (foxxycode http listens there
-		// only). A fetch nobody asked for by session reaches the observers
+		// manager sender and through the observers (the HTTP API server listens
+		// there only). A fetch nobody asked for by session reaches the observers
 		// once, unattributed.
 		waiters := e.waiters
 		e.waiters = nil

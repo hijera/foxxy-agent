@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
 # Full field reference: docs/config-reference.md
 
 # .env file support
@@ -368,7 +368,10 @@ tools:
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # Optional bearer auth + CORS + remote environment selector: see docs/remote-control.md.
+# `foxxycode serve` starts every subsystem enabled in this file in one process
+# over one set of sessions; `foxxycode http` remains the single-surface form.
 # httpserver:
+#   enabled: true         # omitted means true; false on a node that only polls a bot or relays a swarm
 #   host: "127.0.0.1"
 #   port: 8080
 #   auth_token: "${FOXXYCODE_HTTP_TOKEN}"  # empty = no auth; ${ENV} expanded at load; or use --auth-token
@@ -461,8 +464,60 @@ tools:
 #         isolation: "admin"      # only respond to admin users
 #         access: "admins"
 
+# swarm - a relay that nodes register into, and that chains into other relays.
+# Server side needs -tags swarm and swarm.enabled; the join list below is
+# honoured by every foxxycode serve process, which is what lets an ordinary agent be
+# reached through a relay.
+# Full reference: docs/swarm.md
+# ----------------------------------------------------------------------------
+# swarm:
+#   enabled: false       # run the relay here; independent of the join list below
+#   name: "outer"
+#   host: "0.0.0.0"
+#   port: 12346
+#   # A relay reaches every node with that node's own credential, so an open one
+#   # hands its whole fleet to anybody who can reach it. Binding off loopback
+#   # without this refuses to start.
+#   auth_token: "${FOXXYCODE_SWARM_TOKEN}"
+#   # What a node must present to join. Empty closes registration.
+#   pairing_tokens:
+#     - "${FOXXYCODE_SWARM_PAIRING_TOKEN}"
+#   cors:
+#     enabled: true
+#     allowed_origins: ["http://localhost:5173"]
+#   tls:
+#     cert_file: "/etc/foxxycode/relay.crt"
+#     key_file: "/etc/foxxycode/relay.key"
+#   # Nodes listed by hand, for one that cannot run the join loop.
+#   upstreams:
+#     - name: "nas02"
+#       url: "https://nas02:12345"
+#       kind: "agent"          # agent (default) or relay
+#       token: "${NAS02_TOKEN}"
+#   # Relays this process registers into, whether or not it relays itself.
+#   # That symmetry is the whole of relay chaining.
+#   join:
+#     - url: "https://relay.example"
+#       name: "nas02"
+#       pairing_token: "${FOXXYCODE_SWARM_PAIRING_TOKEN}"
+#       # Where the relay can reach this process. Leave it out and this process
+#       # dials the relay instead, which is the only way in from a network that
+#       # accepts no inbound connections.
+#       advertise_url: "https://nas02:12345"
+#       token: "${NODE_OWN_TOKEN}"
+#       labels:
+#         role: "builder"
+#       dial:
+#         proxy: "socks5://127.0.0.1:1080"
+#         ca_file: "/etc/foxxycode/internal-ca.pem"
+
 logger:
   level: "info"
+  # Per-component floors. A parent name covers everything under it, and the
+  # longest configured prefix wins; records with no component follow level.
+  # levels:
+  #   - component: "gateway.telegram"
+  #     level: "debug"
   # outputs: ["stderr"]          # default when omitted
   # outputs: ["stdout", "file"] # example: tee to console and file
   # file: "${FOXXYCODE_HOME}/foxxycode.log"  # required when outputs includes "file"

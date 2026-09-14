@@ -1,4 +1,4 @@
-# Run full test matrix and golangci-lint on pull requests.
+# Run the full test matrix (one job per tag combination) and golangci-lint on pull requests.
 
 name: Tests on PR
 
@@ -12,9 +12,64 @@ defaults:
     shell: bash
 
 jobs:
-  test:
-    name: Test suite
+  # The tag combinations are written down once, in the Makefile (TEST_TAG_SETS),
+  # and read from there so this file cannot drift from `make test-matrix`. The
+  # OpenCode rules plugin test rides along: it needs Node and nothing else.
+  plan:
+    name: Test matrix
     runs-on: ubuntu-latest
+    outputs:
+      sets: ${{ steps.sets.outputs.sets }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test the OpenCode rules plugin
+        run: make test-opencode-rules
+
+      - name: Read the tag combinations
+        id: sets
+        run: echo "sets=$(make -s print-test-tag-sets)" >> "$GITHUB_OUTPUT"
+
+  # The SPA has its own suite and its own type-check, and no `go test` reaches
+  # either. It runs once, beside the matrix rather than ahead of it: a type error
+  # in the UI must not hide which Go tag combination is broken.
+  ui:
+    name: SPA suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Run the SPA tests and type-check
+        run: make ui-test
+
+  # One job per combination, none cancelled by another's failure, so a broken
+  # stub behind one tag is reported by name instead of hiding the combinations
+  # a sequential run never reached. Locally `make test` is the express run over
+  # the shipped tag set only; this matrix is where the partial builds are proven.
+  test:
+    name: Test suite (${{ matrix.tags || 'untagged' }})
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tags: ${{ fromJSON(needs.plan.outputs.sets) }}
 
     steps:
       - name: Checkout repository
@@ -26,12 +81,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The ui tag embeds assets that exist only after the SPA is bundled.
       - name: Set up Node.js
+        if: contains(matrix.tags, 'ui')
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
+
+      - name: Build the embedded UI
+        if: contains(matrix.tags, 'ui')
+        run: make ui-build
 
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
@@ -48,7 +109,22 @@ jobs:
           done
 
       - name: Run tests
-        run: make test
+        run: go test -tags=${{ matrix.tags }} ./...
+
+      # The console suite drives the app over a fake terminal. In the one
+      # combination that is the console alone, this opens the real binary on a
+      # real pty and checks the first frame, the keyboard and the exit, so the
+      # tty path is proven on Linux too (test-macos does the same on macOS).
+      - name: Build the console
+        if: matrix.tags == 'cli'
+        run: make build TAGS=cli
+
+      - name: Drive the console through a real pty
+        if: matrix.tags == 'cli'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r examples/cli/requirements.txt
+          FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
 
   # The suite above runs on Linux, so nothing behind //go:build windows is ever
   # compiled by it. This job type-checks that half across every tag combination
@@ -188,9 +264,72 @@ jobs:
           go test -race -count=1 ./internal/agent/... ./internal/session/... ./internal/bgtask/... ./internal/llm/... ./internal/mcp/...
           go test -race -count=1 -tags=http,scheduler,memory ./external/httpserver/... ./external/scheduler/...
 
+  # The console is a raw-mode terminal program, and nothing above runs it on
+  # macOS, where bare `foxxycode` opens on a Terminal.app pty. A hang there was
+  # reported by users before it was seen in any test. This job runs the
+  # platform packages and the console suite on a macOS runner, then builds the
+  # console and drives the binary through a real pty: first frame, keys, exit
+  # and the restored terminal.
+  test-macos:
+    name: Test suite (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run platform tests
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
+
+      - name: Run console TUI tests (fake terminal, no pty)
+        run: go test -tags=cli ./external/cli/...
+
+      - name: Build the console
+        run: make build TAGS=cli
+
+      - name: Drive the console through a real pty
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r examples/cli/requirements.txt
+          FOXXYCODE_BIN="$PWD/build/foxxycode" .venv/bin/python examples/cli/cli_e2e_startup.py
+
+  # The packages are only built on a release tag, so without this job a broken
+  # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
+  # this proves the packaging, not the binary, and skipping the npm step keeps
+  # the job short.
+  packages:
+    name: Distribution packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build deb and rpm
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
+
+      # Same reasoning one step further: the Homebrew cask is rendered only by
+      # the release job and the formula only by hand, so a template that stopped
+      # being valid Ruby would surface at the worst moment. Rendering needs a
+      # published tag; parsing does not, and the placeholders sit inside strings.
+      - name: Parse the Homebrew templates
+        run: ruby -c packaging/homebrew/foxxycode.rb.tmpl && ruby -c packaging/homebrew/foxxycode-formula.rb.tmpl
+
   # A build tag hides whole files from the linter, so this job runs the Makefile
   # targets rather than a bare ./... pass: `make lint` walks every tag set
-  # (cli, browser, gateway, http+scheduler+memory), `make lint-ui` adds the
+  # (cli, browser, gateway, swarm, http+scheduler+memory), `make lint-ui` adds the
   # embedded-SPA surface, and `make lint-windows` repeats them for GOOS=windows
   # plus the Windows-only desktop shell. Keeping the tag list in the Makefile
   # means CI and a local run cannot drift apart.

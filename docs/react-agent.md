@@ -60,7 +60,7 @@ Working directory: {{.CWD}}
 </environment_context>
 ```
 
-The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
+The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt. Editor project metadata is appended the same way: readable files under the workspace's **`.idea`** and **`.vscode`** directories become **`<intellij_idea_project_context>`** and **`<vscode_project_context>`** blocks (**`internal/session/editor_project_context.go`**), capped per file and in total, and framed as data rather than as instructions.
 
 Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, FoxxyCode reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
 
@@ -281,6 +281,33 @@ turn says something:
 - **A stream abandoned mid-answer.** Bounded by **`agent.llm_stall_timeout_ms`** and the
   **`agent.llm_stall_retry`** family, which keep the partial answer and ask the model to
   carry on rather than ending the turn. See `docs/config-reference.md` for the keys.
+- **A lane, not a model, that failed.** One model name at a proxy is usually a group of
+  interchangeable deployments, and a sick member fails per attempt rather than per
+  conversation. Two failures are therefore answered by re-issuing the identical request
+  before anything else is tried:
+  - A streamed call the first-token guard cut with **nothing produced** is replayed
+    immediately (**`maxFirstTokenReissues`**), ahead of the waiting ladder and on the same
+    **`agent.llm_stall_retry`** switch. That iteration is repeated, not counted against
+    **`max_turns`** - a call that produced nothing is not a reasoning step the model chose.
+    It is safe by construction: no chunk reached the client and no message was appended.
+    Only if the replay is silent too does the ladder start pausing, which is the recovery
+    a saturated gateway needs.
+  - A turn that ends with neither answer text nor a tool call is replayed once as well
+    (**`maxEmptyAssistantReissues`**), counted like the wording nudge it precedes, with
+    the empty assistant turn dropped from the
+    LLM-facing message slice so the outgoing request is byte for byte the one that failed.
+    The transcript keeps that turn, because the user watched its reasoning stream in. The
+    wording nudge (**`maxEmptyAssistantContinuations`**) follows only if the replay came
+    back empty too.
+  - Both budgets reset as soon as the model makes progress.
+
+  Every error a provider returns is prefixed with the **`providers[].name`** it came from
+  and the address that request actually reached (`internal/llm/provider_label.go`), because
+  the address is not always the one the operator has in mind - **`type: openai`** with no
+  **`api_base`** talks to **`https://api.openai.com/v1`**. The label sits **outside** the
+  resilient wrapper, so retry classification still reads the untouched upstream error, and
+  it wraps rather than replaces the cause, so **`errors.Is`** and **`errors.As`** keep
+  working.
 
 ### Tracing the stream
 

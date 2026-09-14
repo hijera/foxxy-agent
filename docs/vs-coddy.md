@@ -27,6 +27,11 @@ exact upstream commit this fork is synced to.
   (`POST /foxxycode/ide/terminal-state`) and exposed as always-on `<foxxycode_terminal_context>`
   and an explicit `@terminal` mention - see [`internal/ideterm/`](../internal/ideterm) and
   [`external/httpserver/ideterminalstate.go`](../external/httpserver/ideterminalstate.go).
+- **Editor project metadata (`.vscode` / `.idea`)** - readable files under the workspace's
+  `.vscode` directory are appended to the system prompt as `<vscode_project_context>`, so build
+  tasks, launch configurations and workspace settings are known from the first request; the
+  IntelliJ `.idea` block shares the loader - see
+  [`internal/session/editor_project_context.go`](../internal/session/editor_project_context.go).
 - **IDE file drag-drop -> `@`-mention** - dropping a file into the composer produces a short
   `@`-chip while the full relative path is sent to the model, via the `/workspace/relativize` endpoint.
 - **Native IntelliJ inline diffs** - plugin-side inline diff review with Accept/Reject and

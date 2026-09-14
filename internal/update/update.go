@@ -30,11 +30,16 @@ type Options struct {
 	CheckOnly      bool
 	Yes            bool
 	NoRestart      bool // Windows only: install the update but do not start FoxxyCode again
+	NoNotes        bool // do not report what changed once the update is in
 	Stdout         io.Writer
 	HTTPClient     *http.Client
 
 	// windowsInstaller replaces the Windows helper launcher in deterministic tests.
 	windowsInstaller windowsUpdateInstaller
+
+	// packageEnv replaces the package database, the package manager, and the
+	// effective user id in deterministic tests.
+	packageEnv *packageEnv
 }
 
 // Run checks GitHub releases and optionally installs a newer binary.
@@ -76,6 +81,35 @@ func Run(ctx context.Context, opts Options) error {
 		return ErrUpdateAvailable
 	}
 
+	dest := strings.TrimSpace(opts.InstallPath)
+	if dest == "" {
+		dest, err = resolveExecutablePath()
+		if err != nil {
+			return err
+		}
+	}
+
+	// A package manager owning this file changes what an update even is: the
+	// unit to replace is the package, not the executable inside it.
+	if opts.GOOS == "linux" || opts.GOOS == "darwin" {
+		env := defaultPackageEnv()
+		if opts.packageEnv != nil {
+			env = *opts.packageEnv
+		}
+		if pkg, ok := detectSystemPackage(ctx, env, dest); ok {
+			// Homebrew has no privileged route - it refuses to run as root -
+			// so every brew install ends at the same guidance.
+			if pkg.Format == formatBrew || env.Geteuid() != 0 {
+				return packageManagedError(pkg, opts.CurrentVersion, latest, dest)
+			}
+			if err := installSystemPackage(ctx, opts, env, pkg, rel, latest, out, client); err != nil {
+				return err
+			}
+			reportChanges(ctx, client, opts, rel, out)
+			return nil
+		}
+	}
+
 	assetName, err := AssetFileName(latest, opts.GOOS, opts.GOARCH)
 	if err != nil {
 		return err
@@ -83,14 +117,6 @@ func Run(ctx context.Context, opts Options) error {
 	asset, err := pickAsset(rel, assetName)
 	if err != nil {
 		return err
-	}
-
-	dest := strings.TrimSpace(opts.InstallPath)
-	if dest == "" {
-		dest, err = resolveExecutablePath()
-		if err != nil {
-			return err
-		}
 	}
 
 	if !opts.Yes {
@@ -141,12 +167,13 @@ func Run(ctx context.Context, opts Options) error {
 		} else {
 			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after FoxxyCode exits.\n", latest)
 		}
+		reportChanges(ctx, client, opts, rel, out)
 		return nil
 	}
-	if err := installFromArchive(data, asset.Name, dest); err != nil {
+	if err := installRelease(data, asset.Name, dest, latest, out); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, "Installed %s (%s)\n", latest, dest)
+	reportChanges(ctx, client, opts, rel, out)
 	return nil
 }
 

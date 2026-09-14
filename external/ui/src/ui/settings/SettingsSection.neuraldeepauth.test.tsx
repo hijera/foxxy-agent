@@ -397,3 +397,68 @@ test("NeuralDeep keeps polling a pending login when the endpoint changes", async
   expect(screen.getByText("PEND-0001")).toBeInTheDocument();
 });
 
+
+// The hub's page names the client by the identifier the agent presents, and
+// that identifier is the hub's own - it reads "coddy", not "FoxxyCode". Without
+// a word here the user is asked to approve a sign-in for an app they have never
+// heard of, which is exactly when a careful person walks away. The name comes
+// from the server rather than a constant in this file, so the notice cannot
+// drift from what was actually sent.
+test("the device prompt says what the hub will call this agent", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    void input;
+    if (init?.method === "POST") {
+      return {
+        ok: true,
+        json: async () => ({
+          login_id: "login-nd",
+          verification_url: "https://hub.neuraldeep.test/app/device?code=WXYZ-6789",
+          user_code: "WXYZ-6789",
+          status: "pending",
+          hub_client: "coddy",
+        }),
+      };
+    }
+    return { ok: true, json: async () => ({ connected: false, source: "none" }) };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(window, "open").mockImplementation(() => null);
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("neuraldeep-auth-sign-in"));
+
+  expect(await screen.findByText("WXYZ-6789")).toBeInTheDocument();
+  const notice = await screen.findByText(/name the app coddy/);
+  expect(notice).toBeInTheDocument();
+  expect(notice.textContent).toContain("NeuralDeep issued");
+});
+
+// A response without the field - the Codex flow shares this shape - must not
+// render an empty sentence.
+test("no notice is shown when the server names no hub client", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    void input;
+    if (init?.method === "POST") {
+      return {
+        ok: true,
+        json: async () => ({
+          login_id: "login-nd",
+          verification_url: "https://hub.neuraldeep.test/app/device?code=QRST-1111",
+          user_code: "QRST-1111",
+          status: "pending",
+        }),
+      };
+    }
+    return { ok: true, json: async () => ({ connected: false, source: "none" }) };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(window, "open").mockImplementation(() => null);
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("neuraldeep-auth-sign-in"));
+
+  expect(await screen.findByText("QRST-1111")).toBeInTheDocument();
+  expect(screen.queryByText(/name the app/)).toBeNull();
+});

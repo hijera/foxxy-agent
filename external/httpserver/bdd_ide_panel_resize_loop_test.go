@@ -43,8 +43,15 @@ import (
 )
 
 const (
-	panelLoopBrowserTimeout = 60 * time.Second
-	panelLoopSessionID      = "sess_panel_loop_long_transcript"
+	panelLoopBrowserTimeout = 2 * time.Minute
+	panelLoopWSURLTimeout   = 60 * time.Second
+	panelLoopReserveSettle  = 500 * time.Millisecond
+	panelLoopDraftTimeout   = 10 * time.Second
+	// A realistic draft: more than the textarea shows at once, so it scrolls.
+	panelLoopDraftLines = 12
+	// How much taller the observed composer host is made, to move the reserve.
+	panelLoopHostGrowthPx = 60
+	panelLoopSessionID    = "sess_panel_loop_long_transcript"
 )
 
 // panelProbeScript runs at document start in the embedded panel's page. It
@@ -210,6 +217,12 @@ func (s *panelLoopState) openTab(width, height int, probe bool) error {
 		chromedp.WindowSize(width, height),
 		chromedp.UserDataDir(userData),
 		chromedp.CombinedOutput(&s.browserLog),
+		// chromedp gives Chrome 20 s to publish its DevTools websocket URL, and a
+		// two-core runner starting several browsers at once does not always make
+		// it. Past that the failure reads "websocket url timeout reached", which
+		// looks like a hang rather than a slow start. external/ui sets the same
+		// bound for the same reason; keep the two in step.
+		chromedp.WSURLReadTimeout(panelLoopWSURLTimeout),
 	)
 	if executable := strings.TrimSpace(os.Getenv("FOXXYCODE_UI_BROWSER")); executable != "" {
 		opts = append(opts, chromedp.ExecPath(executable))
@@ -271,19 +284,87 @@ func (s *panelLoopState) panelOpensTranscript(width int) error {
 	return s.waitUntil(`document.querySelectorAll("#messages details").length >= 10`, 20*time.Second)
 }
 
-func (s *panelLoopState) userDraftsFiveLines() error {
-	if err := chromedp.Run(s.tab, chromedp.Focus("#composer", chromedp.ByQuery)); err != nil {
+func (s *panelLoopState) userDraftsAndGrowsTheComposer() error {
+	lines := make([]string, panelLoopDraftLines)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("draft line %d", i+1)
+	}
+	draft := strings.Join(lines, "\n")
+	// Inserted as text (the way a paste arrives), so the newlines stay in the
+	// textarea instead of submitting the draft. Focus can lose the race with a
+	// re-render right after the transcript lands and the text then goes nowhere,
+	// so the insert is attempted twice before giving up.
+	insert := func() error {
+		if err := chromedp.Run(s.tab, chromedp.Focus("#composer", chromedp.ByQuery)); err != nil {
+			return err
+		}
+		return chromedp.Run(s.tab, chromedp.ActionFunc(func(ctx context.Context) error {
+			return input.InsertText(draft).Do(ctx)
+		}))
+	}
+	landed := `(document.getElementById("composer") || {}).value ? true : false`
+	if err := insert(); err != nil {
 		return err
 	}
-	// Inserted as text (the way a paste arrives), so the newlines grow the
-	// textarea instead of submitting the draft.
-	if err := chromedp.Run(s.tab, chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.InsertText("first line\nsecond line\nthird line\nfourth line\nfifth line").Do(ctx)
-	})); err != nil {
+	if err := s.waitUntil(landed, panelLoopDraftTimeout); err != nil {
+		if err := insert(); err != nil {
+			return err
+		}
+		if err := s.waitUntil(landed, panelLoopDraftTimeout); err != nil {
+			return fmt.Errorf("the draft never reached the composer: %w", err)
+		}
+	}
+	// Then make the composer taller, which is what actually moves the reserve.
+	//
+	// Neither the draft nor a narrower panel does it. The textarea is fixed
+	// between a 76px minimum and a 180px cap and scrolls its content, so no
+	// amount of text changes its height; and whether 360px to 300px rewraps
+	// anything in the row below it depends on the font, which is why a CI runner
+	// answered a narrowing with six resize callbacks and no write at all while
+	// this machine answered it with one. Padding the observed host grows it by a
+	// known amount on any metrics, well clear of the reserve's 140px floor, so
+	// there is always exactly one write for the next step to judge. How the host
+	// comes to change size is not what this scenario is about - when the reserve
+	// may be written in response is.
+	var grew bool
+	if err := chromedp.Run(s.tab, chromedp.Evaluate(
+		`(function () {
+      var host = document.querySelector(".chat-bottom-inner");
+      if (!host) return false;
+      var before = host.getBoundingClientRect().height;
+      window.__panelHostBefore = before;
+      // min-height, not padding: a ResizeObserver watches the content box by
+      // default, and padding grows only the border box - the host got 60px
+      // taller on a CI runner and the SPA's observer was never told, which is
+      // how this read there as a reserve that stayed at 181px after three
+      // resize callbacks that were only the page loading.
+      host.style.minHeight = (before + `+fmt.Sprint(panelLoopHostGrowthPx)+`) + "px";
+      return true;
+    })()`, &grew)); err != nil {
 		return err
+	}
+	if !grew {
+		return fmt.Errorf("the composer host was not on the page to grow")
+	}
+	// And wait for the growth to be real before the settle: a style set on an
+	// element that has not laid out yet buys nothing, and the next step would
+	// again report a reserve that was never written rather than saying why.
+	if err := s.waitUntil(
+		`document.querySelector(".chat-bottom-inner").getBoundingClientRect().height > (window.__panelHostBefore || 0) + 1`,
+		panelLoopDraftTimeout,
+	); err != nil {
+		return fmt.Errorf("the composer host never grew: %w", err)
 	}
 	// A few frames for the resize observation and the deferred reserve write.
-	return chromedp.Run(s.tab, chromedp.Sleep(500*time.Millisecond))
+	//
+	// This scenario earned its keep: it used to fail about four runs in six with
+	// a reserve write landing in the frame that measured it. The cause was in
+	// ChatScreen, not here - the reserve went through React state, so the DOM
+	// write happened whenever React committed rather than in the frame that
+	// scheduled it, and a commit after that frame's resize observations is a
+	// write inside the delivery loop again. It is written to the element
+	// directly now.
+	return chromedp.Run(s.tab, chromedp.Sleep(panelLoopReserveSettle))
 }
 
 func (s *panelLoopState) transcriptAndComposerRendered() error {
@@ -320,13 +401,33 @@ func (s *panelLoopState) noLoopError() error {
 func (s *panelLoopState) reserveWritesLandInALaterFrame() error {
 	var probe struct {
 		Writes     int                      `json:"writes"`
+		Callbacks  int                      `json:"callbacks"`
+		Frame      int                      `json:"frame"`
 		Violations []map[string]interface{} `json:"violations"`
 	}
 	if err := s.eval(`window.__panelProbe`, &probe); err != nil {
 		return err
 	}
 	if probe.Writes == 0 {
-		return fmt.Errorf("the composer reserve was never written after the draft grew the composer")
+		// Say enough to tell the ways this happens apart without another run: a
+		// host that never changed size (nothing to write), one whose deferred
+		// write had not landed when the settle ran out, and a reserve pinned at
+		// its floor because the host is short enough that the clamp swallows the
+		// change. The first version of this message reported only the textarea's
+		// height, which is fixed, and said nothing about any of them.
+		var seen string
+		_ = s.eval(`(function () {
+          var host = document.querySelector(".chat-bottom-inner");
+          var tail = document.querySelector("[style*='--chat-composer-reserve']");
+          return JSON.stringify({
+            host: host ? host.getBoundingClientRect().height : null,
+            hostBefore: window.__panelHostBefore === undefined ? null : window.__panelHostBefore,
+            reserve: tail ? tail.style.getPropertyValue("--chat-composer-reserve") : null,
+          });
+        })()`, &seen)
+		return fmt.Errorf(
+			"the composer reserve was never written after the composer grew (resize callbacks: %d, frames: %d, %s)",
+			probe.Callbacks, probe.Frame, seen)
 	}
 	if len(probe.Violations) > 0 {
 		return fmt.Errorf("%d reserve write(s) landed in the frame of the observation that measured them: %v",
@@ -416,7 +517,7 @@ func TestIDEPanelResizeLoopFeature(t *testing.T) {
 			})
 			sc.Step(`^a foxxycode HTTP server with a transcript of (\d+) tool-call exchanges$`, s.serverWithTranscript)
 			sc.Step(`^the embedded panel opens that transcript at (\d+) pixels wide$`, s.panelOpensTranscript)
-			sc.Step(`^the user drafts a five-line message in the composer$`, s.userDraftsFiveLines)
+			sc.Step(`^the user drafts a message and the composer grows taller$`, s.userDraftsAndGrowsTheComposer)
 			sc.Step(`^the transcript and the composer are rendered$`, s.transcriptAndComposerRendered)
 			sc.Step(`^no ResizeObserver loop error was raised$`, s.noLoopError)
 			sc.Step(`^every composer reserve write landed in a later frame than the resize observation that measured it$`, s.reserveWritesLandInALaterFrame)
