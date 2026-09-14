@@ -52,6 +52,22 @@ export const messagesRu: Record<string, string> = {
   "messages.svn.operation.switch": "SVN · Переключение ветки",
   "messages.svn.operation.merge": "SVN · Слияние ветки",
   "messages.svn.operation.checkout": "SVN · Получение ветки",
+
+  "auth.signIn.logoAlt": "FoxxyCode agent",
+  "auth.signIn.title": "Вход",
+  "auth.signIn.user": "Пользователь",
+  "auth.signIn.password": "Пароль",
+  "auth.signIn.submit": "Войти",
+  "auth.signIn.working": "Вход\u2026",
+  "auth.signIn.invalid": "Неверный пользователь или пароль.",
+  "auth.signIn.unreachable": "Сервер не ответил. Он ещё работает?",
+  "auth.signIn.noAccount":
+    "Вход включён, но учётная запись не настроена. Выполните `foxxycode serve set-password` на сервере.",
+  "auth.signIn.crossSite": "Запрос пришёл не с этой страницы.",
+  "auth.signIn.failed": "Войти не удалось ({status}).",
+  "auth.signOut.action": "Выйти",
+  "auth.signOut.tooltipUser": "Выйти ({user})",
+
   "nav.ariaLabel": "Навигация",
   "nav.useNarrowSidebar": "Узкая боковая панель",
   "nav.useWideSidebar": "Широкая боковая панель",

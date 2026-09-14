@@ -16,6 +16,7 @@ import (
 
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/remote"
+	"github.com/hijera/foxxycode-agent/internal/webauth"
 )
 
 const modeline = "# yaml-language-server: $schema=https://foxxycode.dev/config.schema.json\n"
@@ -447,5 +448,140 @@ func TestPrepareStopsAtStaticErrors(t *testing.T) {
 	}
 	if prep != nil || rep == nil || rep.Valid() {
 		t.Fatalf("a file with static errors must not be probed: prep=%v report=%+v", prep, rep)
+	}
+}
+
+// loginYAMLHash spells an argon2id hash the way config.yaml carries it: every
+// "$" doubled, which is how the file writes a literal dollar sign.
+func loginYAMLHash(t *testing.T, plain string) string {
+	t.Helper()
+	h, err := webauth.HashPasswordWith(plain, webauth.HashParams{Memory: 64, Time: 1, Threads: 1, SaltLen: 8, KeyLen: 16})
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	return strings.ReplaceAll(h, "$", "$$")
+}
+
+func serveRun(t *testing.T, body string) *Report {
+	t.Helper()
+	return run(t, body, func(r *Request) { r.Surface = SurfaceServe })
+}
+
+func TestWebLoginIsSilentWithoutAnAccount(t *testing.T) {
+	t.Setenv(webauth.LoginUserEnvVar, "")
+	t.Setenv(webauth.LoginPasswordEnvVar, "")
+	c := find(t, serveRun(t, "httpserver:\n  host: 127.0.0.1\n"), "httpserver.login")
+	if c.Status != StatusSkipped {
+		t.Fatalf("a server with no sign-in should be skipped, got %+v", c)
+	}
+}
+
+func TestWebLoginWithoutATokenWarnsAboutAPIClients(t *testing.T) {
+	// The one thing an operator must not discover from a broken relay: a
+	// password closes the browser, and leaves everything else with no
+	// credential at all.
+	t.Setenv(webauth.LoginUserEnvVar, "")
+	t.Setenv(webauth.LoginPasswordEnvVar, "")
+	t.Setenv(webauth.TokenEnvVar, "")
+	body := "httpserver:\n  login:\n    enabled: true\n    user: pasha\n    password_hash: \"" + loginYAMLHash(t, "pw") + "\"\n"
+	c := find(t, serveRun(t, body), "httpserver.login")
+	if c.Status != StatusWarning || !strings.Contains(c.Message, "no bearer token") {
+		t.Fatalf("want a warning about API clients, got %+v", c)
+	}
+	if !strings.Contains(c.Fix, webauth.TokenEnvVar) {
+		t.Fatalf("the fix does not name the token: %+v", c)
+	}
+}
+
+func TestWebLoginWithATokenIsOK(t *testing.T) {
+	t.Setenv(webauth.LoginUserEnvVar, "")
+	t.Setenv(webauth.LoginPasswordEnvVar, "")
+	t.Setenv(webauth.TokenEnvVar, "")
+	body := "httpserver:\n  auth_token: \"a-token\"\n  login:\n    enabled: true\n    user: pasha\n    password_hash: \"" + loginYAMLHash(t, "pw") + "\"\n"
+	c := find(t, serveRun(t, body), "httpserver.login")
+	if c.Status != StatusOK || !strings.Contains(c.Message, "config") {
+		t.Fatalf("want an ok naming the source, got %+v", c)
+	}
+}
+
+func TestWebLoginFromTheEnvironmentIsSeen(t *testing.T) {
+	t.Setenv(webauth.LoginUserEnvVar, "envuser")
+	t.Setenv(webauth.LoginPasswordEnvVar, "env-pass")
+	t.Setenv(webauth.TokenEnvVar, "a-token")
+	c := find(t, serveRun(t, "httpserver:\n  host: 0.0.0.0\n"), "httpserver.login")
+	if c.Status != StatusOK || !strings.Contains(c.Message, "env") {
+		t.Fatalf("an account in the environment was not seen: %+v", c)
+	}
+}
+
+func TestWebLoginEnabledWithNoAccountIsAnError(t *testing.T) {
+	// This is the configuration the server refuses to start on, so the dry run
+	// has to name it before the restart rather than after.
+	t.Setenv(webauth.LoginUserEnvVar, "")
+	t.Setenv(webauth.LoginPasswordEnvVar, "")
+	c := find(t, serveRun(t, "httpserver:\n  login:\n    enabled: true\n"), "httpserver.login")
+	if c.Status != StatusError || !strings.Contains(c.Message, "no account") {
+		t.Fatalf("want an error, got %+v", c)
+	}
+	if !strings.Contains(c.Fix, "set-password") {
+		t.Fatalf("the fix does not say how to make an account: %+v", c)
+	}
+}
+
+// foxxycode http refuses a form with no account at start just as serve does, so
+// its dry run names that configuration too.
+func TestWebLoginIsCheckedForTheHTTPCommand(t *testing.T) {
+	t.Setenv(webauth.LoginUserEnvVar, "")
+	t.Setenv(webauth.LoginPasswordEnvVar, "")
+	const body = "httpserver:\n  login:\n    enabled: true\n"
+	rep := run(t, body, func(r *Request) { r.Surface = SurfaceHTTP })
+	if c := find(t, rep, "httpserver.login"); c.Status != StatusError || !strings.Contains(c.Message, "no account") {
+		t.Fatalf("foxxycode http --dry-run: want the no-account error, got %+v", c)
+	}
+	for _, surface := range []Surface{SurfaceConsole, SurfaceACP} {
+		rep := run(t, body, func(r *Request) { r.Surface = surface })
+		for _, c := range rep.Checks {
+			if c.Path == "httpserver.login" || strings.HasPrefix(c.Path, "httpserver.login.") {
+				t.Errorf("%s reported a sign-in it never serves: %+v", surface, c)
+			}
+		}
+	}
+}
+
+func TestWebLoginDisabledIsReportedAsOff(t *testing.T) {
+	t.Setenv(webauth.LoginUserEnvVar, "envuser")
+	t.Setenv(webauth.LoginPasswordEnvVar, "env-pass")
+	c := find(t, serveRun(t, "httpserver:\n  login:\n    enabled: false\n"), "httpserver.login")
+	if c.Status != StatusSkipped || !strings.Contains(c.Message, "switched off") {
+		t.Fatalf("enabled: false should report as off, got %+v", c)
+	}
+}
+
+func TestWebLoginHalfAnEnvironmentAccountIsAWarning(t *testing.T) {
+	t.Setenv(webauth.LoginUserEnvVar, "envuser")
+	t.Setenv(webauth.LoginPasswordEnvVar, "")
+	t.Setenv(webauth.TokenEnvVar, "a-token")
+	body := "httpserver:\n  auth_token: \"a-token\"\n  login:\n    user: pasha\n    password_hash: \"" + loginYAMLHash(t, "pw") + "\"\n"
+	rep := serveRun(t, body)
+	var warned bool
+	for _, c := range rep.Checks {
+		if c.Path == "httpserver.login" && c.Status == StatusWarning && strings.Contains(c.Message, "only one of") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("half an account in the environment was not named:\n%+v", rep.Checks)
+	}
+}
+
+func TestWebLoginIsNotCheckedOutsideServe(t *testing.T) {
+	// The console and acp start no HTTP surface, so the question does not apply.
+	t.Setenv(webauth.LoginUserEnvVar, "envuser")
+	t.Setenv(webauth.LoginPasswordEnvVar, "env-pass")
+	rep := run(t, "httpserver:\n  host: 0.0.0.0\n", func(r *Request) { r.Surface = SurfaceConsole })
+	for _, c := range rep.Checks {
+		if c.Path == "httpserver.login" {
+			t.Fatalf("a console dry run reported the web sign-in: %+v", c)
+		}
 	}
 }

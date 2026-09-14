@@ -222,6 +222,7 @@ func printUsage(w io.Writer) {
   %[1]s serve [flags]                  # every enabled subsystem in one process
   %[1]s serve -d | --daemon [flags]    # the same, in the background under a dispatcher
   %[1]s serve status | stop | restart [--home DIR]
+  %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR]  # write the web UI sign-in account into config.yaml
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]

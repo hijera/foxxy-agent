@@ -27,6 +27,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/project"
 	"github.com/hijera/foxxycode-agent/internal/session"
+	"github.com/hijera/foxxycode-agent/internal/webauth"
 )
 
 var errSessionNotFound = errors.New("session not found")
@@ -66,6 +67,21 @@ type Server struct {
 	projects     *project.Store
 	folderPicker FolderPickerFunc
 	pickerBusy   atomic.Bool
+
+	// envLoginUser and envLoginHash are the web sign-in account supplied out of
+	// band (FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD). The password is hashed once
+	// as the server comes up, and neither value is ever written to config.yaml.
+	envLoginUser string
+	envLoginHash string
+	// sessions holds the signed-in browsers. It belongs to the server rather
+	// than to a configuration, so saving settings from the page - which reloads
+	// the config but keeps this process - never signs anybody out.
+	sessions *webauth.SessionStore
+	// loginThrottle slows repeated wrong passwords per source address.
+	loginThrottle *webauth.Throttle
+	// trustLoopback makes a direct loopback client pass the sign-in form; only
+	// `foxxycode http` sets it (SetTrustLoopbackClients).
+	trustLoopback atomic.Bool
 
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
@@ -152,6 +168,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 		streamTickets:        newStreamTicketStore(),
+		sessions:             webauth.NewSessionStore(),
+		loginThrottle:        &webauth.Throttle{},
 	}
 	s.cfgAt.Store(cfg)
 	// Several servers may share one manager (tests do), so each takes its own removable
@@ -172,6 +190,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
 	s.mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGetPath)
+	s.registerAuthRoutes()
 	s.registerFoxxyCodeRoutes()
 	s.registerProjectRoutes()
 	s.registerOnboardingRoutes()

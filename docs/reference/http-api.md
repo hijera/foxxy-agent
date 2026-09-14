@@ -13,7 +13,7 @@ Specs are regenerated on each request so they stay aligned with handlers.
 - **`GET /openapi.yaml`** - OpenAPI 3.0 (YAML); **`GET /openapi.json`** mirrors it in JSON (both **`Content-Disposition: inline`**).
 - **`GET /docs/`** - Swagger UI (static assets bundled in the binary, no CDN). **`GET /docs`** redirects to **`/docs/`**.
 
-No authentication is enforced. Run behind appropriate network controls.
+Swagger UI and the spec follow the API's authentication unless `httpserver.public_docs: true` ([Authentication & CORS](#authentication--cors)).
 
 ## Embedded web UI (**`-tags=http,ui`**)
 
@@ -211,9 +211,100 @@ Malformed ids (**HTTP 400**). Dedicated **`/foxxycode/*`** helpers return **503*
 
 ## Authentication & CORS
 
-Off by default (unchanged "no login" behavior). When **`httpserver.auth_token`** (or **`--auth-token`** / **`FOXXYCODE_HTTP_TOKEN`**) is set, every **`/v1/*`** and **`/foxxycode/*`** route requires **`Authorization: Bearer <token>`** and returns **`401`** with **`WWW-Authenticate: Bearer`** otherwise. The SPA shell and static assets stay public; **`/docs`** and **`/openapi.*`** are protected unless **`httpserver.public_docs: true`**; the local IDE-integration routes (**`/foxxycode/ide/*`**) stay public so the editor plugin keeps working. The token is redacted from **`GET /foxxycode/config`** (reported only as **`auth_configured`**) and preserved on **`PUT`** when the payload omits it. Because EventSource cannot set an Authorization header cross-origin, the two SSE subscription routes - **`GET /foxxycode/sessions/{id}/composer-stream`** and **`GET /foxxycode/events`** - also accept **`?access_token=`**. A query string reaches access logs, proxy logs, browser history and `Referer` headers, so prefer a **stream ticket**: **`POST /foxxycode/stream-tickets`** (authenticated with the normal bearer header) returns **`{object, ticket, expiresIn, expiresAt}`**, and that ticket is accepted by the two SSE routes only, once, within 60 seconds. Set **`httpserver.stream_tickets_only: true`** to refuse the durable token in **`?access_token=`** entirely, so nothing that lands in a log stays valid.
+Off by default (unchanged "no login" behavior). When **`httpserver.auth_token`** (or **`--auth-token`** / **`FOXXYCODE_HTTP_TOKEN`**) is set, every **`/v1/*`** and **`/foxxycode/*`** route requires **`Authorization: Bearer <token>`** and returns **`401`** with **`WWW-Authenticate: Bearer`** otherwise. The SPA shell and static assets stay public; **`/docs`** and **`/openapi.*`** are protected unless **`httpserver.public_docs: true`**; the local IDE-integration routes (**`/foxxycode/ide/*`**) answer a direct loopback client without a credential, which is how the editor plugins call them, and ask everyone else for one. A browser can sign in at a form instead of carrying a token: see [Web UI sign-in](#web-ui-sign-in-optional). The token is redacted from **`GET /foxxycode/config`** (reported only as **`auth_configured`**) and preserved on **`PUT`** when the payload omits it. Because EventSource cannot set an Authorization header cross-origin, the two SSE subscription routes - **`GET /foxxycode/sessions/{id}/composer-stream`** and **`GET /foxxycode/events`** - also accept **`?access_token=`**. A query string reaches access logs, proxy logs, browser history and `Referer` headers, so prefer a **stream ticket**: **`POST /foxxycode/stream-tickets`** (authenticated with the normal bearer header) returns **`{object, ticket, expiresIn, expiresAt}`**, and that ticket is accepted by the two SSE routes only, once, within 60 seconds. Set **`httpserver.stream_tickets_only: true`** to refuse the durable token in **`?access_token=`** entirely, so nothing that lands in a log stays valid.
 
 Cross-origin access for a browser UI on another origin is controlled by **`httpserver.cors`** (**`enabled`** + **`allowed_origins`**, a single **`"*"`** allows any origin; bearer auth still applies). Preflight **`OPTIONS`** returns **`204`** before auth. The bundled UI can point at a remote **`foxxycode http`** via the environment selector (**`httpserver.remotes`**). See [remote-control.md](../plans/remote-control.md).
+
+### Web UI sign-in (optional)
+
+A bearer token protects the API but gives a browser no way in: the SPA shows `Unauthorized (401)`
+and has no field to type a token into. The sign-in form is the browser's credential for the same
+gate. It is **off by default**, and a configuration that does not mention it behaves exactly as
+before.
+
+```yaml
+httpserver:
+  host: 0.0.0.0
+  auth_token: "${FOXXYCODE_HTTP_TOKEN}"   # unchanged: for API clients
+  login:
+    enabled: true
+    user: "pasha"
+    password_hash: "$$argon2id$$v=19$$..."   # written by `foxxycode serve set-password`
+    session_ttl_hours: 720                   # 0 = until the browser closes
+```
+
+Write the account with the command rather than by hand:
+
+```bash
+foxxycode serve set-password --user pasha
+```
+
+It asks for the password twice (once, without a prompt, when standard input is a pipe), stores an
+argon2id hash and switches the form on, editing `config.yaml` in place so comments and key order
+survive. A hash typed in by hand needs every `$` doubled - `$$argon2id$$v=19$$...` - because this
+file expands `$NAME` as an environment reference when it loads; `foxxycode -t` says so when it finds a
+hash that no longer parses.
+
+The account can also live entirely in the environment, which is the route for a container or a
+systemd unit: `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` (plaintext, hashed as the server starts,
+never written to the file) enable the form on their own, the way `FOXXYCODE_HTTP_TOKEN` enables the
+bearer gate without `auth_token`. `$FOXXYCODE_HOME/.env` is their natural home. When both the file and
+the environment carry an account the environment wins, and an explicit `login.enabled: false` in the
+file switches the form off with the variables still set. There is no `--login-password` flag: a
+password on a command line is visible in `ps`.
+
+Three routes serve the form, and all three are reachable without a credential, because they are the
+way through the gate:
+
+| Route | What it does |
+|---|---|
+| **`GET /foxxycode/auth/me`** | `login_required`, `auth_required`, `authenticated`, and `user` / `expires_at` for a signed-in browser. The SPA calls it on boot to choose between the sign-in screen and the app. |
+| **`POST /foxxycode/auth/login`** | `{user, password}`. On success sets an `HttpOnly`, `SameSite=Strict` `foxxycode_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two FoxxyCode servers on one machine - a relay and the node behind it, say - would sign each other out at every login. |
+| **`POST /foxxycode/auth/logout`** | Drops the session on the server and expires the cookie. Idempotent. |
+
+Once signed in, the cookie opens every `/v1/*` and `/foxxycode/*` route, the SSE streams included - a
+same-origin `EventSource` sends cookies, so no `?access_token=` is needed. The cookie is
+`SameSite=Strict`, which costs nothing here (the page itself is public and every call the loaded
+page makes is same-origin) and means the browser never attaches it to a request another site caused.
+On top of that, cookie-authenticated requests that **change state** are refused with `403` unless
+`Sec-Fetch-Site` says `same-origin` (or `none`) or `Origin` matches the request host - so a script
+driving this API with a cookie has to send an `Origin` header, or, better, present a bearer token.
+Bearer requests are never subject to that check, which is what keeps `foxxycode --remote`, an editor and
+a relay working unchanged.
+
+A wrong password and an unknown user get the same `401` and the same body, compared in constant
+time. Repeated failures from one address are answered progressively more slowly, doubling from
+250 ms to a cap of five seconds and forgotten after fifteen quiet minutes; the attempt is counted
+before it is judged, so a burst arriving together pays the growing wait rather than each member
+reading a clean slate. Loopback is never throttled, so the machine cannot lock itself out of its own
+agent - and because that exemption would otherwise cover the whole internet behind a reverse proxy,
+a request that arrives *from* loopback is counted against the address in `X-Forwarded-For` (or
+`X-Real-IP`) when one is present. A request that arrives from anywhere else is counted by where it
+actually came from, headers ignored. Sessions live in memory: a
+configuration reload (saving settings from the page, for instance) keeps them, and restarting the
+process ends them. Rotating the password or renaming the account ends every session it opened, on
+the next request, with nothing to invalidate by hand. The store is bounded at 512 live sessions,
+oldest first.
+
+`GET /foxxycode/config` never returns `password_hash`; it reports `httpserver.login_configured` and
+`httpserver.login_source` (`config` or `env`), and a save from the settings screen preserves the
+hash the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
+bearer token is set - so a server closed with a password and no token reports
+`auth_configured: false` next to `login_configured: true`; ask `GET /foxxycode/auth/me` when the
+question is "does this server want a credential at all". The document keeps describing the file, so an account that
+came from the environment is never written into `config.yaml` by a save.
+
+On `foxxycode http` - the command the IntelliJ and VS Code plugins and `foxxycode desktop` start on `127.0.0.1` - a direct loopback client (the peer and the `Host` it addressed are both loopback, and no `Forwarded` / `X-Forwarded-*` / `X-Real-IP` header says a proxy relayed it) counts as signed in while no bearer token is configured, so the editor panels and the desktop window never meet the form; `GET /foxxycode/auth/me` answers it `login_required: false`. A client on the network still signs in, and `foxxycode serve` makes no such exception. The IDE routes (`/foxxycode/ide/*`) follow the same loopback rule on every server: without a credential they answer a direct loopback client only.
+
+The sign-in form is for this origin. The environment selector still reaches a **remote** server with
+a bearer token, because a cookie of this origin does not travel cross-origin.
+
+One note on `${VAR}` references. `login.user` and `login.password_hash` take them like every other
+value in `config.yaml`, and like every other value they are expanded when the file loads - so a save
+from the settings screen writes the **expanded** value back, turning `user: "${FOXXYCODE_HTTP_USER}"`
+into `user: pasha`. That is how this file has always treated `${VAR}`; if the point is to keep the
+credential out of the document entirely, use `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD`, which
+never enter it.
 
 ## Memory roots
 

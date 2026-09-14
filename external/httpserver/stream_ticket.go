@@ -128,15 +128,16 @@ func (s *streamTicketStore) evictOldestLocked() {
 }
 
 // foxxycodeStreamTicketPost mints a ticket for the caller. It sits behind the
-// normal bearer gate, so reaching this handler already proves possession of the
-// real credential; the ticket it returns is a strictly weaker capability.
+// normal gate, so reaching this handler already proves possession of a real
+// credential - a bearer token or a signed-in browser's cookie; the ticket it
+// returns is a strictly weaker capability.
 //
 // When auth is disabled the endpoint reports 409 rather than minting: a ticket
 // would authenticate nothing, and silently returning one would suggest the stream
 // is protected when it is not.
 func (s *Server) foxxycodeStreamTicketPost(w http.ResponseWriter, r *http.Request) {
 	if !s.authPolicyNow().enabled {
-		http.Error(w, `{"error":{"message":"stream tickets require httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN)"}}`, http.StatusConflict)
+		http.Error(w, `{"error":{"message":"stream tickets require a credential: httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN), or the web sign-in (httpserver.login)"}}`, http.StatusConflict)
 		return
 	}
 	token, expires, err := s.streamTickets.mint(time.Now())

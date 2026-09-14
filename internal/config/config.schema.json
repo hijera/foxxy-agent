@@ -935,6 +935,42 @@
           "description": "Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
           "default": ""
         },
+        "login": {
+          "type": "object",
+          "title": "Web UI sign-in",
+          "description": "Optional password sign-in for the browser, so a server on a network is not readable by everyone who finds the port. Off unless an account exists here or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD. API clients keep using auth_token. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "password"
+              ],
+              "description": "How a browser authenticates. Only \"password\" is implemented; the key exists so a trusted-proxy mode can be added without moving your configuration.",
+              "default": "password"
+            },
+            "user": {
+              "type": "string",
+              "description": "Account name for the sign-in form. Supports \"${ENV}\" references, e.g. \"${FOXXYCODE_HTTP_USER}\".",
+              "default": ""
+            },
+            "password_hash": {
+              "type": "string",
+              "description": "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `foxxycode serve set-password`. Never echoed back by GET /foxxycode/config, and a save from the settings screen preserves it. Put a plaintext password in FOXXYCODE_HTTP_PASSWORD instead of here.",
+              "default": ""
+            },
+            "session_ttl_hours": {
+              "type": "integer",
+              "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        },
         "public_docs": {
           "type": "boolean",
           "description": "Keep /docs and /openapi.* reachable without a token even when auth is enabled.",

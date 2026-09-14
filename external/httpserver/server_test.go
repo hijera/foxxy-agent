@@ -318,9 +318,18 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/foxxycode/sessions", "/foxxycode/describe", "/foxxycode/slash-commands", "/foxxycode/workspace/files", "/foxxycode/workspace/file", "/foxxycode/workspace/context", "/foxxycode/workspace/folders", "/foxxycode/onboarding/status", "/foxxycode/config/schema", "/foxxycode/config", "/foxxycode/config/validate", "/foxxycode/config/reasoning-levels", "/foxxycode/providers/{name}/models", "/foxxycode/providers/{name}/codex-auth", "/foxxycode/providers/{name}/codex-auth/device", "/foxxycode/providers/{name}/codex-auth/device/{loginID}", "/foxxycode/sessions/{id}/messages", "/foxxycode/sessions/{id}/composer-stream", "/foxxycode/sessions/{id}/question", "/foxxycode/sessions/{id}/permission", "/foxxycode/ide/events", "/foxxycode/ide/editor-state", "/foxxycode/ide/terminal-state", "/foxxycode/sessions/{id}/cancel", "/foxxycode/sessions/{id}/workspace", "/foxxycode/subagents", "/foxxycode/subagents/{name}/trust", "/foxxycode/subagents/{name}/untrust", "/foxxycode/commands", "/foxxycode/skills", "/foxxycode/skills/sync", "/foxxycode/skills/sources", "/foxxycode/skills/available", "/foxxycode/skills/install", "/foxxycode/skills/updates", "/foxxycode/skills/{name}", "/foxxycode/skills/{name}/enable", "/foxxycode/skills/{name}/disable", "/foxxycode/skills/{name}/update", "/foxxycode/auth/me", "/foxxycode/auth/login", "/foxxycode/auth/logout"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
+		}
+	}
+	// The cookie a browser signs in with is a security scheme of its own, or a
+	// generated client has no way to describe an authenticated browser call.
+	components, _ := doc["components"].(map[string]interface{})
+	schemes, _ := components["securitySchemes"].(map[string]interface{})
+	for _, must := range []string{"bearerAuth", "cookieAuth"} {
+		if _, ok := schemes[must]; !ok {
+			t.Fatalf("securitySchemes missing %s", must)
 		}
 	}
 }
@@ -3185,17 +3194,18 @@ func cfgWithCORS(origins ...string) *config.Config {
 	return c
 }
 
-func TestIsProtectedPatternExemptsIDERoutes(t *testing.T) {
-	// The local IDE integration routes stay public even when auth is enabled, so the editor
-	// plugin keeps working without a bearer token.
+func TestIsProtectedPatternKeepsIDERoutesBehindTheGate(t *testing.T) {
+	// The local IDE integration routes are protected like the rest of the API: authGate opens
+	// them to a direct loopback client without a credential (auth_loopback_test.go), and only
+	// to that client, since GET /foxxycode/ide/events streams the contents of open files.
 	cases := []struct {
 		pattern    string
 		publicDocs bool
 		want       bool
 	}{
-		{"POST /foxxycode/ide/editor-state", false, false},
-		{"POST /foxxycode/ide/terminal-state", false, false},
-		{"GET /foxxycode/ide/events", false, false},
+		{"POST /foxxycode/ide/editor-state", false, true},
+		{"POST /foxxycode/ide/terminal-state", false, true},
+		{"GET /foxxycode/ide/events", false, true},
 		{"POST /v1/responses", false, true},
 		{"GET /foxxycode/sessions/{id}/messages", false, true},
 		{"", false, false},

@@ -52,6 +52,24 @@ export const messagesEn: Record<string, string> = {
   "messages.svn.operation.switch": "SVN · Switch branch",
   "messages.svn.operation.merge": "SVN · Merge branch",
   "messages.svn.operation.checkout": "SVN · Check out branch",
+
+  // The wordmark says "FoxxyCode agent" in the image; this is what a screen
+  // reader says in its place.
+  "auth.signIn.logoAlt": "FoxxyCode agent",
+  "auth.signIn.title": "Sign in",
+  "auth.signIn.user": "User",
+  "auth.signIn.password": "Password",
+  "auth.signIn.submit": "Sign in",
+  "auth.signIn.working": "Signing in\u2026",
+  "auth.signIn.invalid": "Wrong user or password.",
+  "auth.signIn.unreachable": "The server did not answer. Is it still running?",
+  "auth.signIn.noAccount":
+    "Sign-in is switched on but no account is configured. Run `foxxycode serve set-password` on the server.",
+  "auth.signIn.crossSite": "That request did not come from this page.",
+  "auth.signIn.failed": "Sign-in failed ({status}).",
+  "auth.signOut.action": "Sign out",
+  "auth.signOut.tooltipUser": "Sign out ({user})",
+
   "nav.ariaLabel": "Nav",
   "nav.useNarrowSidebar": "Use narrow sidebar",
   "nav.useWideSidebar": "Use wide sidebar",
