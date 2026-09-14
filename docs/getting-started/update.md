@@ -132,7 +132,7 @@ Fetching the list is a second request to the GitHub API, bounded to 15 seconds, 
 | **`foxxycode update`** | You already have a release binary on disk and want the next (or a specific) GitHub release. |
 | **`make install`** | You built from a clone and want **`build/foxxycode`** on **`PATH`**. |
 | **`make build TAGS="..."`** | You need custom tags or local changes not in releases. |
-| **Docker** | **`docker compose pull`** / image tag **`X.Y.Z`** on [GHCR](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent). |
+| **Docker** | **`docker compose pull`** / image tag **`X.Y.Z`** on [GHCR](https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent). |
 | **`go install ...@latest`** | Quick install without release assets; default module tags only (no **`http`** / UI unless you build from source). |
 
 ## Limitations

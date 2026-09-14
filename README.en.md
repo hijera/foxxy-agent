@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxycode-agent" alt="MIT License" /></a>
-  <a href="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxycode-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/hijera/foxxy-agent" alt="MIT License" /></a>
+  <a href="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/hijera/foxxy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
   <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="distroless-ready" />
   <img src="https://img.shields.io/badge/single%20binary-252525" alt="single binary" />
@@ -102,8 +102,8 @@ Protocol details: **`docs/reference/acp-protocol.md`**. Harness examples: **`exa
 **Build from source** (recommended - see prerequisites under "Other installation methods"):
 
 ```bash
-git clone https://github.com/hijera/foxxycode-agent
-cd foxxycode-agent
+git clone https://github.com/hijera/foxxy-agent
+cd foxxy-agent
 make build TAGS="http ui scheduler memory cli browser gateway swarm"
 make install   # copies build/foxxycode to ~/.local/bin or /usr/local/bin
 ```
@@ -125,7 +125,7 @@ sudo apt-get install ./foxxycode_0.2.63_linux_amd64.deb   # or: sudo dnf install
 brew install --cask https://github.com/hijera/foxxy-agent/releases/latest/download/foxxycode.rb
 ```
 
-Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**. Every method is in **[`docs/getting-started/install.md`](docs/getting-started/install.md)**.
+Or download an archive for your platform from **[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** and put the **`foxxycode`** binary on **`PATH`**. Every method is in **[`docs/getting-started/install.md`](docs/getting-started/install.md)**.
 
 Bootstrap the config: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxxycode/config.yaml`**.
 
@@ -133,7 +133,7 @@ Bootstrap the config: **`mkdir -p ~/.foxxycode && cp config.example.yaml ~/.foxx
 
 Then set a provider key in **`~/.foxxycode/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`foxxycode http`** for the UI, or **`foxxycode acp`** for an editor client.
 
-**Docker** - same full binary in **`ghcr.io/hijera/foxxycode-agent`**: **`docker compose up -d`** (see [Docker](#docker)).
+**Docker** - same full binary in **`ghcr.io/hijera/foxxy-agent`**: **`docker compose up -d`** (see [Docker](#docker)).
 
 Upgrade later with **`foxxycode update -y`** ([How to update](#how-to-update)).
 
@@ -205,7 +205,7 @@ Extended narrative and Docker alignment - **[docs/contributing/build.md](docs/co
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxycode-agent/pkgs/container/foxxycode-agent)** as **`ghcr.io/hijera/foxxycode-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/contributing/build.md](docs/contributing/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`browser`**, **`gateway`** and **`swarm`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**, so the default command (**`serve`**) runs whichever subsystems the mounted **`config.yaml`** enables, see **[docs/getting-started/docker.md](docs/getting-started/docker.md)**.
+Release images are published on **[GitHub Container Registry](https://github.com/hijera/foxxy-agent/pkgs/container/foxxy-agent)** as **`ghcr.io/hijera/foxxy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/contributing/build.md](docs/contributing/build.md#release-binaries-ci)**. The published image is built with **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, **`browser`**, **`gateway`** and **`swarm`** - the same feature set as **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**, so the default command (**`serve`**) runs whichever subsystems the mounted **`config.yaml`** enables, see **[docs/getting-started/docker.md](docs/getting-started/docker.md)**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -288,7 +288,7 @@ Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based def
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxycode-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/hijera/foxxy-agent/releases)** (assets such as **`foxxycode_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli browser gateway swarm"`**.
 
 **`foxxycode update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/foxxycode`**) or when you run **`./build/foxxycode update`** to refresh a local build artifact.
 
@@ -328,7 +328,7 @@ foxxycode http --help     # only when the binary includes -tags=http (release bu
 | **`--check`** | Only report whether an update exists (no download). |
 | **`-y`** / **`--yes`** | Install without confirmation. |
 | **`--version X.Y.Z`** | Install a specific release, not only "latest". |
-| **`--repo owner/name`** | Alternate GitHub repo (default **`hijera/foxxycode-agent`**). |
+| **`--repo owner/name`** | Alternate GitHub repo (default **`hijera/foxxy-agent`**). |
 
 **Notes**
 
@@ -673,10 +673,10 @@ FoxxyCode is one source tree and one binary; builds differ by their **tag set** 
 
 | Build | Where to get it | What is inside | Who it is for |
 |-------|-----------------|----------------|---------------|
-| **Desktop app** | `foxxycode-desktop_<version>_windows_amd64.zip` on [Releases](https://github.com/hijera/foxxycode-agent/releases) | the full set plus `desktop` (a WebView2 window, no console) | Anyone who wants an ordinary windowed app: chat, settings, notifications and an audio cue, a first-run guided tour. **Windows x64 only** |
-| **CLI release archive** | `foxxycode_<version>_<os>_<arch>.{tar.gz,zip}` on [Releases](https://github.com/hijera/foxxycode-agent/releases) | `http ui scheduler memory cli browser gateway` | **The default choice for most people.** Console TUI (`foxxycode`), web UI (`foxxycode http` -> `http://127.0.0.1:12345/`), scheduler, memory, browser tools, messenger gateway (`foxxycode gateway`). Linux, Windows, macOS (Intel and Apple Silicon) |
-| **IDE plugin** | the IntelliJ zip and the VS Code `.vsix` are attached to the same GitHub Release | the same full set, minus `cli` and `gateway` | Anyone working inside an editor: chat panel, open-files context, `@terminal`, file drag-drop, native inline diffs in IntelliJ. The binary ships inside the plugin - no separate install |
-| **Docker image** | `ghcr.io/hijera/foxxycode-agent` (`latest`, `X.Y.Z`; linux/amd64 and linux/arm64) | `http scheduler ui memory cli browser` | A server, a team, or CI: one shared instance with the web UI and the working directory mounted as a volume. **The image ships no Chrome** - derive an image for the browser tools; it carries no `gateway` tag either |
+| **Desktop app** | `foxxycode-desktop_<version>_windows_amd64.zip` on [Releases](https://github.com/hijera/foxxy-agent/releases) | the full set plus `desktop` (a WebView2 window, no console) | Anyone who wants an ordinary windowed app: chat, settings, notifications and an audio cue, a first-run guided tour. **Windows x64 only** |
+| **CLI release archive** | `foxxycode_<version>_<os>_<arch>.{tar.gz,zip}` on [Releases](https://github.com/hijera/foxxy-agent/releases) | `http ui scheduler memory cli browser gateway` | **The default choice for most people.** Console TUI (`foxxycode`), web UI (`foxxycode http` -> `http://127.0.0.1:12345/`), scheduler, memory, browser tools, messenger gateway (`foxxycode gateway`). Linux, Windows, macOS (Intel and Apple Silicon) |
+| **IDE plugin** | the IntelliJ zip and the VS Code `.vsix` are attached to the same GitHub Release. IntelliJ also has a [plugin repository](docs/contributing/release-setup.md#5-репозиторий-плагина-для-intellij-автообновление) that auto-updates: add `https://hijera.github.io/foxxy-agent/updatePlugins.xml` under **Settings -> Plugins -> gear -> Manage Plugin Repositories** | the same full set, minus `cli` and `gateway` | Anyone working inside an editor: chat panel, open-files context, `@terminal`, file drag-drop, native inline diffs in IntelliJ. The binary ships inside the plugin - no separate install |
+| **Docker image** | `ghcr.io/hijera/foxxy-agent` (`latest`, `X.Y.Z`; linux/amd64 and linux/arm64) | `http scheduler ui memory cli browser` | A server, a team, or CI: one shared instance with the web UI and the working directory mounted as a volume. **The image ships no Chrome** - derive an image for the browser tools; it carries no `gateway` tag either |
 | **Full build from source** | `make build TAGS="http ui scheduler memory cli browser gateway"` | same as the release archive | Anyone hacking on the fork, or building for a platform the releases do not cover |
 | **Lean, ACP only** | `make build` (no tags) | ACP server, sessions, prompts, tools | Embedding into an editor or a script over ACP, and minimal containers (`scratch`, distroless, read-only rootfs): no HTTP, no SPA, no scheduler, no memory - the smallest binary |
 | **Messenger gateway** | already in the CLI release archive and the desktop app; slim self-build: `make build TAGS="http ui scheduler memory gateway.telegram"` or `docker-compose.dev.yml` | the `foxxycode gateway` subcommand | A Telegram bot with per-user isolated sessions. Only the published Docker image lacks the `gateway` tag - build your own image for that |

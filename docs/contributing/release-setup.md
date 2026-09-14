@@ -29,6 +29,7 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
       ├─ Release binaries   → CLI-бинарники + desktop .exe + SHA256SUMS → GitHub Release
       ├─ Docker build&push  → образ в ghcr.io/hijera/foxxy-agent
       ├─ IntelliJ plugin    → zip плагина → GitHub Release
+      │                      + updatePlugins.xml → docs/ в main и ассет релиза (раздел 5)
       └─ VS Code extension  → universal .vsix → GitHub Release
 ```
 
@@ -45,6 +46,10 @@ Tag release on merge (.github/workflows/tag-on-merge.yaml)
    (сейчас стоит `read`).
 
 2. **Actions включены** — уже да (проверка: `gh api repos/hijera/foxxy-agent/actions/permissions`).
+
+   **GitHub Pages** — тоже уже да: ветка `main`, папка `/docs`
+   (проверка: `gh api repos/hijera/foxxy-agent/pages`). Именно это раздаёт
+   `updatePlugins.xml` для IntelliJ (раздел 5), так что источник Pages менять нельзя.
 
 3. **(Опционально) продолжить нумерацию `0.9.x`.** Авто-бамп смотрит на теги
    **origin**, а там их нет → базой станет `0.1.0` и первый авто-релиз будет
@@ -105,13 +110,82 @@ GitHub Release (`hijera/foxxy-agent/releases`) с ассетами:
 | `SHA256SUMS` | контрольные суммы всех архивов |
 | `*.vsix` | расширение VS Code (universal) |
 | `*.zip` (IntelliJ) | плагин JetBrains |
+| `updatePlugins.xml` | документ репозитория плагинов (см. раздел 5) |
 
 Плюс Docker-образ в `ghcr.io/hijera/foxxy-agent` (теги `X.Y.Z`, `X.Y`, `X`,
 `latest`).
 
 ---
 
-## 5. Диагностика
+## 5. Репозиторий плагина для IntelliJ (автообновление)
+
+JetBrains-репозиторий плагинов — это **один URL, отдающий `updatePlugins.xml`**. Сам zip
+может лежать где угодно, поэтому отдельный сервер-зеркало не нужен: документ указывает
+прямо на ассет GitHub Release, а роль «сервера обновлений» играет GitHub Pages этого
+репозитория (ветка `main`, папка `docs/`).
+
+Адрес, который пользователь один раз добавляет в
+**Settings → Plugins → ⚙ → Manage Plugin Repositories → +**:
+
+```text
+https://hijera.github.io/foxxy-agent/updatePlugins.xml
+```
+
+Запасной адрес — тот же документ, приложенный к самому свежему релизу:
+
+```text
+https://github.com/hijera/foxxy-agent/releases/latest/download/updatePlugins.xml
+```
+
+После этого FoxxyCode ищется во вкладке **Marketplace** и обновляется штатным механизмом
+IDE, как любой плагин из маркетплейса.
+
+### Что делает пайплайн
+
+На каждом релизном теге job `intellij-plugin.yaml` — уже **после** того, как zip приложен к релизу
+(поэтому сбой этих шагов делает job красным, но не оставляет релиз без плагина):
+
+1. читает `META-INF/plugin.xml` **из собранного архива** (а не из исходников) —
+   `id`, `name`, `version`, `vendor`, `since-build`, `until-build`;
+2. проверяет, что id — `dev.foxxycode.intellij`, имя — `FoxxyCode`, а версия внутри
+   плагина совпадает с тегом; при расхождении job падает и документ не двигается;
+3. прикладывает `updatePlugins.xml` к релизу — документ появляется только рядом с уже
+   опубликованным zip и никогда не рекламирует ассет, которого ещё нет;
+4. коммитит `docs/updatePlugins.xml` в `main` — это то, что раздаёт Pages. Пуш повторяется
+   до трёх раз, если в `main` в этот момент влился соседний PR.
+
+Документ всегда описывает **одну** версию: JetBrains разрешает указывать id плагина в
+`updatePlugins.xml` только один раз. Старые версии никуда не деваются — они остаются
+ассетами своих релизов, и любую можно поставить через **Install Plugin from Disk**.
+
+Автоматически версия двигается только вперёд: пересборка старого тега
+(`workflow_dispatch` в `tag-on-merge.yaml`) документ не откатит.
+
+### Откат и ресинк вручную
+
+**Actions → IntelliJ plugin repository → Run workflow**, поле `version` — тег `X.Y.Z`.
+Плагин не пересобирается: берётся zip, уже приложенный к этому релизу. Это единственный
+способ указать документу на **более старую** версию — например, когда свежий релиз
+оказался плохим и всем нужно вернуть предыдущий.
+
+### Если IDE не видит обновление
+
+```bash
+curl -fsS https://hijera.github.io/foxxy-agent/updatePlugins.xml
+```
+
+- **версия не сдвинулась** — посмотрите job `Publish updatePlugins.xml to GitHub Pages` в
+  запуске `IntelliJ plugin`; Pages пересобирается ещё около минуты после коммита;
+- **`plugin ID mismatch` / `plugin version mismatch` в логе** — в собранном архиве не тот
+  `id` или версия не совпала с тегом; проверьте
+  `editors/intellij/src/main/resources/META-INF/plugin.xml` и передачу `PLUGIN_VERSION` в
+  Gradle;
+- **версия сдвинулась, а IDE молчит** — проверьте, что ссылка `url=` из документа
+  скачивается (`curl -I -L <url>`), и что `since-build` не выше сборки вашей IDE.
+
+---
+
+## 6. Диагностика
 
 ```bash
 gh run list     -R hijera/foxxy-agent --limit 10   # запуски workflow
