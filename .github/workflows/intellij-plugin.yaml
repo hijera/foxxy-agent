@@ -165,34 +165,37 @@ jobs:
 
       # Regenerated against main's copy rather than copied from the step above, so the
       # generator can refuse to walk IDEs backwards when an older tag is rebuilt.
+      #
+      # Every path is absolute and git runs with -C instead of cd: the first live run took the
+      # zip path relative to the workspace, changed into main-checkout, and lost the zip.
+      # editors/intellij/updateplugins/workflow_test.go runs this script against a local remote.
       - name: Publish updatePlugins.xml to GitHub Pages
         if: steps.ver.outputs.release == 'true'
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          ZIP="$(ls editors/intellij/build/distributions/*.zip)"
-          DOCUMENT="${GITHUB_WORKSPACE}/main-checkout/docs/updatePlugins.xml"
-          cd "${GITHUB_WORKSPACE}/main-checkout"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          ZIP="$(ls "${GITHUB_WORKSPACE}"/editors/intellij/build/distributions/*.zip)"
+          MAIN="${GITHUB_WORKSPACE}/main-checkout"
+          git -C "$MAIN" config user.name "github-actions[bot]"
+          git -C "$MAIN" config user.email "github-actions[bot]@users.noreply.github.com"
           for attempt in 1 2 3; do
-            git fetch --depth 1 origin main
-            git reset --hard origin/main
+            git -C "$MAIN" fetch --depth 1 origin main
+            git -C "$MAIN" reset --hard origin/main
             "${RUNNER_TEMP}/updateplugins" \
               -zip "$ZIP" \
               -tag "$VERSION" \
               -repo "${{ github.repository }}" \
-              -out "$DOCUMENT"
+              -out "$MAIN/docs/updatePlugins.xml"
             # Staged, not working-tree: on a checkout where the document is not tracked yet
             # "git diff" reports nothing and the publish would silently do nothing.
-            git add docs/updatePlugins.xml
-            if git diff --cached --quiet -- docs/updatePlugins.xml; then
+            git -C "$MAIN" add docs/updatePlugins.xml
+            if git -C "$MAIN" diff --cached --quiet -- docs/updatePlugins.xml; then
               echo "The plugin repository already advertises this build; nothing to publish."
               exit 0
             fi
-            git commit -m "chore(intellij): advertise ${VERSION} in the plugin repository"
-            if git push origin HEAD:main; then
+            git -C "$MAIN" commit -m "chore(intellij): advertise ${VERSION} in the plugin repository"
+            if git -C "$MAIN" push origin HEAD:main; then
               echo "Published https://$(echo "${{ github.repository }}" | cut -d/ -f1).github.io/$(echo "${{ github.repository }}" | cut -d/ -f2)/updatePlugins.xml"
               exit 0
             fi
