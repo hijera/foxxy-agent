@@ -29,7 +29,6 @@ const FLAT_CHROME_TARGETS = [
   ".composer-card",
   ".composer-wrap-docked .composer-card",
   ".hero-composer .composer-card",
-  ".chat-bottom--docked::before",
   ".hero",
   ".hero-title",
 ];

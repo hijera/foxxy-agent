@@ -135,6 +135,8 @@ The composer exposes **`Mode`** (**`agent`** / **`plan`** / **`docs`** / **`ask`
 
 **`MarkdownLineEditor`** (`external/ui/src/ui/markdown/`) is the shared markdown body editor (line gutter, wrap-aware numbering, active-line highlight, content-driven height). Used in the plan document card and scheduler job body. Visual and behaviour contract: **`DESIGN.md`** (**Markdown line editor**, **Plan mode plan document card**); functional checklist: **`docs/surfaces/web-ui.md`**.
 
+In Russian copy (the `ru` dictionary, Russian documentation, plugin changelogs, answers to the operator) the adjective for agent/agentic is **агентный**, never **агентский** (rule **`.claude/rules/russian-wording.md`**; outside the rule texts themselves, `git grep -n -i 'агентск'` finds nothing).
+
 ## Python samples (`examples/`)
 
 See **`examples/README.md`** for layout (**`examples/httpserver/`**, **`examples/acp/`**, **`examples/shared/`**). Scripts may use a project-local interpreter (`.venv` recommended); follow each script header for prerequisites.

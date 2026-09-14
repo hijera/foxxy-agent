@@ -193,7 +193,6 @@ then:
 
 - flatten the composer card (6px radius, solid 1px border, no frosted-glass
   halo or backdrop blur) so it reads as an IDE input field;
-- drop the docked vignette above the composer;
 - tighten hero/composer spacing.
 
 What the two ids share and where they differ:
