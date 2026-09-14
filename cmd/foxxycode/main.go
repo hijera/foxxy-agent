@@ -601,6 +601,9 @@ func runSkills(args []string) error {
 	}
 }
 
+// runPlugin implements `foxxycode plugin ...` — the Claude-Code-style plugin and
+// marketplace surface, sharing skills.RunPluginCommand with the chat /plugin
+// command so both stay in lockstep.
 func runPlugin(args []string) error {
 	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {
