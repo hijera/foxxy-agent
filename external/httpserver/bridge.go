@@ -230,6 +230,8 @@ func (s *Sender) SendSessionUpdate(sessionID string, update interface{}) error {
 	// turn writes straight back onto the session.
 	case acp.ModeUpdate:
 		return s.writeNamedEventJSON("mode", u)
+	case acp.MessageQueueUpdate:
+		return s.writeNamedEventJSON("message_queue", u)
 	default:
 		return nil
 	}
@@ -248,6 +250,16 @@ func (s *Sender) broadcastEditApplied(sessionID string, u acp.FileEditUpdate) {
 }
 
 func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
+	// A user chunk mid-turn is a queued follow-up the agent has just read. It
+	// is not part of the assistant's answer, so it travels as its own named
+	// event rather than as a content delta: a client renders it as the user
+	// bubble it is, where it was read.
+	if u.SessionUpdate == acp.UpdateTypeUserMessageChunk {
+		if strings.TrimSpace(u.Content.Text) == "" {
+			return nil
+		}
+		return s.writeNamedEventJSON("user_message", u)
+	}
 	if u.SessionUpdate != acp.UpdateTypeAgentMessageChunk {
 		return nil
 	}
