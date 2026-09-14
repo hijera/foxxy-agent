@@ -285,6 +285,38 @@ export const messagesEn: Record<string, string> = {
   "sessions.projectOnlyHint":
     "Show only conversations started in {project}. Turn off to list every project.",
 
+  "sessions.manage.lead":
+    "Every stored conversation with what it cost. Tick the rows you no longer need, or tick the header to take the whole page; the conversation you have open is protected.",
+  "sessions.manage.loadFailed": "Could not load the sessions: {error}",
+  "sessions.manage.deleteFailed": "Could not delete: {error}",
+  "sessions.manage.partialFailure":
+    "{count} session(s) were kept because they are still busy. First reason: {reason}",
+  "sessions.manage.deleteSelected": "Delete selected ({count})",
+  "sessions.manage.confirm.selected.title.one": "Delete {count} conversation?",
+  "sessions.manage.confirm.selected.title.other":
+    "Delete {count} conversations?",
+  "sessions.manage.confirm.selected.message":
+    "Their transcripts, tool calls and uploaded files are removed from disk. This cannot be undone.",
+  "sessions.manage.selectAll": "Select every listed conversation",
+  "sessions.manage.selectRow": "Select {title}",
+  "sessions.manage.column.conversation": "Conversation",
+  "sessions.manage.column.model": "Model",
+  "sessions.manage.column.messages": "Msgs",
+  "sessions.manage.column.tokens": "Tokens",
+  "sessions.manage.column.created": "Created",
+  "sessions.manage.column.updated": "Updated",
+  "sessions.manage.column.actions": "Actions",
+  "sessions.manage.openBadge": "open",
+  "sessions.manage.protectedRow":
+    "The conversation that is open cannot be deleted here. Switch to another one first.",
+  "sessions.manage.modelDefault": "default",
+  "sessions.manage.tokensBreakdown": "{input} in, {output} out, {total} total",
+  "sessions.manage.noMatches": "No conversation matches the search",
+  "sessions.manage.shown.one": "{count} conversation",
+  "sessions.manage.shown.other": "{count} conversations",
+  "sessions.manage.selectedSuffix": "· {count} selected",
+  "sessions.manage.loadMore": "Load more",
+
   "settings.title": "Settings",
   "settings.close": "Close settings",
   "settings.lead":
@@ -310,9 +342,11 @@ export const messagesEn: Record<string, string> = {
   "settings.saveAllAriaLabel": "Save all configuration sections",
   "settings.section.general": "General",
   "settings.section.appearance": "Appearance",
+  "settings.section.sessions_manager": "Sessions",
   "settings.section.system": "System",
   "settings.sectionDesc.general": "Language & basics",
   "settings.sectionDesc.appearance": "Theme & color mode",
+  "settings.sectionDesc.sessions_manager": "Stored chats & cleanup",
   "settings.sectionDesc.providers": "LLM API connections",
   "settings.sectionDesc.models": "Named model configs",
   "settings.sectionDesc.agent": "ReAct agent defaults",

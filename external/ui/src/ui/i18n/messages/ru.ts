@@ -282,6 +282,42 @@ export const messagesRu: Record<string, string> = {
   "sessions.projectOnlyHint":
     "Показывать только диалоги из {project}. Выключите, чтобы видеть все проекты.",
 
+  "sessions.manage.lead":
+    "Все сохранённые диалоги и во что они обошлись. Отметьте ненужные строки или галочку в шапке, чтобы взять всю страницу; открытый диалог защищён.",
+  "sessions.manage.loadFailed": "Не удалось загрузить сессии, {error}",
+  "sessions.manage.deleteFailed": "Не удалось удалить, {error}",
+  "sessions.manage.partialFailure":
+    "Сессий оставлено {count}, они ещё заняты. Первая причина, {reason}",
+  "sessions.manage.deleteSelected": "Удалить выбранные ({count})",
+  "sessions.manage.confirm.selected.title.one": "Удалить {count} диалог?",
+  "sessions.manage.confirm.selected.title.few": "Удалить {count} диалога?",
+  "sessions.manage.confirm.selected.title.many": "Удалить {count} диалогов?",
+  "sessions.manage.confirm.selected.title.other": "Удалить {count} диалога?",
+  "sessions.manage.confirm.selected.message":
+    "Их переписка, вызовы инструментов и загруженные файлы будут стёрты с диска. Отменить это нельзя.",
+  "sessions.manage.selectAll": "Выбрать все показанные диалоги",
+  "sessions.manage.selectRow": "Выбрать {title}",
+  "sessions.manage.column.conversation": "Диалог",
+  "sessions.manage.column.model": "Модель",
+  "sessions.manage.column.messages": "Сообщ.",
+  "sessions.manage.column.tokens": "Токены",
+  "sessions.manage.column.created": "Создан",
+  "sessions.manage.column.updated": "Изменён",
+  "sessions.manage.column.actions": "Действия",
+  "sessions.manage.openBadge": "открыт",
+  "sessions.manage.protectedRow":
+    "Открытый диалог отсюда не удаляется. Сначала переключитесь на другой.",
+  "sessions.manage.modelDefault": "по умолчанию",
+  "sessions.manage.tokensBreakdown":
+    "{input} на вход, {output} на выход, {total} всего",
+  "sessions.manage.noMatches": "По запросу ничего не найдено",
+  "sessions.manage.shown.one": "{count} диалог",
+  "sessions.manage.shown.few": "{count} диалога",
+  "sessions.manage.shown.many": "{count} диалогов",
+  "sessions.manage.shown.other": "{count} диалога",
+  "sessions.manage.selectedSuffix": "· выбрано {count}",
+  "sessions.manage.loadMore": "Показать ещё",
+
   "settings.title": "Настройки",
   "settings.close": "Закрыть настройки",
   "settings.lead":
@@ -309,9 +345,11 @@ export const messagesRu: Record<string, string> = {
   "settings.saveAllAriaLabel": "Сохранить все разделы конфигурации",
   "settings.section.general": "Общие",
   "settings.section.appearance": "Оформление",
+  "settings.section.sessions_manager": "Сессии",
   "settings.section.system": "Система",
   "settings.sectionDesc.general": "Язык и основное",
   "settings.sectionDesc.appearance": "Тема и цветовой режим",
+  "settings.sectionDesc.sessions_manager": "Сохранённые чаты и очистка",
   "settings.sectionDesc.providers": "Подключения к LLM API",
   "settings.sectionDesc.models": "Именованные конфигурации моделей",
   "settings.sectionDesc.agent": "Настройки агента ReAct",
