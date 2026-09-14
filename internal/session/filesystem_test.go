@@ -1469,3 +1469,75 @@ func TestAnEditThatChangesNothingLeavesUpdatedAtAlone(t *testing.T) {
 		t.Fatalf("history came back with %d messages", len(second.Messages))
 	}
 }
+
+// docs/features/sessions.md: the stamp moves when something is persisted - a
+// turn, a pinned title - and listings sort by it. Preserving it must therefore
+// mean "this save wrote nothing new anywhere", not merely "the history did not
+// move": pinning a title changes only the meta, and the session still has to
+// rise in the listing.
+func TestPersistedMetaChangesMoveUpdatedAt(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*State)
+	}{
+		{"a pinned title", func(s *State) { s.SetTitlePinned("pinned by the operator") }},
+		{"the mode", func(s *State) { s.SetMode(string(ModePlan)) }},
+		{"the model override", func(s *State) { s.SetSelectedModelID("some/model") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, st := savedState(t, "sess_meta_"+strings.ReplaceAll(tc.name, " ", "_"), 4)
+			before, err := fs.ReadSnapshot(st.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(1100 * time.Millisecond)
+
+			tc.change(st)
+			if err := fs.Save(st); err != nil {
+				t.Fatal(err)
+			}
+			after, err := fs.ReadSnapshot(st.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Meta.UpdatedAt == before.Meta.UpdatedAt {
+				t.Fatalf("%s was persisted but the session did not move in the listing", tc.name)
+			}
+		})
+	}
+}
+
+// Opening an unread chat in History marks it read through
+// PatchSessionMetaActivitySync, which leaves the stamp alone. The read counter
+// is part of the meta a save now compares, so the next save that persists
+// nothing else must find it already on disk and keep the chat in its place.
+func TestSavingAfterMarkingReadKeepsUpdatedAt(t *testing.T) {
+	fs, st := savedState(t, "sess_marked_read", 2)
+	st.RestoreActivityFromSnapshot(3, 1)
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	before, err := fs.ReadSnapshot(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+
+	st.MarkActivityReadSynced()
+	if err := fs.PatchSessionMetaActivitySync(st); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	after, err := fs.ReadSnapshot(st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Meta.ReadActivitySeq != 3 {
+		t.Fatalf("read counter on disk is %d, want 3", after.Meta.ReadActivitySeq)
+	}
+	if after.Meta.UpdatedAt != before.Meta.UpdatedAt {
+		t.Fatalf("marking a chat read moved it in the listing: %q -> %q", before.Meta.UpdatedAt, after.Meta.UpdatedAt)
+	}
+}
