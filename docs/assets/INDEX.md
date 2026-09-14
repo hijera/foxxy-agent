@@ -175,3 +175,14 @@ Captured from headless Chrome (dark, ru) against a `-tags "http ui scheduler mem
 - `pr-swarm-gutter-after-1280-dark.png` - `GUTTER` 164: the same caption starts at x 18 in a 360-wide SVG and is whole
 - `pr-scheduler-disabled-before-1280-dark.png` - the scheduler panel of an agent with the scheduler off: «…или передайте -scheduler-enabled»
 - `pr-scheduler-disabled-after-1280-dark.png` - the same panel on this branch: «…или запустите foxxycode serve --scheduler»
+
+## Skills marketplace search (September 2026)
+
+Captured from headless Chrome (dark, ru) against `-tags "http ui"` builds with a fresh home each, a stub provider and a local git marketplace (`file:///H:/gotmp/skills-live/team-shop`, publishing `sql-review` and `release-notes`). The `before` binary embeds the bundle from `main` at 0.2.83, the `after` one this branch's.
+
+- `pr-skills-marketplace-empty-before-{1280,390}-dark.png` - Settings → Skills with no marketplace source and «sql» typed into the install search: «Подходящих скилов не найдено.», with nothing to say that a source is missing
+- `pr-skills-marketplace-empty-after-{1280,390}-dark.png` - the same state on this branch: the menu row and a line under the field point to «Удалённые источники скилов» and ask to save a source
+- `pr-skills-marketplace-saved-source-before-1280-dark.png` - the source added and saved, then the search used again without reopening Settings: still «Подходящих скилов не найдено.», because the list fetched before the save is kept
+- `pr-skills-marketplace-saved-source-after-1280-dark.png` - the same steps on this branch: the list is fetched again and `sql-review v2.0.0` is offered for install
+- `pr-skills-marketplace-installed-before-1280-dark.png` - after installing `sql-review` (the old build needed a page reload to get this far): the status line reads «Installed sql-review.» in the Russian interface
+- `pr-skills-marketplace-installed-after-1280-dark.png` - the same install on this branch: «Скил sql-review установлен.»
