@@ -1703,7 +1703,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Switch the session workspace folder, git branch, worktree, or svn branch",
 					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder (skills, project rules, and slash commands are re-derived; the new cwd persists in **session.json**). " +
 						"Body **`{\"branch\": b}`** checks the branch out in place; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
-						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created under **`<home>/worktrees/<repo>/`** on demand) and moves the session cwd into it. " +
+						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created on demand under **`<repo>/.foxxycode/worktrees/<branch>/`**, below a self-ignoring folder) and moves the session cwd into it. " +
 						"**`vcs`** selects the version control system: **`git`** (default) or **`svn`**. With **`{\"vcs\": \"svn\", \"branch\": b}`** the working copy is switched in place (`svn switch`); " +
 						"Subversion has no worktrees, so **`{\"vcs\": \"svn\", \"branch\": b, \"worktree\": true}`** checks the branch out into its own folder under **`<home>/worktrees/<wc>/`** and moves the session cwd there. An existing checkout of that branch is reused. " +
 						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
