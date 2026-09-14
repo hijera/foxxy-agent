@@ -43,6 +43,12 @@ export type TranscriptItem =
       content: string;
       /** RFC3339 UTC from server created_at or client clock when sending. */
       createdAtUtc?: string;
+      /**
+       * A follow-up from the message queue that the running turn read, rather than
+       * the prompt a turn started from (server messages with queued=true, and the
+       * `user_message` event of the turn stream).
+       */
+      queued?: boolean;
       /** Inline file attachments sent with this message. */
       files?: {
         name: string;

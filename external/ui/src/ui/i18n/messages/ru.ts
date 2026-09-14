@@ -88,6 +88,14 @@ export const messagesRu: Record<string, string> = {
   "composer.messageLabel": "Сообщение",
   "composer.placeholderEmpty": "План, сборка, / для скилов, @ для файлов",
   "composer.placeholderFollowUp": "Добавить уточнение",
+  "composer.placeholderQueue": "Добавить уточнение к текущему ходу",
+  "composer.queueSend": "Поставить сообщение в очередь",
+  "composer.queueLabel": "Сообщения в очереди",
+  "composer.queueRemove": "Убрать из очереди",
+  "composer.queueFull": "Очередь заполнена: дождитесь, пока агент прочитает то, что уже стоит.",
+  "composer.queueFailed": "Не удалось поставить сообщение в очередь.",
+  "composer.queueBusyElsewhere":
+    "Ход этого чата выполняется в другом окне FoxxyCode, и его очередь там. Сообщение возвращено в поле ввода.",
   "composer.attachedFilesAriaLabel": "Прикреплённые файлы",
   "composer.removeAttachment": "Удалить {fileName}",
   "composer.attachUnsupportedModel": "Выбранная модель не принимает вложения",
@@ -545,7 +553,7 @@ export const messagesRu: Record<string, string> = {
     "Напишите, что нужно сделать — вопрос, баг для исправления, фичу для реализации — и отправьте.",
   "tour.step.send.title": "Начните кодить",
   "tour.step.send.body":
-    "Отправьте сообщение, чтобы запустить агента. Эта же кнопка останавливает выполнение хода.",
+    "Отправьте сообщение, чтобы запустить агента. Пока идёт ход, эта же кнопка останавливает его, а если в поле есть текст, ставит сообщение в очередь: агент прочитает его на следующем шаге.",
 
   "settings.themeDark": "Dark",
   "settings.themeLight": "Light",

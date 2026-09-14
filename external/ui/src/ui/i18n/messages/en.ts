@@ -90,6 +90,14 @@ export const messagesEn: Record<string, string> = {
   "composer.messageLabel": "Message",
   "composer.placeholderEmpty": "Plan, Build, / for skills, @ for files",
   "composer.placeholderFollowUp": "Add a follow-up",
+  "composer.placeholderQueue": "Add a follow-up for the running turn",
+  "composer.queueSend": "Queue this message",
+  "composer.queueLabel": "Queued messages",
+  "composer.queueRemove": "Remove from the queue",
+  "composer.queueFull": "The queue is full: wait for the agent to read what is waiting.",
+  "composer.queueFailed": "The message could not be queued.",
+  "composer.queueBusyElsewhere":
+    "This chat's turn is running in another FoxxyCode window, and its queue is there. Your message is back in the composer.",
   "composer.attachedFilesAriaLabel": "Attached files",
   "composer.removeAttachment": "Remove {fileName}",
   "composer.attachUnsupportedModel": "The selected model cannot accept attachments",
@@ -523,7 +531,7 @@ export const messagesEn: Record<string, string> = {
     "Type what you want done — a question, a bug to fix, a feature to build — then send it.",
   "tour.step.send.title": "Start coding",
   "tour.step.send.body":
-    "Send your message to run the agent. It stops here too while a turn is in progress.",
+    "Send your message to run the agent. While a turn is in progress the same button stops it, or, with text in the field, queues that message for the agent to read at its next step.",
 
   "settings.themeDark": "Dark",
   "settings.themeLight": "Light",
