@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/hijera/foxxycode-agent/internal/gitws"
+	"github.com/hijera/foxxycode-agent/internal/platform"
 	"github.com/hijera/foxxycode-agent/internal/session"
 	"github.com/hijera/foxxycode-agent/internal/svnws"
 	toolsvn "github.com/hijera/foxxycode-agent/internal/tools/svn"
@@ -33,6 +34,10 @@ func (s *Server) workspaceContextPayload(ctx context.Context, cwd string) map[st
 		"name":        filepath.Base(info.Path),
 		"is_git_repo": info.IsGitRepo,
 		"is_worktree": info.IsWorktree,
+		// The interpreter run_command goes through. It belongs to the machine, not to
+		// the folder, but this is the host fact the SPA already asks for, and the tool
+		// card names the shell rather than calling everything "Shell".
+		"shell": platform.CurrentShell().Path,
 	}
 	if info.IsGitRepo {
 		payload["repo_root"] = info.RepoRoot

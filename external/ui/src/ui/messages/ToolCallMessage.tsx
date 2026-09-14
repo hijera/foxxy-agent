@@ -14,7 +14,10 @@ import {
 } from "../chat/questionToolDisplay";
 import { useT } from "../i18n/I18nProvider";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
-import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import {
+  buildToolCallPreview,
+  toolCallTargetText,
+} from "../chat/permissionToolPreview";
 import { refusedSpawnAgentName } from "../chat/spawnAgentApproval";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
@@ -32,6 +35,8 @@ import { SvnAction, SvnIcon } from "./SvnAction";
 import { svnOperation, svnFailed } from "./svnActionDisplay";
 import { SubagentApprovalNotice } from "./SubagentApprovalNotice";
 import { isBrowserToolName, browserActionLabel } from "./browserActionDisplay";
+import { toolDisplayName } from "./toolDisplayName";
+import { Markdown } from "../markdown/Markdown";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -170,6 +175,22 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
 
   const rawNameLower = rawName.toLowerCase();
   const kindLower = (props.kind || "").trim().toLowerCase();
+  const isLoadSkillTool = rawNameLower === "load_skill";
+  // The one thing this call acts on - the path it reads, the command it runs, the skill
+  // it pulls in - next to the label, so a collapsed row still says what it touched.
+  const summaryTarget = useMemo(
+    () =>
+      isQuestionTool
+        ? ""
+        : toolCallTargetText({
+            ...(props.title !== undefined ? { title: props.title } : {}),
+            ...(props.kind !== undefined ? { kind: props.kind } : {}),
+            ...(props.argsText !== undefined
+              ? { argsText: props.argsText }
+              : {}),
+          }).trim(),
+    [isQuestionTool, props.argsText, props.kind, props.title],
+  );
   const isPatchTool = rawNameLower === "apply_patch";
   const isWriteTool =
     !isPatchTool &&
@@ -226,10 +247,8 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     if (isQuestionTool) {
       return t("messages.toolQuestionLabel");
     }
-    const fallback = t("messages.toolDefaultName");
-    return pendingLike
-      ? `${rawName || fallback}${t("messages.toolPendingSuffix")}`
-      : rawName || fallback;
+    const label = toolDisplayName(rawName, props.argsText);
+    return pendingLike ? `${label}${t("messages.toolPendingSuffix")}` : label;
   }, [
     isQuestionTool,
     isBrowserTool,
@@ -427,16 +446,22 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
     (toolPreview.kind === "todo" && toolPreview.entries.length > 0) ||
     toolPreview.kind === "plan_exit" ||
+    toolPreview.kind === "action" ||
     (toolPreview.kind === "move" &&
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
+  // A completed load_skill returned a skill's markdown; a failed one returned an error,
+  // which stays raw monospace text.
+  const showSkillBody = isLoadSkillTool && status === "completed";
   // Browser calls keep their dedicated screenshot/console card as the only renderer.
-  // A spawn_agent call gets its own card instead of the generic preview.
+  // A spawn_agent call gets its own card instead of the generic preview. load_skill
+  // already names the skill on the summary row; its body is the skill itself.
   const showToolPreview =
     !isQuestionTool &&
     !isBrowserTool &&
     !spawnAgent &&
     !isSvnTool &&
+    !isLoadSkillTool &&
     toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
@@ -461,6 +486,18 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
     ? agentTranscriptSessionId(backgroundTask)
     : null;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
+  // The chip of a delegated step already names the agent ("explore · Running"), so the
+  // row does not repeat it as the target.
+  const rowTarget =
+    isSpawnAgentTool && backgroundTask && agentTaskName(backgroundTask)
+      ? ""
+      : summaryTarget;
+  // SVN keeps its own failure pill. A browser call reports a failure as an "error:"
+  // result, which its label already reads as failed, so the row says so too.
+  const failedOnRow =
+    !isSvnTool &&
+    (status === "failed" ||
+      (isBrowserTool && /^error:/i.test(preview.trim())));
   const hasBody =
     !!spawnAgent ||
     isQuestionTool ||
@@ -488,19 +525,38 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
-            {isBrowserTool && <BrowserIcon />}
-            {isSvnTool && <SvnIcon />}
-            <span className="thinking-label">{displayLabel}</span>
-            {isSvnTool && svnFailed(status, full || preview) && (
-              <span className="svn-summary-error">
-                {t("messages.svn.failed")}
-              </span>
-            )}
-            {durationLabel.trim() !== "" ? (
-              <span className="thinking-dur" aria-hidden="true">
-                {durationLabel}
-              </span>
-            ) : null}
+            <span className="thinking-head">
+              {isBrowserTool && <BrowserIcon />}
+              {isSvnTool && <SvnIcon />}
+              <span className="thinking-label">{displayLabel}</span>
+              {rowTarget ? (
+                <span
+                  className="tool-summary-target"
+                  data-testid="tool-summary-target"
+                  title={rowTarget}
+                >
+                  {rowTarget}
+                </span>
+              ) : null}
+              {isSvnTool && svnFailed(status, full || preview) ? (
+                <span className="svn-summary-error">
+                  {t("messages.svn.failed")}
+                </span>
+              ) : null}
+              {failedOnRow ? (
+                <span
+                  className="tool-failed-marker"
+                  data-testid="tool-failed-marker"
+                >
+                  {t("messages.toolFailedMarker")}
+                </span>
+              ) : null}
+              {durationLabel.trim() !== "" ? (
+                <span className="thinking-dur" aria-hidden="true">
+                  {durationLabel}
+                </span>
+              ) : null}
+            </span>
             {backgroundTask ? (
               <span
                 className={[
@@ -591,20 +647,21 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                   .join(" ")}
                 aria-label={t("messages.toolResultAriaLabel")}
               >
-                <div className="tool-call-result-head">
-                  <span className="tool-call-result-dot" aria-hidden />
-                  <span>{t("messages.toolResultSection")}</span>
-                </div>
                 <div
                   className={[
                     "tool-call-result-content",
+                    showSkillBody && "tool-call-result-content--markdown",
                     useTallViewport &&
                       `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
                   ]
                     .filter(Boolean)
                     .join(" ")}
                 >
-                  <pre className="tool-result-pre">{resultBody}</pre>
+                  {showSkillBody ? (
+                    <Markdown text={resultBody} />
+                  ) : (
+                    <pre className="tool-result-pre">{resultBody}</pre>
+                  )}
                 </div>
               </div>
             ) : null}
