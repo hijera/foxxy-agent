@@ -54,8 +54,7 @@ type Bot struct {
 	mu      sync.Mutex
 	workers map[string]chan workerJob // session key → sequential job queue
 
-	seenSessions sync.Map     // tracks sessions that already received the formatting hint
-	draftSeq     atomic.Int64 // monotonic source of non-zero rich-message draft IDs
+	draftSeq atomic.Int64 // monotonic source of non-zero rich-message draft IDs
 
 	// inFlight counts the turns being generated right now, so a stop can wait
 	// for them instead of cutting them off mid-sentence.
@@ -83,10 +82,6 @@ func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, lo
 		store:   store,
 		workers: make(map[string]chan workerJob),
 		mirror:  mirror,
-	}
-	// Pre-populate seenSessions so a restart doesn't re-inject the formatting hint into existing sessions.
-	for _, id := range store.KnownIDs() {
-		b.seenSessions.Store(id, struct{}{})
 	}
 	return b
 }
@@ -265,9 +260,16 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		)
 	}
 	if isCommand(msg, "clear") {
-		oldID := b.store.Get(key)
-		newID := b.store.Reset(key)
-		b.runner.ForgetLiveSession(oldID)
+		oldID := b.store.Peek(key)
+		newID, err := b.store.Reset(key)
+		if err != nil {
+			b.log.Warn("telegram: new session id", "err", err)
+			b.reply(bot, chatID, msg.MessageID, "❌ Failed to start a new session: "+err.Error())
+			return
+		}
+		if oldID != "" {
+			b.runner.ForgetLiveSession(oldID)
+		}
 		b.reply(bot, chatID, msg.MessageID, "🔄 New session started.")
 		b.log.Info("telegram: session cleared", "old", oldID, "new", newID, "user", userID)
 		return
@@ -314,7 +316,12 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	}
 
 	// --- Get or create session ---
-	sessionID := b.store.Get(key)
+	sessionID, err := b.store.Get(key)
+	if err != nil {
+		b.log.Warn("telegram: session id", "err", err)
+		b.reply(bot, chatID, msg.MessageID, "❌ Failed to start session: "+err.Error())
+		return
+	}
 
 	ctx2, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
@@ -334,26 +341,18 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
 	rich := b.cfg.RichMessages
 
-	// Legacy mode needs a one-time hint on the first message of a new session so the
-	// agent restricts itself to the Telegram-compatible Markdown subset. Rich mode sends
-	// the agent's natural Markdown verbatim, so no hint is prepended — keeping the first
-	// turn identical to later ones (a hint-prefixed first message was suppressing replies).
-	promptText := text
-	firstTurn := false
-	if !rich {
-		if _, alreadySeen := b.seenSessions.LoadOrStore(st.GetID(), struct{}{}); !alreadySeen {
-			firstTurn = true
-			promptText = telegramFormattingHint + promptText
-		}
-	}
-
+	// The session gets what the person typed and nothing else. What this
+	// messenger needs is told to the model for the turn, as a block of the
+	// system prompt (prompt.go), and applied to the answer on its way out
+	// (Sender.Flush, markdown.go). Neither reaches the transcript, so the
+	// conversation reads the same whether the turn came from a chat, a browser
+	// or a terminal.
 	b.log.Debug("telegram: prompt turn",
 		"session", st.GetID(),
 		"user", userID,
 		"chat", chatID,
-		"first_turn", firstTurn,
 		"rich", rich,
-		"prompt_len", len(promptText),
+		"prompt_len", len(text),
 	)
 
 	// Rich Messages: stream an ephemeral draft preview in private chats (drafts are
@@ -373,8 +372,11 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	// A chat has no status bar: no provider usage refresh at the end.
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: promptText}},
-	}, mirrored, &session.PromptRunOpts{SkipUsagePublish: true})
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+	}, mirrored, &session.PromptRunOpts{
+		SkipUsagePublish:    true,
+		SurfaceSystemPrompt: surfaceSystemPrompt(rich),
+	})
 	sender.Flush()
 
 	stopReason := ""

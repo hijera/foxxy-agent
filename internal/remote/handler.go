@@ -6,8 +6,6 @@ package remote
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -158,22 +156,6 @@ func (h *Handler) currentSender() acp.UpdateSender {
 	return h.sender
 }
 
-// randRead is indirected so tests can exercise the entropy-failure path;
-// production always uses crypto/rand.
-var randRead = rand.Read
-
-// newRemoteSessionID mints a client-side session id; the server pins the
-// bundle under this exact id on the first prompt (EnsureHTTPSession).
-// Entropy failure is returned as an error rather than panicked on, so one
-// unlucky session/new cannot take down the handler.
-func newRemoteSessionID() (string, error) {
-	var buf [16]byte
-	if _, err := randRead(buf[:]); err != nil {
-		return "", fmt.Errorf("remote: session id entropy: %w", err)
-	}
-	return "sess_" + hex.EncodeToString(buf[:]), nil
-}
-
 // ---- acp.Handler ----
 
 // HandleInitialize advertises the same capabilities as a local agent; the
@@ -210,8 +192,10 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	id := preferred
 	if id == "" {
+		// The same shape every session carries; the server pins the bundle
+		// under this exact id on the first prompt (EnsureHTTPSession).
 		var err error
-		if id, err = newRemoteSessionID(); err != nil {
+		if id, err = session.NewSessionID(); err != nil {
 			return nil, fmt.Errorf("session/new: %w", err)
 		}
 	} else if err := session.ValidateFolderSessionID(id); err != nil {
@@ -222,11 +206,6 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if preferred != "" {
 		msgs, err := h.sessionMessages(ctx, id)
 		switch {
-		case isNotFound(err) && session.IsSubagentSessionID(id):
-			// The sub_ prefix belongs to subagent child sessions; an unknown
-			// one cannot be minted remotely any more than locally.
-			h.forget(id)
-			return nil, fmt.Errorf("session/new: %w: %s", session.ErrReservedSessionID, id)
 		case isNotFound(err):
 			// no such session remotely: a fresh one starts under this id
 		case err != nil:
@@ -481,13 +460,6 @@ func (h *Handler) WaitCancels(d time.Duration) {
 	case <-time.After(d):
 		h.log.Warn("remote cancel still in flight at exit", "timeout", d.String())
 	}
-}
-
-// forget drops the client-side state of a session that never came to be.
-func (h *Handler) forget(id string) {
-	h.mu.Lock()
-	delete(h.sessions, id)
-	h.mu.Unlock()
 }
 
 // ---- session.Manager extras used by the console surface ----

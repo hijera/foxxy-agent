@@ -5,17 +5,13 @@ providers:
     api_key: "https://t.me/evilfreelancer"
 
 models:
-  - model: "rpa/gpt-oss:120b"
-    max_tokens: 131072
-    temperature: 0.2
-    max_context_tokens: 131072
   - model: "rpa/qwen3.6-35b-a3b"
     max_tokens: 32000
     temperature: 0.6
     max_context_tokens: 262144
 
 agent:
-  model: "rpa/gpt-oss:120b"
+  model: "rpa/qwen3.6-35b-a3b"
   max_turns: 35
   max_tokens_per_turn: 128000
 
@@ -37,7 +33,7 @@ tools:
 
 memory:
   enabled: true
-  model: "rpa/gpt-oss:120b"
+  model: "rpa/qwen3.6-35b-a3b"
 
 httpserver:
   host: "0.0.0.0"

@@ -3403,7 +3403,7 @@ func subagentChildFixture(t *testing.T, mgr *session.Manager, cwd string) (paren
 	if err != nil {
 		t.Fatal(err)
 	}
-	childID = "sub_unit_child"
+	childID = testSessionID(t)
 	if _, err := mgr.CreateSubagentSession(context.Background(), session.SubagentSpec{
 		ID:              childID,
 		ParentSessionID: res.SessionID,

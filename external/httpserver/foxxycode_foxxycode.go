@@ -833,7 +833,7 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 			ent["cwd"] = row.CWD
 		}
 		if includeSubagents {
-			if link := subagentRowLink(fs, row.SessionID); link != nil {
+			if link := subagentRowLink(row); link != nil {
 				ent["subagent"] = link
 			}
 		}

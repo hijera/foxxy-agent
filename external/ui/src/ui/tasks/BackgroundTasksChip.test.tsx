@@ -115,9 +115,9 @@ test("a subagent waiting for an answer takes over the chip", () => {
         task({
           id: "bg_2",
           kind: "agent",
-          agent: { name: "explore", session_id: "sub_1" },
+          agent: { name: "explore", session_id: "sess_1" },
           pending_permission: {
-            sessionId: "sub_1",
+            sessionId: "sess_1",
             toolCall: { toolCallId: "call_1", title: "[subagent explore] Run: ls" },
             options: [{ optionId: "allow", name: "Allow once", kind: "allow_once" }],
           },

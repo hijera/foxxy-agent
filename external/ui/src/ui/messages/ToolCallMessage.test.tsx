@@ -1064,7 +1064,7 @@ test("a spawn_agent row names the agent and opens its transcript", () => {
         id: "bg_9",
         kind: "agent",
         label: "agent explore: survey the repo",
-        agent: { name: "explore", session_id: "sub_0a1b" },
+        agent: { name: "explore", session_id: "sess_0a1b" },
         command: "",
       })}
       backgroundNowMs={BG_START_MS + 45_000}
@@ -1075,7 +1075,7 @@ test("a spawn_agent row names the agent and opens its transcript", () => {
   expect(screen.getByTestId("tool-bgtask-chip-bg_9")).toHaveTextContent("explore");
   openToolDetails();
   fireEvent.click(screen.getByTestId("tool-bgtask-transcript-bg_9"));
-  expect(onOpenSubagentTranscript).toHaveBeenCalledWith("sub_0a1b");
+  expect(onOpenSubagentTranscript).toHaveBeenCalledWith("sess_0a1b");
 });
 
 test("a command task offers no transcript link", () => {
