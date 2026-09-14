@@ -320,7 +320,7 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/slash-commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List slash commands from skills (paginated)",
-					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
+					"description": "Returns slash command **`name`** and **`description`** rows: the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**, the same rows as **GET /foxxycode/commands**) first, then the skill-derived commands sorted by name. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
 						"When **X-FoxxyCode-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default cwd applies.",
 					"operationId": "listSlashCommands",
@@ -368,9 +368,9 @@ func openAPISpec() map[string]interface{} {
 			"/foxxycode/commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List built-in slash commands",
-					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. " +
+					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, on their own: **GET /foxxycode/slash-commands** leads with the same rows ahead of the skills, and the remote console merges both lists. " +
 						"**`compact`** appears only while **`compaction.enable`** is true and **`compaction.engine`** is **`coddy`**, the engine that owns the manual command; **`export`** and **`plugin`** are always present. " +
-						"Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/foxxycode/slash-commands`** (skills only).",
+						"Optional **`prefix`** filters by case-insensitive name prefix.",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
