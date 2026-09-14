@@ -365,6 +365,47 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/foxxycode/commands": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List built-in slash commands",
+					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. " +
+						"**`compact`** appears only while **`compaction.enable`** is true and **`compaction.engine`** is **`coddy`**, the engine that owns the manual command; **`export`** and **`plugin`** are always present. " +
+						"Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/foxxycode/slash-commands`** (skills only).",
+					"operationId": "listBuiltinCommands",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "prefix", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Case-insensitive filter on command name.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Built-in command rows",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string", "example": "foxxycode.commands"},
+											"items": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"name":        map[string]string{"type": "string"},
+														"description": map[string]string{"type": "string"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 			"/foxxycode/workspace/files": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List workspace files under session cwd (paginated)",
@@ -2149,6 +2190,8 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
