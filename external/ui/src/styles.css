@@ -7325,6 +7325,20 @@ html:not([data-theme="light"]) .context-usage-note--error {
   color: #fecaca;
 }
 
+/* Light theme: the pale-pink danger palette above is tuned for a dark canvas.
+   On a light surface an enabled delete button read as disabled, so re-tint it
+   to a readable red. Disabled buttons still dim through .settings-btn:disabled. */
+[data-theme="light"] .settings-btn-danger {
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #b91c1c;
+}
+
+[data-theme="light"] .settings-btn-danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.7);
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.25);
+}
+
 .settings-error {
   color: #fecaca;
   margin: 4px 0 0;
