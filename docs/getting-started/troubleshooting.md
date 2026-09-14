@@ -36,7 +36,7 @@ foxxycode -t
 foxxycode serve -t
 ```
 
-Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line and, where the schema has one, a `doc:` line. The exit status is 1 on errors; warnings (`yes` for a boolean, a missing `# yaml-language-server:` header) never fail the check, and a missing file is an error. When the file is clean, go one step further:
+Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line and, where the schema has one, a `doc:` line. A syntax error names the line whose arrival stops the file parsing, not the line the parser blames, and a start prints the same line. The exit status is 1 on errors; warnings (`yes` for a boolean, a missing `# yaml-language-server:` header) never fail the check, and a missing file is an error. When the file is clean, go one step further:
 
 ```bash
 foxxycode --dry-run                 # the problems and one status line
@@ -190,6 +190,7 @@ A copy under `~/.local/bin` or a build of your own is untouched by any of this a
   ```
 
 - **Updates from scripts.** `foxxycode update -y --no-restart` installs without starting FoxxyCode again, for a CI step with no console to run in.
+- **Editing `config.yaml`.** Windows line endings and the byte order mark Notepad writes are read and dropped, and a save puts the file's line endings back, so editing the file in any Windows editor is safe. A file saved as **Unicode** (UTF-16), which is also what a `>` redirect writes in Windows PowerShell 5.1, is read as well; `foxxycode -t` warns about it (`the file is UTF-16 LE text; it is read, but a save from the settings screen writes it back as UTF-8`), and the next save from the settings screen does turn it into UTF-8. To convert it yourself, pick the encoding in Notepad's Save As dialog, next to the Save button; most other editors call it "UTF-8 without BOM".
 - **Editors.** Configure ACP clients with the absolute `foxxycode.exe` path (see the first section).
 
 ## Collect diagnostics
