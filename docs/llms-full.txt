@@ -772,14 +772,16 @@ skills:
     - "${FOXXYCODE_HOME}/skills"
     - "${CWD}/.foxxycode/skills"
 
-# Project rules (Go: config.Rules, internal/config/rules.go)
+# Rules (Go: config.Rules, internal/config/rules.go)
 # Discovered from .foxxycode/rules, the shared .agents/rules, .cursor/rules,
-# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
+# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD, plus
+# your own ~/.foxxycode/rules, which applies in every workspace. Your own
+# ~/.foxxycode/AGENTS.md is read too, ahead of the project's, and has no key here.
 # .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/features/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: foxxycode, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional: user, foxxycode, agents-dir, cursor, claude, codex, agents
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
@@ -914,6 +916,29 @@ The tool requires user permission (same as `run_command`) and returns combined s
 
 The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`foxxycode http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/reference/http-api.md`**.
 
+### Web UI sign-in (`httpserver.login`)
+
+Off by default. It closes the browser surface of a server that is on a network, so transcripts, tool output and the configuration editor are not readable by whoever finds the port. Write the account with the command rather than by hand:
+
+```bash
+foxxycode serve set-password --user pasha
+```
+
+```yaml
+httpserver:
+  host: 0.0.0.0
+  auth_token: "${FOXXYCODE_HTTP_TOKEN}"   # unchanged: the credential API clients present
+  login:
+    enabled: true                      # omit to follow the credentials; false wins over everything
+    user: "pasha"
+    password_hash: "$$argon2id$$v=19$$..."   # argon2id, written by the command above
+    session_ttl_hours: 720                   # 0 = the browser drops the cookie on close (the server still expires its record after 30 days)
+```
+
+A hash written into this file by hand needs every `$` doubled (`$$argon2id$$v=19$$...`), because a `$NAME` is expanded as an environment reference when the file loads. The command does that for you; `foxxycode -t` names the problem when it finds a hash that no longer parses. A `${VAR}` reference in `user` or `password_hash` works like every other value here, which also means a save from the settings screen writes the expanded value back into the file - keep a credential out of the document entirely with `FOXXYCODE_HTTP_USER` / `FOXXYCODE_HTTP_PASSWORD` instead.
+
+The account can also come from the environment alone - `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD`, see the `.env` section below - which is the route for a container or a systemd unit. The form is for browsers; `foxxycode --remote`, `foxxycode acp --remote`, a swarm relay and every script still present the bearer token. On `foxxycode http` - the command the IntelliJ and VS Code plugins and `foxxycode desktop` start on `127.0.0.1` - a direct loopback client (the peer and the `Host` it addressed are both loopback, and no `Forwarded` / `X-Forwarded-*` / `X-Real-IP` header says a proxy relayed it) counts as signed in while no bearer token is configured, so the editor panels and the desktop window never meet the form; `GET /foxxycode/auth/me` answers it `login_required: false`. A client on the network still signs in, and `foxxycode serve` makes no such exception. Full behaviour: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](../operate/remote.md#the-sign-in-form).
+
 ### MCP project trust
 
 The **`mcp.project_trust`** key decides whether the project-local **`<workspace>/.foxxycode/mcp.json`** may start
@@ -1001,7 +1026,12 @@ If **`$FOXXYCODE_HOME/.env`** exists, it is read at startup **before** `config.y
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 TELEGRAM_BOT_TOKEN=8992982910:AAF...
+FOXXYCODE_HTTP_TOKEN=a-long-random-token       # bearer credential for API clients
+FOXXYCODE_HTTP_USER=pasha                      # web UI sign-in account...
+FOXXYCODE_HTTP_PASSWORD=correct-horse-battery-staple   # ...enables the form on its own
 ```
+
+`FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` are the one pair that is not referenced from `config.yaml` at all: the password is hashed as the server starts, the file never sees either value, and a save from the settings screen cannot write them into it. They win over an account in the file, and `httpserver.login.enable: false` switches the form off with them still set.
 
 Then in `config.yaml` reference them as usual:
 
@@ -1920,10 +1950,16 @@ Top to bottom:
   markdown (headings, bold/italic, inline code, ``` fences with borders,
   `│ ` quotes, lists, box-drawing tables, OSC 8 links); italic gray thinking
   blocks (collapse with `ctrl+t`); tool calls as background-tinted boxes
-  (pending → success green tint / error red tint) with a bold title
-  (`read <path>`, `$ command`), preview capped at 10 lines, and
-  `... (ctrl+o to expand)` reading the full result from
-  `sessions/<id>/tool_calls/`.
+  (pending → success green tint / error red tint) with a bold title naming
+  what the call acts on (`read <path>`, `$ command`, `load_skill <skill>`,
+  `spawn_agent <subagent> · <task> · background · timeout 300s`, where each
+  part after the subagent appears only when the call passed it), preview
+  capped at 10 lines, and `... (ctrl+o to expand)` reading the full result
+  from `sessions/<id>/tool_calls/`. A `spawn_agent` box also carries the
+  delegation itself: under the title, in dim italic, the prompt the child
+  received, cut at the first of 10 written lines or 600 characters with
+  `... (ctrl+o for the whole prompt)`. The child's report lands below it as
+  the box body, so the task and the answer read as one block.
 - **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
   the current step while a turn runs - verb plus target plus elapsed counter
   (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
@@ -1967,12 +2003,19 @@ it; a second one ends the process the default way instead of being swallowed.
 
 ## Commands and keys
 
-Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
-`/hotkeys`, `/quit`; server-driven `/compact`, `/export`, `/plugin`, and every
-loaded skill (from the ACP available-commands catalog). Enter on a slash
-suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
+Slash commands: client-side `/model`, `/reasoning [level]`, `/mode`, `/resume`,
+`/new`, `/theme`, `/hotkeys`, `/quit`; server-driven `/compact`, `/export`,
+`/plugin`, and every loaded skill (from the ACP available-commands catalog).
+Enter on a slash suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/features/session-export.md`);
 under `--remote` the file lands on the server.
+
+`/reasoning` without an argument opens a selector with the active model's
+available levels; selecting a value persists that level on the session.
+`/reasoning <level>` immediately selects and persists that level instead.
+`shift+tab` cycles through the same levels and persists its selection in the
+same way. Models without reasoning levels report that reasoning is unavailable;
+an unsupported direct value reports the levels that can be selected.
 
 Agent self-configuration works as it does over ACP and HTTP: every turn
 offers the staged config tools (`config_get`, `config_set`,
@@ -1992,7 +2035,7 @@ offers the same tools; under `--remote` the server owns the reload.
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
 | ctrl+p / ctrl+shift+p | cycle configured models |
-| shift+tab | cycle reasoning level (models with `reasoning_levels`) |
+| shift+tab | cycle and persist the session reasoning level (models with `reasoning_levels`) |
 | ctrl+o | expand header hints + last tool output + last `!!` block |
 | ctrl+t | collapse/expand thinking blocks |
 | up / down | history at the first/last line; cursor movement otherwise |
@@ -2114,9 +2157,10 @@ profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
 server's session list (the local folder filter does not apply). The
 permission mode is governed by the remote server's configuration:
 `--permission-mode` and the `/permissions` option are rejected with a clear
-error. Reasoning-level cycling is unavailable remotely in v1. Sessions
-persist only on the server; the startup banner shows `remote: <url>` and the
-exit hint prints a reconnect command with `--remote` included.
+error. `/reasoning` and `shift+tab` persist the selected reasoning level on
+the server session. Sessions persist only on the server; the startup banner shows
+`remote: <url>` and the exit hint prints a reconnect command with `--remote`
+included.
 
 Subagents run on the remote host: the definitions, the trust receipts and the
 child sessions are the server's. Approve a project definition there (`foxxycode
@@ -2158,9 +2202,19 @@ process working directory, resolved like `foxxycode mcp`. Under
 `subagents.project_trust: deny` project files are not listed at all, and under
 `allow` they need no receipt.
 
-In the console a `spawn_agent` call shows as a tool box like any other, and the
-status line reads `Running subagent <name>` with its elapsed counter for as long
-as the child runs. A child's permission request, while its spawning turn is
+In the console a `spawn_agent` call shows as a tool box whose title names the
+subagent that took the task (`spawn_agent explore · find every caller`), with
+the prompt the child received rendered under it and the child's report added as
+the body when it comes back; the status line reads `Running subagent <name>`
+with its elapsed counter for as long as the child runs.
+
+![A delegated run in the console transcript](../assets/cli-tui/13-subagent-delegation.png)
+
+*A loaded skill and a delegated run: the box titles name the skill, and the
+subagent with the task and the timeout it was given; the dim italic block is
+the prompt the child received, and the child's report follows it*
+
+A child's permission request, while its spawning turn is
 still alive, opens the usual modal in the parent chat with the title prefixed
 `[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
 `-c` never picks one, and a prompt sent to one is refused with a message naming
@@ -2400,6 +2454,26 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - The **Settings form itself is not reloaded** by the event. It holds the operator's unsaved edits, and refetching under them would discard work; the **Reload** control in the form is the deliberate way to pick up an outside change.
 - Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one), **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client, and the model list read on it already carries the new model), and **`external/httpserver/events_http_test.go`** (the frame shape, the guard against announcing a swap that did not happen, and the slash-command list being fresh at the moment of the announcement).
 
+## Sign-in (`httpserver.login`)
+
+Off unless the server has an account, and a server without one renders exactly as it always did.
+
+![The sign-in screen of the web UI: a card with user and password fields on the dark theme](../assets/webui-sign-in-dark-1280.png)
+
+*The sign-in screen an anonymous browser gets when `httpserver.login` is configured.*
+
+- **What decides:** **`AuthGate`** (**`external/ui/src/ui/auth/AuthGate.tsx`**, wrapping **`<App/>`** in **`main.tsx`**) calls **`GET /foxxycode/auth/me`** once on boot. **`login_required`** without **`authenticated`** renders **`SignInScreen`** instead of the app; anything else renders the app. While the answer is outstanding it renders a bare **`.auth-boot`** ground rather than the app, so the transcript is never shown and then yanked away.
+- **A server that cannot answer** - a network error, or a **404** from a `foxxycode serve` built before this existed - is read as "no sign-in here", so an older server keeps working with a newer page.
+- **The screen** (**`SignInScreen.tsx`**, **`.auth-screen`** / **`.auth-shell`** / **`.auth-card`**) is the whole page, not a dialog over a blurred transcript: there is nothing behind it to look at. The wordmark sits above the card, centred and outside it; the card holds the title, user, password, one error line (**`role="alert"`**), and a submit button disabled until both fields are filled, with no explanatory line under the title. Every string is a dictionary key (**`auth.signIn.*`**), and the card uses theme tokens only, so all seven themes and both languages carry it.
+- **The wordmark** is the rectangular logo (**`docs/assets/foxxycode-logo-wordmark.svg`**, and **`-light.svg`** on the light theme, imported from there rather than through the **`src/assets`** symlinks), inlined into the bundle rather than fetched, so the screen paints in one request. Its alt text is localized (**`auth.signIn.logoAlt`**).
+- **After a successful sign-in** the page reloads: every list, stream and cached response on it was fetched by a browser with no session.
+- **A session that ends while the page is open** - expired, rotated, signed out in another tab - brings the screen back: the local-origin **`fetch`** shim reports a **401** from any **`/v1/*`** or **`/foxxycode/*`** call (the **`/foxxycode/auth/*`** routes excepted) and the gate re-reads the state.
+- **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), shown only while a form is configured and this browser has passed it; its tooltip names the account. It posts **`/foxxycode/auth/logout`** and reloads **only when the server actually dropped the session** - the cookie is HttpOnly, so a page that cleared its own state after a refusal would be signed straight back in by the reload and the button would look broken rather than refused.
+- **Editor panels and the desktop window never see it.** They run **`foxxycode http`**, which answers a direct loopback client **`login_required: false`**, **`authenticated: true`**, so the gate renders the app and the rail shows no sign-out entry.
+- **Remote environments are not gated here.** A remote is reached cross-origin with the bearer token from the environment selector, and a cookie of this origin would not travel with those calls; **`AuthGate`** passes straight through in remote mode.
+
+Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional). Visual contract: [DESIGN.md](../../DESIGN.md).
+
 ## Environment (local / remote server)
 
 - **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`+ Add remote…`**).
@@ -2552,6 +2626,26 @@ Session delete UX
 - If the deleted session is **not** the one currently shown in the main chat, remove it from the list (and refresh from the server) and **keep the History drawer open**. Do not change the URL or clear the transcript for the session that stayed on screen.
 - If the deleted session **is** the one currently shown, navigate to **new chat** (empty start screen, session hash cleared), **close** the History drawer, and clear composer-related state as for a normal home transition.
 - For a short interval after the user confirms delete, **ignore** shell **backdrop** pointer-driven close so a stray event from the native confirm does not dismiss History or alter the route.
+- Deleting more than one conversation at a time, and reading what each one cost, is **Settings -> Sessions** (below). History stays the place to *open* a session.
+
+## Settings: session management
+
+![The session management table with the open conversation protected](../assets/sessions-management-table-dark-1280.png)
+
+*The header tick took the page; the conversation that is open keeps its row, marked open and out of reach of the one delete button*
+
+**Settings -> Sessions** (**`#/settings/sessions_manager`**, **`SessionsManager.tsx`**, pure helpers in **`sessions/sessionManagerRows.ts`**) is the stored history as a table rather than a list to scroll. It is a client-side tab like Appearance: it reads and removes session bundles over **`/foxxycode/sessions`** and edits no config key, so it renders before the config schema has loaded. Its id is **`sessions_manager`** because **`sessions`** is already a config key - the storage directory, which stays in the **System** tab.
+
+- **Rows** come from **`GET /foxxycode/sessions?include_stats=true`**, 50 at a time with a **Load more** button. Each one shows the title with its **workspace** underneath, the **model** the session overrode (**`default`** when it never did, meaning whatever **`agent.model`** was at the time), the **message count**, the **total tokens** (input and output in the cell tooltip), and **created** / **updated** dates (the exact instant in the tooltip). A bundle stored before FoxxyCode recorded a creation stamp shows **—** rather than a date invented from a later save.
+- **Search** is the same **`q`** filter the History drawer uses - title or first user message, case insensitive - debounced as you type.
+- **In an editor panel the table lists the project History lists.** The toolbar carries the drawer's **This project only** toggle (**`sessions-manager-project-only`**, the same preference, so flipping it in either place flips both); while it is on, the list request and every delete carry the project root as **`cwd`**, and the server refuses to remove a stored session outside that folder. In a browser the toggle starts off, as it does in History, so the table lists every workspace until it is switched on.
+- **Deleting is one action**: a single trash icon beside the search field, at every width, which removes the **ticked** rows (**`POST /foxxycode/sessions/bulk-delete`** with their ids) behind the shared confirmation dialog. What it does is its **tooltip** and its accessible name, not a label on its face; the only text drawn on it is the **selection count** badge, which a tooltip cannot show at a glance. The scope of a delete is therefore always what the operator can see ticked - there is no second button that reaches further than the ticks.
+- **Emptying the page** is the header checkbox plus that one button. With more rows than a page holds, **Load more** first; the summary line under the table says how many are listed and how many are ticked.
+- The **conversation you have open is protected**: its row is highlighted and marked **open**, its tick box and its row trash are disabled with a tooltip saying why, and the header checkbox passes over it. The table cannot take the chat out from under you; close it or switch to another conversation first, then delete it from **History**.
+- The **selection follows what the table shows**: the header checkbox ticks and unticks the rendered rows, and a search that hides a ticked row takes its tick with it (clearing the search brings the row back unticked). A destructive action never reaches a row that is off screen, and a tick cannot reappear later because it survived out of sight.
+- A session that could not be removed - a turn of its tree was still running - is **reported** under the toolbar with its reason, and its row stays. The others are still gone: the request answers with **`deleted`** and **`failed`** separately.
+- The list **re-reads after every delete**; nothing is reloaded. If the conversation on screen behind the panel was one of the deleted ones, the chat resets to a new one and Settings stays open on this tab.
+- The table is the one horizontally scrollable element of the tab, so a narrow shell scrolls the columns instead of the page.
 
 ## Chat transport
 
@@ -2999,8 +3093,8 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 
 - `GET /foxxycode/mcp` backs the list: merged `config.yaml` + global `~/.foxxycode/mcp.json`
   + project `./.foxxycode/mcp.json` servers, each with `source` (`global` / `local`
-  scope badge), `origin` (`config` / `home` / `project` — drives the badge
-  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  scope badge), `origin` (`config` / `home` / `project`) and `source_path` (the
+  real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unknown transport type (amber, `unsupported`).
@@ -4102,6 +4196,8 @@ The same `remotes` list is what a server offers in its web UI's environment menu
 
 On the server, authentication is off until a token is set. `httpserver.auth_token` in `config.yaml` (with `${ENV}` expansion), `--auth-token` on `foxxycode serve`, or the `FOXXYCODE_HTTP_TOKEN` variable turn it on; then every `/v1/*` and `/foxxycode/*` route requires `Authorization: Bearer <token>` and answers `401` otherwise. The SPA shell and its static assets stay public so a browser can load the page and ask for the token; `/docs` and `/openapi.*` are protected unless `httpserver.public_docs: true`. `GET /foxxycode/config` never returns the token (it reports `auth_configured` only), and a token given by flag or environment survives a `PUT /foxxycode/config` hot reload without being written to the file. A server bound off loopback without a token logs a warning at startup unless `httpserver.allow_insecure: true`.
 
+A token is what an API client presents. A browser has no field to type one into, which is why a token alone leaves the web UI showing `Unauthorized (401)`; the sign-in form below is the browser's half of the same gate.
+
 On the client, the token comes from `--remote-token` or, when the flag is absent, from `FOXXYCODE_REMOTE_TOKEN`. It is deliberately never read from `config.yaml`, which is why `httpserver.remotes` has no token field. The web UI takes the token in its **+ Add remote...** form and keeps it in the browser only (`localStorage`, per remote).
 
 `foxxycode serve` has no TLS of its own, so a token sent to a non-loopback `http://` address travels in clear; the console and `foxxycode acp` print a warning when that is about to happen. Put a TLS-terminating reverse proxy in front of the server, or reach it through an SSH tunnel, which keeps the address on loopback:
@@ -4110,6 +4206,37 @@ On the client, the token comes from `--remote-token` or, when the flag is absent
 ssh -N -L 12345:127.0.0.1:12345 nas02   # in one terminal
 foxxycode --remote 127.0.0.1:12345          # in another
 ```
+
+## The sign-in form
+
+A `foxxycode serve` on a network is readable by everyone who finds the port: transcripts, tool output, the workspace browser, the configuration editor. `httpserver.login` closes it with one operator account, and the form is what a browser signs in at. It is off by default; a configuration that does not mention it behaves exactly as before.
+
+```bash
+foxxycode serve set-password --user pasha
+```
+
+The command asks for the password twice, writes an argon2id hash into `config.yaml` in place (comments and key order survive) and switches the form on. From then on an anonymous browser gets a sign-in screen instead of the app, and nothing under `/v1/*` or `/foxxycode/*` is readable until it passes. The page itself and its static assets stay public, so the screen can load; `/docs` follows `public_docs` as before.
+
+For a container or a systemd unit, the account can live in the environment instead, as `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` (typically in `$FOXXYCODE_HOME/.env`). They enable the form on their own, they win over an account in the file, and they are never written into it. An explicit `login.enabled: false` switches the form off with the variables still set.
+
+```yaml
+httpserver:
+  host: 0.0.0.0
+  auth_token: "${FOXXYCODE_HTTP_TOKEN}"   # for foxxycode --remote, foxxycode acp --remote, a relay, scripts
+  login:
+    enabled: true
+    user: "pasha"
+    password_hash: "$$argon2id$$v=19$$..."
+    session_ttl_hours: 720            # 0 = until the browser closes
+```
+
+**The two credentials are not interchangeable.** The form is for browsers; everything that is not a browser - `foxxycode --remote`, `foxxycode acp --remote`, a swarm relay mounting this node, the Python harnesses, Swagger's **Authorize** - still presents a bearer token. Closing a server with a password alone and no `auth_token` is what breaks those, and `foxxycode serve` says so in its log at startup. Set both when anything but a browser talks to the server.
+
+**The editor plugins and the desktop app are not asked.** They run `foxxycode http` on `127.0.0.1`, and that command lets a direct loopback client past the form - the peer and the `Host` it addressed are both loopback and no proxy header says the request was relayed - while no bearer token is configured. Their panels therefore keep working with the same `config.yaml`; a browser on another machine pointed at such a server still signs in. `foxxycode serve` makes no such exception.
+
+Signing in sets an `HttpOnly`, `SameSite=Strict` cookie that opens the same routes a token opens, streams included. Signing out (the entry at the bottom of the nav rail) drops the session on the server, so a copy of the cookie taken elsewhere stops working too. Sessions live in memory: saving settings from the page keeps them, restarting the process ends them, and rotating the password ends every session it opened. Full behaviour, including the CSRF rule for cookie-authenticated writes and the throttle on wrong passwords, is in [HTTP API](../reference/http-api.md#web-ui-sign-in-optional).
+
+`foxxycode serve` still has no TLS of its own, so a password typed into a non-loopback `http://` page travels in clear exactly as a token does. Put a TLS-terminating reverse proxy in front of it, or reach it through the SSH tunnel above.
 
 ## CORS for the web UI
 
@@ -4143,7 +4270,7 @@ Each remote shows a status dot probed on menu open with a cross-origin `GET /v1/
 | MCP servers, hooks, subagents and their trust receipts | permission and question prompts, answered through `POST /foxxycode/sessions/{id}/permission` and `.../question` |
 | the session bundles, the config file and the agent's self-configuration commits | cancel (`POST /foxxycode/sessions/{id}/cancel`), `ctrl+o` fetching full tool output |
 
-A session a remote console or ACP client creates lives in the server's default working directory (`foxxycode serve --cwd`, `FOXXYCODE_CWD`, else where the server was started); the remote console footer still shows the local folder. The web UI can move a session to another server-side folder from its folder chip. `/export` writes into the server's workspace. `/resume`, `-c` and `--session-id` operate on the server's session list, and the local folder filter does not apply. The permission mode is the server's: `--permission-mode` and the console's `/permissions` option are rejected with an error, while `/mode` still picks agent, plan or ask per turn. The startup banner shows `remote: <url>`, and the exit hint prints a reconnect command with `--remote` in it.
+A session a remote console or ACP client creates lives in the server's default working directory (`foxxycode serve --cwd`, `FOXXYCODE_CWD`, else where the server was started); the remote console footer still shows the local folder. The web UI can move a session to another server-side folder from its folder chip. `/export` writes into the server's workspace. `/resume`, `-c` and `--session-id` operate on the server's session list, and the local folder filter does not apply. The permission mode is the server's: `--permission-mode` and the console's `/permissions` option are rejected with an error, while `/mode` still picks agent, plan or ask per turn. The console's `/reasoning [level]` and `shift+tab` persist the selected reasoning level on the server session. The startup banner shows `remote: <url>`, and the exit hint prints a reconnect command with `--remote` in it.
 
 Trust decisions are the server's too. A project MCP server, hooks file or subagent definition is approved on that host, either with the CLI there (`foxxycode mcp trust`, `foxxycode hooks trust`, `foxxycode agents trust`) or over the API with the bearer token (`POST /foxxycode/mcp/{name}/trust`, `POST /foxxycode/hooks/trust`, `POST /foxxycode/subagents/{name}/trust`, each with the server-side workspace as `cwd`); the local subcommands do not take `--remote`. A subagent's permission prompt reaches the remote client under the parent session, prefixed `[subagent <name>]`, even when the server itself runs with `tools.permission_mode: bypass`. See [Subagents](../features/subagents.md#remote-mode).
 
@@ -4151,7 +4278,7 @@ Trust decisions are the server's too. A project MCP server, hooks file or subage
 
 - One bearer token per server, no users or roles: whoever holds it has the whole API, including the config editor and the workspace files.
 - No TLS inside `foxxycode serve`; encryption comes from a proxy or a tunnel.
-- Reasoning-level cycling is unavailable in the remote console; the permission mode cannot be changed from a remote client.
+- The permission mode cannot be changed from a remote client.
 - A dropped connection leaves the server turn, its children and any open prompt running; `/resume` shows the outcome once the turn ends, and an answer to a prompt the server has already withdrawn is ignored. Quitting the console mid-turn waits briefly for the cancel to reach the server.
 - A session is one turn at a time: a second client prompting the same session gets `409` while the first turn holds the lock.
 - The web UI reaches a remote only when that server lists the UI's origin in `cors.allowed_origins`; a red dot with a correct token usually means CORS.
@@ -4665,7 +4792,7 @@ Each policy takes `ask` (the default: parsed and listed, held until approved), `
 
 Your own files are not gated: `config.yaml`, `~/.foxxycode/mcp.json`, `~/.foxxycode/hooks.json` and `~/.foxxycode/agents` are operator-authored, and so is an MCP server an ACP client declares in `session/new`. `foxxycode acp` and `foxxycode serve` take `--mcp-project-trust ask|allow|deny` to set the MCP policy for one process, which is what a CI job or a container entrypoint uses instead of editing the file. Full detail: [MCP servers](../features/mcp.md#workspace-trust-for-project-local-servers), [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
 
-Rules and skills from a checkout are a different kind of content and carry no receipt: `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, nested `AGENTS.md` files and the skills under `${CWD}/.foxxycode/skills` are text that steers the model, loaded from the workspace as soon as a session opens there. They can ask the model to run something; they cannot run it themselves, so whatever they ask for still meets the mode, the permission gate and your hooks. Read a checkout's rules the way you read its build scripts. See [Rules](../features/rules.md) and [Skills](../features/skills.md).
+Rules and skills from a checkout are a different kind of content and carry no receipt: `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, nested `AGENTS.md` files and the skills under `${CWD}/.foxxycode/skills` are text that steers the model, loaded from the workspace as soon as a session opens there. (`~/.foxxycode/AGENTS.md`, `~/.foxxycode/DESIGN.md` and `~/.foxxycode/rules` are read the same way but arrive from nowhere: they are your own files, next to your `config.yaml`, and no `git clone` writes them.) They can ask the model to run something; they cannot run it themselves, so whatever they ask for still meets the mode, the permission gate and your hooks. Read a checkout's rules the way you read its build scripts. See [Rules](../features/rules.md) and [Skills](../features/skills.md).
 
 A session that finds a held hooks file records a notice, so you learn that hooks exist and are held rather than silently skipped:
 
@@ -4684,13 +4811,16 @@ A session that finds a held hooks file records a notice, so you learn that hooks
 
 `foxxycode serve` binds `127.0.0.1:12345` unless `httpserver.host` or `-H` says otherwise; `foxxycode http`, the command the IDE plugins launch (always with `-H 127.0.0.1`), binds `0.0.0.0` when started by hand without `-H`. Neither has a **login by default**: with the API reachable, anyone on the network holds every route, the config editor (`PUT /foxxycode/config`) and the workspace files included. Expose the port only on a network you trust, or:
 
-- set a bearer token - `httpserver.auth_token` (`${ENV}` expanded), `--auth-token`, or `FOXXYCODE_HTTP_TOKEN`; every `/v1/*` and `/foxxycode/*` route then answers `401` without `Authorization: Bearer`, the SPA shell stays public, and `/docs` and `/openapi.*` are protected unless `httpserver.public_docs: true`. The local IDE routes `/foxxycode/ide/*` (editor and terminal state, the IDE event stream with file contents) stay public so the editor plugins keep working, so a server that is reachable from the network should not be the one an IDE panel uses;
+- set a bearer token - `httpserver.auth_token` (`${ENV}` expanded), `--auth-token`, or `FOXXYCODE_HTTP_TOKEN`; every `/v1/*` and `/foxxycode/*` route then answers `401` without `Authorization: Bearer`, the SPA shell stays public, and `/docs` and `/openapi.*` are protected unless `httpserver.public_docs: true`. The local IDE routes `/foxxycode/ide/*` (editor and terminal state, the IDE event stream with file contents) answer a direct loopback client without a credential - that is how the editor plugins call them - and ask everyone else for the token or a signed-in browser;
+- close the browser surface with an account - `foxxycode serve set-password`, or `FOXXYCODE_HTTP_USER` / `FOXXYCODE_HTTP_PASSWORD` in `$FOXXYCODE_HOME/.env`; a browser then signs in at a form and carries an `HttpOnly` cookie, which gates the same routes the token gates. A token is for API clients and the form is for browsers: set **both** when anything other than a browser talks to the server, because a password alone leaves `foxxycode --remote`, `foxxycode acp --remote`, a swarm relay and every script without a credential. On `foxxycode http`, which the editor plugins and the desktop app start, a direct loopback client counts as signed in while no token is set, so those panels keep working; `foxxycode serve` makes no such exception;
 - put a TLS-terminating reverse proxy in front, since the server speaks plain HTTP;
 - enable CORS (`httpserver.cors.enabled`, `allowed_origins`) only for the origins that need it; `"*"` still requires the token but lets any page try;
 - prefer the header over `?access_token=`, which only the two SSE routes accept and which reaches proxy access logs;
 - leave `httpserver.allow_insecure` unset: it silences the warning about a non-loopback bind without a token, and nothing else.
 
-The Docker image binds `0.0.0.0` inside the container, so the mapped port is reachable from wherever the host is; treat it like any admin API. Reference: [HTTP API](../reference/http-api.md#authentication--cors), [Remote mode](remote.md).
+The sign-in form stores an argon2id hash, never a plaintext password, and `GET /foxxycode/config` reports only that an account exists and where it came from. Wrong passwords are answered in constant time and progressively more slowly per source address, counted before they are judged so a burst pays the wait too, with loopback exempt so the machine cannot lock itself out - and behind a reverse proxy, where every request arrives from loopback, the forwarded client address is what the throttle counts. The session cookie is `HttpOnly` and `SameSite=Strict`, so no script reads it and no request another site caused carries it; on top of that a cookie-authenticated request that changes state is refused unless it came from this origin (`Sec-Fetch-Site` or `Origin`), while bearer requests are not subject to that check. Sessions are held in memory only, so restarting the process ends them, and rotating the password ends every session it opened.
+
+The Docker image binds `0.0.0.0` inside the container, so the mapped port is reachable from wherever the host is; treat it like any admin API. Reference: [HTTP API](../reference/http-api.md#authentication--cors), [Web UI sign-in](../reference/http-api.md#web-ui-sign-in-optional), [Remote mode](remote.md).
 
 ## The Telegram gateway
 
@@ -4711,6 +4841,7 @@ A `PreToolUse` hook runs before the permission prompt on every matching call, wh
 ## Before exposing a server
 
 - a bearer token is set and reaches the process by environment or flag, not as a literal in the file;
+- the browser surface has an account (`foxxycode serve set-password`, or `FOXXYCODE_HTTP_USER` / `FOXXYCODE_HTTP_PASSWORD`), so a page that finds the port is asked who it is;
 - TLS terminates in front of the server, or clients come in over a tunnel;
 - `httpserver.cors.allowed_origins` names only the origins that need it;
 - `mcp.project_trust`, `hooks.project_trust` and `subagents.project_trust` are `ask` or `deny` for checkouts you do not control;
@@ -5029,13 +5160,18 @@ foxxycode sessions export <session-id> [--format md|html|json|jsonl] [--out <pat
 - Unit tests: `internal/session/filesystem_test.go` (the bundle layout and listing), `internal/session/branches_test.go` (fork slicing and `branches.json` bookkeeping), `external/cli/continue_test.go` (`-c` resolution), and in the SPA `external/ui/src/ui/chat/BranchNavigator.test.tsx`, `branchInject.test.ts` and `resolveLatestLeaf.test.ts`.
 
 
-# Features / Rules
+# Features / Rules and instructions
 
 Source: https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/features/rules.md
 
-# Project rules
+# Rules and instructions
 
-FoxxyCode discovers project rules from the session working directory and injects them into the system prompt via **`{{.Rules}}`**, separate from skills (**`{{.Skills}}`**).
+FoxxyCode reads standing instructions from two places and injects them into the system prompt, separate from skills (**`{{.Skills}}`**).
+
+- The **workspace**: the rule folders of the session working directory and its `AGENTS.md`, which travel with the checkout and apply to whoever opens it;
+- your **agent home** (`~/.foxxycode`): `AGENTS.md`, `DESIGN.md` and `rules/` next to `config.yaml`, which belong to the person running FoxxyCode and apply in every workspace.
+
+Nothing has to be configured for either: both `AGENTS.md` files and every rule folder reach the model through **`{{.Rules}}`**, yours first. **`{{.Instructions}}`** carries whatever else `instructions.files` names.
 
 ## Prompt order
 
@@ -5055,16 +5191,17 @@ When `rules.auto_discover` is true (default), FoxxyCode scans:
 
 | System | Path | Notes |
 |--------|------|-------|
+| `user` | `~/.foxxycode/rules/` | **Yours**, not the project's: read in every workspace, never part of a checkout. Lowest precedence, so a project file of the same name overrides it |
 | `foxxycode` | `.foxxyrules` / `.foxyrules` (single file **or** directory), and `.foxxycode/rules/` | FoxxyCode's own roots; the top-level single file is described below |
 | `agents-dir` | `.agents/rules/` | The tool-neutral `.agents/` tree, next to `.agents/skills`: rules meant for every agent that works on the project |
 | `cursor` | `.cursor/rules/` | |
 | `claude` | `.claude/rules/` | |
 | `codex` | `.codex/rules/` | Markdown only in v1; Codex's own `*.rules` policy files are not prompt rules |
-| `agents` | nested `**/AGENTS.md` | [agents.md](https://agents.md/) convention; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
+| `agents` | nested `**/AGENTS.md` and `**/DESIGN.md` | [agents.md](https://agents.md/) convention, plus the design note beside it; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
 
-Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **foxxycode > agents-dir > cursor > claude > codex > agents**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.foxxycode/rules/` overrides everything. Nested `AGENTS.md` files are keyed by full path, so they never collapse into each other.
+Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **foxxycode > agents-dir > cursor > claude > codex > agents > user**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.foxxycode/rules/` overrides everything. Nested documents are keyed by full path, so they never collapse into each other.
 
-Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every `AGENTS.md` on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md`, and `a/b/c/AGENTS.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
+Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in, and a `DESIGN.md` beside one is read with it - a folder that describes itself is read whichever of the two it wrote, the same pair the workspace root and the agent home are read for. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every such document on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md` and `a/b/c/AGENTS.md`, plus whichever of those folders also has a `DESIGN.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
 
 This is what keeps a repo with vendored sibling checkouts usable — 45 nested files loaded unconditionally cost ~131k tokens of system prompt before the first question — and what keeps a session anchored on a home directory from stalling: a walk over `~` (a macOS home carries hundreds of thousands of entries under `~/Library` alone, read cold and behind folder-access prompts) once held the console before its first frame. Bodies over 256 KB are truncated, as with the project docs preamble.
 
@@ -5078,7 +5215,7 @@ Cline-style top-level project rules. Each root is accepted as **either** a singl
 - **Directory** (`.foxxyrules/*.md`) loads its markdown files like the `.foxxycode/rules/` catalog.
 - `.foxyrules` (one `x`) is an exact alias of `.foxxyrules`. Both count as the **FoxxyCode** source and win basename ties over cursor/claude/codex/agents.
 
-CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
+CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
 
 ## Rule file formats
 
@@ -5140,20 +5277,58 @@ Rule files already on disk may change mode after this release; `foxxycode rules 
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
-| Nested `AGENTS.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every `AGENTS.md` on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
+| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every such document on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
 
 Mention-only rules use **`@name`** (file stem). They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
 ## Project docs preamble
 
-On every turn, if present in session CWD:
+Two directories describe themselves the same way, with the same pair of files, and both are read on every turn when present - yours first, so the operator speaks before the checkout:
 
-- **`AGENTS.md`** (subsection `### AGENTS.md`)
-- **`DESIGN.md`** (subsection `### DESIGN.md`)
+- **`~/.foxxycode/AGENTS.md`**, then **`~/.foxxycode/DESIGN.md`** - the agent home
+- **`AGENTS.md`**, then **`DESIGN.md`** - the session CWD
 
-These are unconditional; they do not use `alwaysApply` or `@mention`.
+Whichever of the four exists is read; a home with only a `DESIGN.md` contributes that one and nothing else.
 
-They enter the prompt **once**. `instructions.files` (default `["AGENTS.md"]`) does not repeat a file this preamble already carries, so the default entry adds no second copy under **Project instructions**; other files in that list still load there. Files are compared on disk, not by name: `./AGENTS.md`, a differently cased name on a case-insensitive volume, and a link such as `CLAUDE.md` → `AGENTS.md` all count as the same file. The context breakdown counts both docs under `rules`.
+These are unconditional; they do not use `alwaysApply` or `@mention`, and none of them is named in `config.yaml`. A file that enters the prompt here is not sent a second time as an instruction file, so the default `instructions.files` can name `AGENTS.md` without paying for it twice.
+
+## Your own instructions and rules
+
+A checkout describes itself: how it is built, what its conventions are, which commands are dangerous *in it*. What you want from every session - the language to answer in, the style you carry between projects, the commands you never want run - is not the project's business and does not belong in its files. Those live in your agent home, `~/.foxxycode`, and are read in every workspace:
+
+| File | Reaches the prompt as | Read when |
+|------|-----------------------|-----------|
+| `~/.foxxycode/AGENTS.md`, `~/.foxxycode/DESIGN.md` | **`{{.Rules}}`**, the first preamble sections, above the project's own pair | every turn, in every workspace |
+| `~/.foxxycode/rules/*.md`, `*.mdc` | **`{{.Rules}}`**, like any project rule | per their own frontmatter (always on, glob-gated or `@mention`) |
+
+Nothing is configured for either. Writing the file is the switch, deleting it is the off switch, and no key in `config.yaml` mentions them:
+
+```bash
+mkdir -p ~/.foxxycode/rules
+$EDITOR ~/.foxxycode/AGENTS.md
+```
+
+Your pair is read first, so what you want is in front of the model before the checkout starts describing itself, and the project's own `AGENTS.md` and `DESIGN.md` follow below - they join, neither replaces the other. Write one of the two or both; the file that is not there costs nothing.
+
+Your rules are ordinary rule files and follow the same dialects, globs and activation modes as a project's - a `go.mdc` with `globs: **/*.go` under `~/.foxxycode/rules/` waits for a Go file in whichever project the session opened, because globs are anchored at the workspace, not at the folder the rule came from. `foxxycode rules list` shows them with source `user`, and names the folder under the table. The project still has the last word: when a project file and one of yours share a file name, the project's wins.
+
+Nothing here is trusted differently from a project file: both are text that steers the model, and neither can run anything by itself (see [Security](../operate/security.md)). The difference is who wrote it - your own folder needs no trust receipt because nothing arrives in it with a `git clone`.
+
+### More instruction files
+
+`instructions.files` names what else a session reads into **`{{.Instructions}}`**, on top of the preamble above. It defaults to `["AGENTS.md", "DESIGN.md"]` - the workspace's own pair, which the preamble already carries, so out of the box that block is empty - and a team or a machine can add its own:
+
+```yaml
+instructions:
+  files:
+    - "AGENTS.md"                   # the project's own, relative to the workspace
+    - "DESIGN.md"
+    - "/srv/agents/house-style.md"  # an absolute path, shared by a fleet
+    - "${CWD}/docs/conventions.md"  # this workspace
+    - "${FOXXYCODE_HOME}/team.md"       # next to your config.yaml
+```
+
+A leading `~` expands, and so do the two placeholders the config understands: `${FOXXYCODE_HOME}` is the agent home (`~/.foxxycode`) and `${CWD}` the workspace of the session reading the file. An absolute entry is read as it stands and a relative one resolves against the session working directory. Files are read in the order listed, and one that does not exist is silently skipped - which is how a single list can serve workspaces that do not all carry the same files. A file the preamble already carries is not read twice, and neither is a file named twice in the list. Files are compared on disk, not by name: `./AGENTS.md`, a differently cased name on a case-insensitive volume, a hard link and a link such as `CLAUDE.md` → `AGENTS.md` all count as the same file. The context breakdown counts the preamble docs under `rules`.
 
 ## Generating rules
 
@@ -5168,9 +5343,18 @@ After each agent turn, FoxxyCode estimates tokens per category (`systemPrompt`, 
 ## Configuration
 
 ```yaml
+instructions:
+  # Read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and ~ expand;
+  # an absolute entry is read as it stands, a relative one resolves against the
+  # session working directory. This is the default; the agent home's own
+  # AGENTS.md and DESIGN.md need no entry, the preamble reads them.
+  files:
+    - "AGENTS.md"
+    - "DESIGN.md"
+
 rules:
   auto_discover: true
-  systems: []   # optional filter: foxxycode, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional filter: user, foxxycode, agents-dir, cursor, claude, codex, agents
 ```
 
 ## References
@@ -5178,8 +5362,9 @@ rules:
 - [Cursor Rules](https://cursor.com/docs/rules)
 - [Claude `.claude/rules`](https://code.claude.com/docs/en/memory#organize-rules-with-clauderules)
 - [Codex Rules](https://developers.openai.com/codex/rules)
-- Implementation: `internal/rules/*` (dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
-- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`
+- Implementation: `internal/rules/*` (roots in `factory.go`, dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), instruction files in `internal/session/instructions_load.go`, wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
+- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`, `features/global_instructions.feature`
+- End-to-end against a real model: `examples/cli/cli_e2e_rules.py` (a project glob rule through the console) and `examples/cli/cli_e2e_global_instructions.py` (an `AGENTS.md` and a rule in an isolated `FOXXYCODE_HOME`, a workspace with nothing in it)
 
 
 # Features / Skills
@@ -6145,8 +6330,9 @@ The agent supports connecting to external MCP (Model Context Protocol) servers, 
 additional tools and resources. MCP servers can be configured at these levels:
 
 1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
-   `~/.foxxycode/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`), connected for every
-   session; entries in `~/.foxxycode/mcp.json` override same-named `config.yaml` entries
+   `~/.foxxycode/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`; in the agent home,
+   so elsewhere if `FOXXYCODE_HOME` or `--home` moved it), connected for every
+   session; entries in that file override same-named `config.yaml` entries
 2. **Local** (scope `local`) - `<workspace>/.foxxycode/mcp.json`, merged over the global list for
    sessions in that workspace; a local entry with the same name overrides the global definition
 3. **Per-session** - provided by the ACP client in `session/new` parameters
@@ -7287,6 +7473,7 @@ Usage:
   foxxycode serve [flags]                  # every enabled subsystem in one process
   foxxycode serve -d | --daemon [flags]    # the same, in the background under a dispatcher
   foxxycode serve status | stop | restart [--home DIR]
+  foxxycode serve set-password [--user NAME] [--config PATH] [--home DIR]  # write the web UI sign-in account into config.yaml
   foxxycode mcp list [--cwd DIR]
   foxxycode mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   foxxycode mcp untrust <name> [--cwd DIR]
@@ -7732,11 +7919,11 @@ Override the built-in system prompt templates (Go text/template).
 
 ### `instructions`
 
-Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The root AGENTS.md and DESIGN.md already enter it through the rules block, so listing them adds no second copy.
+Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here; a file the rules block already carries, such as the root AGENTS.md or DESIGN.md, adds no second copy when it is listed. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `instructions.files` | list of strings | ["AGENTS.md"] | Filenames relative to the session CWD. |
+| `instructions.files` | list of strings | ["AGENTS.md","DESIGN.md"] | Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. |
 
 ### `skills`
 
@@ -7750,12 +7937,12 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested **/AGENTS.md under the session CWD; .mdc files are read as Cursor rules and .md files as Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
+Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `rules.auto_discover` | boolean | true | Scan the session CWD rule roots automatically. |
-| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all. |
+| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. |
 
 ### `mcp_servers`
 
@@ -7918,6 +8105,12 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 | `httpserver.host` | string | "" | Default bind address when foxxycode http does not pass -H/--host. Empty falls back to 0.0.0.0. |
 | `httpserver.port` | integer | 0 | Default listen port when foxxycode http does not pass -P/--port. 0 falls back to 12345. |
 | `httpserver.auth_token` | string | "" | Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md. |
+| `httpserver.login` | object |  | Optional password sign-in for the browser, so a server on a network is not readable by everyone who finds the port. Off unless an account exists here or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD. API clients keep using auth_token. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md. |
+| `httpserver.login.enabled` | boolean |  | Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set. |
+| `httpserver.login.mode` | string, one of `password` | password | How a browser authenticates. Only "password" is implemented; the key exists so a trusted-proxy mode can be added without moving your configuration. |
+| `httpserver.login.user` | string | "" | Account name for the sign-in form. Supports "${ENV}" references, e.g. "${FOXXYCODE_HTTP_USER}". |
+| `httpserver.login.password_hash` | string | "" | argon2id hash of the password in PHC form ("$argon2id$v=19$m=...$..."), written by `foxxycode serve set-password`. Never echoed back by GET /foxxycode/config, and a save from the settings screen preserves it. Put a plaintext password in FOXXYCODE_HTTP_PASSWORD instead of here. |
+| `httpserver.login.session_ttl_hours` | integer | 0 | How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session. |
 | `httpserver.public_docs` | boolean | false | Keep /docs and /openapi.* reachable without a token even when auth is enabled. |
 | `httpserver.stream_tickets_only` | boolean | false | Refuse the durable auth token in ?access_token= on the SSE routes, so an EventSource must first mint a single-use ticket via POST /foxxycode/stream-tickets. Keeps the lasting credential out of access logs, proxy logs and browser history; breaks clients that pass the token in the URL. |
 | `httpserver.allow_insecure` | boolean | false | Silence the startup warning about a non-loopback bind without authentication. |
@@ -8151,7 +8344,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 
 ### `instructions`
 
-Project instruction files (`config.Instructions`, `internal/config/instructions.go`).
+Instruction files appended to the prompt (`config.Instructions`, `internal/config/instructions.go`). The default list is the operator's own `${FOXXYCODE_HOME}/AGENTS.md`, read in every workspace, followed by the project's `AGENTS.md`; writing a list replaces it. See [rules.md](../features/rules.md#your-own-instructions-and-rules).
 
 ### `skills`
 
@@ -8159,7 +8352,7 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 
 ### `rules`
 
-Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules.md](../features/rules.md).
+Rules discovery (`config.Rules`, `internal/config/rules.go`), from the workspace folders and from the operator's own `${FOXXYCODE_HOME}/rules`. See [rules.md](../features/rules.md).
 
 ### `mcp_servers`
 
@@ -8174,12 +8367,12 @@ mcp_servers:
 ```
 
 Servers can also be declared in Cursor-compatible mcp.json files: the user-global
-`~/.foxxycode/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
-`mcp_servers` list it forms the "global" scope) and the project-local
-`<workspace>/.foxxycode/mcp.json` ("local" scope). Each file holds a single
+`${FOXXYCODE_HOME}/mcp.json` (`~/.foxxycode/mcp.json` by default, like Cursor's
+`~/.cursor/mcp.json`; together with this `mcp_servers` list it forms the "global"
+scope) and the project-local `<workspace>/.foxxycode/mcp.json` ("local" scope). Each file holds a single
 `mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
 per-tool switches use `disabledTools`). Later levels override earlier ones by
-name: `mcp_servers` < `~/.foxxycode/mcp.json` < `./.foxxycode/mcp.json`. Entries from the
+name: `mcp_servers` < `${FOXXYCODE_HOME}/mcp.json` < `./.foxxycode/mcp.json`. Entries from the
 project-local file need a workspace approval before they are started - see
 [`mcp`](#mcp) and `docs/features/mcp.md`.
 
@@ -8363,6 +8556,8 @@ A provider's key is resolved in this order: the literal `api_key`, the stdout of
 | Variable | Read by | Meaning | Documented in |
 |---|---|---|---|
 | `FOXXYCODE_HTTP_TOKEN` | `cmd/foxxycode/serve.go` | The bearer token `foxxycode serve` requires on `/v1/*` and `/foxxycode/*` when `--auth-token` is absent; `httpserver.auth_token` comes after both. A token from the flag or the environment survives a hot reload without being written to the file. | [Remote mode](../operate/remote.md#the-token), [HTTP API](../reference/http-api.md#authentication--cors) |
+| `FOXXYCODE_HTTP_USER` | `external/httpserver/serve.go` | The account name of the web UI sign-in form. With `FOXXYCODE_HTTP_PASSWORD` it enables the form on its own, the way `FOXXYCODE_HTTP_TOKEN` enables the bearer gate, and wins over `httpserver.login.user` in the file. An explicit `httpserver.login.enabled: false` still switches the form off. `foxxycode http` reads it too. | [Remote mode](../operate/remote.md#the-sign-in-form), [HTTP API](../reference/http-api.md#web-ui-sign-in-optional) |
+| `FOXXYCODE_HTTP_PASSWORD` | `external/httpserver/serve.go` | The password behind `FOXXYCODE_HTTP_USER`, in plaintext. It is hashed with argon2id as the server starts and never written into `config.yaml`, which is why `$FOXXYCODE_HOME/.env` is its natural home. There is no flag for it: a password on a command line is visible in `ps`. | [Remote mode](../operate/remote.md#the-sign-in-form), [HTTP API](../reference/http-api.md#web-ui-sign-in-optional) |
 | `FOXXYCODE_REMOTE_TOKEN` | `internal/remote/resolve.go` | The token the console and `foxxycode acp` send with `--remote` when `--remote-token` is absent. Never read from `config.yaml`. | [Remote mode](../operate/remote.md#the-token) |
 | `FOXXYCODE_SWARM_TOKEN` | `external/swarm/serve.go`, read in `cmd/foxxycode/serve.go` | The bearer token clients present to the relay when `--swarm-auth-token` is absent; `swarm.auth_token` comes after both. | [Swarm](../operate/swarm.md#security), [config.yaml reference](../reference/config.md#related-environment-variables) |
 | `FOXXYCODE_SWARM_PAIRING_TOKEN` | `external/swarm/serve.go`, read in `cmd/foxxycode/serve.go` | The credential a node presents to register when `--swarm-pairing-token` is absent; appended to `swarm.pairing_tokens` on every reload. | [Swarm](../operate/swarm.md#security), [config.yaml reference](../reference/config.md#related-environment-variables) |
@@ -8442,6 +8637,7 @@ The built-in commands on each surface and how skills become commands. A slash co
 | Command | Surfaces | What it does | Details |
 |---|---|---|---|
 | `/model [id]` | console; Telegram | Console: opens the model selector, or switches directly when a configured model id follows (`external/cli/slash.go`). Telegram: an inline keyboard over the configured `models`. | [Console](../surfaces/console.md#commands-and-keys), [Telegram gateway](../surfaces/gateway.md#commands) |
+| `/reasoning [level]` | console | Opens a selector over the reasoning levels of the active model, or selects the named level directly; the choice is stored on the session (on the server's session under `--remote`). A model without levels says reasoning is unavailable, and an unknown level is answered with the valid ones (`external/cli/slash.go`). | [Console](../surfaces/console.md#commands-and-keys) |
 | `/mode [agent\|plan\|docs\|ask\|debug]` | console; Telegram | Console: opens the mode selector, or switches directly when a valid mode follows. Telegram: an inline keyboard. | [Operating modes](../features/modes.md#switching-on-each-surface) |
 | `/resume` | console | Picker over the sessions of the current folder; the chosen one replaces the current session. | [Sessions](../features/sessions.md#resuming) |
 | `/new` | console | Starts a new session in the same folder. | [Console](../surfaces/console.md#commands-and-keys) |
@@ -8467,7 +8663,7 @@ Three boundaries follow from the code:
 
 | Surface | Source of the list | Notes |
 |---|---|---|
-| Console | A fixed client-side list (`model`, `mode`, `resume`, `new`, `theme`, `hotkeys`, `usage`, `quit`) merged with the rows the server advertises through the ACP `available_commands_update` notification (`slashCatalog` in `external/cli/app.go`). | Typing `/` opens the suggestion menu; Enter on a suggestion applies it and submits in one stroke. |
+| Console | A fixed client-side list (`model`, `reasoning`, `mode`, `resume`, `new`, `theme`, `hotkeys`, `usage`, `quit`) merged with the rows the server advertises through the ACP `available_commands_update` notification (`slashCatalog` in `external/cli/app.go`). | Typing `/` opens the suggestion menu; Enter on a suggestion applies it and submits in one stroke. |
 | Web UI | Two groups in the composer: the built-ins from `GET /foxxycode/commands`, loaded once when the composer mounts, and the skills from `GET /foxxycode/slash-commands`, paged and filtered by `prefix`, scoped to the session workspace through `X-FoxxyCode-Session-ID`. | Both lists are re-read when the server announces a configuration reload (`event: config_reloaded` on `GET /foxxycode/events`), so a skill installed by `/plugin` shows up without a page reload. Picking a row inserts the plain `/name` token and nothing else. |
 | ACP editors | `available_commands_update` after `session/new` and `session/load`: the built-ins first, then the skills sorted by name; rows carry `name` (without the slash) and `description` only. | The same function, `skills.BuiltinCommands` in `internal/skills/slash.go`, feeds the HTTP endpoint and the notification, so the two never disagree: `compact` only while compaction is enabled, `export` and `plugin` always. |
 | Telegram | `start`, `help`, `mode`, `model`, `context` and `clear`, registered with `setMyCommands` at startup. | They appear in the client's command menu; nothing else is offered. |
@@ -8525,7 +8721,7 @@ Keys are parsed into the `ctrl+x` / `shift+enter` / `alt+backspace` notation of 
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
 | ctrl+p / ctrl+shift+p | cycle the configured models forward / backward |
-| shift+tab | cycle the reasoning level (models with `reasoning_levels`) |
+| shift+tab | cycle the reasoning level and store it on the session, as `/reasoning` does (models with `reasoning_levels`) |
 | ctrl+o | expand the header hints, the last tool output and the last `!!` block |
 | ctrl+t | collapse or expand thinking blocks |
 | up / down | prompt history on the first / last line of the draft; cursor movement otherwise |
@@ -8794,7 +8990,7 @@ Specs are regenerated on each request so they stay aligned with handlers.
 - **`GET /openapi.yaml`** - OpenAPI 3.0 (YAML); **`GET /openapi.json`** mirrors it in JSON (both **`Content-Disposition: inline`**).
 - **`GET /docs/`** - Swagger UI (static assets bundled in the binary, no CDN). **`GET /docs`** redirects to **`/docs/`**.
 
-No authentication is enforced. Run behind appropriate network controls.
+Swagger UI and the spec follow the API's authentication unless `httpserver.public_docs: true` ([Authentication & CORS](#authentication--cors)).
 
 ## Embedded web UI (**`-tags=http,ui`**)
 
@@ -8816,10 +9012,10 @@ No authentication is enforced. Run behind appropriate network controls.
 | GET | `/openapi.yaml`, `/openapi.json` | Spec. |
 | GET | `/docs`, `/docs/` | Swagger UI. |
 | GET | `/v1/models` | Merged list: **`agent`**, **`plan`**, **`docs`**, **`ask`**, **`debug`** (each **`owned_by`**: **`foxxycode`**), then every YAML **`models[].model`** row (**`id`** is the selector; **`owned_by`** is the provider prefix). Ordering is **`agent`**, **`plan`**, **`docs`**, **`ask`**, **`debug`**, then **`models`** in configuration order. The JSON object also includes optional **`default_agent_model`**. Model rows carry **`max_context_tokens`**, **`multimodal`**, optional **`reasoning_levels`**, and optional **`reasoning_default`**. Codex-backed models report **`none`** where their model id would normally imply **`minimal`**, because the Codex backend rejects that tier. |
-| POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**). **`409`** when another **agent**, **plan**, **docs**, **ask**, or **debug** turn already holds the session turn lock (exclusive per persisted bundle); the body carries **`error.code: "session_busy"`** plus **`error.sessionId`** and **`error.turnActive: true`** so a client can re-attach to the running turn via **`GET /foxxycode/sessions/{id}/composer-stream`** instead of dropping the request. With **`stream: true`** the request first waits up to **3s** for the lock, so a send issued right after **`POST /foxxycode/sessions/{id}/cancel`** is accepted while the cancelled turn finishes unwinding instead of being refused. Every **agent** / **plan** / **docs** / **ask** / **debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it over **`GET /foxxycode/sessions/{id}/composer-stream`**; with **`stream: false`** the response body is unchanged. **`409`** also when **`X-FoxxyCode-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
+| POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**), optional **`stream_options.include_usage`**. With **`stream: true`** the body is the strict OpenAI **`chat.completion.chunk`** stream described under [Two stream dialects](#two-stream-dialects). **`409`** when another **agent**, **plan**, **docs**, **ask**, or **debug** turn already holds the session turn lock (exclusive per persisted bundle); the body carries **`error.code: "session_busy"`** plus **`error.sessionId`** and **`error.turnActive: true`** so a client can re-attach to the running turn via **`GET /foxxycode/sessions/{id}/composer-stream`** instead of dropping the request. With **`stream: true`** the request first waits up to **3s** for the lock, so a send issued right after **`POST /foxxycode/sessions/{id}/cancel`** is accepted while the cancelled turn finishes unwinding instead of being refused. Every **agent** / **plan** / **docs** / **ask** / **debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it over **`GET /foxxycode/sessions/{id}/composer-stream`**; with **`stream: false`** the response body is unchanged. **`409`** also when **`X-FoxxyCode-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
 | POST | **`/v1/responses`** | **`model`**, **`input`**, optional **`stream`**, optional **`attachments`** ( **`path`** workspace-relative under session cwd, **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** only; file bodies are hydrated as text — a file stored in another detected encoding, such as Windows-1251, is converted to UTF-8; server rejects traversal, oversized, non-text (binary or undetectable encoding), and folder **`path`**; optional **`source.startLine`** / **`source.endLine`** narrow a file to a 1-based inclusive line range that the model sees as **`lines="N-M"`**, and a range the file cannot honour is a **`400`**), optional **`inline_files`** (array of **`{name, data_url}`**; **`data_url`** is a `data:<mime>;base64,...` URI; accepted for all modes **only when the effective YAML model has `multimodal: true`** — entries for a non-multimodal model are ignored and never forwarded to its provider). For **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`**: each file is saved to the session **`assets/`** directory (`~/.foxxycode/sessions/<id>/assets/`) with **`0o444`** (read-only) permissions; the model receives a `<foxxycode_session_assets>` annotation in the user message so it can `read` or `cp` the files without re-transmitting their bytes over the API. For direct YAML model: each entry becomes an image content part on the user message so multimodal models receive the file inline; it is persisted to the same **`assets/`** directory. Every decodable image also gets a bounded PNG thumbnail under **`assets/thumbnails/`**, which the transcript exposes as **`files[].preview_url`**. **`input`** remains the full composer text including **`@path`** echoes. Keeps history between turns when using headers. **`409`** when another **agent**, **plan**, **docs**, **ask**, or **debug** turn already holds the session turn lock; same **`error.code: "session_busy"`** / **`error.sessionId`** / **`error.turnActive`** envelope and the same up-to-**3s** wait for the lock on **`stream: true`** as **`/v1/chat/completions`**. Every **agent** / **plan** / **docs** / **ask** / **debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it over **`GET /foxxycode/sessions/{id}/composer-stream`**; with **`stream: false`** the response body is unchanged. A **`stream: false`** turn is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so a turn on a YAML model with **`stream: false`** - silent on the wire until the whole answer is generated - is not dropped by an idle-timeout proxy. Note the two unrelated meanings of **`stream`**: this request field selects the response shape for the client, while **`models[].stream`** in **config.yaml** selects the transport FoxxyCode uses to reach the LLM. **`409`** also when **`X-FoxxyCode-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
 | GET | `/v1/responses/{id}` | Session metadata snapshot. |
-| GET | **`/foxxycode/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). Optional **`q`** substring filter (**case-insensitive**) over **`session.json` title OR the **first persisted `user`** message **`content`** in `messages.json` order (`system`, `assistant`, `tool`, etc. before that first `user` are ignored). **`q` is not full-text search** over the transcript. Pagination applies **after** filtering. Rows sort by **`session.json` `updatedAt`** (newest first), then **`id`** for stable ties; **`updatedAt`** moves forward on persistence (new turns, title pin, etc.), not when the server only loads a bundle to serve **GET** requests. **`include_scheduler=true`** includes session bundles created for **scheduler runs** (they set **`schedulerRun`** in **`session.json`** and are **omitted** from the default composer list). **`include_activity=true`** adds **`turnActive`**, **`activitySeq`**, **`readActivitySeq`**, and **`unreadComplete`** to each row for multi-tab UI. Optional **`cwd`** (absolute directory) keeps only sessions whose **`cwd`** is that directory or lies beneath it, compared as folders rather than strings (cleaned, symlinks resolved, case-insensitive on Windows and macOS); it is applied **before** **`q`** and pagination. The IntelliJ / VS Code plugins pass the open project root here so History lists that project only — a session running in a **linked worktree outside the project root** (for example under **`<home>/worktrees/<repo>`**) is excluded and needs the unscoped call. **`include_subagents=true`** includes child sessions spawned by **`spawn_agent`** (**`sub_`** ids with **`subagentRun`** in **`session.json`**, hidden by default); each such row carries **`subagent`** **`{parentSessionId, name, taskId}`** read from its bundle, and the default listing opens no child bundle. |
+| GET | **`/foxxycode/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). Optional **`q`** substring filter (**case-insensitive**) over **`session.json` title OR the **first persisted `user`** message **`content`** in `messages.json` order (`system`, `assistant`, `tool`, etc. before that first `user` are ignored). **`q` is not full-text search** over the transcript. Pagination applies **after** filtering. Rows sort by **`session.json` `updatedAt`** (newest first), then **`id`** for stable ties; **`updatedAt`** moves forward on persistence (new turns, title pin, etc.), not when the server only loads a bundle to serve **GET** requests. **`include_scheduler=true`** includes session bundles created for **scheduler runs** (they set **`schedulerRun`** in **`session.json`** and are **omitted** from the default composer list). **`include_activity=true`** adds **`turnActive`**, **`activitySeq`**, **`readActivitySeq`**, and **`unreadComplete`** to each row for multi-tab UI. **`include_stats=true`** adds what the session management table renders: **`messageCount`** (persisted transcript rows of every role), **`tokenUsage`** **`{inputTokens, outputTokens, totalTokens}`** read from the bundle's **`stats.json`** (zeroes for a session that never completed a model call), **`createdAt`** and **`model`**. **`createdAt`** is **omitted** for a bundle stored before the field existed - when a session was started is not recoverable and is not invented - and **`model`** is **omitted** for a session that never overrode **`agent.model`**, so a client shows those as unknown instead of as a value. The listing itself reads only each bundle's **`session.json`**; the message count and token usage are read for the rows of the returned page alone. Optional **`cwd`** (absolute directory) keeps only sessions whose **`cwd`** is that directory or lies beneath it, compared as folders rather than strings (cleaned, symlinks resolved, case-insensitive on Windows and macOS); it is applied **before** **`q`** and pagination. The IntelliJ / VS Code plugins pass the open project root here so History lists that project only — a session running in a **linked worktree outside the project root** (for example under **`<home>/worktrees/<repo>`**) is excluded and needs the unscoped call. **`include_subagents=true`** includes child sessions spawned by **`spawn_agent`** (**`sub_`** ids with **`subagentRun`** in **`session.json`**, hidden by default); each such row carries **`subagent`** **`{parentSessionId, name, taskId}`** read from its bundle, and the default listing opens no child bundle. |
 | POST | **`/foxxycode/describe`** | JSON **`{"text"}`** to get a short description phrase. |
 | POST | **`/foxxycode/enhance-prompt`** | JSON **`{"text"}`** — rewrites the user's draft prompt into a clearer, more specific one via a single direct LLM completion (no tools). The draft is treated only as source text to improve, never as a request to answer. Optional **`X-FoxxyCode-Session-ID`** selects the rewrite model: the session's effective model (same one the chat uses), falling back to **`agent.model`** and then the first configured **`models[]`** row. Unknown or invalid ids fall back silently and never create a session. JSON **`{"object":"foxxycode.enhance_prompt","text"}`**; **`400`** on blank text, **`502`**/**`503`** on LLM error/unavailability (including no model configured). The composer wand button (**`data-testid="composer-enhance-btn"`**) calls this and replaces the draft; **Ctrl+Z**/**⌘Z** restores the pre-enhance text, and failures surface in **`composer-enhance-err`** instead of silently doing nothing. |
 | GET | **`/foxxycode/slash-commands`** | Paginated slash commands derived from configured skills (**`page`**, **`page_size`** required). Optional **`prefix`** filters by **`name`** (case-insensitive). Optional **`X-FoxxyCode-Session-ID`** resolves **`${CWD}`** expansion for **`skills.dirs`** like other session-scoped lookups. JSON **`items[].name`** and **`items[].description`**, **`total`**, **`has_more`**. The deterministic built-in commands (**`/compact`** while compaction runs on the **`coddy`** engine, **`/export`**, **`/plugin`**) lead the catalogue, ahead of the skill rows, and **`prefix`** filters them like any row; **`/foxxycode/commands`** lists them on their own, the ACP available-commands update advertises them to editors, and they run without an LLM turn when sent as a prompt (e.g. **`POST /v1/responses`** with **`input:"/plugin marketplace list"`**). |
@@ -8914,6 +9110,7 @@ No authentication is enforced. Run behind appropriate network controls.
 | POST | **`/foxxycode/sessions/{id}/cancel`** | Best-effort cancel of an in-flight ReAct turn or streamed direct completion (**ACP `session/cancel`**). For persisted bundles, also writes a cross-process cancel marker so another **`foxxycode`** process holding the turn can stop cooperatively. When the LLM had already streamed assistant tokens, the agent **persists** that partial **`assistant`** row before ending the turn (**`StopReasonCancelled`**). Optional **`X-FoxxyCode-Session-ID`** must match **`{id}`** when present. **`404`** when no live or persisted bundle exists under that **`id`** (session store required for cold loads). |
 | POST | **`/foxxycode/sessions/{id}/compact`** | Summarize older session history on demand (coddy compaction engine). Optional JSON body **`{ "instructions": "…" }`** guides the summarizer. Forces compaction (folds whatever exists) and returns **`{ compacted, summary, compacted_messages, kept_messages, model }`**, or **`{ compacted: false, reason: "nothing_to_compact" }`** when there is no prior conversation. Equivalent to the built-in **`/compact`** prompt command. **`409`** when another agent turn holds the composer lock; **`400`** when compaction is disabled. A child session spawned by **`spawn_agent`** is a read-only transcript and answers **`409`** as well. |
 | DELETE | **`/foxxycode/sessions/{id}`** | Removes the entire persisted session directory (including `tool_calls/` and `stats.json`) plus in-memory MCP clients. The delete covers the session tree: every child session spawned by **`spawn_agent`** is removed with its parent. |
+| POST | **`/foxxycode/sessions/bulk-delete`** | Removes several session trees in one request, each with the semantics of **`DELETE /foxxycode/sessions/{id}`** (branch references retracted, background tasks and subagent children stopped, bundles removed deepest first). Body is either **`{"ids":[...]}`** (scope **`ids`**, the default) or **`{"scope":"all"}`** with an optional **`"except":[...]`** list of ids to keep. **`all`** is resolved **server side** against the default session listing (scheduler runs excluded, subagent children going with their parents), so it means the whole stored history rather than the page the client has loaded - which is what makes "delete everything but the conversation I am in" expressible at all. An **`except`** entry is a promise that the session survives, so it is checked **before anything is removed**: a malformed id, or one with no bundle on disk, is a **`400`** and nothing is deleted - a misspelt exception would otherwise turn *keep this one* into *delete everything*. Sparing a session spares its **ancestors** too, because the delete takes a whole tree: excepting a **`sub_`** child keeps the parent it hangs from (the listing names the parent, not the child). Optional **`"cwd"`** (absolute directory) confines the request to one workspace, compared like the **`cwd`** filter of **`GET /foxxycode/sessions`** (that directory or beneath it, as folders rather than strings): **`all`** removes only the sessions inside it, and an **`ids`** entry naming a stored session outside it - or one whose **`session.json`** cannot be read - refuses the whole request with a **`400`** before anything is removed. The IntelliJ / VS Code plugins run one server per project over a home every project shares, so the bundled session table sends the open project here whenever History's project scope is on. One id that cannot be removed does not abandon the rest: **`200`** **`{"object":"foxxycode.sessions_bulk_deleted","requested","deleted":[...],"failed":[{"id","error"}]}`** lists both, so a table drops the rows that went and keeps the others with their reason; a **`failed`** entry carries the retryable conflict verbatim and a generic **`delete failed`** for anything else, which is logged rather than returned. A duplicate id is deleted once (**`requested`** counts what was attempted), and an id with no bundle on disk counts as deleted, as the single-session route also answers **`200`** for it. **`400`** for a malformed body, an empty **`ids`** list, an unknown **`scope`**, an invalid session id, **`ids`** sent together with scope **`all`**, **`except`** sent beside an **`ids`** list, an **`except`** entry that names no stored session, a relative **`cwd`**, or an **`ids`** entry outside **`cwd`**. The bundled UI sends **`ids`** only - its session table deletes exactly the rows an operator ticked, and the conversation on screen is not one of them; **`scope: "all"`** is there for a client that wants the whole stored history without paging through it. |
 | GET/PUT | **`/foxxycode/sessions/{id}/plan`** | Read or overwrite todo **`entries`** (ACP shape). |
 | POST | **`/foxxycode/sessions/{id}/plan/archive`** | Archives active todos like **`foxxycode_todo_plan_archive`**. |
 | GET/POST | **`/foxxycode/sessions/{id}/plans`** | List or create design plan files **`plans/<slug>.plan.md`** (bundled UI; not core ACP). |
@@ -8922,6 +9119,12 @@ No authentication is enforced. Run behind appropriate network controls.
 | POST | **`/foxxycode/sessions/{id}/plans/{slug}/open-in-ide`** | **Show in IDE** on the plan card: broadcasts **`event: open_file`** on **`/foxxycode/ide/events`** so the IntelliJ / VS Code plugin opens the plan file in its own editor. The absolute path is resolved server-side from the session bundle (callers cannot name a file); a plan missing on disk is **404** and nothing is broadcast. JSON **`{"object":"foxxycode.ide_open_file","path","delivered"}`** where **`delivered`** reports whether an editor client was subscribed. |
 
 After **`PUT`** **`/foxxycode/config`**, the next **`agent`**, **`plan`**, **`docs`**, **`ask`**, or **`debug`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. **`mcp_servers`** changes are applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends. A reconnect that runs past the save's deadline leaves that session on the servers it already has and retries on its next turn, so one hanging server cannot strip the others.
+
+### Two stream dialects
+
+The two streaming endpoints carry the same turn in two shapes, chosen by who reads them. **`POST /v1/chat/completions`** with **`stream: true`** is the surface a third-party client points at (VS Code Copilot through `chatLanguageModels.json`, the openai SDKs, anything that parses `chat.completion.chunk` literally), so it is the strict OpenAI contract and nothing else: a first chunk with **`delta.role`** `assistant`; **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas, each choice with **`finish_reason: null`**; a final chunk whose **`finish_reason`** is **`stop`**, **`length`** when the turn ended on **`max_turns`** / **`max_tokens`**, or **`tool_calls`** when a direct model called one of the client's tools; with **`stream_options.include_usage: true`** one more chunk with an empty **`choices`** array and the turn's **`usage`** (**`prompt_tokens`**, **`completion_tokens`**, **`total_tokens`**, from the provider's own counters, zero when it reported none); then **`data: [DONE]`**. No named **`event:`** frame appears on it - such a client would read one as a chunk without choices - though each leaves an SSE comment in its place, so the connection stays as busy as the turn through a tool phase; a turn that produced no text still opens and finishes one choice, because a stream that never finishes a choice is what VS Code reports as "Response contained no choices." **`POST /v1/responses`** is foxxycode's own channel, read by the SPA, the remote console (**`--remote`**, **`foxxycode acp --remote`**) and the swarm relay: the same chunks plus every named event below, **`foxxycode_meta`** last.
+
+  A direct **`models[].model`** id on **`POST /v1/chat/completions`** is foxxycode standing in for the provider, and the client brings what it would bring to the provider. Its **`tools`** (OpenAI function tools) are offered to the model as they are; **`tool_choice`** `none` withholds them, and any other value leaves the choice to the model, because the providers take no forcing parameter. A call the model makes comes back as **`delta.tool_calls`** chunks on the stream - one chunk per call, arguments complete, **`index`** counting the calls - and as **`message.tool_calls`** on a JSON answer, with **`finish_reason`** **`tool_calls`**; the client runs the tool, replays the assistant message with its **`tool_calls`** and answers with a **`tool`** message under the **`tool_call_id`**, and that request may end on the tool message. Message **`content`** may be a string, `null` or an array of parts: **`text`** parts are joined, **`image_url`** parts (a data URL or an https address) reach a model whose **`models[].multimodal`** is true as images and are dropped for any other model, never flattened into text; they are accepted on user messages only, as at OpenAI, and refused with **`400`** on any other role, as are other part types. What a client may hand over is bounded: at most 128 tools, a tool's **`parameters`** up to 256 KiB, 16 images per message and 20 MiB per image URL string (a data URL carries the picture itself), past which the request is refused with **`400`**; an https image address is handed to the provider as it is, foxxycode never fetches it. A JSON answer made of tool calls has **`content`** `null`, as OpenAI renders it. The **agent** / **plan** / **ask** profiles run foxxycode's own tools and never read the client's, and take no trailing **`tool`** message, though the pictures of the last user message reach a multimodal profile model. An **agent** / **plan** / **ask** turn started over either endpoint is published to the composer relay in the rich shape whatever the caller received, so a browser watching the session sees its tool calls either way.
 
 ### Session memory REST (**`-tags=http,memory`**)
 
@@ -8986,9 +9189,100 @@ Malformed ids (**HTTP 400**). Dedicated **`/foxxycode/*`** helpers return **503*
 
 ## Authentication & CORS
 
-Off by default (unchanged "no login" behavior). When **`httpserver.auth_token`** (or **`--auth-token`** / **`FOXXYCODE_HTTP_TOKEN`**) is set, every **`/v1/*`** and **`/foxxycode/*`** route requires **`Authorization: Bearer <token>`** and returns **`401`** with **`WWW-Authenticate: Bearer`** otherwise. The SPA shell and static assets stay public; **`/docs`** and **`/openapi.*`** are protected unless **`httpserver.public_docs: true`**; the local IDE-integration routes (**`/foxxycode/ide/*`**) stay public so the editor plugin keeps working. The token is redacted from **`GET /foxxycode/config`** (reported only as **`auth_configured`**) and preserved on **`PUT`** when the payload omits it. Because EventSource cannot set an Authorization header cross-origin, the two SSE subscription routes - **`GET /foxxycode/sessions/{id}/composer-stream`** and **`GET /foxxycode/events`** - also accept **`?access_token=`**. A query string reaches access logs, proxy logs, browser history and `Referer` headers, so prefer a **stream ticket**: **`POST /foxxycode/stream-tickets`** (authenticated with the normal bearer header) returns **`{object, ticket, expiresIn, expiresAt}`**, and that ticket is accepted by the two SSE routes only, once, within 60 seconds. Set **`httpserver.stream_tickets_only: true`** to refuse the durable token in **`?access_token=`** entirely, so nothing that lands in a log stays valid.
+Off by default (unchanged "no login" behavior). When **`httpserver.auth_token`** (or **`--auth-token`** / **`FOXXYCODE_HTTP_TOKEN`**) is set, every **`/v1/*`** and **`/foxxycode/*`** route requires **`Authorization: Bearer <token>`** and returns **`401`** with **`WWW-Authenticate: Bearer`** otherwise. The SPA shell and static assets stay public; **`/docs`** and **`/openapi.*`** are protected unless **`httpserver.public_docs: true`**; the local IDE-integration routes (**`/foxxycode/ide/*`**) answer a direct loopback client without a credential, which is how the editor plugins call them, and ask everyone else for one. A browser can sign in at a form instead of carrying a token: see [Web UI sign-in](#web-ui-sign-in-optional). The token is redacted from **`GET /foxxycode/config`** (reported only as **`auth_configured`**) and preserved on **`PUT`** when the payload omits it. Because EventSource cannot set an Authorization header cross-origin, the two SSE subscription routes - **`GET /foxxycode/sessions/{id}/composer-stream`** and **`GET /foxxycode/events`** - also accept **`?access_token=`**. A query string reaches access logs, proxy logs, browser history and `Referer` headers, so prefer a **stream ticket**: **`POST /foxxycode/stream-tickets`** (authenticated with the normal bearer header) returns **`{object, ticket, expiresIn, expiresAt}`**, and that ticket is accepted by the two SSE routes only, once, within 60 seconds. Set **`httpserver.stream_tickets_only: true`** to refuse the durable token in **`?access_token=`** entirely, so nothing that lands in a log stays valid.
 
 Cross-origin access for a browser UI on another origin is controlled by **`httpserver.cors`** (**`enabled`** + **`allowed_origins`**, a single **`"*"`** allows any origin; bearer auth still applies). Preflight **`OPTIONS`** returns **`204`** before auth. The bundled UI can point at a remote **`foxxycode http`** via the environment selector (**`httpserver.remotes`**). See [remote-control.md](../plans/remote-control.md).
+
+### Web UI sign-in (optional)
+
+A bearer token protects the API but gives a browser no way in: the SPA shows `Unauthorized (401)`
+and has no field to type a token into. The sign-in form is the browser's credential for the same
+gate. It is **off by default**, and a configuration that does not mention it behaves exactly as
+before.
+
+```yaml
+httpserver:
+  host: 0.0.0.0
+  auth_token: "${FOXXYCODE_HTTP_TOKEN}"   # unchanged: for API clients
+  login:
+    enabled: true
+    user: "pasha"
+    password_hash: "$$argon2id$$v=19$$..."   # written by `foxxycode serve set-password`
+    session_ttl_hours: 720                   # 0 = until the browser closes
+```
+
+Write the account with the command rather than by hand:
+
+```bash
+foxxycode serve set-password --user pasha
+```
+
+It asks for the password twice (once, without a prompt, when standard input is a pipe), stores an
+argon2id hash and switches the form on, editing `config.yaml` in place so comments and key order
+survive. A hash typed in by hand needs every `$` doubled - `$$argon2id$$v=19$$...` - because this
+file expands `$NAME` as an environment reference when it loads; `foxxycode -t` says so when it finds a
+hash that no longer parses.
+
+The account can also live entirely in the environment, which is the route for a container or a
+systemd unit: `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` (plaintext, hashed as the server starts,
+never written to the file) enable the form on their own, the way `FOXXYCODE_HTTP_TOKEN` enables the
+bearer gate without `auth_token`. `$FOXXYCODE_HOME/.env` is their natural home. When both the file and
+the environment carry an account the environment wins, and an explicit `login.enabled: false` in the
+file switches the form off with the variables still set. There is no `--login-password` flag: a
+password on a command line is visible in `ps`.
+
+Three routes serve the form, and all three are reachable without a credential, because they are the
+way through the gate:
+
+| Route | What it does |
+|---|---|
+| **`GET /foxxycode/auth/me`** | `login_required`, `auth_required`, `authenticated`, and `user` / `expires_at` for a signed-in browser. The SPA calls it on boot to choose between the sign-in screen and the app. |
+| **`POST /foxxycode/auth/login`** | `{user, password}`. On success sets an `HttpOnly`, `SameSite=Strict` `foxxycode_session_<host digest>` cookie (`Secure` when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), living for `session_ttl_hours`; with `0` the browser drops it on close and the server expires its own record after 30 days. The name carries a digest of the host the request was addressed to, because cookies are not scoped by port: without it two FoxxyCode servers on one machine - a relay and the node behind it, say - would sign each other out at every login. |
+| **`POST /foxxycode/auth/logout`** | Drops the session on the server and expires the cookie. Idempotent. |
+
+Once signed in, the cookie opens every `/v1/*` and `/foxxycode/*` route, the SSE streams included - a
+same-origin `EventSource` sends cookies, so no `?access_token=` is needed. The cookie is
+`SameSite=Strict`, which costs nothing here (the page itself is public and every call the loaded
+page makes is same-origin) and means the browser never attaches it to a request another site caused.
+On top of that, cookie-authenticated requests that **change state** are refused with `403` unless
+`Sec-Fetch-Site` says `same-origin` (or `none`) or `Origin` matches the request host - so a script
+driving this API with a cookie has to send an `Origin` header, or, better, present a bearer token.
+Bearer requests are never subject to that check, which is what keeps `foxxycode --remote`, an editor and
+a relay working unchanged.
+
+A wrong password and an unknown user get the same `401` and the same body, compared in constant
+time. Repeated failures from one address are answered progressively more slowly, doubling from
+250 ms to a cap of five seconds and forgotten after fifteen quiet minutes; the attempt is counted
+before it is judged, so a burst arriving together pays the growing wait rather than each member
+reading a clean slate. Loopback is never throttled, so the machine cannot lock itself out of its own
+agent - and because that exemption would otherwise cover the whole internet behind a reverse proxy,
+a request that arrives *from* loopback is counted against the address in `X-Forwarded-For` (or
+`X-Real-IP`) when one is present. A request that arrives from anywhere else is counted by where it
+actually came from, headers ignored. Sessions live in memory: a
+configuration reload (saving settings from the page, for instance) keeps them, and restarting the
+process ends them. Rotating the password or renaming the account ends every session it opened, on
+the next request, with nothing to invalidate by hand. The store is bounded at 512 live sessions,
+oldest first.
+
+`GET /foxxycode/config` never returns `password_hash`; it reports `httpserver.login_configured` and
+`httpserver.login_source` (`config` or `env`), and a save from the settings screen preserves the
+hash the way it preserves `auth_token`. The neighbouring `auth_configured` means what it says - a
+bearer token is set - so a server closed with a password and no token reports
+`auth_configured: false` next to `login_configured: true`; ask `GET /foxxycode/auth/me` when the
+question is "does this server want a credential at all". The document keeps describing the file, so an account that
+came from the environment is never written into `config.yaml` by a save.
+
+On `foxxycode http` - the command the IntelliJ and VS Code plugins and `foxxycode desktop` start on `127.0.0.1` - a direct loopback client (the peer and the `Host` it addressed are both loopback, and no `Forwarded` / `X-Forwarded-*` / `X-Real-IP` header says a proxy relayed it) counts as signed in while no bearer token is configured, so the editor panels and the desktop window never meet the form; `GET /foxxycode/auth/me` answers it `login_required: false`. A client on the network still signs in, and `foxxycode serve` makes no such exception. The IDE routes (`/foxxycode/ide/*`) follow the same loopback rule on every server: without a credential they answer a direct loopback client only.
+
+The sign-in form is for this origin. The environment selector still reaches a **remote** server with
+a bearer token, because a cookie of this origin does not travel cross-origin.
+
+One note on `${VAR}` references. `login.user` and `login.password_hash` take them like every other
+value in `config.yaml`, and like every other value they are expanded when the file loads - so a save
+from the settings screen writes the **expanded** value back, turning `user: "${FOXXYCODE_HTTP_USER}"`
+into `user: pasha`. That is how this file has always treated `${VAR}`; if the point is to keep the
+credential out of the document entirely, use `FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD`, which
+never enter it.
 
 ## Memory roots
 
@@ -9959,6 +10253,8 @@ my-project/
 
 2. **Rules in `.foxxycode/rules/`.** A `.md` file is a Claude Code rule (`paths` gates it, and it is unconditional without them); a `.mdc` file is a Cursor rule (`description`, `globs`, `alwaysApply`). Both dialects are accepted in every rule folder, and `.foxxycode/rules` wins over `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` when two files share a name ([Rule file formats](../features/rules.md#rule-file-formats)). A gated rule enters the prompt the first time a matching file is attached or touched by a tool, then sticks for the session.
 
+   Everything in this tutorial is the project talking. What *you* want from every session, in every repository - the language to answer in, the commands you never want run - belongs to you rather than to this checkout: put it in `~/.foxxycode/AGENTS.md` and `~/.foxxycode/rules/` instead, where it applies everywhere and nobody else has to agree with it ([Your own instructions and rules](../features/rules.md#your-own-instructions-and-rules)).
+
    ```markdown
    ---
    description: Go coding standards
@@ -10113,6 +10409,70 @@ Source: https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/tutorials
 4. **Drive it from the browser.** The environment chip sits in the composer's workspace row and reads `Local` or the name of the remote in use. Its menu lists the remotes of the `foxxycode serve` that served the page (`httpserver.remotes`) and `+ Add remote…`, which takes a name, a URL and the bearer token; choosing an entry connects at once and reloads, and the token stays in the browser, never in a config file. The remote server has to allow the page's origin through `httpserver.cors`, which is what step 1 set; the dot on each entry turns green when a cross-origin `GET /v1/models` succeeds with the token ([Cross-origin access and the remote UI](../reference/http-api.md#authentication--cors), [Web UI](../surfaces/web-ui.md)). Opening the server's own address instead loads the SPA shell without a token, since the shell is public, and the page asks for the token before it calls the API.
 
 5. **Remember what stays on the server.** Sessions, the trust receipts and the child sessions of subagents are the server's, so a project file is approved there: `foxxycode mcp trust`, `foxxycode hooks trust` and `foxxycode agents trust` on the server itself, or `POST /foxxycode/mcp/{name}/trust`, `POST /foxxycode/hooks/trust` and `POST /foxxycode/subagents/{name}/trust` over the API. A dropped connection leaves the server turn running; `/resume` shows the outcome once it ends.
+
+
+# Tutorials / FoxxyCode as a model in VS Code Copilot
+
+Source: https://raw.githubusercontent.com/hijera/foxxy-agent/main/docs/tutorials/foxxycode-as-a-model-in-vs-code.md
+
+# FoxxyCode as a model in VS Code Copilot
+
+VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `chatLanguageModels.json` (Manage Models, then a custom endpoint). Pointing it at a running `foxxycode serve` puts FoxxyCode's models, and FoxxyCode's agent, in the model picker of Copilot Chat. The stream Copilot reads is the strict one described in [Two stream dialects](../reference/http-api.md#two-stream-dialects); the model ids are the ones `GET /v1/models` lists ([HTTP API](../reference/http-api.md)).
+
+1. **Serve on an address VS Code can reach.** The default bind is loopback on port 12345, enough for a VS Code on the same machine. For a VS Code elsewhere, bind and protect the server the way [A server driven from a laptop](server-driven-from-a-laptop.md) does, and hand the token to VS Code as `apiKey`.
+
+   ```bash
+   foxxycode serve
+   curl -s http://127.0.0.1:12345/v1/models | jq -r '.data[].id'   # the ids step 2 takes
+   ```
+
+2. **Register the endpoint.** One entry per model id. A `models[].model` id is FoxxyCode standing in for the provider: Copilot's own tools are offered to the model and its calls come back to Copilot, which runs them in the editor, so VS Code's Agent mode works the way it does against the provider directly; set `toolCalling` on, and `vision` when the entry has `multimodal: true` in `config.yaml`, which is what lets pictures through. The `agent` id is FoxxyCode's ReAct agent as a model: it reads and edits the workspace `foxxycode serve` was started in with its own tools, ignores the tools Copilot offers, and Copilot only sees the answer, so leave `toolCalling` off on that entry and use it from VS Code's Ask mode.
+
+   ```json
+   {
+     "name": "FoxxyCode",
+     "vendor": "customendpoint",
+     "apiKey": "foxxycode",
+     "apiType": "chat-completions",
+     "models": [
+       {
+         "id": "neuraldeep/qwen3.8-27b",
+         "name": "FoxxyCode · Qwen 3.8 27B",
+         "url": "http://127.0.0.1:12345/v1/chat/completions",
+         "toolCalling": true,
+         "vision": true,
+         "maxInputTokens": 128000,
+         "maxOutputTokens": 8192
+       },
+       {
+         "id": "agent",
+         "name": "FoxxyCode · agent",
+         "url": "http://127.0.0.1:12345/v1/chat/completions",
+         "toolCalling": false,
+         "maxInputTokens": 128000,
+         "maxOutputTokens": 8192
+       }
+     ]
+   }
+   ```
+
+   Bearer auth is off by default, and any `apiKey` string satisfies VS Code's form; with `httpserver.auth_token` set, the `apiKey` is that token. Copilot sends the whole conversation with every request, so each request is a session of its own on the server unless a `requestHeaders` entry on the model sets `X-FoxxyCode-Session-ID` to a fixed `sess_<hex>` id, which keeps the turns in one transcript.
+
+3. **Mind the agent's permission gate.** The `agent` model runs tools under `tools.permission_mode`, and a permission prompt cannot be answered from Copilot: the turn waits for an answer that never comes. Give the serving config `bypass` when the workspace is one you trust the agent with, or keep `ask` and answer the prompt in the web UI, where the turn is live under its session.
+
+   ```yaml
+   tools:
+     permission_mode: bypass
+   ```
+
+4. **Check that it worked.** Pick "FoxxyCode · Qwen 3.8 27B" in Copilot Chat and ask anything: the answer streams in, and with a reasoning model the thinking shows in Copilot's own foldout, because `reasoning_content` is a field it reads. The same request from a terminal shows the stream Copilot consumed, one choice finished with `stop` before `[DONE]`:
+
+   ```bash
+   curl -sN http://127.0.0.1:12345/v1/chat/completions -H 'Content-Type: application/json' \
+     -d '{"model":"neuraldeep/qwen3.8-27b","messages":[{"role":"user","content":"hello"}],"stream":true}' | tail -4
+   ```
+
+   "Response contained no choices." in Copilot means the server did not finish a choice: check that `foxxycode serve` is a version that streams `finish_reason` (`foxxycode -v`, later than 0.2.84), and that nothing between them rewrites the stream.
 
 
 # Tutorials / A skill of your own
@@ -10782,7 +11142,7 @@ The workflow rules (`.cursor/rules/workflow.mdc`, mirrored in `.claude/rules/wor
 Capture the real surface, never a mockup and never a re-used older image that no longer matches.
 
 - **Web UI**: `make build TAGS="http ui scheduler memory cli browser gateway swarm"`, `foxxycode http` (or `foxxycode serve`) on a disposable `FOXXYCODE_HOME` at a presentable path, a headless Chrome driven by chromedp or Playwright at 1280x800 in the Dark theme as the default, browser locale `en-US`, 390 wide when the page discusses the narrow layout, Light when the page discusses themes. Hash navigation does not reload the bundle, so reload after switching routes. Never capture the provider detail pane: it renders `api_key` values in full. The `examples/` harnesses and `.cursor/rules/ui-verification.mdc` describe the stand.
-- **Console**: the pty capture scripts under `examples/cli/` drive `foxxycode cli` in a pseudo-terminal, emulate the screen with **pyte** and render the cell grid to PNG through headless Chromium, standing their own HTTP endpoint so they need neither a provider nor a key (`examples/cli/capture_usage.py` for the usage footer). They need a Unix pty: on Windows, run them in WSL.
+- **Console**: the pty capture scripts under `examples/cli/` drive `foxxycode cli` in a pseudo-terminal, emulate the screen with **pyte** and render the cell grid to PNG through headless Chromium, standing their own HTTP endpoint so they need neither a provider nor a key (`examples/cli/capture_usage.py` for the usage footer, `examples/cli/capture_subagent.py` for a delegated run with a loaded skill). They need a Unix pty: on Windows, run them in WSL.
 - **Naming and placement**: `docs/assets/<page-or-feature>/<state>-<theme>-<width>.png` when a page needs more than a couple of images, otherwise `docs/assets/<feature>-<state>-<theme>-<width>.png` at the top level. Kebab-case, no issue or pull request numbers, under 1 MB.
 - **On the page**: an image line followed by a one-line caption in italics, placed next to the paragraph that explains what the image shows. One image per view and state; a table with two images side by side when the page compares them.
 
@@ -11102,7 +11462,7 @@ Some features live under **`external/`** and define tools that are **not** regis
 ### MCP Client (`internal/mcp`)
 
 Connects to external MCP servers from three config levels (`config.yaml`
-`mcp_servers`, the global `~/.foxxycode/mcp.json`, the project `./.foxxycode/mcp.json`;
+`mcp_servers`, the global `${FOXXYCODE_HOME}/mcp.json`, the project `./.foxxycode/mcp.json`;
 later levels override by name) plus servers specified in `session/new`.
 Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
 - stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
@@ -11133,7 +11493,7 @@ Loads operator **lifecycle hooks** - commands that read one JSON document on std
 
 ### Rules engine (`internal/rules`)
 
-Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD; duplicates by file name resolve as foxxycode > agents-dir > cursor > claude > codex > agents. Injected into **`{{.Rules}}`** separately from skills; see **`docs/features/rules.md`**.
+Discovers `.mdc` / `.md` rules from `.foxxycode/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` and `**/DESIGN.md` files ([agents.md](https://agents.md/) convention), under session CWD, and from the operator's own **`${FOXXYCODE_HOME}/rules`** (system id `user`), which applies in every workspace; duplicates by file name resolve as foxxycode > agents-dir > cursor > claude > codex > agents > user. Injected into **`{{.Rules}}`** separately from skills, together with the preamble documents: the agent home's **`AGENTS.md`** and **`DESIGN.md`** when they exist, first, then the workspace's pair, and a nested folder's pair when a tool enters it. The files of `instructions.files` go into **`{{.Instructions}}`**, minus whatever the preamble already carries. See **`docs/features/rules.md`**.
 
 The extension selects the dialect (**`markdown.go`**): `.mdc` is read as a Cursor rule (`description`, `globs` as a comma-separated string or list, `alwaysApply`, default manual), `.md` as a Claude Code rule (`paths`; unconditional without them). Headers are read as YAML first, then by a lenient line reader, because Cursor's own `globs: **/*.go` is not valid YAML. Globs use doublestar syntax anchored at the session cwd (`Rule.Root`, **`MatchGlob`**).
 
@@ -12576,7 +12936,7 @@ The right insights rail is removed for the current milestone.
 
 ### Settings drawer (tabbed master–detail)
 
-The **Settings** drawer (**`#/settings`**, **`Settings.tsx`**) is **tabbed**, not one long sheet. Tabs are derived from the live config JSON Schema (**`deriveSettingsSections`** over **`/foxxycode/config/schema`**): each top-level property is a tab (label from its **`title`**), the rarely edited tail (**`scheduler`**, **`prompts`**, **`instructions`**, **`logger`**, **`sessions`**, **`gateways`**) folds into a single **System** tab, and a client-side **Appearance** tab is appended. There is no separate Appearance/Skills flyout or **`settings-dock-cluster`** side panel — both are tabs now.
+The **Settings** drawer (**`#/settings`**, **`Settings.tsx`**) is **tabbed**, not one long sheet. Tabs are derived from the live config JSON Schema (**`deriveSettingsSections`** over **`/foxxycode/config/schema`**): each top-level property is a tab (label from its **`title`**), the rarely edited tail (**`scheduler`**, **`prompts`**, **`instructions`**, **`logger`**, **`sessions`**, **`gateways`**) folds into a single **System** tab, and three client-side tabs are placed **first** - **General** (the UI language picker, the default tab), **Appearance** (the theme picker) and **Sessions** (**`sessions_manager`**, the session management table below). All three render before the schema has loaded. There is no separate Appearance/Skills flyout or **`settings-dock-cluster`** side panel — both are tabs now.
 
 - **Saving**: there is **no per-section save button**. The drawer footer keeps only **Reload** (**`data-testid="settings-reload"`**) and **Save all** (**`data-testid="settings-save"`**, PUTs the whole config after `/foxxycode/config/validate`). The **Appearance** theme picker is client-side only and never touches the config PUT; the **language** select in the same tab writes **`ui.locale`** immediately and mirrors the pick into the loaded doc, so **Save all** cannot put a stale value back.
 - **Layout**: on **`min-width: 1200px`** the drawer is wider (**`min(960px, …)`**) with a vertical section rail on the left (**`.settings-nav`**) and the content panel on the right (**`.settings-tabs-layout`** is `display:flex; row`). On **`max-width: 1199px`** (same breakpoint as the rest of the shell, via **`isMobileShell`** / **`shellBreakpoint.ts`**) the nav is a **2-wide tile grid** master–detail (**`SettingsTileGrid`**, **`.settings-tile-grid`**): each tile (**`data-testid="settings-tile-<id>"`**) shows the section **title** on top and a short 3–5 word **description** below (**`SECTION_DESCRIPTIONS`** in **`settingsSections.ts`**) styled after the Scheduler job rows. The description clamps to two lines with an ellipsis (**`-webkit-line-clamp: 2`**) and the full text shows in a native **`title`** tooltip on hover. Tapping a tile opens that section with a **← Back to sections** control (**`.settings-mobile-back`**); the desktop rail (**`SettingsNav`**) is unchanged.
@@ -12592,17 +12952,29 @@ The **Settings** drawer (**`#/settings`**, **`Settings.tsx`**) is **tabbed**, no
   - **After install (no scroll)**: the list is **not scrolled** to the newly installed skill — the floating menu leaves the scroll position untouched. The new row briefly **flashes** (**`.skills-list-item.is-just-installed`**, **`justInstalled`** for ~2.4s), the **`Installed &lt;name&gt;.`** status line confirms, and the skill is usable from the composer **`/`** menu immediately because the server drops its slash cache on install (**`invalidateSlashCache`**). A just-installed plugin is dropped from the available dropdown optimistically.
   - **Empty states of the install control**: the server answers from the **saved** **`skills.sources`**, so the control explains an empty answer instead of printing **No matching marketplace skills.** With no source in the form, a muted **`.settings-field-desc`** under the field (**`data-testid="skills-install-no-sources"`**) and the dropdown's only row point to **Remote skill sources** and ask to save one, and no request is made. When the saved sources publish nothing, the row says so and suggests saving a just-added source (**`settings.skills.marketplacesEmpty`**); **No matching marketplace skills** stays for a query that misses a non-empty list.
   - **Stale list**: the fetched list is kept for the life of the tab, but it is **dropped** whenever **`skills.sources`** is replaced - an edit, or the document reload after **Save** (a new array, even with the same entries) - and after a successful **Sync** / **Sync all**. A dropped list closes the dropdown until the field is focused or typed into again, which fetches anew; nothing is fetched on the change itself, because every request clones each git source. A request overtaken by such a drop is ignored when it lands (**`availableRequest`**).
-- **MCP servers** tab (**`MCPSection`**, section kind **`mcp`** in **`settingsSections.ts`**) is **API-driven** (**`/foxxycode/mcp*`**), styled after Cursor's MCP settings; it never edits the settings document (**Save all** does not touch it). The list (**`.mcp-list`**) shows every merged server — **config.yaml `mcp_servers`** and the global **`~/.foxxycode/mcp.json`** (scope **`global`**), overlaid with the project **`./.foxxycode/mcp.json`** (scope **`local`**) — one row per server (**`.mcp-list-item`**): a **chevron** expander (**`.mcp-expand-btn`**, rotates 90° when open), a **status dot** (**`.mcp-status-dot`**: green **`is-connected`**, red **`is-error`**, gray **`is-disabled`**, amber **`is-unsupported`**; tooltip carries the probe error), a server glyph, the name with a **scope badge** (**`global`** / **`local`**, reusing **`.skills-list-item-badge`**; the tooltip names the owning file via **`originLabel`** — config.yaml, `~/.foxxycode/mcp.json`, or `./.foxxycode/mcp.json`) plus an uppercase transport badge for non-stdio entries, and a dimmed **monospace command line** (**`.mcp-command`**; shows the probe error text for error/unsupported rows). Trailing controls: the shared **`Switch`** (server-level enable via **`POST /foxxycode/mcp/{name}/enable|disable`**), a **pencil Edit** and **trash Delete** — both **disabled for `readonly` rows** (config.yaml-defined servers are edited in the config sections; tooltips say so). All trailing controls are **`flex: 0 0 auto`** (**`.mcp-list-item-head > button`**) so long command/error text cannot squeeze the 40px icon buttons.
+- **MCP servers** tab (**`MCPSection`**, section kind **`mcp`** in **`settingsSections.ts`**) is **API-driven** (**`/foxxycode/mcp*`**), styled after Cursor's MCP settings; it never edits the settings document (**Save all** does not touch it). The list (**`.mcp-list`**) shows every merged server — **config.yaml `mcp_servers`** and the global **`~/.foxxycode/mcp.json`** (scope **`global`**), overlaid with the project **`./.foxxycode/mcp.json`** (scope **`local`**) — one row per server (**`.mcp-list-item`**): a **chevron** expander (**`.mcp-expand-btn`**, rotates 90° when open), a **status dot** (**`.mcp-status-dot`**: green **`is-connected`**, red **`is-error`**, gray **`is-disabled`**, amber **`is-unsupported`**; tooltip carries the probe error), a server glyph, the name with a **scope badge** (**`global`** / **`local`**, reusing **`.skills-list-item-badge`**; the tooltip names the owning file via **`originLabel(row.origin, row.source_path)`**, which prints the **real path the API reported** (`source_path`) and falls back to the generic label — config.yaml, `~/.foxxycode/mcp.json`, or `./.foxxycode/mcp.json` — only when a row carries none) plus an uppercase transport badge for non-stdio entries, and a dimmed **monospace command line** (**`.mcp-command`**; shows the probe error text for error/unsupported rows). Trailing controls: the shared **`Switch`** (server-level enable via **`POST /foxxycode/mcp/{name}/enable|disable`**), a **pencil Edit** and **trash Delete** — both **disabled for `readonly` rows** (config.yaml-defined servers are edited in the config sections; tooltips say so). All trailing controls are **`flex: 0 0 auto`** (**`.mcp-list-item-head > button`**) so long command/error text cannot squeeze the 40px icon buttons.
 - **Logical Models** reasoning-levels field (**`ReasoningLevelsField`**, rendered through **`SchemaForm`**’s **`fieldOverride`** hook on path **`reasoning_levels`**) owns the three states that key can be in and names the current one in a status line (**`data-testid="reasoning-levels-status"`**): **key absent** = levels auto-detected from the model id, **`[]`** = the composer reasoning selector is hidden for this model, **non-empty** = exactly these levels. An action row above the list carries **Fetch reasoning levels** (**`data-testid="reasoning-levels-fetch"`**, **`GET /foxxycode/config/reasoning-levels?model=&provider_type=`** for the id currently in the form and the type of the provider row it points at in the unsaved document, so it works before either entry is saved) and, whenever the key is present, **Use auto-detected** (**`data-testid="reasoning-levels-auto"`**) which drops the key again. A fetch that detects nothing leaves the field untouched rather than writing **`[]`**, because that would hide the selector instead of restoring detection. The status line always describes the list on screen first (override / hidden) and only falls back to fetch feedback (nothing detected / error) while the key is absent; retyping the model id or editing the list by hand clears that feedback and abandons the request in flight, so an answer that lands after the id changed, after a manual edit, or after the row was removed is dropped; an answer that does land goes through the newest **`onChange`** the form handed the field, never the one captured when the request started, so sibling fields edited meanwhile keep their values.
   - **Per-tool switches**: expanding a row reveals **`.mcp-tools`** — indented rows (**`.mcp-tool-row`**, dashed separators) with the tool name in monospace, its description, and a **`Switch`** per tool (**`POST /foxxycode/mcp/{name}/tools/{tool}/enable|disable`**). Tool switches are disabled while the server itself is off. Disabled rows dim their text but keep the switch crisp (same rule as skills).
   - **MCP discovery fieldset** (**`.mcp-discovery-box`**) sits **above** the server list and carries **`mcp.project_trust`** (**`POST /foxxycode/mcp/project-trust`**): a **`select`** with **Ask** / **Allow** / **Deny**. It lives in this tab, not in a settings section of its own, because it governs exactly the servers listed below it, and it persists straight into **config.yaml** rather than joining **Save all**. A project-local row the gate holds back gets two extra pieces: the status dot turns amber (**`.mcp-status-dot.is-needs_approval`**; **`.is-denied`** is red) and a **trust note** (**`.mcp-trust-note`**) opens under the row listing the declaration an approval would cover (**`.mcp-trust-facts`**: transport, what it runs or contacts, env and header **names** — never values — and the workspace). A **shield** button (**`.settings-btn-approve`** while unapproved) toggles **`POST /foxxycode/mcp/{name}/trust|untrust`**, and renders **only** under the **Ask** policy: **Allow** and **Deny** leave no per-server decision, so an inert shield would misrepresent the state.
   - **Toolbar**: **Add server** (opens the editor card prefilled with **`MCP_SERVER_TEMPLATE`**) on the left, a **refresh** icon (**`GET /foxxycode/mcp?refresh=1`**, re-probes) on the right (**`.mcp-toolbar`**, space-between).
-  - **JSON editor card** (**`.mcp-editor`**, **`MCPEditorCard`**): Cursor-style editing of one mcp.json entry — a name input (only when adding; names with **`__`**, spaces, or path separators are rejected client-side, mirroring the server), a **scope radio picker** (**`.mcp-editor-scope`**, only when adding, default **Local**: local saves to `./.foxxycode/mcp.json`, global to `~/.foxxycode/mcp.json`; the footer note echoes the target file), a monospace **`<textarea>`** (**`.mcp-editor-json`**) holding the entry JSON (**`command`/`args`/`env` object/`disabled`/`disabledTools`**), validation via the pure helpers in **`mcpServerJson.ts`** (do **not** inline them), and **Save** (**`PUT /foxxycode/mcp/{name}?scope=`**) / **Cancel** actions. Editing an existing row renders the card inline beneath that row with the scope pinned to the row's owning file.
+  - **JSON editor card** (**`.mcp-editor`**, **`MCPEditorCard`**): Cursor-style editing of one mcp.json entry — a name input (only when adding; names with **`__`**, spaces, or path separators are rejected client-side, mirroring the server), a **scope radio picker** (**`.mcp-editor-scope`**, only when adding, default **Local**: local saves to `./.foxxycode/mcp.json`, global to the agent home's `mcp.json`; the footer note echoes the target file, taking the global path from **`globalMCPPath(servers)`** - the `source_path` of a listed home-scope row, or the default `~/.foxxycode/mcp.json` when the agent home holds no server yet), a monospace **`<textarea>`** (**`.mcp-editor-json`**) holding the entry JSON (**`command`/`args`/`env` object/`disabled`/`disabledTools`**), validation via the pure helpers in **`mcpServerJson.ts`** (do **not** inline them), and **Save** (**`PUT /foxxycode/mcp/{name}?scope=`**) / **Cancel** actions. Editing an existing row renders the card inline beneath that row with the scope pinned to the row's owning file.
   - **Scroll stability**: same **`loadServers(firstLoad)`** gating as skills — refreshes never unmount the list.
 - **Boolean switch fields** (**`SwitchField`**, **`external/ui/src/ui/settings/SwitchField.tsx`**): every on/off setting in a settings form - the schema-driven **`SchemaForm`** booleans (**`models[].multimodal`**, **`models[].stream`**, **`tools.background.enabled`**, **`memory.enabled`**, gateway **`enabled`** flags, ...) and the Skills **auto-discovery** row - renders through this one component, never as a bare **`Switch`** beside a **`<span>`**. It lays the shared **`Switch`** (**`.skill-switch`**, **38×22**, 16px thumb), the label (a real **`<label htmlFor>`**, **`.settings-switch-field-label`**, **0.9rem**, **`var(--text)`**, so clicking the text toggles the control) and the optional description (**`.settings-switch-field-desc`**, reusing **`.settings-field-desc`** typography) on a **two-column grid** (**`.settings-switch-field`**: **`grid-template-columns: auto minmax(0, 1fr)`**, **`column-gap: 8px`**, **`row-gap: 4px`**, **`align-items: center`**).
   - **Alignment contract**: the label's vertical centre matches the switch's centre (**within 1px**) and the label starts **8px** after the switch. The description lives in the **label column** (**`grid-column: 2`**), so its left edge equals the label's left edge at every viewport and never depends on the switch width or a hand-tuned indent. The checkbox-era **`padding-left: 28px`** rule (**`.settings-field-desc-below-checkbox`**) is gone and must not come back: an indent expressed as padding drifts the moment the control changes size, which is exactly how the description ended up under the switch instead of under its label.
   - **Naming**: the visible label names the control through **`aria-labelledby`**; pass **`ariaLabel`** only when the visible text is state copy (**Enabled** / **Disabled**, as on Skills auto-discovery). **`Switch`** enforces the precedence itself: with **`ariaLabel`** set it emits no **`aria-labelledby`**, so a direct caller cannot invert it. The former **`.settings-row-inline`** helper is deleted with its last consumers: used without **`.settings-row`** it fell back to inline flow (no gap, label baseline on the switch's bottom edge), which is how this bug happened, and there is no inline-flex variant to reach for.
   - **Coverage**: **`SwitchField.test.tsx`** pins the DOM (one grid container, label click toggles, explicit **`ariaLabel`** wins) and, since jsdom does no layout, the exact source rules: **`grid-template-columns: auto minmax(0, 1fr)`**, **`column-gap: 8px`**, **`row-gap: 4px`**, **`align-items: center`**, the child-selector description rule with **`grid-column: 2`** and **`margin: 0`**, and the absence of both legacy classes. **`SchemaForm.switch.test.tsx`** and **`SkillsSection.autoDiscovery.test.tsx`** pin the two call sites. The live check measures **`getBoundingClientRect()`** of switch, label, and description on **1280px** and **390px** (see **`docs/surfaces/web-ui.md`**, **Settings: boolean switch fields**). Reference captures: **`docs/assets/settings-switch-field-models-rows-1280.png`** (wide), **`docs/assets/settings-switch-field-models-390.png`** (phone), **`docs/assets/settings-switch-field-skills-rows-1280.png`** (state-copy label).
+- **Sessions** tab (**`SessionsManager.tsx`**, section kind **`sessions`**, id **`sessions_manager`** because **`sessions`** is already the config key for the storage directory and stays in **System**) is the stored history as a **table**, API-driven over **`/foxxycode/sessions`** and outside **Save all**. Reference capture: **`docs/assets/sessions-management-table-dark-1280.png`**.
+  - **Toolbar** (**`.sessions-manager-toolbar`**, **`flex-wrap: nowrap`**): a search field (the same **`q`** filter History uses, debounced **250 ms**) taking the leftover width, and **one** icon action to its right at **every** width - **Delete selected (N)** (**`.settings-btn-danger.settings-btn-icon.sessions-manager-action`**, 40px square, **`data-testid="sessions-manager-delete-selected"`**, disabled with nothing ticked), behind the shared **`useConfirm`** dialog with **`variant: "danger"`**. Deliberately **one** button: the scope of a delete is what the operator can see ticked, never a label they have to read carefully, and the row and header ticks are how a wider scope is chosen. The narrow shell keeps the same single row - the field shrinks (**`flex: 1 1 auto; min-width: 0`**), it does not wrap the action onto a line of its own.
+  - **Icon language**: the trash can (**`IconTrash`**, inline SVG in **`SessionsManager.tsx`**) with a **check** inside its body is the toolbar action; the plain can is the per-row delete. The action's words are its **`title`** and its **`aria-label`**, never a label on the button. The one thing drawn on it is the **selection count** (**`.sessions-manager-action-count`**, **`…-selected-count`**, absolute at the top-right corner, **`var(--foxxycode-on-accent-fg)`** on **`var(--accent)`** - not **`--foxxycode-blend-base`**, which is transparent in the dark themes), because a tooltip cannot show it at a glance; with nothing ticked the badge is absent rather than a zero.
+  - **The open conversation is protected.** The row whose id matches **`activeSessionId`** carries **`is-active-session`** and an **open** badge on its second line, its tick box and its row trash are **disabled** with **`sessions.manage.protectedRow`** as both **`title`** and accessible name, and **`selectableRows`** (everything else) is what the header checkbox, the selection pruning and the request body are computed from. The table can therefore never delete the chat behind the panel; History remains the place to do that, with its own goHome handling. A client-only draft protects no row, because no row is its own.
+  - **Table** (**`.sessions-manager-table`** inside **`.sessions-manager-tablewrap`**): tick column, **Conversation** (title on the first line, then a muted second line, **`.sessions-manager-sub`**, carrying the workspace basename with the full path in its title and, for the protected row, the **open** badge - both are context for the title and neither earns a column in a drawer), **Model** (**`default`** when the session never overrode **`agent.model`**), **Msgs**, **Tokens** (compact **`1.5k`** / **`2.4M`**, the input/output split in the cell title), **Created**, **Updated** (short date, exact instant in the cell title, **—** when the bundle predates the stamp) and the row trash. Header cells are **`position: sticky; top: 0`**. Numeric columns are right-aligned with **`font-variant-numeric: tabular-nums`**.
+  - **Wrapping contract**: the table sets **`white-space: nowrap`** and **`.sessions-manager-tablewrap`** is the **only** horizontally scrollable element of the tab (**`overflow-x: auto`**), so a narrow shell scrolls the columns and never the page. Long title, model and workspace values are capped in **`ch`** with an ellipsis and keep their full text in a **`title`**.
+  - **Header checkbox** (**`…-select-all`**) covers the **rendered** rows only and shows **`indeterminate`** for a partial selection (**`toggleAllRows`** in **`sessions/sessionManagerRows.ts`**; keep the selection and formatting helpers there, do **not** inline them).
+  - **The selection is a subset of what the table renders.** An effect over **`rows`** drops the tick of any row that is no longer listed, so a search that narrows the table takes its ticks with it and clearing the search brings the rows back **unticked**. A destructive action must never reach a row that is off screen, and a tick must never reappear later because it survived out of sight - the badge, the request body and what the operator can see are then the same three things.
+  - **Scope**: the SPA sends only **`{ids}`** - exactly the ticked rows - plus the **`cwd`** of the project scope below when it is on. The endpoint also accepts **`{scope:"all", except}`** for API clients that want the whole stored history without paging; that shape refuses an **`except`** naming no stored session and spares the **ancestors** of what it keeps (see **`docs/reference/http-api.md`**), but no button in the table reaches for it.
+  - **Project scope** (fork): an editor plugin runs one server per project over a session home every project shares, so the table follows the History drawer's **`sessions-project-only`** toggle. **`App.tsx`** passes **`sessionsScope`** (the same **`hostProjectRoot`** / **`sessionsProjectOnly`** state and **`changeSessionsProjectOnly`** setter the drawer uses) through **`Settings`** and **`SettingsSection`**; with the toggle on, the list request carries **`cwd`** and the bulk-delete body carries the same **`cwd`**, which the server enforces rather than trusting the rows it was sent. The toolbar repeats the toggle (**`sessions-manager-project-only`**) between the search field and the action, reusing the drawer's **`.sessions-project-scope`** markup with **`.sessions-manager-scope`** removing its row padding and divider. Outside an editor plugin the preference starts **off** (the drawer's default), so the table lists every workspace until the operator switches it on; a server that reports no workspace path gives no host root, hence no toggle and no **`cwd`**.
+  - **The refresh after a delete reads the search on screen**, not the one captured when the confirmation opened (**`loadRef`**): a debounce that lands while the dialog is up would otherwise be overwritten by the older query, leaving the field showing one search and the rows another.
+  - **Partial failure** is the normal answer when one session is mid-turn: the response lists **`deleted`** and **`failed`** separately, the failed rows stay, and the reason is reported in **`.settings-error`** (**`…-error`**) **after** the list re-reads, never before - the refresh clears the error slot.
 - Object sections render their sub-schema fields directly (the tab already names the section); custom model editors are injected via the **`SchemaForm`** **`fieldOverride`** hook, not by forking the generic renderer.
 
 ### Session identifier in URL
@@ -13057,6 +13429,53 @@ The UI should be implemented as small React components with folder-enforced hier
 ### Session overflow menu (`…`)
 
 Opens lightweight rename/delete UX (prompt-first until richer modals arrive).
+
+### Sign-in screen (`httpserver.login`)
+
+Rendered by **`AuthGate`** (**`ui/auth/AuthGate.tsx`**, wrapping **`<App/>`** in **`main.tsx`**) in place of
+the entire application when **`GET /foxxycode/auth/me`** answers **`login_required`** without
+**`authenticated`**. Only on the local origin: a remote environment authenticates with the bearer
+token of the environment selector and is never gated here.
+
+- **The whole page, not an overlay.** **`.auth-screen`** is a full-viewport grid centred on
+  **`.auth-card`** over the plain **`--bg`** ground. There is no blurred transcript behind it,
+  because an anonymous browser has nothing to be shown.
+- **Boot.** While the one **`/foxxycode/auth/me`** round trip is outstanding the gate renders
+  **`.auth-boot`** — a bare **`--bg`** ground, no spinner and no application chrome. Rendering the
+  app and then replacing it with a form reads as a glitch; a spinner for 20 ms reads as a slow page.
+- **The column** (**`.auth-shell`**, **`min(380px, 100%)`**) holds two things with a **22px** gap:
+  the wordmark, then the card. The logo stands **above** the card and outside it, because it names
+  the product while the card asks for one thing.
+- **The card** (**`.auth-card`**, the column's full width) uses the glass panel tokens
+  (**`--foxxycode-glass-panel-bg`** / **`-border`** / **`-backdrop`** / **`-shadow`** / **`-radius`**),
+  **28px** padding and a **14px** column gap: **`h1`** title, the two fields, the error line, the
+  submit button. Nothing explains the screen in prose - a form with two fields under a title that
+  says Sign in needs no caption.
+- **The wordmark** (**`.auth-logo`**, **`min(300px, 90%)`** of the column, centred) is the
+  rectangular logo with the product name in it, not a text line:
+  **`docs/assets/foxxycode-logo-wordmark.svg`** on the six dark themes and **`-light.svg`** on
+  **`light`** (**`LIGHT_THEMES`**), imported from **`docs/assets`** itself rather than through the
+  **`src/assets`** symlinks, which a Windows checkout without `core.symlinks` holds as text files. **`aspect-ratio: 234 / 56`** holds its height, so nothing below
+  it moves while the image decodes. Both files are under Vite's inline limit, so they travel inside
+  the bundle and the one screen a browser sees before it has any credential paints without a second
+  request. Its **`alt`** is a dictionary key (**`auth.signIn.logoAlt`**), because the name in the
+  image is what a screen reader must hear.
+- **Fields** are ordinary **`label`**-wrapped inputs (**`.auth-field`** / **`.auth-label`** /
+  **`.auth-input`**) with **`autocomplete="username"`** and **`"current-password"`** so a password
+  manager fills them. Focus draws the accent ring (**`--accent`** at 55% border, 25% glow), never a
+  browser default outline. The user field takes focus on mount.
+- **The error line** (**`.auth-error`**, **`role="alert"`**) replaces nothing else: the card grows by
+  one line. A refused sign-in clears the password field and leaves the user name alone.
+- **Submit** (**`.auth-submit`**) is accent-filled, disabled while either field is empty and while a
+  request is in flight, and swaps its label for the working one meanwhile.
+- **Colour comes from tokens only**, so all seven themes carry the screen, and every string is a
+  dictionary key (**`auth.signIn.*`**), so both languages do.
+- **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), below
+  Settings, rendered only while a form is configured and this browser has passed it. Narrow rail:
+  icon plus a tooltip naming the account (**`Sign out (pasha)`**); wide rail: icon plus label.
+- **Editor panels and the desktop window never see the screen.** They run **`foxxycode http`**, which
+  answers a direct loopback client **`login_required: false`, `authenticated: true`** - no form, and
+  no sign-out entry, since there is no account to leave.
 
 ## States
 

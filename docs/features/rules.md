@@ -1,6 +1,11 @@
-# Project rules
+# Rules and instructions
 
-FoxxyCode discovers project rules from the session working directory and injects them into the system prompt via **`{{.Rules}}`**, separate from skills (**`{{.Skills}}`**).
+FoxxyCode reads standing instructions from two places and injects them into the system prompt, separate from skills (**`{{.Skills}}`**).
+
+- The **workspace**: the rule folders of the session working directory and its `AGENTS.md`, which travel with the checkout and apply to whoever opens it;
+- your **agent home** (`~/.foxxycode`): `AGENTS.md`, `DESIGN.md` and `rules/` next to `config.yaml`, which belong to the person running FoxxyCode and apply in every workspace.
+
+Nothing has to be configured for either: both `AGENTS.md` files and every rule folder reach the model through **`{{.Rules}}`**, yours first. **`{{.Instructions}}`** carries whatever else `instructions.files` names.
 
 ## Prompt order
 
@@ -20,16 +25,17 @@ When `rules.auto_discover` is true (default), FoxxyCode scans:
 
 | System | Path | Notes |
 |--------|------|-------|
+| `user` | `~/.foxxycode/rules/` | **Yours**, not the project's: read in every workspace, never part of a checkout. Lowest precedence, so a project file of the same name overrides it |
 | `foxxycode` | `.foxxyrules` / `.foxyrules` (single file **or** directory), and `.foxxycode/rules/` | FoxxyCode's own roots; the top-level single file is described below |
 | `agents-dir` | `.agents/rules/` | The tool-neutral `.agents/` tree, next to `.agents/skills`: rules meant for every agent that works on the project |
 | `cursor` | `.cursor/rules/` | |
 | `claude` | `.claude/rules/` | |
 | `codex` | `.codex/rules/` | Markdown only in v1; Codex's own `*.rules` policy files are not prompt rules |
-| `agents` | nested `**/AGENTS.md` | [agents.md](https://agents.md/) convention; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
+| `agents` | nested `**/AGENTS.md` and `**/DESIGN.md` | [agents.md](https://agents.md/) convention, plus the design note beside it; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
 
-Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **foxxycode > agents-dir > cursor > claude > codex > agents**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.foxxycode/rules/` overrides everything. Nested `AGENTS.md` files are keyed by full path, so they never collapse into each other.
+Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **foxxycode > agents-dir > cursor > claude > codex > agents > user**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.foxxycode/rules/` overrides everything. Nested documents are keyed by full path, so they never collapse into each other.
 
-Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every `AGENTS.md` on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md`, and `a/b/c/AGENTS.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
+Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in, and a `DESIGN.md` beside one is read with it - a folder that describes itself is read whichever of the two it wrote, the same pair the workspace root and the agent home are read for. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every such document on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md` and `a/b/c/AGENTS.md`, plus whichever of those folders also has a `DESIGN.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
 
 This is what keeps a repo with vendored sibling checkouts usable — 45 nested files loaded unconditionally cost ~131k tokens of system prompt before the first question — and what keeps a session anchored on a home directory from stalling: a walk over `~` (a macOS home carries hundreds of thousands of entries under `~/Library` alone, read cold and behind folder-access prompts) once held the console before its first frame. Bodies over 256 KB are truncated, as with the project docs preamble.
 
@@ -43,7 +49,7 @@ Cline-style top-level project rules. Each root is accepted as **either** a singl
 - **Directory** (`.foxxyrules/*.md`) loads its markdown files like the `.foxxycode/rules/` catalog.
 - `.foxyrules` (one `x`) is an exact alias of `.foxxyrules`. Both count as the **FoxxyCode** source and win basename ties over cursor/claude/codex/agents.
 
-CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
+CLI: `foxxycode rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
 
 ## Rule file formats
 
@@ -105,20 +111,58 @@ Rule files already on disk may change mode after this release; `foxxycode rules 
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
-| Nested `AGENTS.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every `AGENTS.md` on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
+| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every such document on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
 
 Mention-only rules use **`@name`** (file stem). They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
 ## Project docs preamble
 
-On every turn, if present in session CWD:
+Two directories describe themselves the same way, with the same pair of files, and both are read on every turn when present - yours first, so the operator speaks before the checkout:
 
-- **`AGENTS.md`** (subsection `### AGENTS.md`)
-- **`DESIGN.md`** (subsection `### DESIGN.md`)
+- **`~/.foxxycode/AGENTS.md`**, then **`~/.foxxycode/DESIGN.md`** - the agent home
+- **`AGENTS.md`**, then **`DESIGN.md`** - the session CWD
 
-These are unconditional; they do not use `alwaysApply` or `@mention`.
+Whichever of the four exists is read; a home with only a `DESIGN.md` contributes that one and nothing else.
 
-They enter the prompt **once**. `instructions.files` (default `["AGENTS.md"]`) does not repeat a file this preamble already carries, so the default entry adds no second copy under **Project instructions**; other files in that list still load there. Files are compared on disk, not by name: `./AGENTS.md`, a differently cased name on a case-insensitive volume, and a link such as `CLAUDE.md` → `AGENTS.md` all count as the same file. The context breakdown counts both docs under `rules`.
+These are unconditional; they do not use `alwaysApply` or `@mention`, and none of them is named in `config.yaml`. A file that enters the prompt here is not sent a second time as an instruction file, so the default `instructions.files` can name `AGENTS.md` without paying for it twice.
+
+## Your own instructions and rules
+
+A checkout describes itself: how it is built, what its conventions are, which commands are dangerous *in it*. What you want from every session - the language to answer in, the style you carry between projects, the commands you never want run - is not the project's business and does not belong in its files. Those live in your agent home, `~/.foxxycode`, and are read in every workspace:
+
+| File | Reaches the prompt as | Read when |
+|------|-----------------------|-----------|
+| `~/.foxxycode/AGENTS.md`, `~/.foxxycode/DESIGN.md` | **`{{.Rules}}`**, the first preamble sections, above the project's own pair | every turn, in every workspace |
+| `~/.foxxycode/rules/*.md`, `*.mdc` | **`{{.Rules}}`**, like any project rule | per their own frontmatter (always on, glob-gated or `@mention`) |
+
+Nothing is configured for either. Writing the file is the switch, deleting it is the off switch, and no key in `config.yaml` mentions them:
+
+```bash
+mkdir -p ~/.foxxycode/rules
+$EDITOR ~/.foxxycode/AGENTS.md
+```
+
+Your pair is read first, so what you want is in front of the model before the checkout starts describing itself, and the project's own `AGENTS.md` and `DESIGN.md` follow below - they join, neither replaces the other. Write one of the two or both; the file that is not there costs nothing.
+
+Your rules are ordinary rule files and follow the same dialects, globs and activation modes as a project's - a `go.mdc` with `globs: **/*.go` under `~/.foxxycode/rules/` waits for a Go file in whichever project the session opened, because globs are anchored at the workspace, not at the folder the rule came from. `foxxycode rules list` shows them with source `user`, and names the folder under the table. The project still has the last word: when a project file and one of yours share a file name, the project's wins.
+
+Nothing here is trusted differently from a project file: both are text that steers the model, and neither can run anything by itself (see [Security](../operate/security.md)). The difference is who wrote it - your own folder needs no trust receipt because nothing arrives in it with a `git clone`.
+
+### More instruction files
+
+`instructions.files` names what else a session reads into **`{{.Instructions}}`**, on top of the preamble above. It defaults to `["AGENTS.md", "DESIGN.md"]` - the workspace's own pair, which the preamble already carries, so out of the box that block is empty - and a team or a machine can add its own:
+
+```yaml
+instructions:
+  files:
+    - "AGENTS.md"                   # the project's own, relative to the workspace
+    - "DESIGN.md"
+    - "/srv/agents/house-style.md"  # an absolute path, shared by a fleet
+    - "${CWD}/docs/conventions.md"  # this workspace
+    - "${FOXXYCODE_HOME}/team.md"       # next to your config.yaml
+```
+
+A leading `~` expands, and so do the two placeholders the config understands: `${FOXXYCODE_HOME}` is the agent home (`~/.foxxycode`) and `${CWD}` the workspace of the session reading the file. An absolute entry is read as it stands and a relative one resolves against the session working directory. Files are read in the order listed, and one that does not exist is silently skipped - which is how a single list can serve workspaces that do not all carry the same files. A file the preamble already carries is not read twice, and neither is a file named twice in the list. Files are compared on disk, not by name: `./AGENTS.md`, a differently cased name on a case-insensitive volume, a hard link and a link such as `CLAUDE.md` → `AGENTS.md` all count as the same file. The context breakdown counts the preamble docs under `rules`.
 
 ## Generating rules
 
@@ -133,9 +177,18 @@ After each agent turn, FoxxyCode estimates tokens per category (`systemPrompt`, 
 ## Configuration
 
 ```yaml
+instructions:
+  # Read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and ~ expand;
+  # an absolute entry is read as it stands, a relative one resolves against the
+  # session working directory. This is the default; the agent home's own
+  # AGENTS.md and DESIGN.md need no entry, the preamble reads them.
+  files:
+    - "AGENTS.md"
+    - "DESIGN.md"
+
 rules:
   auto_discover: true
-  systems: []   # optional filter: foxxycode, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional filter: user, foxxycode, agents-dir, cursor, claude, codex, agents
 ```
 
 ## References
@@ -143,5 +196,6 @@ rules:
 - [Cursor Rules](https://cursor.com/docs/rules)
 - [Claude `.claude/rules`](https://code.claude.com/docs/en/memory#organize-rules-with-clauderules)
 - [Codex Rules](https://developers.openai.com/codex/rules)
-- Implementation: `internal/rules/*` (dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
-- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`
+- Implementation: `internal/rules/*` (roots in `factory.go`, dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), instruction files in `internal/session/instructions_load.go`, wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
+- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`, `features/global_instructions.feature`
+- End-to-end against a real model: `examples/cli/cli_e2e_rules.py` (a project glob rule through the console) and `examples/cli/cli_e2e_global_instructions.py` (an `AGENTS.md` and a rule in an isolated `FOXXYCODE_HOME`, a workspace with nothing in it)

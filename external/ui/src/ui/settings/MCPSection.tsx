@@ -7,6 +7,7 @@ import {
   MCP_SERVER_TEMPLATE,
   PROJECT_TRUST_OPTIONS,
   declarationFacts,
+  globalMCPPath,
   originLabel,
   parseServerEntryJson,
   serverRowToEntry,
@@ -193,7 +194,7 @@ type EditorState = {
 
 /**
  * MCPSection is the Settings -> MCP servers tab: the merged server list from
- * config.yaml, the global ~/.foxxycode/mcp.json, and the local ./.foxxycode/mcp.json
+ * config.yaml, the global mcp.json of the agent home, and the local ./.foxxycode/mcp.json
  * in the Cursor style — status dot, scope badge, server switch, expandable
  * per-tool switches, and a JSON editor for mcp.json entries of either scope.
  * All actions talk to /foxxycode/mcp* directly; nothing here touches the
@@ -368,7 +369,7 @@ export function MCPSection() {
   const openEdit = (row: MCPServerRow) => {
     setEditorError(null);
     // Editing writes back to the file that owns the row: origin home lives in
-    // the global ~/.foxxycode/mcp.json, project in the local ./.foxxycode/mcp.json.
+    // the agent home's mcp.json, project in the local ./.foxxycode/mcp.json.
     setEditor({
       name: row.name,
       text: serverRowToEntryJson(row),
@@ -479,6 +480,7 @@ export function MCPSection() {
             editor={editor}
             error={editorError}
             busy={editorBusy}
+            globalPath={globalMCPPath(servers)}
             onChange={setEditor}
             onSave={onEditorSave}
             onCancel={() => setEditor(null)}
@@ -542,7 +544,7 @@ export function MCPSection() {
                         <span
                           className="skills-list-item-badge"
                           title={t("settings.mcp.definedIn", {
-                            origin: originLabel(row.origin),
+                            origin: originLabel(row.origin, row.source_path),
                           })}
                         >
                           {t(
@@ -614,7 +616,7 @@ export function MCPSection() {
                       title={
                         editable
                           ? t("settings.mcp.editEntry", {
-                              origin: originLabel(row.origin),
+                              origin: originLabel(row.origin, row.source_path),
                             })
                           : t("settings.mcp.editConfigHint")
                       }
@@ -633,7 +635,7 @@ export function MCPSection() {
                       title={
                         editable
                           ? t("settings.mcp.deleteFrom", {
-                              origin: originLabel(row.origin),
+                              origin: originLabel(row.origin, row.source_path),
                             })
                           : t("settings.mcp.deleteConfigHint")
                       }
@@ -722,6 +724,7 @@ export function MCPSection() {
                       editor={editor}
                       error={editorError}
                       busy={editorBusy}
+                      globalPath={globalMCPPath(servers)}
                       onChange={setEditor}
                       onSave={onEditorSave}
                       onCancel={() => setEditor(null)}
@@ -797,12 +800,13 @@ function MCPEditorCard(props: {
   editor: EditorState;
   error: string | null;
   busy: boolean;
+  globalPath: string;
   onChange: (next: EditorState) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
   const { t } = useT();
-  const { editor, error, busy, onChange, onSave, onCancel } = props;
+  const { editor, error, busy, globalPath, onChange, onSave, onCancel } = props;
   return (
     <div className="mcp-editor" data-testid="mcp-editor">
       {editor.isNew ? (
@@ -845,7 +849,7 @@ function MCPEditorCard(props: {
             />
             <span>
               {t("settings.mcp.editor.scopeGlobal")} —{" "}
-              <code>~/.foxxycode/mcp.json</code>
+              <code>{globalPath}</code>
             </span>
           </label>
         </div>
@@ -867,9 +871,7 @@ function MCPEditorCard(props: {
         {t("settings.mcp.editor.descriptionAnd")} <code>disabledTools</code>.{" "}
         {t("settings.mcp.editor.savedTo")}{" "}
         <code>
-          {editor.scope === "global"
-            ? "~/.foxxycode/mcp.json"
-            : "./.foxxycode/mcp.json"}
+          {editor.scope === "global" ? globalPath : "./.foxxycode/mcp.json"}
         </code>
         .
       </p>

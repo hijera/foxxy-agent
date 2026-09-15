@@ -10,10 +10,11 @@ export type SectionKind =
   | "mcp"
   | "subagents"
   | "appearance"
-  | "general";
+  | "general"
+  | "sessions";
 
 export type SectionDescriptor = {
-  /** Unique id: a config key, or a synthetic id ("system", "appearance", "general"). */
+  /** Unique id: a config key, or a synthetic id ("system", "appearance", "general", "sessions_manager"). */
   id: string;
   /** Tab label. */
   label: string;
@@ -61,6 +62,7 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 const SECTION_DESC_IDS = new Set([
   "general",
   "appearance",
+  "sessions_manager",
   "providers",
   "models",
   "agent",
@@ -86,10 +88,10 @@ function descFor(id: string, sub?: JsonSchema): string | undefined {
  * deriveSettingsSections turns the root config JSON Schema into ordered tab
  * descriptors. Top-level schema properties map 1:1 to tabs (using the schema's
  * `x-foxxycode-property-order` and each property's `title`), except that the rarely
- * edited tail keys are folded into a single "System" tab and two synthetic tabs
- * lead the list: "General" (the UI language picker, the default tab) and
- * "Appearance" (the client-side theme picker). Both are present even when no
- * schema is available.
+ * edited tail keys are folded into a single "System" tab and three synthetic
+ * tabs lead the list: "General" (the UI language picker, the default tab),
+ * "Appearance" (the client-side theme picker) and "Sessions" (the stored
+ * history as a table). All three are present even when no schema is available.
  */
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
@@ -107,8 +109,19 @@ export function deriveSettingsSections(
     kind: "appearance",
   };
 
+  // The stored history is managed, not configured: this tab reads and prunes
+  // session bundles over /foxxycode/sessions and edits no config key. Its id is
+  // sessions_manager because `sessions` is already a config key (the storage
+  // directory), folded into the System tab.
+  const sessionsManager: SectionDescriptor = {
+    id: "sessions_manager",
+    label: t("settings.section.sessions_manager"),
+    description: descFor("sessions_manager"),
+    kind: "sessions",
+  };
+
   if (!schema || schema.type !== "object" || !schema.properties) {
-    return [general, appearance];
+    return [general, appearance, sessionsManager];
   }
 
   const props = schema.properties;
@@ -201,5 +214,5 @@ export function deriveSettingsSections(
     emit(key);
   }
 
-  return [general, appearance, ...out];
+  return [general, appearance, sessionsManager, ...out];
 }

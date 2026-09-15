@@ -69,21 +69,28 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	}
 	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills)
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
-	rulesMD := ""
-	var projectDocs []string
-	if rs, ok := a.state.(rulesState); ok {
-		rulesMD, projectDocs = buildRulesPromptMarkdown(rs, contextFiles, userText, a.agentsOnDemand())
-	}
-	// The rules block already carries the root AGENTS.md, which is also the
-	// default instructions.files entry; without the skip every request sends it
-	// twice. Without a rules block nothing is skipped.
-	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files, projectDocs...)
-	intellijContextMD := session.LoadIntelliJProjectContext(a.state.GetCWD())
-	vscodeContextMD := session.LoadVSCodeProjectContext(a.state.GetCWD())
+	// The per-provider template variants are settled first: whether the chosen
+	// template renders {{.Rules}} decides what the instructions block leaves out.
 	var promptVariants []string
 	if a.cfg.Prompts.PerProviderEnabled() {
 		promptVariants = a.promptVariants()
 	}
+	rulesMD := ""
+	// Project docs the rules block already carries: instructions.files names
+	// AGENTS.md too, and one system prompt does not need it twice. A template
+	// under prompts.dir may render {{.Instructions}} and not {{.Rules}}, and
+	// then nothing carries them - so the skip list is taken only from a
+	// template that actually prints the block.
+	var embeddedDocs []string
+	if rs, ok := a.state.(rulesState); ok {
+		rulesMD, embeddedDocs = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, userText, a.agentsOnDemand())
+		if !prompts.RendersRules(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile()) {
+			embeddedDocs = nil
+		}
+	}
+	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Paths.Home, a.cfg.Instructions.Files, embeddedDocs)
+	intellijContextMD := session.LoadIntelliJProjectContext(a.state.GetCWD())
+	vscodeContextMD := session.LoadVSCodeProjectContext(a.state.GetCWD())
 	full := prompts.RenderWithFallbackForVariants(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.DocsFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
