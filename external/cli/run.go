@@ -65,7 +65,7 @@ func Run(args []string, deps CommandDeps) error {
 	plainFlag := fs.Bool("plain", false, "deterministic rendering for tests: no terminal queries or protocol negotiation")
 	logLevel := fs.String("log-level", "", "log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)")
 	logFile := fs.String("log-file", "", "log file path (default <home>/logs/cli.log)")
-	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enabled (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	testConfig := config.AddCheckFlag(fs)

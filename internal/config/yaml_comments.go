@@ -119,6 +119,8 @@ func parsePreviousDocument(raw []byte) (*yaml.Node, bool) {
 	if doc.Content[0].Kind != yaml.MappingNode {
 		return nil, false
 	}
+	// The rendered file spells coddy's `enable` as `enabled`; its comments follow it.
+	normalizeEnableAliases(doc.Content[0])
 	return &doc, true
 }
 

@@ -103,7 +103,7 @@ Usage of cli (interactive console, also the default for bare foxxycode on a term
   -resume
     	open the session picker before starting
   -scheduler
-    	run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)
+    	run the cron scheduler in this process; overrides scheduler.enabled (build with -tags scheduler)
   -session-id string
     	reopen or create the session under this id
   -sessions-dir string

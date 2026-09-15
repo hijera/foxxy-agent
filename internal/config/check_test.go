@@ -97,6 +97,37 @@ func TestCheckUnknownKeySuggestsTheClosestOne(t *testing.T) {
 	}
 }
 
+// coddy spells the switch `enable`. The loader reads it, so the check must not fail the file
+// over it - but an editor validating against the schema flags the key, so it is a warning.
+func TestCheckCoddyEnableIsAWarning(t *testing.T) {
+	rep := checkYAML(t, withModeline("httpserver:\n  port: 8080\n  enable: false\n"))
+	if !rep.Valid() {
+		t.Fatalf("a coddy enable key must not fail the check: %+v", rep.Findings)
+	}
+	warns := warningsOf(rep)
+	if len(warns) != 1 {
+		t.Fatalf("want one warning, got %+v", rep.Findings)
+	}
+	w := warns[0]
+	if w.Line != 4 || w.Column != 3 || w.Path != "httpserver.enable" {
+		t.Errorf("warning at %d:%d %q, want 4:3 httpserver.enable", w.Line, w.Column, w.Path)
+	}
+	if !strings.Contains(w.Message, `"enabled"`) || !strings.Contains(w.Fix, `"enabled"`) {
+		t.Errorf("warning does not name the FoxxyCode key: %+v", w)
+	}
+}
+
+func TestCheckCoddyEnableBesideEnabledIsIgnored(t *testing.T) {
+	rep := checkYAML(t, withModeline("scheduler:\n  enabled: true\n  enable: false\n"))
+	if !rep.Valid() {
+		t.Fatalf("both spellings must not fail the check: %+v", rep.Findings)
+	}
+	warns := warningsOf(rep)
+	if len(warns) != 1 || warns[0].Line != 4 || !strings.Contains(warns[0].Message, "wins") {
+		t.Fatalf("want one warning on the enable line saying enabled wins, got %+v", rep.Findings)
+	}
+}
+
 func TestCheckUnknownKeyInsideAListEntry(t *testing.T) {
 	rep := checkYAML(t, withModeline("providers:\n  - name: a\n    type: openai\n  - name: b\n    type: openai\n    api_bas: x\n"))
 	f := onlyError(t, rep)
