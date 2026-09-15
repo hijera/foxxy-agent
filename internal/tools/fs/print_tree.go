@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hijera/foxxycode-agent/internal/gitws"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/tooling"
 )
@@ -114,6 +115,11 @@ func walkTree(b *strings.Builder, dir, prefix string, depthLeft int, store strin
 		}
 		if e.IsDir() {
 			if _, skip := printTreeSkipDirs[e.Name()]; skip {
+				continue
+			}
+			// The worktrees FoxxyCode keeps are checkouts of other branches;
+			// listing them would repeat the project once per worktree.
+			if gitws.IsWorktreesRoot(full) {
 				continue
 			}
 		}

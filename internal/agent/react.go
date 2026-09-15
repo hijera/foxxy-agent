@@ -64,6 +64,12 @@ type SessionState interface {
 	GetTitlePinned() string
 	GetTitleAuto() string
 	SetTitleAuto(text string)
+	// TakeQueuedMessages drains the follow-ups written while this turn runs
+	// (session/turn_queue.go). The loop reads them between its own steps.
+	TakeQueuedMessages() []session.QueuedMessage
+	// QueuedMessages is what is still waiting after that drain: a message may
+	// have been written while the batch was being read in.
+	QueuedMessages() []session.QueuedMessage
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -604,6 +610,11 @@ func (a *Agent) runReActLoop(
 	attemptRepeats := newAttemptRepeatDetector()
 	attemptRestarts := 0
 	restartForceAnswer := false
+	// replaying marks an iteration that sends the previous request again, or
+	// carries on the answer it cut: no step of the model's lies between the two,
+	// so a follow-up the operator queued is not folded into it (see the queue
+	// read at the top of the loop).
+	replaying := false
 
 	// maxTurns bounds the model's reasoning steps, so the bound grows with the
 	// iterations spent recovering from a provider failure and reactTurn - the index
@@ -630,6 +641,23 @@ func (a *Agent) runReActLoop(
 			"messages": len(messages),
 			"tools":    len(callDefs),
 		})
+
+		// A follow-up the operator wrote while the previous step ran is read
+		// here, before the request that answers that step's tool results is
+		// built: that is what puts the correction inside the work instead of
+		// after it. It is appended before the rebuild below, so a compaction
+		// that replays the transcript carries it too.
+		//
+		// Not on a recovery iteration. A re-issued request is meant to be the
+		// one that failed, and a continuation of a cut answer is meant to follow
+		// that answer: a user message slipped in between would be answered by the
+		// replay, and in the transcript it would split the half-written answer
+		// from its own continuation. The follow-up waits one step - the next real
+		// one, the end-of-turn read below, or the manager's boundary.
+		if !replaying {
+			a.readQueuedMessages(&messages)
+		}
+		replaying = false
 
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after foxxycode_todo_* tools in the same user turn.
@@ -982,6 +1010,7 @@ func (a *Agent) runReActLoop(
 				messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, callDefs, userText, contextFiles))
 				// LLM-facing only; never persisted to the transcript.
 				messages = append(messages, llm.Message{Role: llm.RoleUser, Content: nudge})
+				replaying = true
 				continue
 			}
 		}
@@ -1006,6 +1035,7 @@ func (a *Agent) runReActLoop(
 					a.log.Warn("no first token from the model; re-issuing the same request",
 						"timeout", firstTokenTimeout, "attempt", firstTokenReissues)
 					recoveryTurns++
+					replaying = true
 					continue
 				}
 				// A saturated gateway is out for minutes, which is why this waits on
@@ -1014,6 +1044,7 @@ func (a *Agent) runReActLoop(
 				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "no output"); {
 				case retry:
 					recoveryTurns++
+					replaying = true
 					continue
 				case stopped:
 					return string(acp.StopReasonCancelled), nil
@@ -1042,6 +1073,7 @@ func (a *Agent) runReActLoop(
 					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
 				}
 				turn--
+				replaying = true
 				continue
 			}
 			// A mid-generation truncation keeps its partial answer like a user
@@ -1112,6 +1144,7 @@ func (a *Agent) runReActLoop(
 				switch retry, stopped := a.waitForStalledProvider(ctx, &stalls, sessionID, "provider error"); {
 				case retry:
 					recoveryTurns++
+					replaying = true
 					continue
 				case stopped:
 					return string(acp.StopReasonCancelled), nil
@@ -1226,6 +1259,7 @@ func (a *Agent) runReActLoop(
 				messages = messages[:len(messages)-1]
 				a.log.Warn("model answered with no text and no tool call; re-issuing the same request",
 					"attempt", emptyReissues)
+				replaying = true
 				continue
 			}
 			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations {
@@ -1268,6 +1302,19 @@ func (a *Agent) runReActLoop(
 				messages = append(messages, follow)
 				a.state.AddMessage(follow)
 				a.refreshConversationContextUsage(true)
+				continue
+			}
+
+			// The turn is about to end with an answer, and the Stop hooks have
+			// had their say. Anything the operator queued while that answer was
+			// being written is read now, so it is answered by this turn rather
+			// than waiting for the next prompt. One iteration is needed to read
+			// it in; on the last one it would only leave a dangling user
+			// message behind, and the manager's boundary drain takes it.
+			//
+			// The last one is counted in the model's own steps: iterations spent
+			// recovering from a provider do not shrink max_turns (see recoveryTurns).
+			if reactTurn+1 < maxTurns && a.readQueuedMessages(&messages) {
 				continue
 			}
 			return string(acp.StopReasonEndTurn), nil

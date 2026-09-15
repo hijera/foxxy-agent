@@ -167,6 +167,7 @@ func (s *Server) registerFoxxyCodeRoutes() {
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
 	s.registerBackgroundRoutes()
+	s.registerQueueRoutes()
 	s.registerSubagentRoutes()
 	s.registerHookRoutes()
 	s.registerSchedulerRoutes()
@@ -833,7 +834,7 @@ func (s *Server) foxxycodeSessionsList(w http.ResponseWriter, r *http.Request) {
 			ent["cwd"] = row.CWD
 		}
 		if includeSubagents {
-			if link := subagentRowLink(fs, row.SessionID); link != nil {
+			if link := subagentRowLink(row); link != nil {
 				ent["subagent"] = link
 			}
 		}
@@ -996,6 +997,11 @@ func llmMsgsToFoxxyCodeOpenAIForSession(sessionID string, msgs []llm.Message) []
 		}
 		if m.Compacted {
 			item["compacted"] = true
+		}
+		// A follow-up from the message queue, so a client re-attaching to the
+		// running turn can find the prompt the turn started from.
+		if m.Queued && m.Role == llm.RoleUser {
+			item["queued"] = true
 		}
 		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
 			files := make([]map[string]interface{}, 0, len(m.ImageParts))

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hijera/foxxycode-agent/internal/gitws"
 )
 
 // ignoredDirs are skipped when walking the workspace.
@@ -63,7 +65,9 @@ func TakeWorkspaceSnapshot(cwd string) *WorkspaceSnapshot {
 			return nil // skip unreadable entries
 		}
 		if d.IsDir() {
-			if ignoredDirs[d.Name()] {
+			// The worktrees folder holds whole checkouts of other branches: a
+			// turn here neither reads them nor rolls them back.
+			if ignoredDirs[d.Name()] || gitws.IsWorktreesRoot(path) {
 				return filepath.SkipDir
 			}
 			rel, _ := filepath.Rel(cwd, path)

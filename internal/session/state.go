@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hijera/foxxycode-agent/internal/acp"
@@ -64,6 +65,22 @@ type State struct {
 
 	// Messages is the conversation history.
 	Messages []llm.Message
+
+	// msgRev counts every change to Messages and msgEditRev only those that
+	// are not a plain append. Persistence reads the pair to tell "nothing
+	// moved" from "the tail grew" without re-encoding the history to find out;
+	// every write to Messages must bump them through the helpers below, under
+	// the same lock that made the change.
+	msgRev     uint64
+	msgEditRev uint64
+
+	// persistID tells this State apart from any other over the same bundle.
+	// The counters above start at zero in every State, so a session that was
+	// closed and reopened can reach a revision its predecessor already wrote;
+	// without an identity a store would read that as "nothing moved" and skip
+	// writing a history that is not on disk.
+	persistOnce sync.Once
+	persistID   uint64
 
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
@@ -146,6 +163,9 @@ type State struct {
 
 	// pendingImageParts are image attachments for the next user message (from inline_files in agent mode); not persisted.
 	pendingImageParts []llm.ImagePart
+	// surfaceSystemPrompt is the block the surface running the current turn
+	// contributed to the system prompt; turn-scoped and never persisted.
+	surfaceSystemPrompt string
 
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
@@ -180,6 +200,31 @@ type State struct {
 	// userCancelledTurn is set when the user explicitly requested cancellation (via Stop or cross-process signal).
 	// Cleared at the start of each new turn via SetCancel. Used to distinguish intentional stop from unexpected interruption.
 	userCancelledTurn bool
+
+	// queue holds the follow-ups written while the current turn runs, read by
+	// the ReAct loop at its next step (turn_queue.go). queueOpen is the turn
+	// boundary: a message is only ever accepted by the turn it belongs to.
+	// Turn-scoped and never persisted - a queued message outliving the process
+	// would be answered by a conversation that has moved on.
+	queueMu   sync.Mutex
+	queue     []QueuedMessage
+	queueOpen bool
+	// queueVersion counts the changes, so a client told about the queue down
+	// two different connections can tell which answer is the newer one.
+	queueVersion uint64
+	// queueNotify is what the manager installed to announce a change; it runs
+	// after every mutation, with queueMu released.
+	queueNotify func()
+
+	// nextPromptQueued marks the next user message recorded as a queued
+	// follow-up: set by the manager for a run its turn boundary starts from the
+	// queue (MarkNextPromptQueued). Turn-scoped, never persisted.
+	nextPromptQueued bool
+
+	// turnSender is where the current turn publishes its updates, kept so a
+	// queue change made from outside the turn's goroutine reaches the clients
+	// watching that turn. Turn-scoped, never persisted.
+	turnSender acp.UpdateSender
 }
 
 // GetID returns the session ID.
@@ -611,12 +656,56 @@ func normalizeModelID(cfg *config.Config, id string) string {
 // AddMessage appends a message to the conversation history.
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
+	if msg.Role == llm.RoleUser && s.nextPromptQueued {
+		msg.Queued = true
+		s.nextPromptQueued = false
+	}
 	s.Messages = append(s.Messages, msg)
+	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
 }
 
-// GetMessages returns a copy of the message history.
+// markMessagesAppended records that messages were added at the end and nothing
+// else moved. Callers hold s.mu.
+func (s *State) markMessagesAppended() { s.msgRev++ }
+
+// markMessagesEdited records a change that is not a plain append: an existing
+// message was rewritten, or the history was replaced wholesale. Callers hold
+// s.mu.
+func (s *State) markMessagesEdited() { s.msgRev++; s.msgEditRev++ }
+
+// statePersistIDs hands out the identity of each State that gets persisted.
+var statePersistIDs atomic.Uint64
+
+// MessagesForPersist returns the history together with the two revisions and
+// this State's identity, read under one lock so a store cannot pair a history
+// with revisions from either side of a concurrent change.
+//
+// The copy is deep where a message can still be changed underneath it: a
+// PlanDocument is a pointer, and an in-place plan edit would otherwise rewrite
+// content this snapshot is already encoding, pairing it with the revision from
+// before the edit.
+func (s *State) MessagesForPersist() (msgs []llm.Message, rev, editRev, id uint64) {
+	s.persistOnce.Do(func() { s.persistID = statePersistIDs.Add(1) })
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	msgs = make([]llm.Message, len(s.Messages))
+	copy(msgs, s.Messages)
+	for i := range msgs {
+		if pd := msgs[i].PlanDocument; pd != nil {
+			snapshot := *pd
+			msgs[i].PlanDocument = &snapshot
+		}
+	}
+	return msgs, s.msgRev, s.msgEditRev, s.persistID
+}
+
+// GetMessages returns a copy of the message history. The copy is shallow: a
+// message's PlanDocument is the same object the session holds, so a caller
+// must treat what it gets back as read-only. Changing it would change the
+// session's history without moving the revisions persistence reads, and the
+// change would not reach disk. MessagesForPersist is the deep variant.
 func (s *State) GetMessages() []llm.Message {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -741,6 +830,64 @@ func (s *State) TakePendingPlanContext() string {
 	return out
 }
 
+// SetSurfaceSystemPrompt records the system prompt block the surface running
+// the current turn contributed. It is turn-scoped state, held only while the
+// turn lock is: nothing writes it to the bundle, so what a session keeps does
+// not depend on where its last turn came from.
+func (s *State) SetSurfaceSystemPrompt(block string) {
+	s.mu.Lock()
+	s.surfaceSystemPrompt = strings.TrimSpace(block)
+	s.mu.Unlock()
+}
+
+// GetSurfaceSystemPrompt returns that block, or "" when the turn came from a
+// surface that asks for nothing.
+func (s *State) GetSurfaceSystemPrompt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.surfaceSystemPrompt
+}
+
+// SetTurnSender records where the running turn publishes its session updates.
+//
+// Most updates are sent by the turn's own goroutine, which holds the sender
+// already. A message queue change is the exception: it is made by whoever is
+// watching - an HTTP request, a console keystroke - and still has to reach
+// every client attached to that turn's stream. Turn-scoped, cleared when the
+// turn releases, never persisted.
+func (s *State) SetTurnSender(sender acp.UpdateSender) {
+	s.mu.Lock()
+	s.turnSender = sender
+	s.mu.Unlock()
+}
+
+// MarkNextPromptQueued says the next user message this session records is a
+// follow-up from the message queue. The manager's turn boundary answers late
+// follow-ups with a run of their own, and that run records its prompt the way
+// any run does; the marker makes it read in the transcript like a follow-up
+// the loop picked up between two steps (Queued).
+func (s *State) MarkNextPromptQueued() {
+	s.mu.Lock()
+	s.nextPromptQueued = true
+	s.mu.Unlock()
+}
+
+// ClearNextPromptQueued withdraws the marker when the run recorded no message,
+// for instance a prompt a UserPromptSubmit hook refused, so it cannot land on
+// the prompt of a later turn.
+func (s *State) ClearNextPromptQueued() {
+	s.mu.Lock()
+	s.nextPromptQueued = false
+	s.mu.Unlock()
+}
+
+// TurnSender returns that sender, or nil when no turn is running.
+func (s *State) TurnSender() acp.UpdateSender {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.turnSender
+}
+
 // SetPendingImageParts stores image parts to be attached to the next user message.
 func (s *State) SetPendingImageParts(parts []llm.ImagePart) {
 	s.mu.Lock()
@@ -783,6 +930,7 @@ func (s *State) AppendPlanDocument(doc plans.Document) {
 		},
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
+	s.markMessagesAppended()
 	s.mu.Unlock()
 	s.touchPersist()
 }
@@ -837,6 +985,7 @@ func (s *State) UpdatePlanDocumentFromWrite(doc plans.Document) {
 		if updated != "" {
 			s.Messages[i].PlanDocument.UpdatedAt = updated
 		}
+		s.markMessagesEdited()
 	}
 	s.mu.Unlock()
 	s.touchPersist()
@@ -855,6 +1004,7 @@ func (s *State) MarkPlanDocumentDiscarded(slug string) {
 			continue
 		}
 		s.Messages[i].PlanDocument.Discarded = true
+		s.markMessagesEdited()
 	}
 	s.mu.Unlock()
 	s.touchPersist()
@@ -909,17 +1059,44 @@ func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
 }
 
 // ReplaceMessagesWithoutPersist replaces conversation history without persisting (bootstrap).
+//
+// The plan documents are copied rather than adopted. Handed another State's
+// messages, this would otherwise share those pointers with it, and an edit
+// there would change this history without touching its revisions - which
+// persistence reads as "nothing moved".
 func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
+	owned := make([]llm.Message, len(msgs))
+	copy(owned, msgs)
+	for i := range owned {
+		if pd := owned[i].PlanDocument; pd != nil {
+			snapshot := *pd
+			owned[i].PlanDocument = &snapshot
+		}
+	}
 	s.mu.Lock()
-	s.Messages = msgs
+	s.Messages = owned
+	s.markMessagesEdited()
 	s.mu.Unlock()
 }
 
 // ReplaceMessagesAndPersist replaces conversation history and persists it. Used by auto-compaction
 // to swap older turns for a summary message while keeping the rewritten transcript on disk.
+//
+// A replacement is an edit to persistence: without moving the edit revision, a save would read
+// "nothing changed", keep the longer history on disk and splice the next append onto it. Plan
+// documents are copied for the same reason ReplaceMessagesWithoutPersist copies them.
 func (s *State) ReplaceMessagesAndPersist(msgs []llm.Message) {
+	owned := make([]llm.Message, len(msgs))
+	copy(owned, msgs)
+	for i := range owned {
+		if pd := owned[i].PlanDocument; pd != nil {
+			snapshot := *pd
+			owned[i].PlanDocument = &snapshot
+		}
+	}
 	s.mu.Lock()
-	s.Messages = msgs
+	s.Messages = owned
+	s.markMessagesEdited()
 	s.mu.Unlock()
 	s.touchPersist()
 }

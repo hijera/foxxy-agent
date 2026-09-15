@@ -906,6 +906,39 @@ func TestPrintTreeRendersDepthLimitedTree(t *testing.T) {
 	}
 }
 
+// The git worktrees FoxxyCode keeps under .foxxycode/worktrees are checkouts of
+// other branches; the tree shows the rest of .foxxycode, not the project again
+// once per worktree.
+func TestPrintTreeLeavesTheWorktreesFolderOut(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{
+		filepath.Join(root, ".foxxycode", "worktrees", "feature-login", "internal"),
+		filepath.Join(root, ".foxxycode", "rules"),
+	} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, ".foxxycode", "rules", "style.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := executePrintTree(context.Background(), `{"depth":4}`, &tooling.Env{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{".foxxycode/", "rules/", "style.md"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tree missing %q:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"worktrees", "feature-login"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("tree shows %q from the worktrees folder:\n%s", unwanted, out)
+		}
+	}
+}
+
 // --- keep_result.go: selector validation, no filesystem access -------------
 
 func TestKeepResultRequiresSelector(t *testing.T) {
