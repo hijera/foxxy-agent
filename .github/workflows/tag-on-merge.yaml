@@ -4,6 +4,8 @@
 # Child workflows are invoked via workflow_call (GITHUB_TOKEN tag pushes do not fire push: tags workflows).
 # The release description is written last, by release-notes.yaml, once every job that attaches
 # to the release has finished (see that file for why none of those jobs writes it).
+# GitHub Pages (the website plus docs/, updatePlugins.xml included) is redeployed by site.yaml
+# once the build jobs are done, see the site job below.
 #
 # workflow_dispatch:
 #   - empty: bump tag on HEAD (if needed) and release
@@ -193,3 +195,18 @@ jobs:
     with:
       tag: ${{ needs.release.outputs.tag }}
     secrets: inherit
+
+  # Redeploys GitHub Pages from main once intellij-plugin has committed the new
+  # updatePlugins.xml and every asset the download links point at is attached. That commit is
+  # pushed with GITHUB_TOKEN, which starts no workflow, so this call is the only deploy it gets.
+  # Runs when a build failed too: the plugin repository document and docs/ must still go out,
+  # and the website's download cards fall back to the newest release that has each package.
+  site:
+    name: Website
+    needs: [release, binaries, intellij-plugin, vscode-extension]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.release.outputs.skip != 'true' }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/site.yaml
