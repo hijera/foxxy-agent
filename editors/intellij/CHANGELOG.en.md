@@ -7,6 +7,32 @@
 
 # FoxxyCode plugin changes
 
+## 0.2.94 — 2026-09-14
+
+**A Sessions table in Settings → Sessions.**
+A new settings section gathers the saved conversations in a table: model, number of messages,
+tokens spent, dates created and last changed. You can search it, select single rows or the whole
+page, and delete the selection with one button. The conversation open right now is marked and
+protected from deletion. In the IDE panel the table, like History, respects the "This project
+only" checkbox: while it is on, only the conversations of the open project are shown and deleted.
+
+**Your own `AGENTS.md`, `DESIGN.md` and rules in every project.**
+`AGENTS.md` and `DESIGN.md` from the agent's home directory (`~/.foxxycode` or the directory set in
+`FOXXYCODE_HOME`) and the rules from its `rules` directory now load in any project, above the
+project's own files. `instructions.files` accepts `${FOXXYCODE_HOME}`, `${CWD}` and `~`, and lists
+`AGENTS.md` and `DESIGN.md` by default: both project files still reach the model once each.
+
+**Settings → MCP servers shows the real path to `mcp.json`.**
+The hints on the servers named the global file `~/.foxxycode/mcp.json` even when the agent's home
+directory is somewhere else. They now show the file the server was actually read from, and the
+add-server form shows the real path of the global `mcp.json` when it already holds servers.
+
+**Password sign-in for the `foxxycode serve` web UI.**
+A server open to the network can be closed with a password: `foxxycode serve set-password` writes
+the account to `config.yaml`, and the browser shows a sign-in form first. The IntelliJ and VS Code
+panels and the `foxxycode desktop` window talk to the server on `127.0.0.1` and do not show the
+form, even when a password is set.
+
 ## 0.2.93 — 2026-09-14
 
 **A `config.yaml` saved in Notepad reads like any other.**
