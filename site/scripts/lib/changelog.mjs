@@ -174,9 +174,12 @@ export function compareSemver(a, b) {
  * @returns {Section[]}
  */
 export function resolveUnreleased(sections, version) {
+  // A numbered section for that version already exists when the Unreleased one is newer than the
+  // release: those notes are not out yet.
+  const taken = version !== null && sections.some((s) => !s.unreleased && s.version === version);
   return sections.flatMap((s) => {
     if (!s.unreleased) return [s];
-    return version ? [{ ...s, version, unreleased: false }] : [];
+    return version && !taken ? [{ ...s, version, unreleased: false }] : [];
   });
 }
 

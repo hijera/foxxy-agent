@@ -126,6 +126,10 @@ describe("merging", () => {
     expect(resolveUnreleased(parseChangelog(RU), null).map((s) => s.version)).toEqual(["0.2.89", "0.2.88"]);
   });
 
+  it("never gives Unreleased the number of a release that already has its own section", () => {
+    expect(resolveUnreleased(parseChangelog(RU), "0.2.89").map((s) => s.version)).toEqual(["0.2.89", "0.2.88"]);
+  });
+
   it("shows an entry both plugins carry once, with both surfaces", () => {
     const vscodeRu = parseChangelog(RU.split("## 0.2.89")[0]!);
     const vscodeEn = parseChangelog(EN.split("## 0.2.89")[0]!);
