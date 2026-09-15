@@ -375,6 +375,21 @@ tools:
 #   host: "127.0.0.1"
 #   port: 8080
 #   auth_token: "${FOXXYCODE_HTTP_TOKEN}"  # empty = no auth; ${ENV} expanded at load; or use --auth-token
+#   # Web UI sign-in: the browser's half of the same gate, off unless an account exists.
+#   # Write it with `foxxycode serve set-password --user NAME` rather than by hand - the hash is
+#   # argon2id and every "$" of it has to be doubled to survive this file's ${ENV} expansion.
+#   # FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD (see ~/.foxxycode/.env) enable the form on their own,
+#   # win over an account here, and are never written into this file. An explicit
+#   # enabled: false switches the form off with those variables still set.
+#   # A form is for browsers: foxxycode --remote, foxxycode acp --remote, a swarm relay and scripts
+#   # keep presenting auth_token, so set both when anything but a browser talks to this server.
+#   # On `foxxycode http` (what the editor plugins and the desktop app run) a client on this
+#   # machine passes the form while no auth_token is set; `foxxycode serve` has no such rule.
+#   login:
+#     enabled: true
+#     user: "pasha"
+#     password_hash: "$$argon2id$$v=19$$m=19456,t=2,p=1$$..."
+#     session_ttl_hours: 720   # 0 = the browser drops the cookie on close; the server still expires its record after 30 days
 #   public_docs: false      # keep /docs + /openapi.* open when auth is on
 #   stream_tickets_only: false  # SSE must use POST /foxxycode/stream-tickets instead of ?access_token=<auth token>
 #   allow_insecure: false   # silence the non-loopback-without-auth startup warning

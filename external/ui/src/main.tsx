@@ -14,6 +14,7 @@ import { bootstrapEmbedFlag } from "./ui/embedShell";
 import { installEmbedLocaleBridge } from "./ui/embedLocaleBridge";
 import { installEmbedHostBridge } from "./ui/embedHostBridge";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
+import { AuthGate } from "./ui/auth/AuthGate";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 
 // Install the remote fetch shim before anything renders so every /v1/* and /foxxycode/* request
@@ -36,7 +37,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         {/* Inside I18nProvider so the dialog resolves in the active locale, and
             inside AppErrorBoundary so a crash in it is still caught. */}
         <ConfirmProvider>
-          <App />
+          <AuthGate>
+            <App />
+          </AuthGate>
         </ConfirmProvider>
       </I18nProvider>
     </AppErrorBoundary>

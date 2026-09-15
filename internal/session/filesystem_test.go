@@ -675,3 +675,177 @@ func TestListSnapshotsMatchesWorkspaceSpelledDifferently(t *testing.T) {
 		t.Fatalf("filter %q: rows = %+v, want none", other, rows)
 	}
 }
+
+// The creation stamp is written once, when the bundle directory appears, and is
+// carried forward by every later save so the session management table can sort
+// by age.
+func TestCreatedAtIsStampedOnceAndSurvivesSaves(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_created_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := first.Meta.CreatedAt
+	if created == "" {
+		t.Fatal("EnsureLayout left the bundle without a createdAt")
+	}
+
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "hello"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.CreatedAt != created {
+		t.Fatalf("createdAt moved from %q to %q", created, snap.Meta.CreatedAt)
+	}
+
+	// Patching only the activity counters rewrites session.json; the stamp must
+	// come through that path too.
+	st.RestoreActivityFromSnapshot(1, 0)
+	st.MarkActivityReadSynced()
+	if err := fs.PatchSessionMetaActivitySync(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err = fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.CreatedAt != created {
+		t.Fatalf("activity patch dropped createdAt: %q", snap.Meta.CreatedAt)
+	}
+}
+
+// A bundle written by an older build has a session.json without createdAt. The
+// moment it was started is not recoverable, so a later save must leave the
+// field empty rather than backdate the session to that save.
+func TestSaveDoesNotInventCreatedAtForALegacyBundle(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_legacy_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rewrite session.json the way an older build left it.
+	legacy := SessionMeta{Version: sessionFileLayout, ID: id, UpdatedAt: "2020-01-01T00:00:00Z"}
+	if err := writeJSONAtomic(filepath.Join(dir, sessionMetaFile), legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	st := &State{ID: id, CWD: "/tmp", Mode: ModeAgent, SessionDir: dir}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.CreatedAt != "" {
+		t.Fatalf("createdAt = %q, want empty for a legacy bundle", snap.Meta.CreatedAt)
+	}
+}
+
+// The listing carries what the management table renders per row from
+// session.json alone: the model override and the stamps. The transcript size
+// is asked per rendered row, because the listing never parses a transcript
+// (TestListSnapshotsDoesNotReadTranscripts).
+func TestListSnapshotsCarriesRowStatistics(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_rowstats_ut"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{ID: id, CWD: t.TempDir(), Mode: ModeAgent, SessionDir: dir}
+	st.SetSelectedModelID("openai/gpt-4o")
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "ask"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer"})
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := fs.ListSnapshotsWith(ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	row := rows[0]
+	if row.Model != "openai/gpt-4o" {
+		t.Fatalf("model = %q", row.Model)
+	}
+	if row.CreatedAt == "" {
+		t.Fatal("row carries no createdAt")
+	}
+	count, err := fs.MessageCount(row.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("messageCount = %d, want 2", count)
+	}
+}
+
+// MessageCount answers from the file as it is on disk: zero for a bundle that
+// never stored a transcript or stored an empty one, an error for a file that is
+// not the transcript shape, and every row counted whatever its role.
+func TestMessageCountReadsTheStoredTranscript(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	cases := []struct {
+		name    string
+		file    string // messages.json content; empty writes no file
+		want    int
+		wantErr bool
+	}{
+		{name: "no transcript", want: 0},
+		{name: "null messages", file: `{"version":1,"messages":null}`, want: 0},
+		{name: "empty messages", file: `{"version":1,"messages":[]}`, want: 0},
+		{name: "every role", file: `{"messages":[{"role":"system","content":"s"},{"role":"user","content":"u"},{"role":"assistant","content":"a","tool_calls":[{"id":"c1"}]},{"role":"tool","content":"t"}],"version":1}`, want: 4},
+		{name: "not an object", file: `[1,2]`, wantErr: true},
+		{name: "truncated", file: `{"version":1,"messages":[{"role":"user"`, wantErr: true},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			id := fmt.Sprintf("sess_count_%02d", i)
+			dir := filepath.Join(root, id)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.file != "" {
+				if err := os.WriteFile(filepath.Join(dir, messagesFile), []byte(tc.file), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := fs.MessageCount(id)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("count = %d, want an error", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("count = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

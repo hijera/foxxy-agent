@@ -9,6 +9,11 @@ import (
 type Source string
 
 const (
+	// SourceUser is ${FOXXYCODE_HOME}/rules: the rules of the person running
+	// foxxycode, applied in every workspace rather than travelling with a
+	// checkout. The most specific copy still wins, so a project file of the
+	// same name overrides one of these.
+	SourceUser      Source = "user"
 	SourceFoxxyCode Source = "foxxycode"
 	// SourceAgentsDir is the tool-neutral .agents/rules folder, the rules
 	// sibling of .agents/skills.
