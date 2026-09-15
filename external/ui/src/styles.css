@@ -2495,57 +2495,6 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   padding-inline: var(--foxxycode-chat-scrollbar-gutter);
 }
 
-/* Full-width vignette above the docked composer (no side gaps vs narrow card stripe).
-   Chromium 104 (JCEF) has no :has(); ChatScreen sets chat-bottom--docked. */
-.chat-bottom--docked::before {
-  content: "";
-  position: absolute;
-  left: var(--foxxycode-chat-scrollbar-gutter);
-  right: var(--foxxycode-chat-scrollbar-gutter);
-  bottom: 100%;
-  height: clamp(56px, 16vh, 120px);
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(
-      ellipse min(140%, 920px) 115% at 50% 100%,
-      rgba(11, 11, 12, 0.42) 0%,
-      rgba(11, 11, 12, 0.18) 45%,
-      transparent 72%
-    ),
-    linear-gradient(
-      to bottom,
-      rgba(11, 11, 12, 0) 0%,
-      rgba(11, 11, 12, 0.12) 100%
-    );
-}
-
-/* Chromium 104 (JCEF) has no :has(); ChatScreen sets chat-bottom--docked. */
-[data-theme="light"] .chat-bottom--docked::before {
-  background:
-    radial-gradient(
-      ellipse min(140%, 920px) 115% at 50% 100%,
-      var(--foxxycode-canvas-gradient-bottom) 0%,
-      color-mix(
-          in srgb,
-          var(--foxxycode-canvas-gradient-bottom) 48%,
-          transparent
-        )
-        45%,
-      transparent 72%
-    ),
-    linear-gradient(
-      to bottom,
-      transparent 0%,
-      color-mix(
-          in srgb,
-          var(--foxxycode-canvas-gradient-bottom) 62%,
-          transparent
-        )
-        100%
-    );
-}
-
 .chat-bottom-inner {
   position: relative;
   z-index: 1;
@@ -2718,6 +2667,10 @@ html[data-embed="intellij"] .messages-inner > .msg-system-stack {
   min-height: 28px;
   width: 100%;
   align-self: stretch;
+  /* Mirror of the inset under assistant and system rows: the copy control and
+     the time keep the message card's horizontal padding from the bubble edge. */
+  padding-right: 14px;
+  box-sizing: border-box;
 }
 
 .msg-user-time {
@@ -4587,15 +4540,6 @@ button.at-range-line--sel:hover {
   box-shadow: none;
 }
 
-[data-embed="intellij"] .chat-bottom--docked::before,
-[data-embed="vscode"] .chat-bottom--docked::before {
-  background: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0) 0%,
-    color-mix(in srgb, var(--text) 4%, transparent) 100%
-  );
-}
-
 [data-embed="intellij"] .hero,
 [data-embed="vscode"] .hero {
   padding-bottom: 12px;
@@ -6389,10 +6333,6 @@ html:not([data-theme="light"]) .context-usage-note--error {
 
   .chat-bottom--docked .chat-bottom-inner {
     pointer-events: auto;
-  }
-
-  .chat-bottom--docked::before {
-    display: none;
   }
 
   .chat-bottom-inner {

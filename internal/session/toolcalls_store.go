@@ -28,34 +28,39 @@ type ToolCallMeta struct {
 	PlanSnapshot []acp.PlanEntry `json:"planSnapshot,omitempty"`
 }
 
-func toolCallDir(sessionDir, toolCallID string) (string, error) {
-	if strings.TrimSpace(sessionDir) == "" {
-		return "", fmt.Errorf("session directory is empty")
-	}
+// ToolCallDirName maps a tool call id to the name of its folder under
+// tool_calls/. An id that is already a safe single path segment keeps its own
+// name, so every bundle written so far reads back unchanged; anything else - a
+// provider that sends "../x", an id carrying a separator, one longer than a file
+// name may be - is stored under a digest of the id instead of escaping the
+// bundle or losing the record, and meta.json keeps the id itself. A derived name
+// is a safe segment in its turn, so resolving one again is a no-op and a folder
+// name handed back by ListToolCalls addresses the same folder.
+//
+// Before that rule this fork already stored ids with path-unsafe characters -
+// NeuralDeep-hosted models answer with harmony ids such as
+// "functions.foxxycode_todo_plan_replace:0", and ':' is not a legal path
+// character on Windows - under the id rewritten to the safe alphabet plus a short
+// hash suffix. Every id that rewrite still turns into a valid segment keeps that
+// folder name, so those bundles read back unchanged; only what the rewrite cannot
+// make safe (a leading dot, "..", a name past 128 characters) falls through to the
+// digest.
+func ToolCallDirName(toolCallID string) string {
 	id := strings.TrimSpace(toolCallID)
-	if id == "" {
-		return "", fmt.Errorf("toolCallId is empty")
-	}
-	return filepath.Join(sessionDir, toolCallsDirName, toolCallDirName(id)), nil
-}
-
-// toolCallDirName maps a tool call id to its directory name. Ids made of
-// letters, digits, '.', '_' and '-' are used verbatim, which keeps every store
-// written so far readable. Anything else (NeuralDeep-hosted models answer with
-// harmony ids such as "functions.foxxycode_todo_plan_replace:0", and ':' is not a
-// legal path character on Windows) is rewritten to that alphabet with a short
-// hash suffix so distinct ids never share a directory.
-func toolCallDirName(id string) string {
-	safe := true
-	for _, r := range id {
-		if !toolCallDirRuneOK(r) {
-			safe = false
-			break
-		}
-	}
-	if safe {
+	if ValidateToolCallID(id) == nil {
 		return id
 	}
+	if legacy := sanitizedToolCallDirName(id); ValidateToolCallID(legacy) == nil {
+		return legacy
+	}
+	sum := sha256.Sum256([]byte(id))
+	return "tc_" + hex.EncodeToString(sum[:16])
+}
+
+// sanitizedToolCallDirName is the fork's original mapping for an id with
+// characters outside [A-Za-z0-9._-]: each such character becomes '_', and a hash
+// of the whole id is appended so distinct ids never share a directory.
+func sanitizedToolCallDirName(id string) string {
 	var b strings.Builder
 	for _, r := range id {
 		if toolCallDirRuneOK(r) {
@@ -70,6 +75,17 @@ func toolCallDirName(id string) string {
 
 func toolCallDirRuneOK(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+}
+
+func toolCallDir(sessionDir, toolCallID string) (string, error) {
+	if strings.TrimSpace(sessionDir) == "" {
+		return "", fmt.Errorf("session directory is empty")
+	}
+	id := strings.TrimSpace(toolCallID)
+	if id == "" {
+		return "", fmt.Errorf("toolCallId is empty")
+	}
+	return filepath.Join(sessionDir, toolCallsDirName, ToolCallDirName(id)), nil
 }
 
 func ensureToolCallDir(sessionDir, toolCallID string) (string, error) {

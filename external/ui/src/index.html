@@ -42,7 +42,7 @@
           : "dark";
         /* IDE embeddings pass ?embed=intellij (JCEF) or ?embed=vscode (webview
            iframe) so the SPA can adopt a flatter, more native host-IDE look
-           (see docs/intellij-embedding.md). */
+           (see docs/contributing/intellij-embedding.md). */
         var e = location.search.match(/[?&]embed=([^&]+)/);
         var et = e && decodeURIComponent(e[1].replace(/\+/g, " "));
         if (et && /^[a-z0-9_-]+$/i.test(et)) {

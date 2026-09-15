@@ -164,11 +164,11 @@ class FoxxyCodeBrowserPanel(private val project: Project) : JPanel(BorderLayout(
 
     private fun loadUrl(url: String) {
         // Append the IDE-matching theme so the SPA applies it before first paint
-        // (contract: docs/intellij-embedding.md). Avoid duplicating the param.
+        // (contract: docs/contributing/intellij-embedding.md). Avoid duplicating the param.
         val themeParam = if (url.contains("theme=")) url
         else url + (if (url.contains("?")) "&" else "?") + "theme=${FoxxyCodeThemeBridge.currentFoxxyCodeTheme()}"
         // Signal the embed mode so the SPA adopts a flatter, more native host-IDE
-        // look (data-embed="intellij" on <html>; see docs/intellij-embedding.md).
+        // look (data-embed="intellij" on <html>; see docs/contributing/intellij-embedding.md).
         var finalUrl = if (themeParam.contains("embed=")) themeParam
         else themeParam + (if (themeParam.contains("?")) "&" else "?") + "embed=intellij"
         finalUrl = appendLangParam(finalUrl)

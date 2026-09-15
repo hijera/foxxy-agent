@@ -119,6 +119,11 @@ func waitForPersistedStatus(t *testing.T, sessionDir, taskID string, want Status
 	return Snapshot{}
 }
 
+// waitForStatus polls the in-memory snapshot until it reads want. That flip is
+// the first thing the supervisor publishes: the record on disk is written and
+// the final notification is sent afterwards. A test that goes on to read the
+// session bundle or a subscriber's log must synchronise on those instead
+// (waitUntilFinished for the bundle, the subscriber itself for its log).
 func waitForStatus(t *testing.T, p *Pool, sessionID, taskID string, want Status) Snapshot {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -143,6 +148,22 @@ func waitForStatus(t *testing.T, p *Pool, sessionID, taskID string, want Status)
 // that expected_seconds bought the hard timeout — which is the bug that killed
 // dev servers mid-session; it was removed rather than updated so there is one
 // statement of the contract, not two.
+
+// waitUntilFinished blocks on Pool.Wait, which the supervisor releases only
+// after the task record is persisted, and checks the settled status. It is the
+// synchronisation a test needs before reading the session bundle: the in-memory
+// status flips before the persist, so waitForStatus is not enough there.
+func waitUntilFinished(t *testing.T, p *Pool, sessionID, taskID string, want Status) Snapshot {
+	t.Helper()
+	snap, err := p.Wait(context.Background(), sessionID, taskID, 3*time.Second)
+	if err != nil {
+		t.Fatalf("Wait(%q): %v", taskID, err)
+	}
+	if snap.Status != want {
+		t.Fatalf("task %s is %q after Wait, want %q", taskID, snap.Status, want)
+	}
+	return snap
+}
 
 func TestSnapshotElapsedAndOverdue(t *testing.T) {
 	start := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
@@ -342,10 +363,17 @@ func TestPoolNotifiesSubscribers(t *testing.T) {
 
 	var mu sync.Mutex
 	var seen []Status
+	finished := make(chan struct{}, 1)
 	p.Subscribe(func(s Snapshot) {
 		mu.Lock()
 		seen = append(seen, s.Status)
 		mu.Unlock()
+		if s.Status.Finished() {
+			select {
+			case finished <- struct{}{}:
+			default:
+			}
+		}
 	})
 
 	snap, err := p.Start(Spec{SessionID: "s1", Command: "make"})
@@ -353,7 +381,14 @@ func TestPoolNotifiesSubscribers(t *testing.T) {
 		t.Fatalf("Start(): %v", err)
 	}
 	runner.last().finish(0)
-	waitForStatus(t, p, "s1", snap.ID, StatusSucceeded)
+	// The final notification is sent after the status flips in memory and
+	// after Wait is released, so neither orders it: the subscriber's own
+	// signal is what to wait on.
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("subscriber never saw task %s finish", snap.ID)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -417,7 +452,10 @@ func TestTaskOutputAndMetadataPersistUnderTheSessionDir(t *testing.T) {
 		t.Fatalf("Start(): %v", err)
 	}
 	runner.last().finish(0)
-	waitForStatus(t, p, "s1", snap.ID, StatusSucceeded)
+	// The bundle is written after the in-memory status flips, so polling Get
+	// could read it while meta.json still says running (CI saw that as an
+	// orphaned row). Wait returns only once the record is on disk.
+	waitUntilFinished(t, p, "s1", snap.ID, StatusSucceeded)
 
 	text, truncated, ok := PersistedOutput(sessionDir, snap.ID)
 	if !ok {

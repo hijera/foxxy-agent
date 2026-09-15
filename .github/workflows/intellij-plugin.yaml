@@ -10,7 +10,7 @@
 # Release builds also republish the JetBrains plugin repository document (updatePlugins.xml),
 # which is what makes the plugin update itself inside the IDE: to docs/ on main (served by
 # GitHub Pages, the URL users paste into Manage Plugin Repositories) and as an asset on the
-# Release. See docs/RELEASE_SETUP.md.
+# Release. See docs/contributing/release-setup.md.
 
 name: IntelliJ plugin
 

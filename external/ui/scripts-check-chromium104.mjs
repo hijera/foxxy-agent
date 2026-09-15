@@ -2,7 +2,7 @@
  * scripts-check-chromium104.mjs — post-build regression guard.
  *
  * The UI is embedded in an IntelliJ/PhpStorm 2022.3.3 plugin via JCEF, whose
- * Chromium is version 104 (see docs/intellij-embedding.md). This script scans
+ * Chromium is version 104 (see docs/contributing/intellij-embedding.md). This script scans
  * the built bundle (dist/styles.css + dist/app.js — including dependency
  * code) for CSS/JS features newer than Chromium 104 and fails the build when
  * any are found. Wired into `npm run build:go` between `vite build` and the
@@ -115,7 +115,7 @@ if (problems.length > 0) {
   );
   for (const p of problems) console.error(`  - ${p}`);
   console.error(
-    "\nSee docs/intellij-embedding.md and .claude/rules/ui-spa.md for the compatibility rules.\n",
+    "\nSee docs/contributing/intellij-embedding.md and .claude/rules/ui-spa.md for the compatibility rules.\n",
   );
   process.exit(1);
 }

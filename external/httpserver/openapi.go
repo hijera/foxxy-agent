@@ -216,9 +216,10 @@ func openAPISpec() map[string]interface{} {
 						"name":   "cwd",
 						"in":     "query",
 						"schema": map[string]string{"type": "string"},
-						"description": "Absolute directory. Keeps only sessions whose **cwd** is that directory or sits beneath it " +
-							"(case-insensitive on Windows), applied before **q** and paging. Used by the IntelliJ / VS Code plugins " +
-							"to scope History to the open project.",
+						"description": "Absolute directory. Keeps only sessions whose **cwd** is that directory or sits beneath it, " +
+							"compared as folders rather than strings (cleaned, symlinks resolved, case-insensitive on Windows and macOS), " +
+							"so a session the console stored under the logical path of a symlinked checkout is listed for the physical path an editor sends. " +
+							"Applied before **q** and paging. Used by the IntelliJ / VS Code plugins to scope History to the open project.",
 					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},
@@ -1241,7 +1242,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Hook definition files visible from a workspace",
 					"description": "Lists the hook definition files a session with this **cwd** would load, in load order (**`hooks.files`**: the operator's **`${FOXXYCODE_HOME}/hooks.json`**, then the workspace's **`.claude/settings.json`**, **`.claude/settings.local.json`** and **`.foxxycode/hooks.json`**). " +
 						"Each item carries **file** (the name receipts use: the workspace-relative path for project scope, the absolute path otherwise), **path**, **scope** (**user**, **project**), **digest** (SHA-256 of the file), the trust decision for this workspace (**trust**, mirrored as **trusted** and **needs_approval**), **error** for a file that does not parse, **warnings**, and **hooks**: one row per handler with its event, matcher, command and flags. " +
-						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See **`docs/hooks.md`**.",
+						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/hooks.md.",
 					"operationId": "listHooks",
 					"parameters": []interface{}{
 						map[string]interface{}{

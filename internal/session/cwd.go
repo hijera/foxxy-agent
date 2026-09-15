@@ -28,30 +28,47 @@ func EffectiveSessionCWD(clientCWD, defaultCWD string) (string, error) {
 
 // CWDInScope reports whether cwd is root itself or a directory beneath it.
 // An empty root matches everything (no scope requested); an empty cwd never matches.
-// Comparison is case-insensitive on Windows, matching the local filesystem.
+// Both sides are compared in their canonical form (CanonicalWorkspacePath:
+// absolute, cleaned, symlinks resolved), case-insensitively where the default
+// filesystem folds case, so a session stored under one spelling of a project is
+// in scope for any other spelling of it.
 func CWDInScope(cwd, root string) bool {
-	r := strings.TrimSpace(root)
+	return NewWorkspaceScope(root)(cwd)
+}
+
+// NewWorkspaceScope returns the CWDInScope test for one root, resolving the
+// root once and each distinct cwd once. A listing asks it for every stored
+// session, and resolving symlinks costs a filesystem call per path component,
+// so the IDE History poll does not pay that per row.
+func NewWorkspaceScope(root string) func(cwd string) bool {
+	r := CanonicalWorkspacePath(filepath.FromSlash(root))
 	if r == "" {
-		return true
+		return func(string) bool { return true }
 	}
-	c := strings.TrimSpace(cwd)
-	if c == "" {
-		return false
-	}
-	c = filepath.Clean(filepath.FromSlash(c))
-	r = filepath.Clean(filepath.FromSlash(r))
-	if runtime.GOOS == "windows" {
-		c = strings.ToLower(c)
+	if caseInsensitivePaths {
 		r = strings.ToLower(r)
-	}
-	if c == r {
-		return true
 	}
 	prefix := r
 	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
 		prefix += string(filepath.Separator)
 	}
-	return strings.HasPrefix(c, prefix)
+	seen := map[string]bool{}
+	return func(cwd string) bool {
+		key := strings.TrimSpace(cwd)
+		if key == "" {
+			return false
+		}
+		if in, ok := seen[key]; ok {
+			return in
+		}
+		c := CanonicalWorkspacePath(filepath.FromSlash(key))
+		if caseInsensitivePaths {
+			c = strings.ToLower(c)
+		}
+		in := c == r || strings.HasPrefix(c, prefix)
+		seen[key] = in
+		return in
+	}
 }
 
 // SetSessionWorkspace switches the session working directory and re-derives
@@ -97,4 +114,43 @@ func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
 	st.ReplaceRulesCatalog(DiscoverRules(cfg, abs))
 	m.sendAvailableSlashCommands(st.GetID(), st)
 	return nil
+}
+
+// caseInsensitivePaths marks the platforms whose default filesystems fold
+// case, so two spellings of a folder that differ only in case are one folder.
+var caseInsensitivePaths = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
+// CanonicalWorkspacePath returns the form two spellings of one folder share:
+// absolute, cleaned, with symlinks resolved when the folder exists. Sessions
+// keep the cwd as the client gave it (the console stores the logical $PWD of
+// a symlinked checkout, an editor sends the physical path, a Windows client
+// may differ in the drive letter's case), so every workspace filter compares
+// this form rather than the stored string.
+func CanonicalWorkspacePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = filepath.Clean(p)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	return filepath.Clean(abs)
+}
+
+// SameWorkspacePath reports whether two paths name the same folder.
+func SameWorkspacePath(a, b string) bool {
+	return matchesWorkspace(CanonicalWorkspacePath(a), b)
+}
+
+// matchesWorkspace compares an already canonical filter with a stored path.
+func matchesWorkspace(canonical, stored string) bool {
+	c := CanonicalWorkspacePath(stored)
+	if c == canonical {
+		return true
+	}
+	return caseInsensitivePaths && strings.EqualFold(c, canonical)
 }

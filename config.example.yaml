@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://hijera.github.io/foxxy-agent/config.schema.json
-# Full field reference: docs/config-reference.md
+# Full field reference: docs/reference/config.md
 
 # .env file support
 # If $FOXXYCODE_HOME/.env exists, it is loaded at startup before config.yaml is parsed.
@@ -192,7 +192,7 @@ prompts:
   # Directory containing prompt templates (Go text/template).
   # Leave empty to use built-in templates. Paths support ~ and ${CWD} (session cwd at render time).
   # Template fields: {{.CWD}}, {{.Tools}}, {{.Skills}}, {{.TodoList}}, {{.Memory}}, {{.UTCNow}}
-  # (use {{if .TodoList}} ... {{end}} for optional checklist injection; see docs/config.md)
+  # (use {{if .TodoList}} ... {{end}} for optional checklist injection; see docs/getting-started/configuration.md)
   dir: ""
   # File names inside prompts.dir (defaults: agent.md, plan.md)
   # agent_prompt: "agent.md"
@@ -333,7 +333,7 @@ tools:
 # the parent session with its own child session and transcript. Definitions found inside
 # the workspace travel with the checkout, so "ask" refuses to spawn one until you approve
 # that file for that workspace on the machine running foxxycode (`foxxycode agents trust <name>`
-# there, or `POST /foxxycode/subagents/{name}/trust`). See docs/subagents.md.
+# there, or `POST /foxxycode/subagents/{name}/trust`). See docs/features/subagents.md.
 # subagents:
 #   enabled: true
 #   dirs:
@@ -353,7 +353,7 @@ tools:
 # Definitions use Claude Code's file shape. Files inside the workspace travel with the checkout,
 # so "ask" lists them but runs nothing until you approve that file for that workspace on the
 # machine running foxxycode (`foxxycode hooks trust <file>` there, or `POST /foxxycode/hooks/trust`).
-# See docs/hooks.md.
+# See docs/features/hooks.md.
 # hooks:
 #   enabled: true
 #   files:
@@ -366,8 +366,8 @@ tools:
 #   stop_loop_limit: 5              # how many times per turn a Stop hook may keep the agent working
 #   max_output_chars: 10000         # cap on the context, messages and reasons one hook hands over
 
-# OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
-# Optional bearer auth + CORS + remote environment selector: see docs/remote-control.md.
+# OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/reference/http-api.md
+# Optional bearer auth + CORS + remote environment selector: see docs/plans/remote-control.md.
 # `foxxycode serve` starts every subsystem enabled in this file in one process
 # over one set of sessions; `foxxycode http` remains the single-surface form.
 # httpserver:
@@ -468,7 +468,7 @@ tools:
 # Server side needs -tags swarm and swarm.enabled; the join list below is
 # honoured by every foxxycode serve process, which is what lets an ordinary agent be
 # reached through a relay.
-# Full reference: docs/swarm.md
+# Full reference: docs/operate/swarm.md
 # ----------------------------------------------------------------------------
 # swarm:
 #   enabled: false       # run the relay here; independent of the join list below
@@ -530,7 +530,7 @@ logger:
 # logger to debug level (regardless of logger.level above), captures raw LLM HTTP
 # request/response bodies into that log, and writes a structured per-turn timeline to
 # <session>/debug_trace.jsonl (readable at GET /foxxycode/sessions/{id}/debug and
-# streamed as SSE `event: debug`). Guide: docs/debugging.md.
+# streamed as SSE `event: debug`). Guide: docs/operate/debugging.md.
 #
 # --debug on `foxxycode acp` / `http` / `gateway` forces enabled for one process; it
 # only ever turns the layer on. PUT /foxxycode/config toggles it without a restart.
