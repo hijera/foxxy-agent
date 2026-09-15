@@ -8,7 +8,7 @@
 
 # FoxxyCode for VS Code changes
 
-## Unreleased — 2026-09-14
+## 0.2.93 — 2026-09-14
 
 **A `config.yaml` saved in Notepad reads like any other.**
 A settings file with Windows line endings and the byte order mark Notepad adds no longer
