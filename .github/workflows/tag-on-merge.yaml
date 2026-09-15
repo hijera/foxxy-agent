@@ -2,6 +2,8 @@
 # Direct pushes to main (for example GitHub web IDE) do not trigger this workflow.
 # Manual SemVer tag pushes still build via docker-build-push.yaml and release-binaries.yaml (push: tags).
 # Child workflows are invoked via workflow_call (GITHUB_TOKEN tag pushes do not fire push: tags workflows).
+# The release description is written last, by release-notes.yaml, once every job that attaches
+# to the release has finished (see that file for why none of those jobs writes it).
 #
 # workflow_dispatch:
 #   - empty: bump tag on HEAD (if needed) and release
@@ -177,4 +179,17 @@ jobs:
     with:
       tag: ${{ needs.release.outputs.tag }}
       mode: universal
+    secrets: inherit
+
+  # Waits for every job that attaches to the release, and runs even when one of them failed:
+  # a release with a broken build still gets its notes. Docker does not touch the release.
+  release-notes:
+    name: Release notes
+    needs: [release, binaries, intellij-plugin, vscode-extension]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.release.outputs.skip != 'true' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-notes.yaml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
     secrets: inherit
