@@ -85,3 +85,10 @@ NeuralDeskApp/
 
 UPSTREAM_SYNC.md	
 codex-main/
+
+# Local Superpowers design work.
+docs/superpowers/
+
+# Local Git worktrees.
+worktrees/
+/docsgen

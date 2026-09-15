@@ -203,13 +203,15 @@ jobs:
           (cd "$DIST" && sha256sum foxxycode_*.tar.gz foxxycode_*.zip foxxycode-desktop_*.zip foxxycode_*.deb foxxycode_*.rpm > SHA256SUMS)
           ls -la "$DIST"
 
+      # No generate_release_notes here: the IntelliJ and VS Code jobs attach to the same release at
+      # the same time, and notes generated in this job were lost whenever their draft came first.
+      # release-notes.yaml writes them after all of these jobs.
       - name: Upload assets to GitHub Release
         if: steps.gate.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.git_tag.outputs.tag }}
           name: ${{ steps.git_tag.outputs.tag }}
-          generate_release_notes: true
           files: |
             dist/*
         env:

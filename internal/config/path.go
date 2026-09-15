@@ -96,7 +96,7 @@ func readExistingConfigBytes(path string) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("read config: %w", err)
 	}
-	return raw, true, nil
+	return normalizeConfigSource(raw), true, nil
 }
 
 func parseConfigDocument(raw []byte) (*yaml.Node, error) {

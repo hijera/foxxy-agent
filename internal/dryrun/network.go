@@ -14,6 +14,7 @@ import (
 	"github.com/hijera/foxxycode-agent/internal/config"
 	"github.com/hijera/foxxycode-agent/internal/llm"
 	"github.com/hijera/foxxycode-agent/internal/netx"
+	"github.com/hijera/foxxycode-agent/internal/webauth"
 )
 
 // TelegramAPIBaseEnv overrides the Bot API origin the Telegram probe talks
@@ -255,4 +256,70 @@ func (r *runner) get(ctx context.Context, hc *http.Client, target string, header
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	return resp.StatusCode, body, nil
+}
+
+// webLogin reports the state of the optional web sign-in.
+//
+// It is a local check rather than a probe: the two questions it answers are
+// about the configuration this process would start with, and both are the kind
+// of thing an operator learns too late otherwise. One is a form asked for with
+// no account behind it, which makes the server refuse to start. The other is a
+// server closed with a password and no bearer token, which leaves everything
+// that is not a browser - `foxxycode --remote`, `foxxycode acp --remote`, a swarm relay
+// mounting this node, scripts - without a credential on its next call.
+func (r *runner) webLogin() {
+	switch r.req.Surface {
+	case SurfaceServe:
+		if !r.req.Cfg.HTTPServer.IsEnabled() {
+			return
+		}
+	case SurfaceHTTP:
+		// `foxxycode http` refuses the same broken form at start; a direct
+		// loopback client passes the form there, a client on the network does not.
+	default:
+		return
+	}
+	login := &r.req.Cfg.HTTPServer.Login
+	if login.IsExplicitlyDisabled() {
+		r.rep.add(r.check(StatusSkipped, "httpserver.login", "httpserver.login.enabled",
+			"web sign-in is switched off", ""))
+		return
+	}
+	envUser := strings.TrimSpace(os.Getenv(webauth.LoginUserEnvVar))
+	envPassword := os.Getenv(webauth.LoginPasswordEnvVar)
+	source := ""
+	switch {
+	case envUser != "" && envPassword != "":
+		source = "env"
+	case login.HasAccount():
+		source = "config"
+	}
+	if source == "" {
+		if login.IsExplicitlyEnabled() {
+			r.rep.add(r.check(StatusError, "httpserver.login", "httpserver.login.enabled",
+				"web sign-in is enabled but no account is configured",
+				"run `foxxycode serve set-password`, or set "+webauth.LoginUserEnvVar+" and "+
+					webauth.LoginPasswordEnvVar+" (e.g. in <home>/.env)"))
+			return
+		}
+		r.rep.add(r.check(StatusSkipped, "httpserver.login", "httpserver.login",
+			"no web sign-in configured", ""))
+		return
+	}
+	// Half an account in the environment is a typo worth naming: it looks set
+	// and does nothing.
+	if source == "config" && (envUser != "" || envPassword != "") {
+		r.rep.add(r.check(StatusWarning, "httpserver.login", "httpserver.login",
+			"only one of "+webauth.LoginUserEnvVar+" / "+webauth.LoginPasswordEnvVar+" is set, so the file's account is used",
+			"set both variables or neither"))
+	}
+	tokens := len(r.req.Cfg.HTTPServer.EffectiveAuthTokens()) > 0 || strings.TrimSpace(os.Getenv(webauth.TokenEnvVar)) != ""
+	if !tokens {
+		r.rep.add(r.check(StatusWarning, "httpserver.login", "httpserver.login",
+			"web sign-in is on ("+source+") and no bearer token is set",
+			"API clients (foxxycode --remote, foxxycode acp --remote, a swarm relay, scripts) authenticate with a token: set httpserver.auth_token, --auth-token or "+webauth.TokenEnvVar))
+		return
+	}
+	r.rep.add(r.check(StatusOK, "httpserver.login", "httpserver.login",
+		"web sign-in is configured ("+source+"), with a bearer token for API clients", ""))
 }

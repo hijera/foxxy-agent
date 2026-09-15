@@ -19,7 +19,7 @@ import (
 // exported document reads as a conversation.
 //
 // The export contract is documented in external/httpserver/openapi.go (and the
-// served /docs/) and in docs/http-api.md — keep those in sync when the query
+// served /docs/) and in docs/reference/http-api.md — keep those in sync when the query
 // parameter set or the response media types change.
 func (s *Server) foxxycodeSessionExportGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

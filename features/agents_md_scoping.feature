@@ -5,7 +5,8 @@ Feature: Nested AGENTS.md loads only for directories the agent touches
   reads an AGENTS.md the first time a filesystem tool targets its directory
   or anything below it, the whole chain of folders down to the touched path
   at once, and keeps it for the session. The root AGENTS.md is unconditional
-  and always present.
+  and always present, exactly once: it is also the default instruction file,
+  and naming it there adds no second copy.
 
   Scenario: A nested AGENTS.md enters the prompt after a tool touches its directory
     Given a project with a root AGENTS.md and nested AGENTS.md files under "internal/agent" and "external/httpserver"
@@ -22,3 +23,9 @@ Feature: Nested AGENTS.md loads only for directories the agent touches
     When the model reads "internal/agent/react.go" and then answers
     Then the first request carries the root AGENTS.md but neither nested one
     And every request after the read carries the "internal/agent" AGENTS.md
+
+  Scenario: The root AGENTS.md reaches the model once, though it is also the default instruction file
+    Given a project with a root AGENTS.md and a folder "internal/agent" without one
+    And a foxxycode agent session in that project
+    When the model reads "internal/agent/react.go" and then answers
+    Then every request carries the root AGENTS.md exactly once

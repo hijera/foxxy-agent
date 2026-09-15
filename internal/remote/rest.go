@@ -193,7 +193,7 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 			profiles = append(profiles, row.ID)
 			continue
 		}
-		models = append(models, remoteModel{ID: row.ID, OwnedBy: row.OwnedBy, Multimodal: row.Multimodal})
+		models = append(models, remoteModel(row))
 	}
 	h.mu.Lock()
 	h.profiles = profiles
@@ -218,10 +218,15 @@ type sessionListResponse struct {
 	NextCursor string `json:"nextCursor,omitempty"`
 }
 
-func (h *Handler) listSessions(ctx context.Context, cursor string) (*sessionListResponse, error) {
+// listSessions reads one page of the server's session list; a non-empty cwd
+// narrows it to that workspace, the way ACP session/list does.
+func (h *Handler) listSessions(ctx context.Context, cursor, cwd string) (*sessionListResponse, error) {
 	q := url.Values{"limit": {"100"}}
 	if cursor != "" {
 		q.Set("cursor", cursor)
+	}
+	if cwd != "" {
+		q.Set("cwd", cwd)
 	}
 	var res sessionListResponse
 	if err := h.getJSON(ctx, "/foxxycode/sessions?"+q.Encode(), &res); err != nil {
@@ -246,10 +251,11 @@ type messageRow struct {
 }
 
 type messagesResponse struct {
-	Messages        []messageRow `json:"messages"`
-	SelectedModelID string       `json:"selectedModelId,omitempty"`
-	Model           string       `json:"model,omitempty"`
-	Mode            string       `json:"mode,omitempty"`
+	Messages          []messageRow `json:"messages"`
+	SelectedModelID   string       `json:"selectedModelId,omitempty"`
+	SelectedReasoning string       `json:"selectedReasoning,omitempty"`
+	Model             string       `json:"model,omitempty"`
+	Mode              string       `json:"mode,omitempty"`
 }
 
 func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResponse, error) {
@@ -267,6 +273,12 @@ func (h *Handler) cancelSession(ctx context.Context, id string) error {
 func (h *Handler) patchSelectedModel(ctx context.Context, id, model string) error {
 	return h.patchJSON(ctx, "/foxxycode/sessions/"+url.PathEscape(id), map[string]interface{}{
 		"selectedModelId": model,
+	})
+}
+
+func (h *Handler) patchSelectedReasoning(ctx context.Context, id, reasoning string) error {
+	return h.patchJSON(ctx, "/foxxycode/sessions/"+url.PathEscape(id), map[string]interface{}{
+		"selectedReasoning": reasoning,
 	})
 }
 

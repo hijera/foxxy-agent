@@ -1,0 +1,107 @@
+# What FoxxyCode adds over coddy-agent
+
+FoxxyCode is a fork of upstream [coddy-agent](https://github.com/coddy-project/coddy-agent)
+(by the Coddy project, MIT). It keeps the upstream architecture — ACP harness, ReAct loop,
+sessions, prompts, providers, MCP merge — and layers on an IDE/desktop integration story plus a
+few agent capabilities that do not exist upstream.
+
+This page lists the **fork-specific additions**. It reflects the fork's own history, so upstream
+may converge on some of these over time; see [`UPSTREAM_SYNC.md`](../../UPSTREAM_SYNC.md) for the
+exact upstream commit this fork is synced to.
+
+## IDE & desktop integration (the fork's main focus)
+
+- **Native desktop window (WebView2)** - a standalone desktop build (`foxxycode-desktop.exe`) that
+  hosts the embedded UI in a native window instead of a browser tab - see
+  [`cmd/foxxycode/desktop.go`](../../cmd/foxxycode/desktop.go), [`internal/desktop/`](../../internal/desktop).
+- **Desktop notifications + audio chime + nav plus icon** - bottom-right toasts and a WebAudio cue
+  for permission prompts and plan-ready events, with a plus-icon brand mark on the nav rail.
+- **Guided tour / onboarding** - a first-run desktop tour after the settings form closes, plus a
+  "Restart onboarding" control in Appearance to replay it.
+- **Project folder picker** - open projects as folders from the UI - see
+  [`internal/project/`](../../internal/project) and the `/foxxycode/project` route.
+- **IDE open-files context** - the editor sends its open tabs and active file to the backend, which
+  injects them into the prompt as `<foxxycode_ide_context>` - see
+  [`internal/ideenv/`](../../internal/ideenv), wired in `internal/agent/react.go`.
+- **IDE terminal tracking (`@terminal`)** - terminal output is streamed to the backend
+  (`POST /foxxycode/ide/terminal-state`) and exposed as always-on `<foxxycode_terminal_context>`
+  and an explicit `@terminal` mention - see [`internal/ideterm/`](../../internal/ideterm) and
+  [`external/httpserver/ideterminalstate.go`](../../external/httpserver/ideterminalstate.go).
+- **Editor project metadata (`.vscode` / `.idea`)** - readable files under the workspace's
+  `.vscode` directory are appended to the system prompt as `<vscode_project_context>`, so build
+  tasks, launch configurations and workspace settings are known from the first request; the
+  IntelliJ `.idea` block shares the loader - see
+  [`internal/session/editor_project_context.go`](../../internal/session/editor_project_context.go).
+- **IDE file drag-drop -> `@`-mention** - dropping a file into the composer produces a short
+  `@`-chip while the full relative path is sent to the model, via the `/workspace/relativize` endpoint.
+- **Native IntelliJ inline diffs** - plugin-side inline diff review with Accept/Reject and
+  checkpoints, instead of separate diff panes.
+
+## Agent capabilities
+
+- **Debug mode + opt-in diagnostics layer** - a fifth session profile (`debug`) that runs a
+  systematic root-cause investigation before proposing a fix, plus a `debug:` config section
+  that captures raw LLM request/response bodies to the process log and a per-turn trace served
+  from `GET /foxxycode/sessions/{id}/debug`. Both toggle at runtime, no restart - see
+  [`docs/operate/debugging.md`](../operate/debugging.md), [`internal/config/debug.go`](../../internal/config/debug.go)
+  and [`internal/agent/debug_emit.go`](../../internal/agent/debug_emit.go).
+- **Transcript export (PDF / DOCX / HTML / JSON)** - a session downloads as a real document
+  with rendered GitHub-flavoured markdown: tables as a drawn cell grid, chroma-highlighted code,
+  nested and task lists, clickable link annotations, and images embedded from the session's own
+  `assets/`. A second route writes the file to disk and reveals it in the OS file manager, for
+  editor panels that cannot accept a download at all - see
+  [`docs/reference/http-api.md`](../reference/http-api.md) and the `session_export*.go` files in
+  [`external/httpserver/`](../../external/httpserver).
+- **Subversion support at the git level** - an SVN working copy gets its own chip (branch plus
+  revision) next to the git chip, switchable in place or checked out into a branch folder, and a
+  dedicated `svn_*` toolset the agent drives directly. Detection is independent of git, so a
+  folder holding both works with both - see [`internal/svnws/`](../../internal/svnws),
+  [`internal/tools/svn/`](../../internal/tools/svn) and
+  [`docs/reference/config.md`](../reference/config.md#vcs).
+- **Interactive browser tool** - a `browser_action`-style toolset that drives a real
+  Chrome/Chromium instance via chromedp (open, click, fill, hover, scroll, run JS) and returns
+  **screenshots** to the model. Built behind the `browser` build tag - see
+  [`docs/features/browser-tool.md`](../features/browser-tool.md) and [`internal/tools/browser/`](../../internal/tools/browser).
+  It stays usable **without vision**: `browser.screenshots` can be turned off so the tools answer
+  with page text and structure, and a provider that rejects images mid-turn is retried once with
+  the screenshots replaced by a note rather than losing the turn.
+- **MCP over a self-signed certificate** - a per-server `insecure_skip_verify`
+  (`insecureSkipVerify` in `mcp.json`), surfaced as an *Ignore SSL certificate errors* checkbox
+  and folded into the approval fingerprint, so a remote server behind a self-signed or expired
+  certificate can be reached at all - see [`docs/features/mcp.md`](../features/mcp.md).
+- **Vision flag seeded from the provider catalog** - `models[].multimodal` defaults from the
+  catalog's advertised image-input capability (`capabilities.vision`, or `modalities.input`
+  containing `image`) instead of silently staying `false`. It is advisory, never a gate.
+- **Automatic context compaction** - long conversations are auto-summarized to stay within the
+  context window; config-gated and enabled by default - see
+  [`internal/agent/compaction.go`](../../internal/agent/compaction.go) and
+  [`internal/config/compaction.go`](../../internal/config/compaction.go) (configuration in
+  [`docs/getting-started/configuration.md`](configuration.md)).
+
+## Windows hardening
+
+The fork's primary desktop platform is Windows, so several defects that upstream does not hit
+are fixed here:
+
+- **Windowless child processes** - the desktop shell starts every child process without a
+  console window, so running a command no longer flashes a black box over the UI.
+- **Honest process termination** - the platform layer no longer reports a kill that never
+  happened, and a background dev server is no longer torn down with the turn that started it.
+- **SVN output decoding** - the svn client's output is decoded from the system ANSI code page,
+  so Cyrillic paths and log messages arrive intact instead of as mojibake.
+- **Live-turn stream recovery** - a turn that is still running is re-joined by the SPA after a
+  reload or a dropped connection, instead of appearing to hang.
+
+## Localization & distribution
+
+- **Settings-form i18n (RU overlay)** - a Russian translation of the settings schema, rendered as a
+  frontend overlay driven off the English Go schema - see
+  [`external/ui/src/ui/i18n/messages/schema.ru.ts`](../../external/ui/src/ui/i18n/messages/schema.ru.ts).
+- **Full `foxxyCode` rebrand** - the distribution is renamed end to end: Go module path, binary
+  name, env vars (`FOXXYCODE_HOME` / `FOXXYCODE_CWD` / `FOXXYCODE_CONFIG`), HTTP routes
+  (`/foxxycode/*`), home directory (`~/.foxxycode`), tool names (`foxxycode_*`), and CSS tokens
+  (`--foxxycode-*`), while staying architecturally close to upstream.
+
+---
+
+For how the fork tracks and ports upstream changes, see [`UPSTREAM_SYNC.md`](../../UPSTREAM_SYNC.md).

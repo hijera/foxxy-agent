@@ -431,8 +431,8 @@ export const schemaTextRu: Record<string, string> = {
   "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).":
     "Файлы, читаемые из рабочего каталога сессии и добавляемые к системному промпту как инструкции проекта (совместимо с AGENTS.md).",
   "Instruction files": "Файлы инструкций",
-  'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].':
-    'Имена файлов относительно CWD сессии для чтения как инструкций. По умолчанию ["AGENTS.md"].',
+  'Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. Defaults to ["AGENTS.md", "DESIGN.md"]; the agent home has its own pair, read ahead of this list whenever it exists.':
+    'Файлы инструкций, читаются в указанном порядке. ${FOXXYCODE_HOME}, ${CWD} и ведущая ~ раскрываются; абсолютный путь читается как есть, относительный — от CWD сессии. По умолчанию ["AGENTS.md", "DESIGN.md"]; у домашнего каталога агента своя пара этих файлов, она читается перед списком, если существует.',
 
   // Logger
   Logger: "Логирование",

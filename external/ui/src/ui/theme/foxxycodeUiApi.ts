@@ -16,7 +16,7 @@ import { emitFileMention } from "../skills/fileMentionBus";
  *   window.foxxycodeUi && window.foxxycodeUi.setTheme('light')
  *   window.foxxycodeUi && window.foxxycodeUi.setLocale('ru')
  *
- * See docs/intellij-embedding.md for the embedding contract.
+ * See docs/contributing/intellij-embedding.md for the embedding contract.
  */
 export type FoxxyCodeUiApi = {
   readonly version: 1;

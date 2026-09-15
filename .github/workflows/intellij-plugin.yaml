@@ -6,6 +6,11 @@
 #   - workflow_dispatch -> build + upload artifact
 #   - workflow_call from "Tag release on merge" (tag input) -> build + attach zip to the Release
 #   - push SemVer tag -> build + attach zip to the Release
+#
+# Release builds also republish the JetBrains plugin repository document (updatePlugins.xml),
+# which is what makes the plugin update itself inside the IDE: to docs/ on main (served by
+# GitHub Pages, the URL users paste into Manage Plugin Repositories) and as an asset on the
+# Release. See docs/contributing/release-setup.md.
 
 name: IntelliJ plugin
 
@@ -114,3 +119,87 @@ jobs:
           files: editors/intellij/build/distributions/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Everything below publishes the plugin repository document. A JetBrains custom plugin
+      # repository is nothing but a URL serving this one XML file, so no server is needed: the
+      # document points straight at the zip attached above. These steps run only after that
+      # attach, so a failure here marks the job red but can never cost a release its plugin.
+      # The generator is built once and reused, because this job is checked out at the tag
+      # while the published copy lives on main.
+      - name: Build the plugin repository generator
+        if: steps.ver.outputs.release == 'true'
+        run: go build -o "${RUNNER_TEMP}/updateplugins" ./editors/intellij/updateplugins
+
+      - name: Generate updatePlugins.xml
+        if: steps.ver.outputs.release == 'true'
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/updateplugins" \
+            -zip "$(ls editors/intellij/build/distributions/*.zip)" \
+            -tag "${{ steps.ver.outputs.version }}" \
+            -repo "${{ github.repository }}" \
+            -out "${RUNNER_TEMP}/updatePlugins.xml" \
+            -force
+          cat "${RUNNER_TEMP}/updatePlugins.xml"
+
+      # Backs the .../releases/latest/download/updatePlugins.xml URL.
+      - name: Attach updatePlugins.xml to GitHub Release
+        if: steps.ver.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ steps.ver.outputs.version }}" "${RUNNER_TEMP}/updatePlugins.xml" \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+      # GitHub Pages serves docs/ from main, so publishing means committing there. A second,
+      # shallow checkout keeps the tag checkout and its build tree untouched.
+      - name: Check out main for the plugin repository
+        if: steps.ver.outputs.release == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          path: main-checkout
+
+      # Regenerated against main's copy rather than copied from the step above, so the
+      # generator can refuse to walk IDEs backwards when an older tag is rebuilt.
+      #
+      # Every path is absolute and git runs with -C instead of cd: the first live run took the
+      # zip path relative to the workspace, changed into main-checkout, and lost the zip.
+      # editors/intellij/updateplugins/workflow_test.go runs this script against a local remote.
+      - name: Publish updatePlugins.xml to GitHub Pages
+        if: steps.ver.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          ZIP="$(ls "${GITHUB_WORKSPACE}"/editors/intellij/build/distributions/*.zip)"
+          MAIN="${GITHUB_WORKSPACE}/main-checkout"
+          git -C "$MAIN" config user.name "github-actions[bot]"
+          git -C "$MAIN" config user.email "github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git -C "$MAIN" fetch --depth 1 origin main
+            git -C "$MAIN" reset --hard origin/main
+            "${RUNNER_TEMP}/updateplugins" \
+              -zip "$ZIP" \
+              -tag "$VERSION" \
+              -repo "${{ github.repository }}" \
+              -out "$MAIN/docs/updatePlugins.xml"
+            # Staged, not working-tree: on a checkout where the document is not tracked yet
+            # "git diff" reports nothing and the publish would silently do nothing.
+            git -C "$MAIN" add docs/updatePlugins.xml
+            if git -C "$MAIN" diff --cached --quiet -- docs/updatePlugins.xml; then
+              echo "The plugin repository already advertises this build; nothing to publish."
+              exit 0
+            fi
+            git -C "$MAIN" commit -m "chore(intellij): advertise ${VERSION} in the plugin repository"
+            if git -C "$MAIN" push origin HEAD:main; then
+              echo "Published https://$(echo "${{ github.repository }}" | cut -d/ -f1).github.io/$(echo "${{ github.repository }}" | cut -d/ -f2)/updatePlugins.xml"
+              exit 0
+            fi
+            echo "main moved while publishing (attempt ${attempt}); retrying."
+          done
+          echo "Could not publish updatePlugins.xml to main after 3 attempts." >&2
+          exit 1

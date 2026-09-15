@@ -222,6 +222,7 @@ func printUsage(w io.Writer) {
   %[1]s serve [flags]                  # every enabled subsystem in one process
   %[1]s serve -d | --daemon [flags]    # the same, in the background under a dispatcher
   %[1]s serve status | stop | restart [--home DIR]
+  %[1]s serve set-password [--user NAME] [--config PATH] [--home DIR]  # write the web UI sign-in account into config.yaml
   %[1]s mcp list [--cwd DIR]
   %[1]s mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   %[1]s mcp untrust <name> [--cwd DIR]
@@ -601,6 +602,9 @@ func runSkills(args []string) error {
 	}
 }
 
+// runPlugin implements `foxxycode plugin ...` — the Claude-Code-style plugin and
+// marketplace surface, sharing skills.RunPluginCommand with the chat /plugin
+// command so both stay in lockstep.
 func runPlugin(args []string) error {
 	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {
@@ -638,7 +642,7 @@ func runRules(args []string) error {
 		if len(args) >= 3 && args[1] == "--cwd" {
 			cwd = args[2]
 		}
-		return rules.ListCatalog(cwd, rules.DefaultFactory(), rules.ParseSystems(cfg.Rules.Systems))
+		return rules.ListCatalog(cwd, rules.DefaultFactory(cfg.Paths.Home), rules.ParseSystems(cfg.Rules.Systems))
 	}
 	return fmt.Errorf("usage: %s rules list [--cwd DIR]", os.Args[0])
 }

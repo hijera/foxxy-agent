@@ -50,14 +50,16 @@ func (r *runner) paths() {
 		}
 	}
 
+	// ${FOXXYCODE_HOME} survives the load for the per-session consumers, so a
+	// probe that only expanded ${CWD} would stat a literal placeholder.
 	for i, d := range cfg.Skills.Dirs {
-		r.readableDir(fmt.Sprintf("skills.dirs[%d]", i), config.ExpandCWD(d, cwd))
+		r.readableDir(fmt.Sprintf("skills.dirs[%d]", i), config.ExpandPathVars(d, r.req.Paths))
 	}
 	for i, d := range cfg.Subagents.Dirs {
-		r.readableDir(fmt.Sprintf("subagents.dirs[%d]", i), config.ExpandCWD(d, cwd))
+		r.readableDir(fmt.Sprintf("subagents.dirs[%d]", i), config.ExpandPathVars(d, r.req.Paths))
 	}
 	for i, f := range cfg.Hooks.Files {
-		r.hookFile(fmt.Sprintf("hooks.files[%d]", i), config.ExpandCWD(f, cwd))
+		r.hookFile(fmt.Sprintf("hooks.files[%d]", i), config.ExpandPathVars(f, r.req.Paths))
 	}
 
 	if cfg.SchedulerEffectiveEnabled() && strings.TrimSpace(cfg.Scheduler.Dir) != "" {
@@ -167,7 +169,7 @@ func (r *runner) hookFile(path, file string) {
 		return
 	}
 	if _, perr := hooks.Parse(data); perr != nil {
-		r.rep.add(r.check(StatusError, path, path, file+" is invalid: "+perr.Error(), "fix the JSON (Claude Code's hooks shape, see docs/hooks.md)"))
+		r.rep.add(r.check(StatusError, path, path, file+" is invalid: "+perr.Error(), "fix the JSON (Claude Code's hooks shape, see https://github.com/hijera/foxxy-agent/blob/main/docs/features/hooks.md)"))
 		return
 	}
 	r.rep.add(r.check(StatusOK, path, path, file+" parses", ""))

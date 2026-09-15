@@ -51,9 +51,9 @@ type wakeStreamState struct {
 	userDone  chan struct{}
 	userRelay *composerStreamRelay
 
-	// subscribed closes once a composer-stream request has been answered, so the woken
-	// turn does not finish and deregister its relay before anyone could attach. Without
-	// it the scenario would pass or fail on scheduling luck rather than on behaviour.
+	// subscribed closes once a composer-stream request is attached to the relay, so the
+	// woken turn does not finish and deregister its relay before anyone could attach.
+	// Without it the scenario would pass or fail on scheduling luck rather than on behaviour.
 	subscribed     chan struct{}
 	subscribedOnce atomic.Bool
 
@@ -67,6 +67,37 @@ const waitForSubscriber = 2 * time.Second
 func (s *wakeStreamState) markSubscribed() {
 	if s.subscribed != nil && s.subscribedOnce.CompareAndSwap(false, true) {
 		close(s.subscribed)
+	}
+}
+
+// subscriberAttached reports whether a client is attached to the session's composer relay.
+// That, not a response arriving, is when the woken turn may answer: a subscribe that came
+// back with "no active composer stream" attached to nothing.
+func (s *wakeStreamState) subscriberAttached() bool {
+	rel := s.srv.peekComposerRelay(s.sessionID)
+	if rel == nil {
+		return false
+	}
+	rel.mu.Lock()
+	defer rel.mu.Unlock()
+	return len(rel.subs) > 0
+}
+
+// markSubscribedOnceAttached opens the gate as soon as a subscriber is attached, and gives
+// up when done closes (the request came back without attaching).
+func (s *wakeStreamState) markSubscribedOnceAttached(done <-chan struct{}) {
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if s.subscriberAttached() {
+			s.markSubscribed()
+			return
+		}
+		select {
+		case <-done:
+			return
+		case <-tick.C:
+		}
 	}
 }
 
@@ -225,13 +256,18 @@ func (s *wakeStreamState) iSubscribeToTheComposerStream() error {
 			return err
 		}
 		req.Header.Set("X-FoxxyCode-Session-ID", s.sessionID)
+		// The gate opens only once this request is attached to the relay. Opening it when
+		// the response arrived let an attempt that landed before the wake registered its
+		// relay - answered at once with "no active composer stream" - release the turn
+		// anyway: on a slow runner the turn answered and ended between two retries, and
+		// every later attempt found nothing to attach to until the deadline.
+		done := make(chan struct{})
+		go s.markSubscribedOnceAttached(done)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			close(done)
 			return err
 		}
-		// Headers are written before the handler starts looking for the relay, so this
-		// is the point where the turn may safely answer.
-		s.markSubscribed()
 		var body strings.Builder
 		sc := bufio.NewScanner(resp.Body)
 		for sc.Scan() {
@@ -239,6 +275,7 @@ func (s *wakeStreamState) iSubscribeToTheComposerStream() error {
 			body.WriteString("\n")
 		}
 		_ = resp.Body.Close()
+		close(done)
 		text := body.String()
 		// The wake is started from a goroutine, so the first subscribe can land before
 		// the relay is registered; that answers "no active composer stream" at once.

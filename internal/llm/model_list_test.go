@@ -175,7 +175,7 @@ func TestListCodexModelsOnlineUsesManagedOAuth(t *testing.T) {
 }
 
 // TestListModelsVisionCapability pins the two catalog shapes that advertise image
-// input. The hub's own flag is not authoritative (see docs/browser-tool.md), so
+// input. The hub's own flag is not authoritative (see docs/features/browser-tool.md), so
 // the parsed value only pre-fills a models[].multimodal default the user can
 // override - it never gates a request.
 func TestListModelsVisionCapability(t *testing.T) {

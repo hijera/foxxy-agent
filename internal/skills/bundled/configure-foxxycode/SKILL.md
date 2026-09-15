@@ -44,16 +44,16 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 
 ## Configuration areas
 
-The active YAML file covers these areas (full field tables: `docs/config-reference.md`):
+The active YAML file covers these areas (full field tables: https://github.com/hijera/foxxy-agent/blob/main/docs/reference/config.md):
 
 - `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound. `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`foxxycode providers login <name>` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$FOXXYCODE_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login. For `neuraldeep`, `api_base` selects the deployment - `https://api.neuraldeep.ru/v1` (Russia, used when empty) or `https://api.neuraldeep.tech/v1` (the international mirror); any other value falls back to the first, and the choice also decides which hub signs the user in, so set it before login (`foxxycode providers login neuraldeep --api-base <url>`, which also moves an existing row to that endpoint). `codex` ignores api_base entirely;
 - `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: FoxxyCode then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default. `reasoning_levels` has three states: key absent auto-detects the levels from the model id (the default), an explicit `[]` hides the reasoning selector, and a non-empty list offers exactly those levels; `delete models.N.reasoning_levels` returns an entry to auto-detection, `set models.N.reasoning_levels=[]` opts out;
 - `agent` - ReAct loop model, max turns, LLM retry and pacing (`llm_retry_max` with `0` disabling retries, `llm_retry_base_ms`, `llm_min_interval_ms`, `llm_first_token_timeout_ms`), waiting out a failing provider (`llm_stall_timeout_ms`, `llm_stall_retry`, `llm_stall_retry_delays_ms`, `llm_stall_retry_max_wait_ms` with `0` meaning unbounded), loop protection (`loop_guard`, `loop_tool_repeat_limit`, `loop_stream_repeat_cycles`, `loop_tool_cycle_repeats`, `loop_nudge_max`, `loop_stuck_action`);
 - `prompts` - system prompt template overrides (`agent_prompt`, `plan_prompt`, `docs_prompt`, `ask_prompt` files inside `dir`);
 - `autocomplete` - inline code completion in the editor plugins (the greyed suggestion at the caret): `enabled` (off by default, because a suggestion is requested per keystroke), `model` (empty falls back to `agent.model`; pick a small fast entry), `mode` (`auto` = native fill-in-the-middle for Qwen-Coder / DeepSeek-Coder / CodeLlama / StarCoder / Codestral over `/v1/completions`, chat prompt otherwise; `chat`; `fim`), `temperature` (0 = greedy, the default), `trigger` (`auto` while typing / `manual` on the shortcut), `debounce_ms`, `max_tokens`, `timeout_ms`, `multi_line`, `related_files` (other open workspace files excerpted into the prompt; 0 disables), and the `max_prefix_bytes` / `max_suffix_bytes` context window around the caret;
-- `instructions` - project instruction files (AGENTS.md chain);
+- `instructions` - instruction files appended to the prompt in the order listed, defaulting to `["AGENTS.md", "DESIGN.md"]`; `${FOXXYCODE_HOME}`, `${CWD}` and `~` expand, an absolute entry is read as it stands. The operator's own `${FOXXYCODE_HOME}/AGENTS.md` and `${FOXXYCODE_HOME}/DESIGN.md` are read above the project's pair whenever they exist and are not configured here;
 - `skills` - discovery dirs, remote sources, `auto_discovery` for the model-driven `load_skill` tool;
-- `rules` - project rules discovery: `auto_discover` scans `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` under the session workspace; `systems` narrows that to some of `foxxycode`, `agents-dir`, `cursor`, `claude`, `codex`, `agents`;
+- `rules` - rules discovery: `auto_discover` scans `.foxxycode/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` under the session workspace, plus the operator's own `${FOXXYCODE_HOME}/rules`, which applies in every workspace; `systems` narrows that to some of `user`, `foxxycode`, `agents-dir`, `cursor`, `claude`, `codex`, `agents`;
 - `mcp_servers` - MCP servers started per session (stdio command, args, env; url and headers for the http/sse transports; `insecure_skip_verify` to accept a self-signed TLS certificate; disabled flag);
 - `mcp` - trust policy for project-local `.foxxycode/mcp.json` declarations (`project_trust`);
 - `tools` - permission mode, command allowlist, permission prompt timeout (`permission_timeout_seconds`, 0 waits forever), background execution, output limits, SSH timeouts;
@@ -62,7 +62,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
-- `httpserver` - OpenAI-compatible HTTP API defaults, auth token (plus `stream_tickets_only`, which forces EventSource clients to mint a single-use ticket instead of putting the durable token in a URL), CORS, UI (tag `http`);
+- `httpserver` - OpenAI-compatible HTTP API defaults, auth token (plus `stream_tickets_only`, which forces EventSource clients to mint a single-use ticket instead of putting the durable token in a URL), `login` (the optional web UI sign-in: `enabled`, `user`, `password_hash`, `session_ttl_hours` - write it with `foxxycode serve set-password`, never by hand, and never a plaintext password), CORS, UI (tag `http`);
 - `ui` - embedded SPA preferences (tags `http,ui`): `enabled` to serve the SPA at `GET /`, `locale`, `send_mode`, `status_line`, and `session_changes` - set `session_changes: false` to hide the changed-files card under the transcript (the Changes button in the IDE plugins is unaffected);
 - `scheduler` - cron scheduler (tag `scheduler`);
 - `gateways` - messenger bots such as Telegram (tag `gateway`);
@@ -70,7 +70,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 
 Fields behind a build tag are parsed and ignored by binaries built without it; process-level listener changes (HTTP port, gateway tokens) may still need the relevant command restarted. The hot reload is guaranteed for the current session's agent configuration, skills, rules, built-in tools, and configured MCP clients.
 
-Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (republished to `docs/` by `make site-schema`) and `docs/config-reference.md` (see the workflow rules).
+Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (republished to `docs/` by `make site-schema`) and https://github.com/hijera/foxxy-agent/blob/main/docs/reference/config.md (see the workflow rules).
 
 ## MCP servers
 

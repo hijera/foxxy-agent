@@ -13,6 +13,7 @@ import { type JsonSchema } from "./SchemaForm";
 import { deriveSettingsSections, type SectionDescriptor } from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
 import { SettingsSection } from "./SettingsSection";
+import type { SessionsProjectScope } from "../sessions/SessionsManager";
 import { SettingsTileGrid } from "./SettingsTileGrid";
 import {
   serverSnapshotShellStack,
@@ -117,6 +118,12 @@ export function Settings(props: {
    * with no session open: the server answers for its session default.
    */
   workspacePath?: string | undefined;
+  /** The conversation on screen; the session table protects it from a delete. */
+  activeSessionId?: string | undefined;
+  /** Session ids the table removed, so the shell can drop them from History. */
+  onSessionsDeleted?: ((ids: string[]) => void) | undefined;
+  /** The History "this project only" scope, which the session table follows. */
+  sessionsScope?: SessionsProjectScope | undefined;
 }) {
   const { t } = useT();
   const [schema, setSchema] = useState<JsonSchema | null>(null);
@@ -269,6 +276,9 @@ export function Settings(props: {
                 isMobileShell={isMobileShell}
                 onRestartOnboarding={props.onRestartOnboarding}
                 workspacePath={props.workspacePath}
+                activeSessionId={props.activeSessionId}
+                onSessionsDeleted={props.onSessionsDeleted}
+                sessionsScope={props.sessionsScope}
               />
             ) : null}
           </div>
@@ -276,11 +286,17 @@ export function Settings(props: {
       );
     }
     if (!loadErr) {
-      // General (language picker) and Appearance (theme picker) are client-side
-      // content, available before the config schema loads. Render them in the
-      // normal scroll flow — NOT the centered `settings-scroll-placeholder` used
-      // for the "Loading…" spinner, which shrinks and off-centers the content.
-      if (section && (section.kind === "appearance" || section.kind === "general")) {
+      // General (language picker), Appearance (theme picker) and Sessions (the
+      // stored history over /foxxycode/sessions) are client-side content,
+      // available before the config schema loads. Render them in the normal
+      // scroll flow — NOT the centered `settings-scroll-placeholder` used for the
+      // "Loading…" spinner, which shrinks and off-centers the content.
+      if (
+        section &&
+        (section.kind === "appearance" ||
+          section.kind === "general" ||
+          section.kind === "sessions")
+      ) {
         return (
           <div className="settings-scroll">
             <div className="settings-body">
@@ -290,6 +306,9 @@ export function Settings(props: {
                 doc={doc}
                 setDoc={setDoc}
                 onRestartOnboarding={props.onRestartOnboarding}
+                activeSessionId={props.activeSessionId}
+                onSessionsDeleted={props.onSessionsDeleted}
+                sessionsScope={props.sessionsScope}
               />
             </div>
           </div>

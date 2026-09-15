@@ -17,12 +17,12 @@
 //	{{.CWD}}      - session working directory
 //	{{.Tools}}    - readable list of tools available in the current mode (markdown)
 //	{{.Skills}}   - active skills markdown (slash catalog and bodies), built by the agent
-//	{{.Rules}}    - active project rules markdown (may be empty)
+//	{{.Rules}}    - project docs (root AGENTS.md, DESIGN.md) and active project rules markdown (may be empty)
 //	{{.Memory}}   - session agent memory notes (may be empty)
 //	{{.TodoList}} - current session todo checklist rendered as markdown (empty until plan tools populate state)
 //	{{.PlanContext}}    - design plan text injected when the user runs a saved plan (agent mode, may be empty)
 //	{{.DiscardedPlans}} - plan-mode guidance when the user discarded design plan slugs (may be empty)
-//	{{.Instructions}}   - concatenated project instruction files (AGENTS.md etc., may be empty)
+//	{{.Instructions}}   - concatenated instructions.files, minus files {{.Rules}} already carries (may be empty)
 //	{{.Subagents}}      - catalog of subagents the session may spawn (may be empty)
 //	{{.SubagentRole}}   - role block when this session is itself a subagent run (may be empty)
 //	{{.UTCNow}}   - current date and time in UTC (RFC3339), set each time the system prompt renders
@@ -56,7 +56,8 @@ type TemplateData struct {
 	// Skills is preformatted markdown for slash skills (may be empty).
 	Skills string
 
-	// Rules is preformatted markdown for active project rules (may be empty).
+	// Rules is preformatted markdown for the project docs (the root AGENTS.md and DESIGN.md)
+	// and the active project rules (may be empty).
 	Rules string
 
 	// Tools is a human-readable markdown list of tools for the current mode (may be empty).
@@ -74,7 +75,8 @@ type TemplateData struct {
 	// DiscardedPlans is plan-mode guidance when the user discarded design plan slugs (may be empty).
 	DiscardedPlans string
 
-	// Instructions is the concatenated content of project instruction files (AGENTS.md etc.), may be empty.
+	// Instructions is the concatenated content of the instructions.files, leaving out any file
+	// Rules already carries (the root AGENTS.md is the default entry), may be empty.
 	Instructions string
 
 	// Subagents is the catalog block a parent that may spawn subagents reads (may be empty).
@@ -243,6 +245,22 @@ func loadSource(mode string, variants []string, promptsDir, agentFile, planFile,
 		lastErr = err
 	}
 	return "", fmt.Errorf("read prompt file %q: %w", filepath.Join(dir, base), lastErr)
+}
+
+// RendersRules reports whether the template for mode puts the {{.Rules}} block
+// into the prompt at all. The cross-block dedupe depends on it: the project
+// docs preamble is dropped from {{.Instructions}} only because the rules block
+// carries it, and an operator's own template under prompts.dir is free to
+// render one block and not the other. A template that cannot be read falls
+// back to the built-in one, which does render the block. The field is looked
+// for by name, so {{if .Rules}} and {{ .Rules }} count too: answering yes when
+// in doubt keeps the file in one block rather than in none.
+func RendersRules(mode string, variants []string, promptsDir, agentFile, planFile, docsFile, askFile string) bool {
+	src, err := loadSource(mode, variants, promptsDir, agentFile, planFile, docsFile, askFile)
+	if err != nil {
+		return true
+	}
+	return strings.Contains(src, ".Rules")
 }
 
 func fallbackPrompt(mode, cwd string) string {

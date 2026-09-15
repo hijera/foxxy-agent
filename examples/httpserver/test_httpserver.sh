@@ -85,6 +85,9 @@ python3 "$HTTP_DIR/http_e2e_ask_mode.py"
 python3 "$HTTP_DIR/http_e2e_config.py"
 python3 "$HTTP_DIR/http_e2e_background.py"
 python3 "$HTTP_DIR/http_e2e_subagents.py"
+# Self-contained: boots its own foxxycode behind the web UI sign-in and drives it as
+# an anonymous browser, a signed-in one and a bearer client.
+python3 "$HTTP_DIR/http_e2e_login.py"
 # Self-contained: boots its own foxxycode, kills it mid-task, and makes a fresh
 # one reap what the killed run left behind.
 python3 "$HTTP_DIR/http_e2e_background_reap.py"

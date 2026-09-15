@@ -77,7 +77,7 @@ func executeExtractPageContent(ctx context.Context, argsJSON string, _ *tooling.
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "foxxycode-agent/1.0 (+https://github.com/hijera/foxxycode-agent)")
+	req.Header.Set("User-Agent", "foxxycode-agent/1.0 (+https://github.com/hijera/foxxy-agent)")
 
 	client := &http.Client{Timeout: time.Duration(timeout) * time.Second}
 	resp, err := client.Do(req)

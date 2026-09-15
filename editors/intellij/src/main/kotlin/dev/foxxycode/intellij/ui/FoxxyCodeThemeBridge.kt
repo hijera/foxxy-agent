@@ -6,7 +6,7 @@ import com.intellij.util.ui.UIUtil
 /**
  * Bridges the IDE look-and-feel to the foxxycode web UI theme.
  *
- * The foxxycode SPA exposes `window.foxxycodeUi` (see docs/intellij-embedding.md):
+ * The foxxycode SPA exposes `window.foxxycodeUi` (see docs/contributing/intellij-embedding.md):
  *   - `setTheme(id)` applies + persists the theme (id: light|dark|midnight|solarized-dark|…)
  *   - `?theme=<id>` on the initial URL applies the theme before first paint (no flash)
  *

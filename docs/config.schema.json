@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://hijera.github.io/foxxy-agent/config.schema.json",
   "title": "FoxxyCode config.yaml",
-  "description": "Configuration file for the FoxxyCode agent (default location: ~/.foxxycode/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}. ${FOXXYCODE_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
+  "description": "Configuration file for the FoxxyCode agent (default location: ~/.foxxycode/config.yaml). Reference: https://github.com/hijera/foxxy-agent/blob/main/docs/reference/config.md. Any string value may reference environment variables with ${VAR_NAME}. ${FOXXYCODE_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -347,13 +347,13 @@
     "instructions": {
       "type": "object",
       "title": "Project instructions",
-      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention).",
+      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here; a file the rules block already carries, such as the root AGENTS.md or DESIGN.md, adds no second copy when it is listed. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.",
       "additionalProperties": false,
       "properties": {
         "files": {
           "type": "array",
-          "description": "Filenames relative to the session CWD.",
-          "default": ["AGENTS.md"],
+          "description": "Instruction files, read in the order listed. ${FOXXYCODE_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD.",
+          "default": ["AGENTS.md", "DESIGN.md"],
           "items": { "type": "string" }
         }
       }
@@ -385,7 +385,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from .foxxycode/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested **/AGENTS.md under the session CWD; .mdc files are read as Cursor rules and .md files as Claude Code rules. See docs/rules.md.",
+      "description": "Discovery of rule files from ${FOXXYCODE_HOME}/rules (the operator's own, applied in every workspace) and from .foxxycode/rules, .foxxyrules, .foxyrules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/rules.md.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -395,7 +395,7 @@
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all.",
+          "description": "Restrict which rule systems are loaded: user (${FOXXYCODE_HOME}/rules), foxxycode, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all.",
           "default": [],
           "items": { "type": "string" }
         }
@@ -586,7 +586,7 @@
     "subagents": {
       "type": "object",
       "title": "Subagents",
-      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See docs/subagents.md.",
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See https://github.com/hijera/foxxy-agent/blob/main/docs/features/subagents.md.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -641,7 +641,7 @@
     "hooks": {
       "type": "object",
       "title": "Hooks",
-      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.foxxycode/hooks.json, .foxxycode/hooks.json, .claude/settings*.json). See docs/hooks.md.",
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.foxxycode/hooks.json, .foxxycode/hooks.json, .claude/settings*.json). See https://github.com/hijera/foxxy-agent/blob/main/docs/features/hooks.md.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -910,7 +910,7 @@
     "httpserver": {
       "type": "object",
       "title": "HTTP gateway",
-      "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See docs/http-api.md.",
+      "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See https://github.com/hijera/foxxy-agent/blob/main/docs/reference/http-api.md.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -932,8 +932,44 @@
         },
         "auth_token": {
           "type": "string",
-          "description": "Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See docs/remote-control.md.",
+          "description": "Optional bearer credential for the HTTP API. Empty means no authentication. ${ENV} references are expanded at load; prefer --auth-token / FOXXYCODE_HTTP_TOKEN. Redacted from GET /foxxycode/config. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
           "default": ""
+        },
+        "login": {
+          "type": "object",
+          "title": "Web UI sign-in",
+          "description": "Optional password sign-in for the browser, so a server on a network is not readable by everyone who finds the port. Off unless an account exists here or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD. API clients keep using auth_token. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Turn the sign-in form on or off explicitly. Omitted follows the credentials: an account here or in the environment enables it. false keeps the form off with the variables still set."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "password"
+              ],
+              "description": "How a browser authenticates. Only \"password\" is implemented; the key exists so a trusted-proxy mode can be added without moving your configuration.",
+              "default": "password"
+            },
+            "user": {
+              "type": "string",
+              "description": "Account name for the sign-in form. Supports \"${ENV}\" references, e.g. \"${FOXXYCODE_HTTP_USER}\".",
+              "default": ""
+            },
+            "password_hash": {
+              "type": "string",
+              "description": "argon2id hash of the password in PHC form (\"$argon2id$v=19$m=...$...\"), written by `foxxycode serve set-password`. Never echoed back by GET /foxxycode/config, and a save from the settings screen preserves it. Put a plaintext password in FOXXYCODE_HTTP_PASSWORD instead of here.",
+              "default": ""
+            },
+            "session_ttl_hours": {
+              "type": "integer",
+              "description": "How long a browser stays signed in. 0 means the cookie is dropped when the browser closes; the server still expires the session itself after 30 days, because a record it keeps forever is not a session.",
+              "default": 0,
+              "minimum": 0
+            }
+          }
         },
         "public_docs": {
           "type": "boolean",
@@ -984,7 +1020,7 @@
     "swarm": {
       "type": "object",
       "title": "Swarm relay",
-      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enabled; the join list below is honoured by any foxxycode serve process, which is what makes an ordinary agent reachable through a relay. See docs/swarm.md.",
+      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enabled; the join list below is honoured by any foxxycode serve process, which is what makes an ordinary agent reachable through a relay. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/swarm.md.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -1247,7 +1283,7 @@
     "gateways": {
       "type": "object",
       "title": "Messenger gateways",
-      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; run with foxxycode gateway). See docs/gateway.md.",
+      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; run with foxxycode gateway). See https://github.com/hijera/foxxy-agent/blob/main/docs/surfaces/gateway.md.",
       "additionalProperties": false,
       "properties": {
         "telegram": {

@@ -28,15 +28,20 @@ test("desktop canvas follows the dynamic viewport in Firefox", () => {
   expect(css).toMatch(/\.rail-column\s*\{[^}]*height:\s*100dvh/s);
 });
 
-test("light composer vignette blends into the canvas instead of darkening it", () => {
-  const css = cssText();
-  // The fork cannot use upstream's :has(.composer-wrap-docked) on the Chromium 104 baseline;
-  // ChatScreen sets the chat-bottom--docked marker class instead.
-  const rule = css.match(
-    /\[data-theme="light"\]\s+\.chat-bottom--docked::before\s*\{[^}]*\}/s,
+test("the docked composer paints no vignette over the transcript above it", () => {
+  // Upstream switched the shade above the docked composer off (7a36c34c): the
+  // last lines of the transcript stay readable right down to the composer.
+  // A ::before without `content` is never generated, so any rule that brings
+  // the pseudo-element back shows up here.
+  const css = cssText().replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) =>
+    /\.chat-bottom(--docked)?[^,{]*::before/.test(m[1]!),
   );
-  expect(rule?.[0]).toMatch(/var\(--foxxycode-canvas-gradient-bottom\)/);
-  expect(rule?.[0]).not.toMatch(/rgba\(11,\s*11,\s*12/);
+  for (const rule of rules) {
+    expect(rule[2], `${rule[1]!.trim()} generates a pseudo-element`).not.toMatch(
+      /(^|[;\s])content\s*:/,
+    );
+  }
 });
 
 test("index.html bootstraps theme before paint", () => {

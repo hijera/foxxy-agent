@@ -192,16 +192,36 @@ func StartHTTP(deps CommandDeps, params StartParams) (*StartedHTTP, error) {
 	if t := strings.TrimSpace(params.AuthToken); t != "" {
 		extraTokens = append(extraTokens, t)
 	}
-	if t := strings.TrimSpace(os.Getenv("FOXXYCODE_HTTP_TOKEN")); t != "" {
+	if t := strings.TrimSpace(os.Getenv(TokenEnvVar)); t != "" {
 		extraTokens = append(extraTokens, t)
 	}
 	s.SetExtraAuthTokens(extraTokens)
-	authOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(extraTokens) > 0
+	// The web sign-in account can live in the environment as it can for
+	// `foxxycode serve` (FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD, usually in
+	// $FOXXYCODE_HOME/.env), and a form nobody can pass is refused here too.
+	if err := s.SetExtraLogin(strings.TrimSpace(os.Getenv(LoginUserEnvVar)), os.Getenv(LoginPasswordEnvVar)); err != nil {
+		_ = logCloser.Close()
+		return nil, fmt.Errorf("httpserver: %s / %s: %w", LoginUserEnvVar, LoginPasswordEnvVar, err)
+	}
+	if pol := s.loginPolicyNow(); pol.broken {
+		_ = logCloser.Close()
+		return nil, errors.New("httpserver.login.enabled is true but no account is configured: " +
+			"set httpserver.login.user and password_hash (`foxxycode serve set-password`), " +
+			"or " + LoginUserEnvVar + " / " + LoginPasswordEnvVar)
+	}
+	// The IntelliJ and VS Code plugins and `foxxycode desktop` start this command
+	// on 127.0.0.1 and call it with no credential. A direct loopback client
+	// therefore passes the sign-in form here; `foxxycode serve` has no such rule.
+	s.SetTrustLoopbackClients(true)
+	loginOn := s.loginPolicyNow().enabled
+	authOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(extraTokens) > 0 || loginOn
 	if effHost, _, err := net.SplitHostPort(listenAddr); err == nil {
 		if !authOn && !cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
 			log.Warn("HTTP API is reachable without authentication",
 				"host", effHost,
-				"hint", "set httpserver.auth_token / --auth-token / FOXXYCODE_HTTP_TOKEN, or httpserver.allow_insecure: true to silence")
+				"hint", "sign-in for the browser: `foxxycode serve set-password`, or "+LoginUserEnvVar+" / "+LoginPasswordEnvVar+"; "+
+					"a token for API clients: httpserver.auth_token / --auth-token / "+TokenEnvVar+"; "+
+					"httpserver.allow_insecure: true silences this")
 		}
 	}
 

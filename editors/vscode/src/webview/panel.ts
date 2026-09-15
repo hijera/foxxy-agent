@@ -18,7 +18,7 @@ import { info } from "../notifications";
  *  Remote SSH / Codespaces / WSL where `127.0.0.1:<port>` is forwarded. */
 
 // The SPA's flat IDE chrome applies to both `intellij` and `vscode`; only the
-// Chromium-104 (JCEF) workarounds stay keyed on `intellij`. See docs/intellij-embedding.md.
+// Chromium-104 (JCEF) workarounds stay keyed on `intellij`. See docs/contributing/intellij-embedding.md.
 const EMBED_ID = "vscode";
 
 /** Host → SPA request to insert `@`-mentions into the composer. Frozen; mirrored in
