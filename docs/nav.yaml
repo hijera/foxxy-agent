@@ -199,6 +199,9 @@ groups:
       - path: contributing/intellij-embedding.md
         title: Embedding the UI in IntelliJ
         summary: How the JCEF panel hosts the SPA - the Chromium 104 baseline, the embed markers, the theme bridge and the window API the plugin calls.
+      - path: contributing/website.md
+        title: The website
+        summary: The site on GitHub Pages - React pages in English and Russian, data baked from the releases and the changelog twins, the comparison, the screenshots, and the workflow that publishes it together with docs/.
       - path: contributing/release-setup.md
         title: Release setup
         summary: How releases of this fork are published on GitHub - the workflows, the tags and the artefacts, the desktop build included (in Russian).
