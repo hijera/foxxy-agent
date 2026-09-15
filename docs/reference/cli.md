@@ -56,6 +56,7 @@ Usage:
   foxxycode serve [flags]                  # every enabled subsystem in one process
   foxxycode serve -d | --daemon [flags]    # the same, in the background under a dispatcher
   foxxycode serve status | stop | restart [--home DIR]
+  foxxycode serve set-password [--user NAME] [--config PATH] [--home DIR]  # write the web UI sign-in account into config.yaml
   foxxycode mcp list [--cwd DIR]
   foxxycode mcp trust <name> [--cwd DIR] (approve a project-local MCP server)
   foxxycode mcp untrust <name> [--cwd DIR]

@@ -149,6 +149,26 @@ round-trips through the footer Save because the whole config doc is PUT back.
 - The **Settings form itself is not reloaded** by the event. It holds the operator's unsaved edits, and refetching under them would discard work; the **Reload** control in the form is the deliberate way to pick up an outside change.
 - Automated checks: **`serverEvents.test.ts`** (the event reaches the callback, and is harmless without one), **`features/config_reload_broadcast.feature`** with **`external/httpserver/bdd_config_reload_test.go`** (the announcement reaches every open client, and the model list read on it already carries the new model), and **`external/httpserver/events_http_test.go`** (the frame shape, the guard against announcing a swap that did not happen, and the slash-command list being fresh at the moment of the announcement).
 
+## Sign-in (`httpserver.login`)
+
+Off unless the server has an account, and a server without one renders exactly as it always did.
+
+![The sign-in screen of the web UI: a card with user and password fields on the dark theme](../assets/webui-sign-in-dark-1280.png)
+
+*The sign-in screen an anonymous browser gets when `httpserver.login` is configured.*
+
+- **What decides:** **`AuthGate`** (**`external/ui/src/ui/auth/AuthGate.tsx`**, wrapping **`<App/>`** in **`main.tsx`**) calls **`GET /foxxycode/auth/me`** once on boot. **`login_required`** without **`authenticated`** renders **`SignInScreen`** instead of the app; anything else renders the app. While the answer is outstanding it renders a bare **`.auth-boot`** ground rather than the app, so the transcript is never shown and then yanked away.
+- **A server that cannot answer** - a network error, or a **404** from a `foxxycode serve` built before this existed - is read as "no sign-in here", so an older server keeps working with a newer page.
+- **The screen** (**`SignInScreen.tsx`**, **`.auth-screen`** / **`.auth-shell`** / **`.auth-card`**) is the whole page, not a dialog over a blurred transcript: there is nothing behind it to look at. The wordmark sits above the card, centred and outside it; the card holds the title, user, password, one error line (**`role="alert"`**), and a submit button disabled until both fields are filled, with no explanatory line under the title. Every string is a dictionary key (**`auth.signIn.*`**), and the card uses theme tokens only, so all seven themes and both languages carry it.
+- **The wordmark** is the rectangular logo (**`docs/assets/foxxycode-logo-wordmark.svg`**, and **`-light.svg`** on the light theme, imported from there rather than through the **`src/assets`** symlinks), inlined into the bundle rather than fetched, so the screen paints in one request. Its alt text is localized (**`auth.signIn.logoAlt`**).
+- **After a successful sign-in** the page reloads: every list, stream and cached response on it was fetched by a browser with no session.
+- **A session that ends while the page is open** - expired, rotated, signed out in another tab - brings the screen back: the local-origin **`fetch`** shim reports a **401** from any **`/v1/*`** or **`/foxxycode/*`** call (the **`/foxxycode/auth/*`** routes excepted) and the gate re-reads the state.
+- **Signing out** is the last entry of the nav rail (**`data-testid="nav-sign-out"`**), shown only while a form is configured and this browser has passed it; its tooltip names the account. It posts **`/foxxycode/auth/logout`** and reloads **only when the server actually dropped the session** - the cookie is HttpOnly, so a page that cleared its own state after a refusal would be signed straight back in by the reload and the button would look broken rather than refused.
+- **Editor panels and the desktop window never see it.** They run **`foxxycode http`**, which answers a direct loopback client **`login_required: false`**, **`authenticated: true`**, so the gate renders the app and the rail shows no sign-out entry.
+- **Remote environments are not gated here.** A remote is reached cross-origin with the bearer token from the environment selector, and a cookie of this origin would not travel with those calls; **`AuthGate`** passes straight through in remote mode.
+
+Server behaviour, the cookie and the CSRF rule: [HTTP API](../reference/http-api.md#web-ui-sign-in-optional). Visual contract: [DESIGN.md](../../DESIGN.md).
+
 ## Environment (local / remote server)
 
 - **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`+ Add remote…`**).
@@ -302,6 +322,26 @@ Session delete UX
 - If the deleted session is **not** the one currently shown in the main chat, remove it from the list (and refresh from the server) and **keep the History drawer open**. Do not change the URL or clear the transcript for the session that stayed on screen.
 - If the deleted session **is** the one currently shown, navigate to **new chat** (empty start screen, session hash cleared), **close** the History drawer, and clear composer-related state as for a normal home transition.
 - For a short interval after the user confirms delete, **ignore** shell **backdrop** pointer-driven close so a stray event from the native confirm does not dismiss History or alter the route.
+- Deleting more than one conversation at a time, and reading what each one cost, is **Settings -> Sessions** (below). History stays the place to *open* a session.
+
+## Settings: session management
+
+![The session management table with the open conversation protected](../assets/sessions-management-table-dark-1280.png)
+
+*The header tick took the page; the conversation that is open keeps its row, marked open and out of reach of the one delete button*
+
+**Settings -> Sessions** (**`#/settings/sessions_manager`**, **`SessionsManager.tsx`**, pure helpers in **`sessions/sessionManagerRows.ts`**) is the stored history as a table rather than a list to scroll. It is a client-side tab like Appearance: it reads and removes session bundles over **`/foxxycode/sessions`** and edits no config key, so it renders before the config schema has loaded. Its id is **`sessions_manager`** because **`sessions`** is already a config key - the storage directory, which stays in the **System** tab.
+
+- **Rows** come from **`GET /foxxycode/sessions?include_stats=true`**, 50 at a time with a **Load more** button. Each one shows the title with its **workspace** underneath, the **model** the session overrode (**`default`** when it never did, meaning whatever **`agent.model`** was at the time), the **message count**, the **total tokens** (input and output in the cell tooltip), and **created** / **updated** dates (the exact instant in the tooltip). A bundle stored before FoxxyCode recorded a creation stamp shows **—** rather than a date invented from a later save.
+- **Search** is the same **`q`** filter the History drawer uses - title or first user message, case insensitive - debounced as you type.
+- **In an editor panel the table lists the project History lists.** The toolbar carries the drawer's **This project only** toggle (**`sessions-manager-project-only`**, the same preference, so flipping it in either place flips both); while it is on, the list request and every delete carry the project root as **`cwd`**, and the server refuses to remove a stored session outside that folder. In a browser the toggle starts off, as it does in History, so the table lists every workspace until it is switched on.
+- **Deleting is one action**: a single trash icon beside the search field, at every width, which removes the **ticked** rows (**`POST /foxxycode/sessions/bulk-delete`** with their ids) behind the shared confirmation dialog. What it does is its **tooltip** and its accessible name, not a label on its face; the only text drawn on it is the **selection count** badge, which a tooltip cannot show at a glance. The scope of a delete is therefore always what the operator can see ticked - there is no second button that reaches further than the ticks.
+- **Emptying the page** is the header checkbox plus that one button. With more rows than a page holds, **Load more** first; the summary line under the table says how many are listed and how many are ticked.
+- The **conversation you have open is protected**: its row is highlighted and marked **open**, its tick box and its row trash are disabled with a tooltip saying why, and the header checkbox passes over it. The table cannot take the chat out from under you; close it or switch to another conversation first, then delete it from **History**.
+- The **selection follows what the table shows**: the header checkbox ticks and unticks the rendered rows, and a search that hides a ticked row takes its tick with it (clearing the search brings the row back unticked). A destructive action never reaches a row that is off screen, and a tick cannot reappear later because it survived out of sight.
+- A session that could not be removed - a turn of its tree was still running - is **reported** under the toolbar with its reason, and its row stays. The others are still gone: the request answers with **`deleted`** and **`failed`** separately.
+- The list **re-reads after every delete**; nothing is reloaded. If the conversation on screen behind the panel was one of the deleted ones, the chat resets to a new one and Settings stays open on this tab.
+- The table is the one horizontally scrollable element of the tab, so a narrow shell scrolls the columns instead of the page.
 
 ## Chat transport
 
@@ -749,8 +789,8 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 
 - `GET /foxxycode/mcp` backs the list: merged `config.yaml` + global `~/.foxxycode/mcp.json`
   + project `./.foxxycode/mcp.json` servers, each with `source` (`global` / `local`
-  scope badge), `origin` (`config` / `home` / `project` — drives the badge
-  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  scope badge), `origin` (`config` / `home` / `project`) and `source_path` (the
+  real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unknown transport type (amber, `unsupported`).

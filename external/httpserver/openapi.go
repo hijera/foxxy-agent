@@ -23,7 +23,7 @@ func openAPISpec() map[string]interface{} {
 				"Classify POST **model** values: **agent** / **plan** / **docs** / **ask** / **debug** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
 				"**`metadata.model`** may appear only on agent/plan/docs/ask/debug requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
 				"**`metadata.reasoning`** (optional, agent/plan/docs/ask/debug only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`** on). " +
-				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: foxxycode_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
+				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs over **`POST /v1/responses`** emit a final **`event: foxxycode_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
 				"Optional header **X-FoxxyCode-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
 		},
@@ -33,11 +33,13 @@ func openAPISpec() map[string]interface{} {
 				"description": "Server root (same host/port as foxxycode http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/foxxycode-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
-		// Auth is optional: the empty requirement means "no auth" (default when no token is set);
-		// bearerAuth applies when httpserver.auth_token / --auth-token / FOXXYCODE_HTTP_TOKEN is set.
+		// Optional auth: an empty requirement plus the two schemes means requests may be
+		// unauthenticated (default), carry a token when httpserver.auth_token is configured,
+		// or carry the session cookie a browser gets from POST /foxxycode/auth/login.
 		"security": []interface{}{
 			map[string]interface{}{},
 			map[string]interface{}{"bearerAuth": []interface{}{}},
+			map[string]interface{}{"cookieAuth": []interface{}{}},
 		},
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{
@@ -67,7 +69,8 @@ func openAPISpec() map[string]interface{} {
 					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`docs`** / **`ask`** / **`debug`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
 						"Optional **`metadata`** on agent/plan/docs/ask/debug only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: foxxycode_meta`** before **`[DONE]`**). Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the FoxxyCode events (**`tool_call`**, **`token_usage`**, **`foxxycode_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"A direct **`models[].model`** id is FoxxyCode standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, any other value leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **docs** / **ask** / **debug** profiles run FoxxyCode's own tools, never read the client's, and take no trailing **`tool`** message. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport FoxxyCode uses to reach the LLM. " +
 						"Every **agent**/**plan**/**docs**/**ask**/**debug** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /foxxycode/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. **409** when **X-FoxxyCode-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
@@ -92,7 +95,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion or streamed events. SSE may include **`event: foxxycode_meta`** (final metadata map) before **`data: [DONE]`**.",
+							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, or `length` for a turn cut by `max_turns` / `max_tokens`), an optional usage chunk, then `data: [DONE]`.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -103,7 +106,7 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type":        "string",
 										"format":      "binary",
-										"description": "Server-Sent Events stream (OpenAI-compatible chunk lines, optional foxxycode_meta).",
+										"description": "Server-Sent Events stream of OpenAI `chat.completion.chunk` lines; no foxxycode-specific `event:` frames.",
 									},
 								},
 							},
@@ -220,9 +223,99 @@ func openAPISpec() map[string]interface{} {
 							"compared as folders rather than strings (cleaned, symlinks resolved, case-insensitive on Windows and macOS), " +
 							"so a session the console stored under the logical path of a symlinked checkout is listed for the physical path an editor sends. " +
 							"Applied before **q** and paging. Used by the IntelliJ / VS Code plugins to scope History to the open project.",
+					}, map[string]interface{}{
+						"name":   "include_stats",
+						"in":     "query",
+						"schema": map[string]string{"type": "boolean"},
+						"description": "When true, each row also carries what the session management table renders: **messageCount** (persisted transcript rows of every role), **tokenUsage** " +
+							"(**`{inputTokens, outputTokens, totalTokens}`** from the bundle's **stats.json**, zeroes when the session never completed a model call), **createdAt** and **model**. " +
+							"**createdAt** is omitted for a bundle stored before the field existed - the moment it was started is not recoverable and is not invented - and **model** is omitted for a session " +
+							"that never overrode **`agent.model`**, so a client renders those as unknown rather than as a value. The listing itself reads only each bundle's **session.json**; " +
+							"**messageCount** and **tokenUsage** are read for the rows of the returned page alone, one transcript and one **stats.json** per row.",
 					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/sessions/bulk-delete": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Delete many sessions in one request",
+					"description": "Removes several session trees with the same semantics as **DELETE /foxxycode/sessions/{id}** applied to each id: branch references retracted, background tasks and subagent children stopped, bundles removed deepest first. " +
+						"The body names either an explicit **ids** list, or **scope** **`all`** with an optional **except** list of ids to keep. **`all`** is resolved on the server against the default session listing " +
+						"(scheduler runs excluded, subagent children going with their parents), so it means the whole stored history rather than the page a client happens to have loaded. " +
+						"An **except** entry is a promise that the session survives, so it is checked before anything is removed: a malformed id, or one with no bundle on disk, is a **400** and nothing is deleted - a misspelt exception would otherwise turn *keep this one* into *delete everything*. " +
+						"Sparing a session spares its **ancestors** too, because the delete takes a whole tree: excepting a **`sub_`** child keeps the parent it hangs from, which the listing names and the child does not. **except** is refused beside an **ids** list, where nothing would consult it. " +
+						"One id that cannot be removed does not abandon the rest: every id is attempted and the answer lists **deleted** and **failed** separately, so a table can drop the rows that went and keep the others with their reason. " +
+						"A **failed** entry carries the retryable conflict verbatim (a turn that would not settle, an unstable tree) and a generic **`delete failed`** for anything else, which is logged rather than returned. " +
+						"A duplicate id is deleted once, and an id with no bundle on disk counts as deleted, exactly as the single-session route answers **200** for it. " +
+						"With **cwd** the request stays inside one workspace: **`all`** resolves against the sessions whose **cwd** is that directory or sits beneath it, and an **ids** entry naming a stored session elsewhere is a **400** before anything is removed. " +
+						"The IntelliJ / VS Code plugins send the open project, so a session table in one project cannot reach the chats of another one stored in the same home.",
+					"operationId": "foxxycodeSessionsBulkDelete",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"scope": map[string]interface{}{
+											"type":        "string",
+											"enum":        []string{"ids", "all"},
+											"description": "**`ids`** (the default) deletes exactly the **ids** list; **`all`** deletes every listed session minus **except**.",
+										},
+										"ids": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "Session ids to remove. Required and non-empty for scope **`ids`**; rejected together with scope **`all`**.",
+										},
+										"except": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"description": "Session ids to keep, for scope **`all`** only (a **400** beside an **ids** list). Each one must be a valid id **and** name a stored bundle, or the whole request is a **400** and nothing is removed. Keeping a session keeps its ancestors as well.",
+										},
+										"cwd": map[string]interface{}{
+											"type": "string",
+											"description": "Absolute directory confining the request, compared like the **cwd** filter of **GET /foxxycode/sessions** (the directory or beneath it, as folders rather than strings). " +
+												"Scope **`all`** removes only sessions inside it; an **ids** entry naming a stored session outside it refuses the whole request with a **400**. A relative path is a **400**.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "What went and what stayed",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "foxxycode.sessions_bulk_deleted"},
+											"requested": map[string]string{"type": "integer"},
+											"deleted": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]string{"type": "string"},
+											},
+											"failed": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"id":    map[string]string{"type": "string"},
+														"error": map[string]string{"type": "string"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
 				},
@@ -1234,6 +1327,108 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/auth/me": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Whether this server wants a sign-in, and whether the caller has one",
+					"description": "Public: this is how the bundled UI decides between the sign-in screen and the app, so it answers without a credential. " +
+						"**login_required** is true when a password account is configured (in `httpserver.login` or in FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD) and not switched off with `httpserver.login.enable: false`. " +
+						"**auth_required** is true when any credential gates the API, including a bearer-only server the browser cannot sign in to. " +
+						"**authenticated** reports this request: a live session cookie, or a valid bearer token. **user** and **expires_at** are present only for a signed-in browser. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
+					"operationId": "getAuthState",
+					"security":    []interface{}{map[string]interface{}{}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Sign-in state",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"login_required": map[string]string{"type": "boolean", "description": "A password sign-in form is configured."},
+											"auth_required":  map[string]string{"type": "boolean", "description": "Some credential gates /v1/* and /foxxycode/*."},
+											"authenticated":  map[string]string{"type": "boolean", "description": "This request carries a valid session cookie or bearer token."},
+											"mode":           map[string]interface{}{"type": "string", "enum": []string{"password"}, "description": "How a browser signs in. Absent when no form is configured."},
+											"user":           map[string]string{"type": "string", "description": "Signed-in account; absent otherwise."},
+											"expires_at":     map[string]string{"type": "string", "format": "date-time", "description": "When the session ends; absent otherwise."},
+										},
+										"required": []string{"login_required", "auth_required", "authenticated"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"/foxxycode/auth/login": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Sign a browser in with the configured account",
+					"description": "Public: it is the way through the gate. On success sets an HttpOnly, SameSite=Strict `" + sessionCookieBaseName + "_<host digest>` cookie (Secure when the request arrived over TLS or through a proxy sending `X-Forwarded-Proto: https`), valid for `httpserver.login.session_ttl_hours`; when that is 0 the cookie is dropped as the browser closes and the server expires its own record after 30 days. " +
+						"A wrong password and an unknown user get the same **401** and the same body; repeated failures from one non-loopback address are answered progressively more slowly. **400** when no sign-in is configured, **403** for a cross-site attempt, **503** when `httpserver.login.enable` is true with no account behind it. " +
+						"API clients do not use this route: they present `Authorization: Bearer <token>` instead.",
+					"operationId": "authLogin",
+					"security":    []interface{}{map[string]interface{}{}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"user":     map[string]string{"type": "string"},
+										"password": map[string]string{"type": "string", "format": "password"},
+									},
+									"required": []string{"user", "password"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed in; the session cookie is set",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":         map[string]string{"type": "boolean"},
+											"user":       map[string]string{"type": "string"},
+											"expires_at": map[string]string{"type": "string", "format": "date-time"},
+										},
+										"required": []string{"ok", "user"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"401": errorResponseRef(),
+						"403": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/foxxycode/auth/logout": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "End the browser session on the server",
+					"description": "Drops the session server-side and expires the cookie, so a copy of it taken elsewhere stops working too. Idempotent: a request with no cookie, or with one this server no longer knows, still answers **200**. **403** for a cross-site attempt.",
+					"operationId": "authLogout",
+					"security":    []interface{}{map[string]interface{}{}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Signed out",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type":       "object",
+										"properties": map[string]interface{}{"ok": map[string]string{"type": "boolean"}},
+										"required":   []string{"ok"},
+									},
+								},
+							},
+						},
+						"403": errorResponseRef(),
 					},
 				},
 			},
@@ -3039,7 +3234,14 @@ func openAPISpec() map[string]interface{} {
 				"bearerAuth": map[string]interface{}{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The local /foxxycode/ide/* routes stay public. The two SSE routes additionally accept `?access_token=`, which should carry a single-use ticket from POST /foxxycode/stream-tickets rather than the durable token; set httpserver.stream_tickets_only to require that.",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / FOXXYCODE_HTTP_TOKEN) is set, every /v1/* and /foxxycode/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true. The three /foxxycode/auth/* routes are always reachable without it, and the local /foxxycode/ide/* routes are open without a credential to a direct loopback client only (peer and Host on loopback, no forwarding headers). The two SSE routes additionally accept `?access_token=`, which should carry a single-use ticket from POST /foxxycode/stream-tickets rather than the durable token; set httpserver.stream_tickets_only to require that.",
+				},
+				"cookieAuth": map[string]interface{}{
+					"type": "apiKey",
+					"in":   "cookie",
+					"name": sessionCookieBaseName + "_<host digest>",
+					"description": "Optional, for browsers. When httpserver.login is configured (or FOXXYCODE_HTTP_USER / FOXXYCODE_HTTP_PASSWORD are set), `POST /foxxycode/auth/login` returns an HttpOnly `" + sessionCookieBaseName + "_<digest of the request host>` cookie (the digest keeps two servers on one host from overwriting each other's session, since cookies are not scoped by port) that opens the same routes a bearer token opens, including the SSE streams (no ?access_token= needed, since a same-origin EventSource sends cookies). " +
+						"The cookie is `SameSite=Strict`, so it never travels with a request another site caused. Cookie-authenticated requests that change state are additionally refused with 403 unless `Sec-Fetch-Site` says same-origin (or none) or `Origin` matches the request host - a non-browser client driving this API with a cookie has to send an `Origin` header, or present a bearer token instead. Bearer requests are never subject to that check. On `foxxycode http` (what the editor plugins and the desktop app start) a direct loopback client counts as signed in while no bearer token is configured; `foxxycode serve` makes no such exception. Sign-in is off by default. See https://github.com/hijera/foxxy-agent/blob/main/docs/operate/remote.md.",
 				},
 			},
 			"schemas": map[string]interface{}{
@@ -3487,12 +3689,17 @@ func openAPISpec() map[string]interface{} {
 							"enum": []interface{}{"system", "user", "assistant", "tool"},
 						},
 						"content": map[string]interface{}{
-							"description": "JSON string or raw text/object per OpenAI client conventions.",
+							"description": "A string, null, or an array of OpenAI content parts: `text` parts are joined, `image_url` parts (`{url}` object or a bare string, data URL or https) reach a multimodal direct model as images and are accepted on user messages only, refused with 400 on any other role, as is any other part type.",
 							"oneOf": []interface{}{
 								map[string]string{"type": "string"},
-								map[string]interface{}{"type": "array"},
-								map[string]interface{}{"type": "object"},
+								map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "additionalProperties": true}},
+								map[string]string{"type": "null"},
 							},
+						},
+						"tool_calls": map[string]interface{}{
+							"type":        "array",
+							"description": "On an assistant message: the calls it made, replayed by a client that runs the tools itself (`id`, `type: function`, `function.name`, `function.arguments`).",
+							"items":       map[string]interface{}{"type": "object", "additionalProperties": true},
 						},
 						"reasoning": map[string]interface{}{
 							"type":        "string",
@@ -3541,7 +3748,40 @@ func openAPISpec() map[string]interface{} {
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/OpenAIMessage"},
 						},
-						"stream":      map[string]string{"type": "boolean"},
+						"stream": map[string]string{"type": "boolean"},
+						"stream_options": map[string]interface{}{
+							"type":        "object",
+							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) after the choice finishes. Streamed responses only.",
+							"properties": map[string]interface{}{
+								"include_usage": map[string]string{"type": "boolean"},
+							},
+						},
+						"tools": map[string]interface{}{
+							"type":        "array",
+							"description": "The client's function tools in OpenAI shape (`type: function`, `function.name`, `function.description`, `function.parameters` JSON Schema). Offered as they are to a direct `models[].model`; ignored by agent, plan and ask, which run foxxycode's own tools. Any other tool type is refused with 400.",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"type": map[string]interface{}{"type": "string", "enum": []interface{}{"function"}},
+									"function": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"name":        map[string]string{"type": "string"},
+											"description": map[string]string{"type": "string"},
+											"parameters":  map[string]interface{}{"type": "object", "additionalProperties": true},
+										},
+										"required": []string{"name"},
+									},
+								},
+							},
+						},
+						"tool_choice": map[string]interface{}{
+							"description": "OpenAI tool_choice. `none` withholds the tools from the model; `auto`, `required` and a named function leave the choice to the model, since the providers take no forcing parameter.",
+							"oneOf": []interface{}{
+								map[string]string{"type": "string"},
+								map[string]interface{}{"type": "object", "additionalProperties": true},
+							},
+						},
 						"max_tokens":  map[string]string{"type": "integer"},
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
@@ -3573,11 +3813,19 @@ func openAPISpec() map[string]interface{} {
 									"message": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"role":    map[string]string{"type": "string"},
-											"content": map[string]string{"type": "string"},
+											"role": map[string]string{"type": "string"},
+											"content": map[string]interface{}{
+												"description": "The answer text; null when the answer is made of tool calls, as OpenAI renders it.",
+												"oneOf":       []interface{}{map[string]string{"type": "string"}, map[string]string{"type": "null"}},
+											},
+											"tool_calls": map[string]interface{}{
+												"type":        "array",
+												"description": "Present when a direct model called one of the client's tools: `id`, `type: function`, `function.name`, `function.arguments`.",
+												"items":       map[string]interface{}{"type": "object", "additionalProperties": true},
+											},
 										},
 									},
-									"finish_reason": map[string]string{"type": "string"},
+									"finish_reason": map[string]interface{}{"type": "string", "enum": []interface{}{"stop", "length", "tool_calls"}},
 								},
 							},
 						},

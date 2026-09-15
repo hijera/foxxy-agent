@@ -90,7 +90,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			PerProvider: &PerProviderPromptsJSON{Enabled: &perProviderEnabled},
 		},
 		Instructions: InstructionsJSON{
-			Files: []string{"AGENTS.md"},
+			Files: DefaultInstructionFiles(),
 		},
 		Skills: SkillsJSON{
 			Dirs: []string{
