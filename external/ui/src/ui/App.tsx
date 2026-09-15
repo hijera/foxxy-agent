@@ -203,6 +203,7 @@ import {
   setSchedulerListHash,
   setSessionTasksHash,
   setSettingsHash,
+  setSettingsSectionHash,
   stripHistorySidebarFromHash,
   appNavHrefSwarm,
 } from "./scheduler/hashRoute";
@@ -1687,6 +1688,17 @@ export function App() {
       writeProjectOnlyPref(hostProjectRoot, next);
     },
     [hostProjectRoot],
+  );
+
+  // The session table in Settings lists, and deletes within, the set History
+  // shows: one server per project shares a single home with every other one.
+  const sessionsScopeForSettings = useMemo(
+    () => ({
+      projectRoot: hostProjectRoot,
+      projectOnly: sessionsProjectOnly,
+      onProjectOnlyChange: changeSessionsProjectOnly,
+    }),
+    [hostProjectRoot, sessionsProjectOnly, changeSessionsProjectOnly],
   );
 
   async function switchWorkspace(payload: {
@@ -3302,6 +3314,32 @@ export function App() {
     }
     await loadSessionsList(true);
   }
+
+  // The session table in Settings removes bundles behind the open panel. Drop
+  // the rows from History right away, and when the conversation on screen was
+  // one of them, reset the chat to a new one - without leaving Settings, which
+  // is where the user still is, so the route is re-anchored on that tab.
+  // A stable handler: Settings keeps one identity, and every call still sees
+  // the session on screen now and the goHome of the latest render.
+  const onSessionsDeletedInSettings = useStableHandler((ids: string[]) => {
+    if (ids.length === 0) {
+      return;
+    }
+    const gone = new Set(ids);
+    for (const id of ids) {
+      clearQuestionPromptRecords(id);
+    }
+    setSessions((prev) => prev.filter((row) => !gone.has(row.id)));
+    // A subagent transcript is not listed and is never a target of its own: it
+    // goes with the parent whose tree was removed, so the viewed child has to
+    // follow its parent home.
+    const viewing = sidebarActiveId.trim();
+    const viewedParent = (subagentTranscript?.parentSessionId ?? "").trim();
+    if (gone.has(viewing) || (viewedParent !== "" && gone.has(viewedParent))) {
+      goHome();
+      setSettingsSectionHash("sessions_manager");
+    }
+  });
 
   async function handleBranchSend(text: string, userMsgIdx: number) {
     const sourceSid = sessionId.trim();
@@ -5389,6 +5427,9 @@ export function App() {
               // project root, which is the cwd an editor plugin launched the
               // server for.
               workspacePath={workspaceCtx?.path || hostProjectRoot || undefined}
+              activeSessionId={sidebarActiveId}
+              onSessionsDeleted={onSessionsDeletedInSettings}
+              sessionsScope={sessionsScopeForSettings}
             />
           </div>
         ) : null}

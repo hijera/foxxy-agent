@@ -19,6 +19,10 @@ import {
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
+import {
+  SessionsManager,
+  type SessionsProjectScope,
+} from "../sessions/SessionsManager";
 import { SkillsSection } from "./SkillsSection";
 import { SubagentsSection } from "./SubagentsSection";
 import { ProviderExportButtons } from "./ProviderExportButtons";
@@ -182,7 +186,8 @@ function providerFieldOverride(ctx: FieldOverrideContext) {
  * SettingsSection renders the active settings tab. Object sections render their
  * sub-schema fields directly (the tab already names the section); array sections
  * become master–detail lists; the System group stacks its child object sections;
- * Skills, General and Appearance (theme + language) are special tabs. Model
+ * Skills, General, Appearance (theme + language) and Sessions (the stored
+ * history as a table) are special tabs. Model
  * fields receive custom editors via the SchemaForm fieldOverride hook.
  */
 export function SettingsSection(props: {
@@ -196,6 +201,12 @@ export function SettingsSection(props: {
   onRestartOnboarding?: (() => void) | undefined;
   /** Workspace of the viewed session; the Subagents tab asks about it. */
   workspacePath?: string | undefined;
+  /** The conversation on screen, so the session table can spare it. */
+  activeSessionId?: string | undefined;
+  /** Session ids the table removed, so the shell can drop them from History. */
+  onSessionsDeleted?: ((ids: string[]) => void) | undefined;
+  /** The History "this project only" scope, which the session table follows. */
+  sessionsScope?: SessionsProjectScope | undefined;
 }) {
   const { t } = useT();
   const { section, schema, doc, setDoc } = props;
@@ -251,6 +262,18 @@ export function SettingsSection(props: {
           </div>
         ) : null}
       </>
+    );
+  }
+
+  // The session table is API-driven (/foxxycode/sessions): it reads and removes
+  // stored bundles and never touches the settings document.
+  if (section.kind === "sessions") {
+    return (
+      <SessionsManager
+        activeSessionId={props.activeSessionId}
+        onSessionsDeleted={props.onSessionsDeleted}
+        projectScope={props.sessionsScope}
+      />
     );
   }
 

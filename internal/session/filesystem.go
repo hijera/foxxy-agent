@@ -165,10 +165,12 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	}
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	if _, statErr := os.Stat(metaPath); os.IsNotExist(statErr) {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
 		m := SessionMeta{
 			Version:   sessionFileLayout,
 			ID:        sessionID,
-			UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 		if wErr := writeJSONAtomic(metaPath, m); wErr != nil {
 			return "", wErr
@@ -199,6 +201,11 @@ type SessionMeta struct {
 	TitlePinned string `json:"titlePinned,omitempty"`
 	TitleAuto   string `json:"titleAuto,omitempty"`
 	UpdatedAt   string `json:"updatedAt,omitempty"`
+	// CreatedAt is stamped when the bundle directory is first written and never
+	// moves again. A bundle stored before this field existed carries none: the
+	// moment it was started is not recoverable, so it stays empty rather than
+	// being invented from a later write.
+	CreatedAt string `json:"createdAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
@@ -363,6 +370,11 @@ type SessionListEntry struct {
 	CWD       string
 	Title     string
 	UpdatedAt string
+	// CreatedAt is empty for a bundle stored before the field existed.
+	CreatedAt string
+	// Model is the session's own backend override (session.json
+	// selectedModelId); empty when the session ran on the configured default.
+	Model string
 }
 
 // ListOptions selects which persisted sessions ListSnapshotsWith returns.
@@ -426,6 +438,8 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 			CWD:       meta.CWD,
 			Title:     meta.Title,
 			UpdatedAt: meta.UpdatedAt,
+			CreatedAt: meta.CreatedAt,
+			Model:     meta.SelectedModelID,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -443,6 +457,61 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 		return out[i].SessionID < out[j].SessionID
 	})
 	return out, nil
+}
+
+// MessageCount counts the persisted transcript rows of every role in
+// messages.json. The listing reads session.json alone, so a caller that shows
+// the number asks for it per row it renders rather than per stored session;
+// the array is walked element by element and no message is decoded. A bundle
+// without a transcript counts zero.
+func (f *FileStore) MessageCount(sessionID string) (int, error) {
+	if f == nil || f.Root == "" {
+		return 0, nil
+	}
+	b, err := readFileWithRetry(filepath.Join(f.SessionPath(sessionID), messagesFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return 0, fmt.Errorf("messages.json: not a JSON object")
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return 0, fmt.Errorf("messages.json: %w", err)
+		}
+		if key != "messages" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return 0, fmt.Errorf("messages.json: %w", err)
+			}
+			continue
+		}
+		start, err := dec.Token()
+		if err != nil {
+			return 0, fmt.Errorf("messages.json: %w", err)
+		}
+		if start == nil {
+			return 0, nil
+		}
+		if start != json.Delim('[') {
+			return 0, fmt.Errorf("messages.json: messages is not an array")
+		}
+		n := 0
+		for dec.More() {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return 0, fmt.Errorf("messages.json: %w", err)
+			}
+			n++
+		}
+		return n, nil
+	}
+	return 0, nil
 }
 
 // FirstUserMessageContent returns trimmed content of the first message with role user
@@ -512,7 +581,9 @@ func (f *FileStore) Save(state *State) error {
 	msgPath := filepath.Join(dir, messagesFile)
 
 	var prevMeta SessionMeta
+	metaExisted := false
 	if prevMetaBytes, err := os.ReadFile(metaPath); err == nil {
+		metaExisted = true
 		_ = json.Unmarshal(prevMetaBytes, &prevMeta)
 	}
 
@@ -534,6 +605,14 @@ func (f *FileStore) Save(state *State) error {
 		updatedAt = prevMeta.UpdatedAt
 	}
 
+	// The creation stamp is written once and then carried forward. A bundle that
+	// has a session.json but no createdAt was stored by an older build: leave it
+	// empty rather than backdating it to this save.
+	createdAt := strings.TrimSpace(prevMeta.CreatedAt)
+	if createdAt == "" && !metaExisted {
+		createdAt = updatedAt
+	}
+
 	meta := SessionMeta{
 		Version:           sessionFileLayout,
 		ID:                state.ID,
@@ -547,6 +626,7 @@ func (f *FileStore) Save(state *State) error {
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
 		TitleAuto:         strings.TrimSpace(state.GetTitleAuto()),
 		UpdatedAt:         updatedAt,
+		CreatedAt:         createdAt,
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true

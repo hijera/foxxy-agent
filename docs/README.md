@@ -44,7 +44,7 @@ What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan, docs, ask and debug, which tools each mode allows and how to switch on every surface.
 - [Sessions](features/sessions.md) - Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.
-- [Rules](features/rules.md) - Project rules from the .foxxycode, .agents, .cursor, .claude and .codex folders, nested AGENTS.md, dialects by extension, activation.
+- [Rules and instructions](features/rules.md) - Rules from the .foxxycode, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.
@@ -76,6 +76,7 @@ Task-shaped guides, each a complete path from a goal to a working result, with t
 - [A Telegram bot for a team](tutorials/telegram-bot-for-a-team.md) - One bot for a team with foxxycode serve: the token, who may talk to it, group isolation, and the same chat live in the browser.
 - [A project set up for agents](tutorials/project-set-up-for-agents.md) - A repository that teaches any agent how it works: rules, AGENTS.md, skills, an MCP server and the trust receipts.
 - [A server driven from a laptop](tutorials/server-driven-from-a-laptop.md) - A foxxycode serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser.
+- [FoxxyCode as a model in VS Code Copilot](tutorials/foxxycode-as-a-model-in-vs-code.md) - A running foxxycode serve registered in chatLanguageModels.json, so its models and its agent sit in Copilot's model picker, with sessions per request and the agent's permission gate.
 - [A skill of your own](tutorials/a-skill-of-your-own.md) - A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.
 - [A relay and its nodes in Docker](tutorials/swarm-relay-and-nodes.md) - A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
 - [A chain of relays](tutorials/swarm-multi-hop.md) - A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates.
