@@ -339,6 +339,7 @@ export const messagesRu: Record<string, string> = {
   "settings.saveSectionTitle": "Сохранить раздел {section}",
   "settings.loading": "Загрузка…",
   "settings.apiDocs": "Документация API",
+  "settings.siteLink": "Сайт",
   "settings.reloadTitle": "Перезагрузить с сервера",
   "settings.reloadAriaLabel": "Перезагрузить конфигурацию с сервера",
   "settings.saveAllTitle": "Сохранить все разделы",

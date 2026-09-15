@@ -19,6 +19,10 @@
   Удобный для IDE форк, который легко адаптировать к выбранному редактору.
 </p>
 
+<p align="center">
+  <a href="https://hijera.github.io/foxxy-agent/?lang=ru"><strong>Сайт</strong></a> - загрузки, скриншоты, <a href="https://hijera.github.io/foxxy-agent/compare/?lang=ru">сравнение</a>, <a href="https://hijera.github.io/foxxy-agent/changelog/?lang=ru">изменения</a>
+</p>
+
 > **Foxxy Agent основан на [coddy-agent](https://github.com/coddy-project/coddy-agent)** проекта Coddy (MIT).
 > Этот форк сохраняет архитектуру исходного проекта и совместимость с его обновлениями, но меняет
 > оформление дистрибутива (репозиторий, имя исполняемого файла и релизы) и упрощает адаптацию к IDE.

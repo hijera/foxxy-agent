@@ -8,6 +8,18 @@
 
 # FoxxyCode for VS Code changes
 
+## Unreleased — 2026-09-15
+
+**The settings link to the FoxxyCode website.**
+At the bottom of the settings, next to "API docs", there is now a "Website" link. The site has
+the downloads of the plugins and the desktop app, a comparison with other agents, and the
+changes of recent releases in English and Russian.
+
+**Links from the panel open in your browser.**
+"API docs" and the other links the panel opens in a new tab did not open at all, because VS Code
+does not let the panel open windows. The panel now hands the link to the extension, which opens
+it in the default browser.
+
 ## 0.2.94 — 2026-09-14
 
 **A Sessions table in Settings → Sessions.**

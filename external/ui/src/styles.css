@@ -7090,12 +7090,16 @@ html:not([data-theme="light"]) .context-usage-note--error {
 }
 
 .settings-footer-link {
-  margin-right: auto;
   align-self: center;
   font-size: 13px;
   text-decoration: none;
   color: color-mix(in srgb, var(--text) 55%, var(--foxxycode-blend-base));
   padding: 0 4px;
+}
+
+/* The links sit on the left, the Reload and Save buttons on the right. */
+.settings-footer-link:last-of-type {
+  margin-right: auto;
 }
 
 .settings-footer-link:hover {
