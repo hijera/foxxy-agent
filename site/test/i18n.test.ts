@@ -53,7 +53,7 @@ describe("site dictionaries", () => {
 
   it("translate the Russian copy and use агентный, never the wrong adjective", () => {
     // .claude/rules/russian-wording.md; spelled with escapes so `git grep` for the word stays empty.
-    const wrong = new RegExp("агентск", "i");
+    const wrong = new RegExp(String.fromCharCode(0x430, 0x433, 0x435, 0x43d, 0x442, 0x441, 0x43a), "i");
     for (const { path, key, text } of strings(ru as Json)) {
       expect(wrong.test(text), `ru.${path}`).toBe(false);
       const isNameOrCode = SHARED_KEYS.has(key) || /^[\w./@`#:+ -]+$/.test(text) || /^\/[\w-]+$/.test(text);
