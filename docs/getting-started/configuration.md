@@ -60,11 +60,13 @@ $ foxxycode serve -t
 config test failed
 ```
 
-The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `foxxycode serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - and a file without the `# yaml-language-server:` header. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
+The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `foxxycode serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer, coddy's `enable` for `enabled` - and a file without the `# yaml-language-server:` header. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
 A file that does not parse at all is placed differently from one whose values are merely wrong. The parser reports the line the block it was reading began on, which in a file with a header of comments is a blank line far above the mistake, so the check re-reads the file to find the line whose arrival stops it parsing and reports that one instead. A start prints the same line, so `foxxycode -t` and `foxxycode serve` send you to the same place.
 
 What an editor leaves in the file is not part of the configuration. A file written on Windows ends its lines with a carriage return and a line feed and may carry a byte order mark in front of the first one; both are dropped on the way in, so the `# yaml-language-server:` header behind a mark is still found and a finding still names the line the editor shows, and a save puts the file's own line endings back. A file saved as UTF-16 - Notepad's "Unicode", and what a `>` redirect writes in Windows PowerShell 5.1 - is decoded on the way in too; the check names it in a warning, because a save from the settings screen writes the file back as UTF-8.
+
+A config written for [coddy-agent](https://github.com/coddy-project/coddy-agent), or copied from its documentation, reads as well. Upstream spells every on/off switch `enable` (`httpserver.enable`, `memory.enable`, `gateways.telegram.enable`, `compaction.enable`, ...), where FoxxyCode spells it `enabled`. The loader takes `enable` as `enabled` in every section that has that switch, so such a file keeps its switches instead of silently falling back to the defaults, and `config_get` answers for the `enabled` path. The check names each one in a warning, because the schema and editors know only `enabled`; when a section sets both, `enabled` wins and the `enable` line has no effect. Loading never rewrites the file: the next write - a save from the settings screen, a `config_commit`, `foxxycode serve set-password` - renders the key as `enabled`, with the comment that stood above it. A key called `enable` that is not a switch, such as a swarm label, keeps its name.
 
 ## Dry run: probing what the file points at
 
@@ -561,7 +563,7 @@ FOXXYCODE_HTTP_USER=pasha                      # web UI sign-in account...
 FOXXYCODE_HTTP_PASSWORD=correct-horse-battery-staple   # ...enables the form on its own
 ```
 
-`FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` are the one pair that is not referenced from `config.yaml` at all: the password is hashed as the server starts, the file never sees either value, and a save from the settings screen cannot write them into it. They win over an account in the file, and `httpserver.login.enable: false` switches the form off with them still set.
+`FOXXYCODE_HTTP_USER` and `FOXXYCODE_HTTP_PASSWORD` are the one pair that is not referenced from `config.yaml` at all: the password is hashed as the server starts, the file never sees either value, and a save from the settings screen cannot write them into it. They win over an account in the file, and `httpserver.login.enabled: false` switches the form off with them still set.
 
 Then in `config.yaml` reference them as usual:
 

@@ -8,7 +8,9 @@ Feature: Checking config.yaml before anything starts
   nothing and touches nothing: the backup recovery a normal load performs never runs.
   A problem is placed where it is - the parser blames the line its enclosing block began
   on, which on a commented file is a blank line far above - and a file an editor on Windows
-  wrote reads exactly like one written anywhere else.
+  wrote reads exactly like one written anywhere else. A config written for coddy, which
+  spells every switch `enable` where FoxxyCode spells it `enabled`, is read the same way the
+  loader reads it: the switch counts, and the report only warns about the spelling.
 
   Scenario: a valid config passes and nothing is started or created
     Given a config.yaml with one provider and one model
@@ -31,6 +33,13 @@ Feature: Checking config.yaml before anything starts
     Then the command fails
     And the report points at line 3 of the config file
     And the report names the unknown key "enbaled" and suggests "enabled"
+
+  Scenario: a config written for coddy passes, with a warning about its enable key
+    Given a config.yaml written for coddy whose httpserver section says "enable: false" on line 3
+    When I run foxxycode serve with --test-config
+    Then the command succeeds
+    And the report says the config is valid
+    And the report warns at line 3 that "enable" is read as "enabled"
 
   Scenario: a value outside the allowed set comes with the values that are allowed
     Given a config.yaml whose logger.level is "verbose"

@@ -67,6 +67,8 @@ The active YAML file covers these areas (full field tables: https://github.com/h
 - `gateways` - messenger bots such as Telegram (tag `gateway`);
 - `browser` - interactive browser tools (tag `browser`): `enabled`, `headless`, `executable_path`, `timeout_seconds`, and `screenshots` - set `screenshots: false` to drive the browser text-only, which suits a model without vision and drops the base64 image from every request.
 
+Switches are spelled `enabled`. A config carried over from coddy-agent may spell them `enable`: FoxxyCode reads that key as `enabled`, so address it as `<section>.enabled` in `config_get` and `config_set`, and the commit writes it back under that name - do not stage a separate `enable` path (it is not in the schema).
+
 Fields behind a build tag are parsed and ignored by binaries built without it; process-level listener changes (HTTP port, gateway tokens) may still need the relevant command restarted. The hot reload is guaranteed for the current session's agent configuration, skills, rules, built-in tools, and configured MCP clients.
 
 Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (republished to `docs/` by `make site-schema`) and https://github.com/hijera/foxxy-agent/blob/main/docs/reference/config.md (see the workflow rules).

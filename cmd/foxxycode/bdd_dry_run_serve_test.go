@@ -3,7 +3,7 @@
 package main
 
 // The serve half of the dry-run spec needs the HTTP surface compiled in:
-// without it `foxxycode serve` refuses httpserver.enable before any address is
+// without it `foxxycode serve` refuses httpserver.enabled before any address is
 // tried, which is itself a dry-run finding but not the one these scenarios
 // are about.
 

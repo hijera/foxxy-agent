@@ -233,6 +233,10 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 		})
 	}
 
+	// coddy's `enable` is read as `enabled` (enable_alias.go); the stages below
+	// see the document the loader decodes.
+	findings = append(findings, enableAliasFindings(normalizeEnableAliases(body))...)
+
 	schemaFindings, err := validateAgainstSchema(body)
 	if err != nil {
 		return append(findings, Finding{Severity: SeverityError, Message: err.Error()})
@@ -250,7 +254,7 @@ func checkConfigBytes(data []byte, paths Paths) []Finding {
 	// path). Decoding errors repeat what the schema already said, so they are
 	// only reported when the schema had nothing to say.
 	var cfg Config
-	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
+	if err := doc.Decode(&cfg); err != nil {
 		if schemaErrors == 0 {
 			findings = append(findings, syntaxFindings(err, expanded)...)
 		}
@@ -728,6 +732,7 @@ func NewLocator(data []byte) *Locator {
 	if body == nil || body.Kind != yaml.MappingNode {
 		return &Locator{}
 	}
+	normalizeEnableAliases(body)
 	return &Locator{body: body}
 }
 
