@@ -60,6 +60,7 @@ import {
 } from "../shellBreakpoint";
 import { hostResolvesFileDrops, isEditorEmbed } from "../embedShell";
 import { contextUsagePercent } from "./contextUsage";
+import { reasoningLevelLabel } from "./reasoningLevelLabel";
 import {
   filterLlmModels,
   groupLlmModelsByVendor,
@@ -1748,7 +1749,7 @@ export function Composer(props: {
   const showReasoning = reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
   const reasoningVal = (props.llmReasoning || "").trim();
   const reasoningLabel = reasoningVal
-    ? reasoningVal.slice(0, 1).toUpperCase() + reasoningVal.slice(1)
+    ? reasoningLevelLabel(reasoningVal)
     : t("composer.reasoning");
 
   function displayMode(id: string): string {
@@ -2670,7 +2671,7 @@ export function Composer(props: {
                           closeMenu();
                         }}
                       >
-                        {lv.slice(0, 1).toUpperCase() + lv.slice(1)}
+                        {reasoningLevelLabel(lv)}
                       </button>
                     ))
                   : null}
