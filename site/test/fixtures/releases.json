@@ -1,0 +1,254 @@
+[
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode-desktop_0.2.93_windows_amd64.zip",
+        "name": "foxxycode-desktop_0.2.93_windows_amd64.zip",
+        "size": 15318977
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode-intellij-0.2.93.zip",
+        "name": "foxxycode-intellij-0.2.93.zip",
+        "size": 69789255
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode-vscode-0.2.93.vsix",
+        "name": "foxxycode-vscode-0.2.93.vsix",
+        "size": 70881100
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode.rb",
+        "name": "foxxycode.rb",
+        "size": 887
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_darwin_amd64.tar.gz",
+        "name": "foxxycode_0.2.93_darwin_amd64.tar.gz",
+        "size": 15037155
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_darwin_arm64.tar.gz",
+        "name": "foxxycode_0.2.93_darwin_arm64.tar.gz",
+        "size": 14241325
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_linux_amd64.deb",
+        "name": "foxxycode_0.2.93_linux_amd64.deb",
+        "size": 15016644
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_linux_amd64.rpm",
+        "name": "foxxycode_0.2.93_linux_amd64.rpm",
+        "size": 15587247
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_linux_amd64.tar.gz",
+        "name": "foxxycode_0.2.93_linux_amd64.tar.gz",
+        "size": 14749818
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_linux_arm64.deb",
+        "name": "foxxycode_0.2.93_linux_arm64.deb",
+        "size": 13957476
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_linux_arm64.rpm",
+        "name": "foxxycode_0.2.93_linux_arm64.rpm",
+        "size": 14427642
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_linux_arm64.tar.gz",
+        "name": "foxxycode_0.2.93_linux_arm64.tar.gz",
+        "size": 13615506
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/foxxycode_0.2.93_windows_amd64.zip",
+        "name": "foxxycode_0.2.93_windows_amd64.zip",
+        "size": 15139412
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/SHA256SUMS",
+        "name": "SHA256SUMS",
+        "size": 1016
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.93/updatePlugins.xml",
+        "name": "updatePlugins.xml",
+        "size": 445
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/hijera/foxxy-agent/releases/tag/0.2.93",
+    "prerelease": false,
+    "published_at": "2026-09-15T08:46:59Z",
+    "tag_name": "0.2.93"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode-desktop_0.2.92_windows_amd64.zip",
+        "name": "foxxycode-desktop_0.2.92_windows_amd64.zip",
+        "size": 15317681
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode-intellij-0.2.92.zip",
+        "name": "foxxycode-intellij-0.2.92.zip",
+        "size": 69776055
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode-vscode-0.2.92.vsix",
+        "name": "foxxycode-vscode-0.2.92.vsix",
+        "size": 70856028
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode.rb",
+        "name": "foxxycode.rb",
+        "size": 887
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_darwin_amd64.tar.gz",
+        "name": "foxxycode_0.2.92_darwin_amd64.tar.gz",
+        "size": 15040404
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_darwin_arm64.tar.gz",
+        "name": "foxxycode_0.2.92_darwin_arm64.tar.gz",
+        "size": 14234682
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_linux_amd64.deb",
+        "name": "foxxycode_0.2.92_linux_amd64.deb",
+        "size": 15008620
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_linux_amd64.rpm",
+        "name": "foxxycode_0.2.92_linux_amd64.rpm",
+        "size": 15574238
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_linux_amd64.tar.gz",
+        "name": "foxxycode_0.2.92_linux_amd64.tar.gz",
+        "size": 14746118
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_linux_arm64.deb",
+        "name": "foxxycode_0.2.92_linux_arm64.deb",
+        "size": 13951904
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_linux_arm64.rpm",
+        "name": "foxxycode_0.2.92_linux_arm64.rpm",
+        "size": 14436286
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_linux_arm64.tar.gz",
+        "name": "foxxycode_0.2.92_linux_arm64.tar.gz",
+        "size": 13611036
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/foxxycode_0.2.92_windows_amd64.zip",
+        "name": "foxxycode_0.2.92_windows_amd64.zip",
+        "size": 15134203
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/SHA256SUMS",
+        "name": "SHA256SUMS",
+        "size": 1016
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.92/updatePlugins.xml",
+        "name": "updatePlugins.xml",
+        "size": 445
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/hijera/foxxy-agent/releases/tag/0.2.92",
+    "prerelease": false,
+    "published_at": "2026-09-15T08:32:33Z",
+    "tag_name": "0.2.92"
+  },
+  {
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode-desktop_0.2.91_windows_amd64.zip",
+        "name": "foxxycode-desktop_0.2.91_windows_amd64.zip",
+        "size": 15317719
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode-intellij-0.2.91.zip",
+        "name": "foxxycode-intellij-0.2.91.zip",
+        "size": 69775990
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode-vscode-0.2.91.vsix",
+        "name": "foxxycode-vscode-0.2.91.vsix",
+        "size": 70855943
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode.rb",
+        "name": "foxxycode.rb",
+        "size": 887
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_darwin_amd64.tar.gz",
+        "name": "foxxycode_0.2.91_darwin_amd64.tar.gz",
+        "size": 15040497
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_darwin_arm64.tar.gz",
+        "name": "foxxycode_0.2.91_darwin_arm64.tar.gz",
+        "size": 14234673
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_linux_amd64.deb",
+        "name": "foxxycode_0.2.91_linux_amd64.deb",
+        "size": 15008634
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_linux_amd64.rpm",
+        "name": "foxxycode_0.2.91_linux_amd64.rpm",
+        "size": 15574237
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_linux_amd64.tar.gz",
+        "name": "foxxycode_0.2.91_linux_amd64.tar.gz",
+        "size": 14746120
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_linux_arm64.deb",
+        "name": "foxxycode_0.2.91_linux_arm64.deb",
+        "size": 13951932
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_linux_arm64.rpm",
+        "name": "foxxycode_0.2.91_linux_arm64.rpm",
+        "size": 14436280
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_linux_arm64.tar.gz",
+        "name": "foxxycode_0.2.91_linux_arm64.tar.gz",
+        "size": 13611126
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/foxxycode_0.2.91_windows_amd64.zip",
+        "name": "foxxycode_0.2.91_windows_amd64.zip",
+        "size": 15134259
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/SHA256SUMS",
+        "name": "SHA256SUMS",
+        "size": 1016
+      },
+      {
+        "browser_download_url": "https://github.com/hijera/foxxy-agent/releases/download/0.2.91/updatePlugins.xml",
+        "name": "updatePlugins.xml",
+        "size": 445
+      }
+    ],
+    "draft": false,
+    "html_url": "https://github.com/hijera/foxxy-agent/releases/tag/0.2.91",
+    "prerelease": false,
+    "published_at": "2026-09-14T14:08:55Z",
+    "tag_name": "0.2.91"
+  }
+]

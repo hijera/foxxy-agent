@@ -58,6 +58,27 @@ jobs:
       - name: Run the SPA tests and type-check
         run: make ui-test
 
+  # The website under site/: type-check, tests (the plugin changelogs and their English twins
+  # included), a production build and the Pages artifact with docs/ laid under it. The release
+  # data comes from a fixture, so the job needs no network or token.
+  site:
+    name: Website
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build and test the website
+        run: make site-check
+
   # One job per combination, none cancelled by another's failure, so a broken
   # stub behind one tag is reported by name instead of hiding the combinations
   # a sequential run never reached. Locally `make test` is the express run over
